@@ -17,6 +17,14 @@
 
 import { HUB_DIRECTIONAL } from "../forceTuning";
 
+/** widened version of HUB_DIRECTIONAL so callers can pass
+ *  objects with plain `number` fields (not the literal-type const). */
+export interface HubDirectionalConfig {
+  remote: { radiusFactor: number; strength: number };
+  relation: { radiusFactor: number; strength: number };
+  relationValue: { radiusFactor: number; strength: number };
+}
+
 /** stable fnv-1a hash → unsigned 32-bit int. determinism across
  *  platforms is the only contract; collision rate is fine because
  *  we immediately quantize to 360 buckets. */
@@ -57,13 +65,14 @@ export function hashAngleRad(s: string): number {
  *  not the worker's internal representation. */
 export function hubDirectional(
   id: string,
+  cfg: HubDirectionalConfig = HUB_DIRECTIONAL,
 ): { angle: number; radiusFactor: number; strength: number } | null {
   if (id.startsWith("hub_remote::")) {
     const remoteId = id.slice("hub_remote::".length);
     return {
       angle: hashAngleRad("remote::" + remoteId),
-      radiusFactor: HUB_DIRECTIONAL.remote.radiusFactor,
-      strength: HUB_DIRECTIONAL.remote.strength,
+      radiusFactor: cfg.remote.radiusFactor,
+      strength: cfg.remote.strength,
     };
   }
   if (id.startsWith("hub_relation::")) {
@@ -72,15 +81,15 @@ export function hubDirectional(
     const remoteId = sep >= 0 ? rest.slice(0, sep) : rest;
     return {
       angle: hashAngleRad("remote::" + remoteId),
-      radiusFactor: HUB_DIRECTIONAL.relation.radiusFactor,
-      strength: HUB_DIRECTIONAL.relation.strength,
+      radiusFactor: cfg.relation.radiusFactor,
+      strength: cfg.relation.strength,
     };
   }
   if (id.startsWith("hub_relation_value::")) {
     return {
       angle: hashAngleRad("value::" + id),
-      radiusFactor: HUB_DIRECTIONAL.relationValue.radiusFactor,
-      strength: HUB_DIRECTIONAL.relationValue.strength,
+      radiusFactor: cfg.relationValue.radiusFactor,
+      strength: cfg.relationValue.strength,
     };
   }
   return null;

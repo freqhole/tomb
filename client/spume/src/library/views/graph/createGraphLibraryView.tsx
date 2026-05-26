@@ -24,6 +24,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import type { JSX } from "solid-js";
 import { GraphCanvas, type GraphActions } from "../../../components/graph/GraphCanvas";
+import { GraphForceTuningPanel } from "../../../components/graph/GraphForceTuningPanel";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import { useDetailPanelHide } from "../../../components/graph/useDetailPanelHide";
@@ -142,6 +143,9 @@ export interface GraphLibraryView {
    *  available after the canvas mounts. */
   fit: () => void;
   reset: () => void;
+  /** full viz reset: clears all node positions and restarts the sim from
+   *  scratch without refetching data. same as initial load. */
+  fullReset: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
   /** auto-fit variant for callers that want to refit after streaming
@@ -886,26 +890,14 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         </button>
       </Show>
 
-      {/* bottom-right status chip — shows graph size + current selection.
-          counts total nodes + edges so the user can get a feel for
-          where the layout starts to get heavy (groundwork for the
-          soft-cap GC work later). */}
-      <div class="absolute bottom-3 right-3 z-10 pointer-events-none">
-        <div class="px-2 py-1 rounded bg-[var(--color-bg-elevated)]/85 backdrop-blur-sm border border-white/10 text-[11px] text-white/70 leading-tight whitespace-nowrap">
-          <span class="text-white/90 font-medium">{nodes().length}</span>
-          <span class="text-white/50"> nodes</span>
-          <span class="text-white/30 mx-1.5">·</span>
-          <span class="text-white/90 font-medium">{edges().length}</span>
-          <span class="text-white/50"> edges</span>
-          <Show when={popInfo().list.length > 0}>
-            <span class="text-white/30 mx-1.5">·</span>
-            <span class="text-[var(--color-accent-500,#ff1a9e)] font-medium">
-              {popInfo().list.length}
-            </span>
-            <span class="text-white/50"> selected</span>
-          </Show>
-        </div>
-      </div>
+      {/* bottom-right status chip + debug tuning panel */}
+      <GraphForceTuningPanel
+        nodeCount={() => nodes().length}
+        edgeCount={() => edges().length}
+        selectionCount={() => popInfo().list.length}
+        sendTuning={() => api()?.sendTuning}
+        onFullReset={() => api()?.fullReset()}
+      />
     </div>
   );
 
@@ -922,6 +914,10 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
     reset: () => {
       setUserInteracted(true);
       api()?.reset();
+    },
+    fullReset: () => {
+      setUserInteracted(true);
+      api()?.fullReset();
     },
     zoomIn: () => {
       setUserInteracted(true);

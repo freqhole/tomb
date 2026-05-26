@@ -27,9 +27,11 @@ import type {
   SimConfig,
   SimLinkInit,
   SimNodeInit,
+  TuningOverrides,
   UpdateMode,
   WorkerToMain,
 } from "./messages";
+export type { TuningOverrides };
 import type { RelationKind } from "../types";
 import { timing } from "../perfLog";
 
@@ -74,6 +76,14 @@ export interface GraphWorkerClient {
    *  resending nodes. worker re-filters its cached derived edges
    *  and reheats with `mode` (default "nudge"). */
   setEnabledKinds(kinds: RelationKind[] | undefined, mode?: UpdateMode): void;
+  /** debug: push live force-tuning overrides; worker rebuilds sim
+   *  immediately. send `{}` to reset all overrides to compiled-in
+   *  defaults. */
+  sendTuning(overrides: TuningOverrides): void;
+  /** debug: push live force-tuning overrides; worker rebuilds sim
+   *  immediately. send `{}` to reset all overrides to compiled-in
+   *  defaults. */
+  sendTuning(overrides: TuningOverrides): void;
   hitTest(x: number, y: number, radius: number, signal?: AbortSignal): Promise<string | null>;
   hitRect(x0: number, y0: number, x1: number, y1: number, signal?: AbortSignal): Promise<string[]>;
   /** subscribe to position ticks. listener owns `buf` and MUST call
@@ -214,6 +224,9 @@ export function createGraphWorkerClient(): GraphWorkerClient {
     },
     setEnabledKinds(kinds, mode) {
       post({ type: "setEnabledKinds", kinds, mode });
+    },
+    sendTuning(overrides) {
+      post({ type: "tuning", overrides });
     },
     hitTest(x, y, radius, signal) {
       if (signal?.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));

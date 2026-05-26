@@ -22,6 +22,7 @@ import {
   CHARGE_PER_NODE_SIZE,
   ENTITY_OUTWARD,
   HUB_COLLIDE_PADDING_MUL,
+  HUB_DIRECTIONAL,
   HUB_LINK_DISTANCE_MUL,
   HUB_RING_RADIUS,
   LINK_DISTANCE_NODE_SIZE_MUL,
@@ -31,7 +32,7 @@ import {
   SIM_COOLDOWN,
   VALUE_HUB_CHARGE_MUL,
 } from "../forceTuning";
-import { hubDirectional, outwardAngleFor } from "./hubDirectional";
+import { hubDirectional, outwardAngleFor, type HubDirectionalConfig } from "./hubDirectional";
 import * as relCurves from "./relationCurves";
 import {
   endpointCountDistanceShrink,
@@ -41,7 +42,7 @@ import {
   collideRadiiForCount,
   densityMultiplierForCount,
 } from "./collideRadii";
-import type { SimConfig } from "../messages";
+import type { SimConfig, TuningOverrides } from "../messages";
 import type { SimLink, SimNode } from "./types";
 
 export interface BuildSimDeps {
@@ -53,12 +54,60 @@ export interface BuildSimDeps {
   config: SimConfig;
   /** per-relation strength override map (kind → multiplier). */
   relationStrengths: Record<string, number> | undefined;
+  /** debug: live tuning overrides from the main thread. fields present
+   *  here shadow the corresponding compiled-in defaults in forceTuning.ts. */
+  tuningOverrides?: TuningOverrides;
   /** invoked on every d3-force tick. */
   onTick: () => void;
 }
 
 export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink> {
-  const { nodes, links, config, relationStrengths, onTick } = deps;
+  const { nodes, links, config, relationStrengths, tuningOverrides: ov = {}, onTick } = deps;
+
+  // resolve effective constants — tuningOverrides fields shadow the
+  // compiled-in defaults from forceTuning.ts so the debug panel can
+  // hot-reload the sim without a code change.
+  const eff = {
+    linkDistanceMul: ov.linkDistanceMul ?? LINK_DISTANCE_NODE_SIZE_MUL,
+    chargePerNodeSize: ov.chargePerNodeSize ?? CHARGE_PER_NODE_SIZE,
+    relationHubChargeMul: ov.relationHubChargeMul ?? RELATION_HUB_CHARGE_MUL,
+    valueHubChargeMul: ov.valueHubChargeMul ?? VALUE_HUB_CHARGE_MUL,
+    hubLinkDistRemoteToRelation: ov.hubLinkDistRemoteToRelation ?? HUB_LINK_DISTANCE_MUL.remoteToRelation,
+    hubLinkDistKindToKind: ov.hubLinkDistKindToKind ?? HUB_LINK_DISTANCE_MUL.kindToKind,
+    remoteHubLinkStrengthBump: ov.remoteHubLinkStrengthBump ?? REMOTE_HUB_LINK_STRENGTH_BUMP,
+    hubCollide: HUB_COLLIDE_PADDING_MUL,
+    hubRingRadiusSqrtFactor: ov.hubRingRadiusSqrtFactor ?? HUB_RING_RADIUS.sqrtFactor,
+    hubRingRadiusBaseMin: HUB_RING_RADIUS.baseMin,
+    linkStrengthBase: ov.linkStrengthBase ?? LINK_STRENGTH_CURVE.base,
+    linkStrengthSlope: ov.linkStrengthSlope ?? LINK_STRENGTH_CURVE.slope,
+    velocityDecay: ov.velocityDecay ?? SIM_COOLDOWN.velocityDecay,
+    alphaMin: SIM_COOLDOWN.alphaMin,
+    centerGravityStrength: ov.centerGravityStrength ?? 0,
+    // 0 = use the density-based piecewise below; any positive value overrides.
+    alphaDecay: ov.alphaDecay != null && ov.alphaDecay > 0 ? ov.alphaDecay : null,
+    entityOutwardWedgeHalfRad:
+      ov.entityOutwardWedgeHalfDeg != null
+        ? (ov.entityOutwardWedgeHalfDeg * Math.PI) / 180
+        : ENTITY_OUTWARD.wedgeHalfAngleRad,
+    entityOutwardRadiusFactor: ov.entityOutwardRadiusFactor ?? ENTITY_OUTWARD.radiusFactor,
+    entityOutwardStrength: ov.entityOutwardStrength ?? ENTITY_OUTWARD.strength,
+  };
+  // effective HUB_DIRECTIONAL config (passed to hubDirectional() so
+  // debug-panel overrides flow through to the ring layout).
+  const effHubDir: HubDirectionalConfig = {
+    remote: {
+      radiusFactor: ov.remoteRadiusFactor ?? HUB_DIRECTIONAL.remote.radiusFactor,
+      strength: ov.remoteStrength ?? HUB_DIRECTIONAL.remote.strength,
+    },
+    relation: {
+      radiusFactor: ov.relationRadiusFactor ?? HUB_DIRECTIONAL.relation.radiusFactor,
+      strength: ov.relationStrength ?? HUB_DIRECTIONAL.relation.strength,
+    },
+    relationValue: {
+      radiusFactor: ov.valueRadiusFactor ?? HUB_DIRECTIONAL.relationValue.radiusFactor,
+      strength: ov.valueStrength ?? HUB_DIRECTIONAL.relationValue.strength,
+    },
+  } as const;
 
   const sz = config.nodeSize;
   // dense libraries pile nodes on top of each other even with collide
@@ -69,17 +118,17 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
   const densityMul = densityMultiplierForCount(nCount);
   // link distance: target spacing between connected nodes. raise this
   // as datasets grow so local clusters do not collapse into one blob.
-  const linkDist = sz * LINK_DISTANCE_NODE_SIZE_MUL * densityMul;
+  const linkDist = sz * eff.linkDistanceMul * densityMul;
   // link strength: on huge graphs, reduce spring pull so links do not
   // overpower collide/charge and crush spacing back down.
   const linkStrengthMul =
     nCount >= 3500 ? 0.55 : nCount >= 2500 ? 0.62 : nCount >= 1500 ? 0.72 : nCount >= 700 ? 0.84 : 1;
   // charge: long-range mutual repulsion. stronger at higher density so
   // disconnected regions still push apart instead of stacking.
-  const chargeStr = sz * CHARGE_PER_NODE_SIZE * densityMul;
+  const chargeStr = sz * eff.chargePerNodeSize * densityMul;
   // hub charges (see graphWorker history for derivation).
-  const relationHubChargeStr = chargeStr * RELATION_HUB_CHARGE_MUL;
-  const valueHubChargeStr = chargeStr * VALUE_HUB_CHARGE_MUL;
+  const relationHubChargeStr = chargeStr * eff.relationHubChargeMul;
+  const valueHubChargeStr = chargeStr * eff.valueHubChargeMul;
   const collide = collideRadiiForCount(nCount, sz);
 
   let maxHubCount = 0;
@@ -91,7 +140,7 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
   function hubCollideRadius(n: SimNode): number {
     const c = (n.albumCount ?? 0) as number;
     const mul = hubSizeMul(c, maxHubCount);
-    return (sz * mul) / 2 + sz * HUB_COLLIDE_PADDING_MUL;
+    return (sz * mul) / 2 + sz * eff.hubCollide;
   }
 
   function relationDistanceMultiplier(kind: string | undefined): number {
@@ -144,13 +193,13 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
       if (!cur || weight > cur.weight) bestHubLink.set(leafId, { hubId, weight });
     }
     for (const [leafId, { hubId }] of bestHubLink) {
-      const hubDir = hubDirectional(hubId);
+      const hubDir = hubDirectional(hubId, effHubDir);
       if (!hubDir) continue;
-      const angle = outwardAngleFor(leafId, hubDir.angle, ENTITY_OUTWARD.wedgeHalfAngleRad);
+      const angle = outwardAngleFor(leafId, hubDir.angle, eff.entityOutwardWedgeHalfRad);
       leafOutward.set(leafId, {
         angle,
-        radiusFactor: ENTITY_OUTWARD.radiusFactor,
-        strength: ENTITY_OUTWARD.strength,
+        radiusFactor: eff.entityOutwardRadiusFactor,
+        strength: eff.entityOutwardStrength,
       });
     }
   }
@@ -176,8 +225,8 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
           const hubMul =
             srcHub && tgtHub
               ? srcRemote || tgtRemote
-                ? HUB_LINK_DISTANCE_MUL.remoteToRelation
-                : HUB_LINK_DISTANCE_MUL.kindToKind
+                ? eff.hubLinkDistRemoteToRelation
+                : eff.hubLinkDistKindToKind
               : 1;
           return linkDist * relationDistanceMultiplier(l.kind) * hubMul * endpointCountDistanceShrink(l);
         })
@@ -197,10 +246,10 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
           // their wonky triangle instead of drifting toward the
           // shared value-hub cluster.
           const hubStrengthBump =
-            srcRemote || tgtRemote ? REMOTE_HUB_LINK_STRENGTH_BUMP : 1;
+            srcRemote || tgtRemote ? eff.remoteHubLinkStrengthBump : 1;
           return (
-            (LINK_STRENGTH_CURVE.base +
-              LINK_STRENGTH_CURVE.slope * ((l.weight ?? 0.5) as number)) *
+            (eff.linkStrengthBase +
+              eff.linkStrengthSlope * ((l.weight ?? 0.5) as number)) *
             linkStrengthMul *
             relationStrengthMultiplier(l.kind) *
             hubStrengthBump *
@@ -220,23 +269,31 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
     )
     .force("center", forceCenter(config.width / 2, config.height / 2))
     .force(
+      "gravityX",
+      forceX<SimNode>(config.width / 2).strength(eff.centerGravityStrength),
+    )
+    .force(
+      "gravityY",
+      forceY<SimNode>(config.height / 2).strength(eff.centerGravityStrength),
+    )
+    .force(
       "hubDirX",
       forceX<SimNode>()
         .x((n) => {
           if (typeof n.id !== "string") return config.width / 2;
-          const d = hubDirectional(n.id);
+          const d = hubDirectional(n.id, effHubDir);
           if (!d) return config.width / 2;
           const baseR =
             sz *
             Math.max(
-              HUB_RING_RADIUS.baseMin,
-              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+              eff.hubRingRadiusBaseMin,
+              Math.sqrt(nCount) * eff.hubRingRadiusSqrtFactor,
             );
           return config.width / 2 + baseR * d.radiusFactor * Math.cos(d.angle);
         })
         .strength((n) => {
           if (typeof n.id !== "string") return 0;
-          return hubDirectional(n.id)?.strength ?? 0;
+          return hubDirectional(n.id, effHubDir)?.strength ?? 0;
         }),
     )
     .force(
@@ -244,19 +301,19 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
       forceY<SimNode>()
         .y((n) => {
           if (typeof n.id !== "string") return config.height / 2;
-          const d = hubDirectional(n.id);
+          const d = hubDirectional(n.id, effHubDir);
           if (!d) return config.height / 2;
           const baseR =
             sz *
             Math.max(
-              HUB_RING_RADIUS.baseMin,
-              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+              eff.hubRingRadiusBaseMin,
+              Math.sqrt(nCount) * eff.hubRingRadiusSqrtFactor,
             );
           return config.height / 2 + baseR * d.radiusFactor * Math.sin(d.angle);
         })
         .strength((n) => {
           if (typeof n.id !== "string") return 0;
-          return hubDirectional(n.id)?.strength ?? 0;
+          return hubDirectional(n.id, effHubDir)?.strength ?? 0;
         }),
     )
     // phase 20 — per-leaf outward bias toward the parent hub's
@@ -273,8 +330,8 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
           const baseR =
             sz *
             Math.max(
-              HUB_RING_RADIUS.baseMin,
-              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+              eff.hubRingRadiusBaseMin,
+              Math.sqrt(nCount) * eff.hubRingRadiusSqrtFactor,
             );
           return config.width / 2 + baseR * o.radiusFactor * Math.cos(o.angle);
         })
@@ -293,8 +350,8 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
           const baseR =
             sz *
             Math.max(
-              HUB_RING_RADIUS.baseMin,
-              Math.sqrt(nCount) * HUB_RING_RADIUS.sqrtFactor,
+              eff.hubRingRadiusBaseMin,
+              Math.sqrt(nCount) * eff.hubRingRadiusSqrtFactor,
             );
           return config.height / 2 + baseR * o.radiusFactor * Math.sin(o.angle);
         })
@@ -307,7 +364,14 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
       "collide",
       forceCollide<SimNode>()
         .radius((n) => {
-          if (n.kind === "album") return collide.album;
+          if (n.kind === "album") {
+            // contextual drill-halo albums (matchedByDrill === false) render at
+            // 0.7× visual size. give them a proportionally smaller collide radius
+            // so their physical personal space matches what the user sees — full
+            // album radius would create half-node-sized empty gaps around them.
+            if (n.matchedByDrill === false) return collide.album * 0.7;
+            return collide.album;
+          }
           if (typeof n.id === "string" && n.id.startsWith("hub_"))
             return hubCollideRadius(n);
           return collide.artist;
@@ -315,9 +379,12 @@ export function buildSimulation(deps: BuildSimDeps): Simulation<SimNode, SimLink
         .strength(1)
         .iterations(nCount >= 4000 ? 28 : nCount >= 3000 ? 24 : nCount >= 2000 ? 20 : nCount >= 1200 ? 16 : nCount >= 700 ? 12 : 8),
     )
-    .alphaDecay(nCount >= 3500 ? 0.021 : nCount >= 2500 ? 0.023 : nCount >= 1500 ? 0.028 : nCount >= 700 ? 0.037 : 0.05)
-    .alphaMin(SIM_COOLDOWN.alphaMin)
-    .velocityDecay(SIM_COOLDOWN.velocityDecay);
+    .alphaDecay(
+      eff.alphaDecay ??
+        (nCount >= 3500 ? 0.021 : nCount >= 2500 ? 0.023 : nCount >= 1500 ? 0.028 : nCount >= 700 ? 0.037 : 0.05),
+    )
+    .alphaMin(eff.alphaMin)
+    .velocityDecay(eff.velocityDecay);
 
   sim.on("tick", onTick);
 

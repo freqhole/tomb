@@ -56,6 +56,12 @@ export interface SimNodeInit {
    *  link distance for high-count endpoints so popular artists /
    *  heavy hubs render as tight visual clusters. */
   albumCount?: number;
+  /** contextual album halo (phase 19): false when this album is an
+   *  ambient-catalog node shown alongside a drill match but NOT itself
+   *  matching the active drill filter. the canvas renders these at 0.7×
+   *  visual size; the sim uses a proportionally smaller collide radius so
+   *  their physical personal space matches what the user sees. */
+  matchedByDrill?: boolean;
 }
 
 /** edge as carried over the wire. d3-force tolerates string source/target
@@ -219,6 +225,55 @@ export interface MsgQuit {
   type: "quit";
 }
 
+/** debug: live force-tuning overrides. every field is optional — omit
+ *  a field to keep the compiled-in default from `forceTuning.ts`.
+ *  send via `MsgTuning`; the worker rebuilds the sim on receipt. */
+export interface TuningOverrides {
+  // link + spring
+  linkDistanceMul?: number;
+  linkStrengthBase?: number;
+  linkStrengthSlope?: number;
+  // charge / repulsion
+  chargePerNodeSize?: number;
+  relationHubChargeMul?: number;
+  valueHubChargeMul?: number;
+  // hub scaffold spacing
+  hubLinkDistRemoteToRelation?: number;
+  hubLinkDistKindToKind?: number;
+  remoteHubLinkStrengthBump?: number;
+  hubRingRadiusSqrtFactor?: number;
+  // hub directional pull (ring layout)
+  remoteRadiusFactor?: number;
+  remoteStrength?: number;
+  relationRadiusFactor?: number;
+  relationStrength?: number;
+  valueRadiusFactor?: number;
+  valueStrength?: number;
+  // entity fan-out (phase 20)
+  entityOutwardWedgeHalfDeg?: number;
+  entityOutwardRadiusFactor?: number;
+  entityOutwardStrength?: number;
+  // sim dynamics
+  velocityDecay?: number;
+  /** weak per-node forceX/Y toward the canvas centre. counteracts drift
+   *  for lightly-linked nodes (e.g. remote hub nodes when directional
+   *  forces are off). 0 = off; 0.02-0.05 is a noticeable effect. */
+  centerGravityStrength?: number;
+  /** alpha-decay rate per tick (0 = use density-based auto). lower values
+   *  mean the sim runs longer before cooling — useful when nodes need time
+   *  to regroup after a large topology change. d3 default ≈ 0.023. */
+  alphaDecay?: number;
+}
+
+/** debug: push live force-tuning overrides to the worker. the worker
+ *  stores the overrides and calls `buildSim("fresh")` so the change
+ *  is immediately visible. send a blank object `{}` to reset to
+ *  compiled-in defaults. */
+export interface MsgTuning {
+  type: "tuning";
+  overrides: TuningOverrides;
+}
+
 export type MainToWorker =
   | MsgInit
   | MsgUpdate
@@ -233,6 +288,7 @@ export type MainToWorker =
   | MsgReheat
   | MsgSetEnabledKinds
   | MsgReturn
+  | MsgTuning
   | MsgQuit;
 
 // ----- worker → main ----------------------------------------------------

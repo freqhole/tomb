@@ -36,6 +36,7 @@ import type {
   SimConfig,
   SimLinkInit,
   SimNodeInit,
+  TuningOverrides,
   UpdateMode,
   WorkerToMain,
 } from "./messages";
@@ -55,6 +56,12 @@ let config: SimConfig = { nodeSize: 56, width: 800, height: 600 };
 let sim: Simulation<SimNode, SimLink> | null = null;
 let simNodes: SimNode[] = [];
 let simLinks: SimLink[] = [];
+/** debug: live-tuning overrides sent from the main thread. empty
+ *  object = use compiled-in defaults from forceTuning.ts. */
+let tuningOverrides: TuningOverrides = {};
+/** node count from the last buildSim call, used to detect significant
+ *  topology shrinkage so we can auto-reheat rather than nudge. */
+let prevSimNodeCount = 0;
 
 // phase 4: edge derivation state. when `edgeConfig` is provided on
 // init/update we keep the full derived edge list cached so a
@@ -231,11 +238,15 @@ function buildSim(mode: UpdateMode) {
   performance.mark("graph-build-start");
   if (sim) sim.stop();
 
+  const prevCount = prevSimNodeCount;
+  prevSimNodeCount = simNodes.length;
+
   sim = buildSimulation({
     nodes: simNodes,
     links: simLinks,
     config,
     relationStrengths,
+    tuningOverrides,
     onTick: emitPositions,
   });
 
@@ -246,7 +257,19 @@ function buildSim(mode: UpdateMode) {
     // still emit one frame so main can render any new nodes.
     emitPositions();
   } else {
-    sim.alpha(0.05).restart();
+    // nudge: 0.05 is normally fine for incremental updates. but when the
+    // topology changes significantly (many nodes added OR removed), the
+    // layout needs real energy:
+    //   - shrink: survivors still spread to old positions → need force
+    //     to pull them together.
+    //   - grow: new nodes land at phyllotaxis seeds (spread out) → need
+    //     force to pull them toward their connected hubs.
+    // either way, 0.5 gives enough ticks for the active tuning settings
+    // (incl. d3 preset with alphaDecay=0.023) to converge a clean layout.
+    const changed =
+      prevCount > 0 &&
+      (simNodes.length < prevCount * 0.7 || simNodes.length > prevCount * 1.3);
+    sim.alpha(changed ? 0.5 : 0.05).restart();
   }
 
   post({
@@ -269,6 +292,9 @@ function mergeNodes(incoming: SimNodeInit[]): SimNode[] {
     const p = prev.get(n.id);
     if (p) {
       p.kind = n.kind;
+      // matchedByDrill can flip between rebuilds (album becomes contextual or
+      // re-matches the active drill) — always sync it from the latest payload.
+      p.matchedByDrill = n.matchedByDrill;
       if (n.fx !== undefined) p.fx = n.fx;
       if (n.fy !== undefined) p.fy = n.fy;
       return p;
@@ -484,6 +510,11 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
       edgeConfig = { ...edgeConfig, enabledKinds: msg.kinds };
       rebuildSimLinksFromDerived();
       buildSim(msg.mode ?? "nudge");
+      break;
+    }
+    case "tuning": {
+      tuningOverrides = msg.overrides;
+      buildSim("fresh");
       break;
     }
     case "return": {

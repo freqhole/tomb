@@ -37,7 +37,13 @@ import type {
 } from "./types";
 import { nodeKind } from "./types";
 import { createGraphWorkerClient, type GraphWorkerClient } from "./worker/graphWorkerClient";
-import type { EdgeDeriveConfig, SimLinkInit, SimNodeInit, UpdateMode } from "./worker/messages";
+import type {
+  EdgeDeriveConfig,
+  SimLinkInit,
+  SimNodeInit,
+  TuningOverrides,
+  UpdateMode,
+} from "./worker/messages";
 import { bump, gauge, timing } from "./perfLog";
 
 export interface GraphCanvasProps {
@@ -159,6 +165,13 @@ export interface GraphActions {
   zoomOut: () => void;
   fit: () => void;
   reset: () => void;
+  /** full viz reset: clears all node positions + restarts the sim from
+   *  scratch (same as initial load). does NOT dispose the worker, so
+   *  any tuning overrides already sent are preserved. */
+  fullReset: () => void;
+  /** debug: push live force-tuning overrides to the sim worker.
+   *  the worker rebuilds immediately. send `{}` to reset to defaults. */
+  sendTuning: (overrides: TuningOverrides) => void;
 }
 
 function edgeKey(e: GraphEdge): string {
@@ -708,6 +721,9 @@ export function GraphCanvas(props: GraphCanvasProps) {
         const a = n as AlbumNodeData;
         base.artistId = a.artistId;
         base.artistName = a.artistName;
+        // carry matchedByDrill so the worker can size the collide radius
+        // to match the 0.7× visual footprint of contextual halo albums.
+        if (a.matchedByDrill === false) base.matchedByDrill = false;
       }
       return base;
     });
@@ -2984,6 +3000,28 @@ export function GraphCanvas(props: GraphCanvasProps) {
     requestDraw();
   }
 
+  /** full viz reset — clears all node positions so they are re-seeded
+   *  on the next rebuild, resets the camera, and runs the sim fresh.
+   *  does not dispose the worker so tuning overrides are preserved. */
+  function fullReset() {
+    // clearing x/y causes rebuild() to treat every node as "brand new"
+    // and run the phyllotaxis seeder on them.
+    for (const n of simNodes) {
+      (n as { x?: number }).x = undefined;
+      (n as { y?: number }).y = undefined;
+      (n as { vx?: number }).vx = undefined;
+      (n as { vy?: number }).vy = undefined;
+      n.fx = undefined;
+      n.fy = undefined;
+    }
+    firstBuild = true;
+    lastRelationStrengthSig = "";
+    setView({ tx: 0, ty: 0, k: 1 });
+    setSelectedEdgeKeys(new Set<string>());
+    props.onEdgeSelect?.(null);
+    rebuild();
+  }
+
   // ---- lifecycle --------------------------------------------------------
   onMount(() => {
     if (!canvasEl || !containerEl) return;
@@ -3030,6 +3068,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
       zoomOut: () => zoomBy(1 / 1.2),
       fit: () => fitToContent(),
       reset: () => reset(),
+      fullReset: () => fullReset(),
+      sendTuning: (overrides) => worker?.sendTuning(overrides),
     });
 
     onCleanup(() => {

@@ -1693,6 +1693,7 @@ function Inner(props: {
       aria-label="refresh graph data"
       onClick={() => {
         void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
+        graphRef()?.fullReset();
       }}
       class="inline-flex items-center justify-center w-7 h-7 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white hover:bg-white/10 cursor-pointer leading-none text-[14px]"
     >
