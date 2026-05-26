@@ -5,8 +5,8 @@
 //   Ambient    — pivot = ambient genre value, artists fan out with album chains
 
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import WalkCanvas from "../src/graph2/WalkCanvas";
-import { MOCK_GRAPH } from "../src/graph2/mockData";
+import WalkCanvas from "../src/components/graph2/WalkCanvas";
+import { MOCK_GRAPH } from "../src/components/graph2/mockData";
 
 const meta: Meta<typeof WalkCanvas> = {
   title: "Graph2/WalkCanvas",
