@@ -88,24 +88,16 @@ function nodeRadius(role: string, childCount: number): number {
 }
 
 // ---- bloom target positions ------------------------------------------------
-// wedge layout: pivot at center, children fan out to the right (angle=0).
-// ancestors go left. within each depth ring, nodes with more children sit
-// at the base radius (they'll grow a dense sub-tree there); nodes with fewer
-// children get pushed further out into open space.
+// wedge layout: pivot at center, children fan out forward into a CONE.
+// when a wedge has more siblings than fit on one arc (at MIN_ARC_SPACING),
+// we stack additional rows of arcs radially outward — so the wedge fills
+// in like a slice of a dartboard rather than ballooning into one huge ring.
+// ancestors go left.
 
-const RING_STEP = 120;        // base distance per depth level (multiplied by sqrt(depth))
-const SPREAD   = 70;          // extra radius added for childless/sparse nodes
-const FORWARD  = 0;           // wedge points right (→)
-const INIT_WEDGE = Math.PI * 1.1; // ~200° forward arc for first level
-const MAX_WEDGE  = Math.PI * 0.9; // sub-wedge cap per child
-
-/** radius for a node at `depth` with `childCount` children.
- *  uses sqrt(depth) so deeper rings grow gracefully instead of marching away.
- *  hubs with many children stay close; leaves drift further out. */
-function ringRadius(depth: number, childCount: number): number {
-  const spread = SPREAD * (1 / (childCount + 1));
-  return RING_STEP * Math.sqrt(depth) + spread;
-}
+const RING_STEP        = 170;             // legacy: still used for ancestor placement
+const FORWARD          = 0;                // wedge points right (→)
+const INIT_WEDGE       = Math.PI * 1.15;   // ~207° forward arc for first level — clearly a fan
+const MAX_WEDGE        = Math.PI * 0.9;    // sub-wedge cap per child (keeps cones from overlapping)
 
 function computeTargets(
   pivotId: string,
@@ -117,37 +109,80 @@ function computeTargets(
 
   targets.set(pivotId, { x: cx, y: cy });
 
-  function place(nodeId: string, depth: number, midAngle: number, wedge: number) {
-    const kids = (childrenOf.get(nodeId) ?? []).filter((id) => visibleIds.has(id));
-    if (kids.length === 0) return;
-    const step = Math.min(wedge / kids.length, (Math.PI * 2) / Math.max(kids.length, 1));
-    const startAngle = midAngle - (step * (kids.length - 1)) / 2;
-    for (let i = 0; i < kids.length; i++) {
-      if (targets.has(kids[i])) continue;
-      const angle = startAngle + i * step;
-      const kid = nodeMap.get(kids[i]);
-      const kidCount = kid?.childCount ?? 0;
-      let r = ringRadius(depth, kidCount);
-      // stagger leaf nodes (albums) and artists across two depth bands so
-      // they don't all land on the same radius and form a crowded line.
-      // alternates: even index → base ring, odd index → 22% further out.
-      if (kid?.role === "album" || kid?.role === "artist") {
-        r *= 1 + (i % 2) * 0.22;
+  /** place `kids` inside a wedge centered on `midAngle` with angular extent
+   *  `wedge`, recursively placing their own children. multi-row when there
+   *  are more siblings than fit comfortably on the base arc. spacing scales
+   *  with the actual rendered radii so tiny albums pack tighter than fat
+   *  genre hubs. */
+  function place(
+    parentX: number,
+    parentY: number,
+    parentR: number,
+    kidIds: string[],
+    midAngle: number,
+    wedge: number,
+  ) {
+    if (kidIds.length === 0) return;
+
+    // average + max radius of this generation drives all spacing knobs
+    let sumR = 0;
+    let maxR = 0;
+    for (const id of kidIds) {
+      const n = nodeMap.get(id);
+      const r = n ? nodeRadius(n.role, n.childCount) : 14;
+      sumR += r;
+      if (r > maxR) maxR = r;
+    }
+    const avgR = sumR / kidIds.length;
+    // arc gap = ~2.6 * average diameter; radial gap = ~2.4 * max diameter
+    const minArc    = Math.max(36, avgR * 2.6);
+    const radialStep = Math.max(54, maxR * 2.4);
+    // first row sits parent-radius + a bit + max-kid-radius away from parent
+    const baseR    = parentR + maxR + Math.max(28, avgR * 1.4);
+
+    // how many siblings fit per row before they'd be closer than minArc
+    const perRow = Math.max(2, Math.floor((wedge * baseR) / minArc));
+    const rows = Math.ceil(kidIds.length / perRow);
+
+    for (let i = 0; i < kidIds.length; i++) {
+      if (targets.has(kidIds[i])) continue;
+      const rowIdx = Math.floor(i / perRow);
+      const inRow  = i % perRow;
+      // last partial row may have fewer items — center it inside the wedge
+      const rowCount = rowIdx === rows - 1 ? kidIds.length - rowIdx * perRow : perRow;
+      const r = baseR + rowIdx * radialStep;
+      // spread this row evenly across the wedge; one-item rows sit at midAngle
+      const step = rowCount > 1 ? wedge / rowCount : 0;
+      // honeycomb-ish offset on odd rows so items don't form radial spokes
+      const honeyOffset = (rowIdx % 2) * (step / 2);
+      const start = midAngle - (step * (rowCount - 1)) / 2 + honeyOffset;
+      const angle = start + inRow * step;
+      const x = parentX + Math.cos(angle) * r;
+      const y = parentY + Math.sin(angle) * r;
+      targets.set(kidIds[i], { x, y });
+
+      // recurse for this child's own subtree — narrower wedge so cones nest
+      const grandKids = (childrenOf.get(kidIds[i]) ?? []).filter((id) => visibleIds.has(id));
+      if (grandKids.length > 0) {
+        const kidNode = nodeMap.get(kidIds[i]);
+        const kidR    = kidNode ? nodeRadius(kidNode.role, kidNode.childCount) : 14;
+        // child's wedge = its angular slot, capped. don't promote it past its
+        // siblings' share — that's what caused lone descendants to spread out
+        // way wider than their parent's footprint and overlap neighbors.
+        const slotWedge = step > 0 ? step * 0.95 : wedge * 0.6;
+        const childWedge = Math.min(slotWedge, MAX_WEDGE);
+        place(x, y, kidR, grandKids, angle, childWedge);
       }
-      targets.set(kids[i], {
-        x: cx + Math.cos(angle) * r,
-        y: cy + Math.sin(angle) * r,
-      });
-      const childWedge = Math.min(step * 0.85, MAX_WEDGE / Math.max(kids.length, 1));
-      place(kids[i], depth + 1, angle, childWedge);
     }
   }
 
-  // fan children forward (→), ancestors go left (←)
-  place(pivotId, 1, FORWARD, INIT_WEDGE);
+  // pivot's children fan forward
+  const rootKids = (childrenOf.get(pivotId) ?? []).filter((id) => visibleIds.has(id));
+  const pivotNode = nodeMap.get(pivotId);
+  const pivotR = pivotNode ? nodeRadius(pivotNode.role, pivotNode.childCount) : 14;
+  place(cx, cy, pivotR, rootKids, FORWARD, INIT_WEDGE);
 
-  // breadcrumb ancestors: place them to the left, fanning slightly so
-  // they don't stack on top of each other
+  // breadcrumb ancestors go to the left, fanning slightly so they don't stack
   const ancestors = breadcrumb.slice(0, -1).reverse();
   for (let i = 0; i < ancestors.length; i++) {
     const id = ancestors[i];
@@ -288,26 +323,58 @@ function buildSim() {
         .distance((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
-          const base = (s.radius + t.radius) * 2.2;
-          // give artist→album links extra slack so the collision force
-          // can spread albums without fighting a tight spring
-          if (s.role === "artist" && t.role === "album") return base * 1.5;
+          const base = (s.radius + t.radius) * 2.6;
+          // keep albums hugging their parent artist — the layout already
+          // places them at parentR + albumR + ~28px, so a shorter spring
+          // matches and stops the collision force from yanking them out.
+          if (s.role === "artist" && t.role === "album") return base * 0.85;
+          // value→artist / value→album fan-out: lots of room
+          if (s.role === "value") return base * 1.8;
           return base;
         })
-        .strength(0.35),
+        .strength((d) => {
+          const s = d.source as SimNode;
+          const t = d.target as SimNode;
+          // stronger spring on artist→album so albums stick close
+          if (s.role === "artist" && t.role === "album") return 0.55;
+          return 0.22;
+        }),
     )
     .force(
       "collide",
       forceCollide<SimNode>()
-        .radius((d) => d.radius * 1.5)
+        // tighter collision around small leaves (albums); generous around hubs
+        .radius((d) => d.radius * (d.role === "album" ? 1.35 : 1.9))
         .strength(1.0)
         .iterations(4),
     )
-    .force("x", forceX<SimNode>((d) => d.targetX).strength(0.28))
-    .force("y", forceY<SimNode>((d) => d.targetY).strength(0.28))
-    .force("charge", forceManyBody<SimNode>().strength(-35))
-    .alphaDecay(0.018)
-    .velocityDecay(0.4)
+    .force(
+      "x",
+      forceX<SimNode>((d) => d.targetX).strength((d) =>
+        d.role === "album" ? 0.45 : 0.18,
+      ),
+    )
+    .force(
+      "y",
+      forceY<SimNode>((d) => d.targetY).strength((d) =>
+        d.role === "album" ? 0.45 : 0.18,
+      ),
+    )
+    .force(
+      "charge",
+      forceManyBody<SimNode>()
+        // hubs (relation/value) push harder than leaves so dense clusters fan out
+        .strength((d) => {
+          if (d.role === "value" || d.role === "relation") return -180;
+          if (d.role === "artist") return -90;
+          // albums barely repel each other — let collide handle spacing
+          if (d.role === "album") return -20;
+          return -55;
+        })
+        .distanceMax(900),
+    )
+    .alphaDecay(0.015)
+    .velocityDecay(0.42)
     .on("tick", onTick);
 }
 
@@ -342,6 +409,21 @@ function indexGraph() {
   // recompute childCount from actual edges — mock data numbers are unreliable
   for (const [id, node] of nodeMap) {
     node.childCount = childrenOf.get(id)?.length ?? 0;
+  }
+
+  // phase 1: reverse value→album and value→artist edges in childrenOf so that
+  // pivoting on an album or artist reveals its taxon value nodes as children.
+  // we only update childrenOf (not fullGraph.edges) — the original forward
+  // edges already exist for wire drawing between visible pairs.
+  for (const e of fullGraph.edges) {
+    const src = e.source as string;
+    const tgt = e.target as string;
+    const srcRole = nodeMap.get(src)?.role;
+    const tgtRole = nodeMap.get(tgt)?.role;
+    if (srcRole === "value" && (tgtRole === "album" || tgtRole === "artist")) {
+      if (!childrenOf.has(tgt)) childrenOf.set(tgt, []);
+      childrenOf.get(tgt)!.push(src);
+    }
   }
 }
 
@@ -399,13 +481,29 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         break;
       }
       const nodes = sim.nodes();
+      // per-role inradius factors — keep the hit zone matched to the
+      // rendered shape (lifted from the old GraphCanvas hit geometry).
+      // narrower silhouettes get smaller factors so clicks in empty
+      // corners don't register. floored at 12 screen pixels (12/k in
+      // world units) so small nodes stay clickable when zoomed out.
+      const INRADIUS: Record<string, number> = {
+        root:     0.5,
+        remote:   0.42, // freqhole mark — narrow at bottom
+        relation: 0.5,  // hexagon
+        value:    0.5,  // octagon
+        artist:   0.5,  // circle
+        album:    0.95, // square — corners stay clickable
+      };
+      const minR = 12 / Math.max(msg.k, 0.05);
       let best: string | null = null;
       let bestDist = Infinity;
       for (const n of nodes) {
         const dx = (n.x ?? 0) - msg.x;
         const dy = (n.y ?? 0) - msg.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist <= n.radius + 4 && dist < bestDist) {
+        const factor = INRADIUS[n.role] ?? 0.5;
+        const hitR = Math.max(n.radius * factor, minR);
+        if (dist <= hitR && dist < bestDist) {
           bestDist = dist;
           best = n.id;
         }

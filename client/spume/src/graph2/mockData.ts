@@ -432,6 +432,7 @@ function buildGraph(): WalkGraph {
     ["favorites", "favorites", 14],
     ["recent_albums", "recent albums", 12],
     ["era", "era", 5],
+    ["mood", "mood", 8],
   ];
   for (const [kind, label, count] of localRelations) {
     nodes.push(relation("local", kind, label, count));
@@ -592,6 +593,24 @@ function buildGraph(): WalkGraph {
     n.parentId = "relation::local::era";
     nodes.push(n);
     edges.push(edge("relation::local::era", `value::era::${val}`));
+  }
+
+  // mood values for local (taxon kind: mood — albums get 1-2 moods)
+  const localMoods: [string, string][] = [
+    ["dark",         "dark"],
+    ["atmospheric",  "atmospheric"],
+    ["meditative",   "meditative"],
+    ["aggressive",   "aggressive"],
+    ["melancholic",  "melancholic"],
+    ["hypnotic",     "hypnotic"],
+    ["haunting",     "haunting"],
+    ["energetic",    "energetic"],
+  ];
+  for (const [val, label] of localMoods) {
+    const n = value("mood", val, label, 0); // childCount recomputed from edges
+    n.parentId = "relation::local::mood";
+    nodes.push(n);
+    edges.push(edge("relation::local::mood", `value::mood::${val}`));
   }
 
   // local artists + albums
@@ -824,6 +843,56 @@ function buildGraph(): WalkGraph {
     }
   }
 
+  // genre → album edges (real schema: taxons attach to albums, not just artists)
+  const genreAlbums: Record<string, string[]> = {
+    ambient:      ["lp01","lp02","lp03","lp23","lp27","lp29","lp31","lp33","lp34","lp35","lp36","lp37","lp38","lp88","lp99","lp100","lp101","lp109","lp110","lp119","lp122","lp136","lp137","lp175","lp176"],
+    electronic:   ["lp04","lp05","lp06","lp07","lp08","lp09","lp24","lp25","lp26","lp39","lp40","lp41","lp42","lp43","lp99","lp100","lp102","lp103","lp107","lp108","lp112","lp117","lp118","lp119","lp120","lp127","lp128","lp129","lp139","lp140"],
+    hip_hop:      ["lp49","lp50","lp51","lp52","lp53","lp54","lp55","lp56","lp141","lp142","lp143","lp144","lp145","lp146","lp147","lp148","lp149","lp150","lp151","lp152","lp153","lp154","lp155","lp156","lp157","lp158"],
+    jazz:         ["lp12","lp13","lp14","lp89","lp90","lp91","lp92","lp93","lp94","lp95","lp97","lp98","lp119","lp121","lp175","lp176","lp177","lp178","lp179","lp180","lp181","lp182","lp183","lp184"],
+    post_punk:    ["lp15","lp16","lp17","lp18","lp19","lp68","lp75","lp77","lp78","lp79","lp80","lp81","lp82","lp159","lp160","lp161","lp162","lp166","lp167","lp168","lp169","lp172","lp173","lp174"],
+    industrial:   ["lp04","lp05","lp06","lp57","lp58","lp65","lp66","lp67","lp69","lp112","lp113","lp115","lp116"],
+    experimental: ["lp07","lp08","lp20","lp21","lp39","lp40","lp57","lp68","lp70","lp83","lp84","lp94","lp95","lp102","lp103","lp144","lp145","lp154","lp155","lp161","lp162","lp163","lp183"],
+    idm:          ["lp39","lp40","lp41","lp42","lp43","lp44","lp45","lp99","lp100","lp101","lp102","lp103","lp104","lp109"],
+    trip_hop:     ["lp46","lp47","lp48","lp49","lp50","lp127","lp128","lp129","lp130","lp131"],
+    dark_ambient: ["lp23","lp57","lp58","lp59","lp112","lp113","lp114","lp115","lp116"],
+    noise:        ["lp10","lp11","lp20","lp21","lp66","lp70"],
+    drone:        ["lp10","lp23","lp29","lp30","lp36","lp37"],
+    krautrock:    ["lp83","lp84","lp85","lp86","lp87","lp88"],
+    free_jazz:    ["lp91","lp92","lp94","lp95","lp96","lp183","lp184"],
+    shoegaze:     ["lp01","lp02","lp73","lp74","lp76"],
+    goth_rock:    ["lp75","lp76","lp77","lp78","lp79","lp80","lp81"],
+    neofolk:      ["lp60","lp61","lp62","lp63","lp64","lp71","lp72"],
+    dream_pop:    ["lp01","lp02","lp03","lp27","lp73","lp74","lp129","lp130","lp185","lp186"],
+    abstract_hip_hop: ["lp53","lp54","lp55","lp141","lp142","lp147","lp148","lp149","lp150","lp151","lp152","lp153","lp156","lp157","lp158"],
+    post_rock:    ["lp29","lp30","lp31","lp32","lp33","lp109","lp110"],
+    noise_rock:   ["lp10","lp11","lp20","lp68","lp161","lp162","lp163","lp166"],
+    uk_garage:    ["lp26","lp107","lp108","lp127","lp128","lp129"],
+    deconstructed:["lp07","lp08","lp09","lp39","lp132","lp133","lp139","lp140"],
+    neo_soul:     ["lp49","lp50","lp51","lp52","lp129","lp130","lp131","lp134","lp135","lp185","lp186"],
+  };
+  for (const [genre, albums] of Object.entries(genreAlbums)) {
+    for (const lpId of albums) {
+      edges.push(edge(`value::genres::${genre}`, `album::local::${lpId}`));
+    }
+  }
+
+  // mood → album edges
+  const moodAlbums: Record<string, string[]> = {
+    dark:        ["lp10","lp20","lp21","lp23","lp26","lp30","lp57","lp58","lp65","lp66","lp70","lp75","lp77","lp78","lp79","lp112","lp113","lp115","lp116","lp154","lp155","lp161","lp162","lp163","lp183","lp184"],
+    atmospheric: ["lp01","lp02","lp27","lp29","lp31","lp33","lp34","lp36","lp37","lp38","lp46","lp88","lp99","lp109","lp119","lp136","lp137","lp175","lp176"],
+    meditative:  ["lp88","lp90","lp91","lp93","lp119","lp121","lp122","lp175","lp180","lp181","lp185","lp186"],
+    aggressive:  ["lp11","lp15","lp18","lp20","lp70","lp102","lp103","lp104","lp144","lp161","lp162","lp163","lp166","lp167","lp169","lp170"],
+    melancholic: ["lp01","lp02","lp03","lp13","lp27","lp28","lp47","lp75","lp76","lp129","lp130","lp131","lp134","lp135","lp185","lp186"],
+    hypnotic:    ["lp04","lp05","lp06","lp39","lp40","lp44","lp45","lp83","lp84","lp107","lp108","lp113","lp117","lp118"],
+    haunting:    ["lp03","lp26","lp32","lp59","lp71","lp72","lp73","lp74","lp79","lp80","lp115","lp136","lp154","lp183","lp184"],
+    energetic:   ["lp07","lp08","lp09","lp15","lp18","lp51","lp52","lp53","lp102","lp103","lp104","lp144","lp145","lp146","lp161","lp169","lp170"],
+  };
+  for (const [mood, albums] of Object.entries(moodAlbums)) {
+    for (const lpId of albums) {
+      edges.push(edge(`value::mood::${mood}`, `album::local::${lpId}`));
+    }
+  }
+
   // tag → artist edges (local)
   const tagArtists: Record<string, string[]> = {
     experimental:  ["a02", "a03", "a04", "a09", "a10", "a19", "a20", "a21", "a31"],
@@ -862,6 +931,109 @@ function buildGraph(): WalkGraph {
   for (const [era, artists] of Object.entries(eraArtists)) {
     for (const aId of artists) {
       edges.push(edge(`value::era::${era}`, `artist::local::${aId}`));
+    }
+  }
+
+  // similar artist edges (directed, based on lastfm/audiodb-style similarity)
+  const artistSimilar: [string, string[]][] = [
+    ["a01", ["a13", "a16", "a42"]],          // Grouper
+    ["a02", ["a11", "a31", "a67"]],          // Demdike Stare
+    ["a03", ["a20", "a74", "a76"]],          // Arca
+    ["a04", ["a09", "a10", "a37"]],          // The Body
+    ["a05", ["a06", "a91", "a92"]],          // Kamasi Washington
+    ["a06", ["a05", "a55", "a56"]],          // Pharoah Sanders
+    ["a07", ["a08", "a48", "a85"]],          // Wire
+    ["a08", ["a07", "a47", "a88"]],          // Gang of Four
+    ["a09", ["a04", "a34", "a39"]],          // Swans
+    ["a10", ["a14", "a17", "a66"]],          // Sunn O)))
+    ["a11", ["a02", "a12", "a68"]],          // Actress
+    ["a12", ["a11", "a64", "a72"]],          // Burial
+    ["a13", ["a01", "a15", "a42"]],          // Low
+    ["a14", ["a10", "a15", "a17"]],          // Godspeed
+    ["a15", ["a14", "a16", "a17"]],          // Explosions
+    ["a16", ["a15", "a17", "a18"]],          // Tim Hecker
+    ["a17", ["a16", "a18", "a10"]],          // Stars of the Lid
+    ["a18", ["a17", "a16", "a19"]],          // Basinski
+    ["a19", ["a20", "a38", "a62"]],          // Oval
+    ["a20", ["a21", "a22", "a61"]],          // Autechre
+    ["a21", ["a20", "a22", "a62"]],          // Aphex Twin
+    ["a22", ["a21", "a20", "a63"]],          // Boards of Canada
+    ["a23", ["a24", "a25", "a71"]],          // Massive Attack
+    ["a24", ["a23", "a25", "a73"]],          // Portishead
+    ["a25", ["a23", "a24", "a48"]],          // Tricky
+    ["a26", ["a05", "a27", "a69"]],          // Flying Lotus
+    ["a27", ["a26", "a28", "a80"]],          // Kendrick
+    ["a28", ["a27", "a29", "a78"]],          // Madlib
+    ["a29", ["a28", "a78", "a82"]],          // MF DOOM
+    ["a30", ["a12", "a11", "a73"]],          // The Bug
+    ["a31", ["a32", "a33", "a40"]],          // Coil
+    ["a32", ["a31", "a33", "a40"]],          // Current 93
+    ["a33", ["a31", "a32", "a40"]],          // Death in June
+    ["a34", ["a35", "a36", "a04"]],          // Neubauten
+    ["a35", ["a34", "a36", "a39"]],          // TG
+    ["a36", ["a34", "a35", "a43"]],          // Cabaret Voltaire
+    ["a37", ["a04", "a09", "a35"]],          // This Heat
+    ["a38", ["a19", "a20", "a66"]],          // Pan Sonic
+    ["a39", ["a09", "a35", "a04"]],          // Merzbow
+    ["a40", ["a31", "a32", "a42"]],          // Dead Can Dance
+    ["a42", ["a01", "a13", "a40"]],          // Cocteau Twins
+    ["a43", ["a44", "a45", "a46"]],          // The Cure
+    ["a44", ["a43", "a45", "a46"]],          // Joy Division
+    ["a45", ["a43", "a44", "a46"]],          // Bauhaus
+    ["a46", ["a43", "a44", "a45"]],          // Siouxsie
+    ["a47", ["a48", "a07", "a08"]],          // The Slits
+    ["a48", ["a47", "a07", "a25"]],          // PiL
+    ["a49", ["a50", "a51", "a52"]],          // Can
+    ["a50", ["a49", "a51", "a52"]],          // Faust
+    ["a51", ["a49", "a50", "a53"]],          // Neu!
+    ["a52", ["a51", "a53", "a49"]],          // Cluster
+    ["a53", ["a52", "a51", "a50"]],          // Harmonia
+    ["a54", ["a55", "a56", "a57"]],          // Miles Davis
+    ["a55", ["a54", "a56", "a57"]],          // Coltrane
+    ["a56", ["a55", "a57", "a58"]],          // Alice Coltrane
+    ["a57", ["a54", "a58", "a94"]],          // Sun Ra
+    ["a58", ["a59", "a57", "a94"]],          // Ayler
+    ["a59", ["a58", "a60", "a57"]],          // Ornette
+    ["a60", ["a59", "a55", "a58"]],          // Mingus
+    ["a61", ["a62", "a22", "a63"]],          // Four Tet
+    ["a62", ["a61", "a21", "a20"]],          // Squarepusher
+    ["a63", ["a61", "a22", "a70"]],          // Bibio
+    ["a64", ["a12", "a72", "a73"]],          // Mount Kimbie
+    ["a65", ["a16", "a69", "a71"]],          // Jon Hopkins
+    ["a66", ["a67", "a02", "a38"]],          // Andy Stott
+    ["a67", ["a66", "a02", "a76"]],          // Raime
+    ["a68", ["a11", "a12", "a69"]],          // Objekt
+    ["a69", ["a65", "a68", "a91"]],          // Floating Points
+    ["a70", ["a61", "a63", "a71"]],          // Lone
+    ["a71", ["a23", "a65", "a70"]],          // Bonobo
+    ["a72", ["a12", "a64", "a73"]],          // Jamie xx
+    ["a73", ["a72", "a74", "a75"]],          // James Blake
+    ["a74", ["a03", "a73", "a75"]],          // FKA Twigs
+    ["a75", ["a74", "a73", "a26"]],          // Kelela
+    ["a76", ["a67", "a79", "a77"]],          // Laurel Halo
+    ["a77", ["a76", "a03", "a79"]],          // Holly Herndon
+    ["a78", ["a28", "a29", "a81"]],          // J Dilla
+    ["a79", ["a80", "a82", "a83"]],          // JPEGMAFIA
+    ["a80", ["a79", "a81", "a84"]],          // billy woods
+    ["a81", ["a80", "a78", "a29"]],          // Armand Hammer
+    ["a82", ["a80", "a81", "a84"]],          // Quelle Chris
+    ["a83", ["a80", "a84", "a94"]],          // Moor Mother
+    ["a84", ["a80", "a82", "a83"]],          // Open Mike Eagle
+    ["a85", ["a86", "a87", "a88"]],          // Dry Cleaning
+    ["a86", ["a85", "a87", "a88"]],          // black midi
+    ["a87", ["a85", "a86", "a88"]],          // Squid
+    ["a88", ["a85", "a86", "a89"]],          // Shame
+    ["a89", ["a88", "a90", "a07"]],          // Idles
+    ["a90", ["a89", "a88", "a07"]],          // Fontaines D.C.
+    ["a91", ["a92", "a93", "a69"]],          // Shabaka Hutchings
+    ["a92", ["a91", "a93", "a05"]],          // Nubya Garcia
+    ["a93", ["a91", "a92", "a94"]],          // Makaya McCraven
+    ["a94", ["a57", "a83", "a93"]],          // Irreversible Entanglements
+    ["a95", ["a73", "a26", "a89"]],          // Moses Sumney
+  ];
+  for (const [aId, related] of artistSimilar) {
+    for (const rId of related) {
+      edges.push(edge(`artist::local::${aId}`, `artist::local::${rId}`));
     }
   }
 

@@ -16,7 +16,10 @@ export interface WalkerClient {
   init(graph: WalkGraph, pivot: string, width: number, height: number, breadcrumb?: string[]): void;
   expand(nodeId: string): void;
   resize(width: number, height: number): void;
-  hitTest(x: number, y: number): Promise<string | null>;
+  /** point hit-test in WORLD coordinates. `k` is the viewport scale
+   *  (defaults to 1) so the worker can apply a 12-screen-px minimum
+   *  hit radius for clickability when zoomed out. */
+  hitTest(x: number, y: number, k?: number): Promise<string | null>;
   onTopology(fn: TopologyListener): () => void;
   onFrame(fn: FrameListener): () => void;
   dispose(): void;
@@ -64,11 +67,11 @@ export function createWalkerClient(): WalkerClient {
     resize(width, height) {
       post({ type: "resize", width, height });
     },
-    hitTest(x, y) {
+    hitTest(x, y, k = 1) {
       return new Promise<string | null>((resolve) => {
         const reqId = ++hitReqId;
         hitCallbacks.set(reqId, resolve);
-        post({ type: "hitTest", reqId, x, y });
+        post({ type: "hitTest", reqId, x, y, k });
       });
     },
     onTopology(fn) {

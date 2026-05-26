@@ -48,12 +48,15 @@ export interface MsgResize {
   height: number;
 }
 
-/** point hit test — worker replies with MsgHitResult */
+/** point hit test — (x, y) are in WORLD coordinates; `k` is the
+ *  current viewport scale so the worker can apply the min-screen-px
+ *  hit floor. worker replies with MsgHitResult. */
 export interface MsgHitTest {
   type: "hitTest";
   reqId: number;
   x: number;
   y: number;
+  k: number;
 }
 
 export type MainToWorker = MsgInit | MsgExpand | MsgResize | MsgHitTest;

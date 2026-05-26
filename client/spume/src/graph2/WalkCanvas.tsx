@@ -236,6 +236,52 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   const [hoveredId, setHoveredId] = createSignal<string | null>(null);
   let rafId = 0;
 
+  // ---- viewport (pan / zoom) ------------------------------------------------
+  // tx/ty translate world→screen, k scales. starts identity.
+  // wheel/trackpad/pinch all flow through `setView`. hit-tests convert
+  // screen coords back to world via `screenToWorld`.
+  type Viewport = { tx: number; ty: number; k: number };
+  const [view, setView] = createSignal<Viewport>({ tx: 0, ty: 0, k: 1 });
+
+  function clamp(n: number, lo: number, hi: number) {
+    return n < lo ? lo : n > hi ? hi : n;
+  }
+
+  function clientToCanvas(e: { clientX: number; clientY: number }): [number, number] {
+    const rect = canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  function screenToWorld(sx: number, sy: number): [number, number] {
+    const v = view();
+    return [(sx - v.tx) / v.k, (sy - v.ty) / v.k];
+  }
+
+  // multi-pointer state for drag-pan + pinch-zoom
+  const activePointers = new Map<number, { sx: number; sy: number }>();
+  type PanState = {
+    pointerId: number;
+    startSx: number;
+    startSy: number;
+    startTx: number;
+    startTy: number;
+    moved: boolean;
+  };
+  const [panState, setPanState] = createSignal<PanState | null>(null);
+  let pinchState: {
+    p1: number;
+    p2: number;
+    initialDist: number;
+    initialK: number;
+    initialTx: number;
+    initialTy: number;
+    centerSx: number;
+    centerSy: number;
+  } | null = null;
+  // press-vs-pan disambiguation: if pointer wanders >3px before release,
+  // it's a pan; otherwise a click that fires hit-test on pointerup.
+  const PAN_THRESHOLD = 3;
+
   const client = createWalkerClient();
   onCleanup(() => {
     cancelAnimationFrame(rafId);
@@ -269,19 +315,26 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     canvas.style.width = `${w()}px`;
     canvas.style.height = `${h()}px`;
     const ctx = canvas.getContext("2d")!;
-    ctx.scale(dpr, dpr);
+    // note: no ctx.scale(dpr,dpr) here — we set the full transform every
+    // frame in draw() to fold dpr together with the viewport tx/ty/k.
 
     function draw() {
-      ctx.clearRect(0, 0, w(), h());
+      // clear in identity space, then apply (dpr * viewport) for content
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // background — pure black
       ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, w(), h());
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       if (nodes.length === 0 || positions.length === 0) {
         rafId = requestAnimationFrame(draw);
         return;
       }
+
+      const v = view();
+      // world → device px:  (world * k + t) * dpr
+      ctx.setTransform(dpr * v.k, 0, 0, dpr * v.k, dpr * v.tx, dpr * v.ty);
 
       const hov = hoveredId();
 
@@ -370,26 +423,136 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     client.resize(w(), h());
   });
 
-  // hit test → hover
-  function onMouseMove(e: MouseEvent) {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    client.hitTest(x, y).then((id) => setHoveredId(id));
+  // ---- pointer + wheel handlers ---------------------------------------------
+
+  function onPointerDown(e: PointerEvent) {
+    canvas.setPointerCapture(e.pointerId);
+    const [sx, sy] = clientToCanvas(e);
+    activePointers.set(e.pointerId, { sx, sy });
+
+    // two pointers → start pinch-zoom
+    if (activePointers.size === 2) {
+      const [a, b] = [...activePointers.entries()];
+      const dx = a[1].sx - b[1].sx;
+      const dy = a[1].sy - b[1].sy;
+      const v = view();
+      pinchState = {
+        p1: a[0],
+        p2: b[0],
+        initialDist: Math.hypot(dx, dy) || 1,
+        initialK: v.k,
+        initialTx: v.tx,
+        initialTy: v.ty,
+        centerSx: (a[1].sx + b[1].sx) / 2,
+        centerSy: (a[1].sy + b[1].sy) / 2,
+      };
+      setPanState(null);
+      return;
+    }
+
+    // single pointer → potential pan or click
+    const v = view();
+    setPanState({
+      pointerId: e.pointerId,
+      startSx: sx,
+      startSy: sy,
+      startTx: v.tx,
+      startTy: v.ty,
+      moved: false,
+    });
   }
 
-  function onMouseLeave() {
+  function onPointerMove(e: PointerEvent) {
+    const [sx, sy] = clientToCanvas(e);
+    if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { sx, sy });
+
+    // pinch
+    if (pinchState && activePointers.size >= 2) {
+      const a = activePointers.get(pinchState.p1);
+      const b = activePointers.get(pinchState.p2);
+      if (!a || !b) return;
+      const newDist = Math.hypot(a.sx - b.sx, a.sy - b.sy) || 1;
+      const scaleRatio = newDist / pinchState.initialDist;
+      const newK = clamp(pinchState.initialK * scaleRatio, 0.1, 8);
+      // anchor world point under the initial pinch center
+      const wx = (pinchState.centerSx - pinchState.initialTx) / pinchState.initialK;
+      const wy = (pinchState.centerSy - pinchState.initialTy) / pinchState.initialK;
+      const cx = (a.sx + b.sx) / 2;
+      const cy = (a.sy + b.sy) / 2;
+      setView({ k: newK, tx: cx - wx * newK, ty: cy - wy * newK });
+      return;
+    }
+
+    // active drag-pan
+    const ps = panState();
+    if (ps && e.pointerId === ps.pointerId) {
+      const dx = sx - ps.startSx;
+      const dy = sy - ps.startSy;
+      if (!ps.moved && Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
+        setPanState({ ...ps, moved: true });
+        setHoveredId(null); // clear hover on pan start
+      }
+      if (ps.moved || Math.abs(dx) + Math.abs(dy) > PAN_THRESHOLD) {
+        setView((v) => ({ ...v, tx: ps.startTx + dx, ty: ps.startTy + dy }));
+      }
+      return;
+    }
+
+    // plain hover → world-space hit-test
+    const v = view();
+    const [wx, wy] = screenToWorld(sx, sy);
+    client.hitTest(wx, wy, v.k).then((id) => setHoveredId(id));
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    activePointers.delete(e.pointerId);
+    if (pinchState && (e.pointerId === pinchState.p1 || e.pointerId === pinchState.p2)) {
+      pinchState = null;
+    }
+    const ps = panState();
+    if (!ps || e.pointerId !== ps.pointerId) return;
+    const wasPan = ps.moved;
+    const sx = ps.startSx;
+    const sy = ps.startSy;
+    setPanState(null);
+    if (wasPan) return;
+    // click → expand
+    const v = view();
+    const [wx, wy] = screenToWorld(sx, sy);
+    client.hitTest(wx, wy, v.k).then((id) => {
+      if (id) client.expand(id);
+    });
+  }
+
+  function onPointerLeave() {
     setHoveredId(null);
   }
 
-  // click → expand (walk)
-  function onClick(e: MouseEvent) {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    client.hitTest(x, y).then((id) => {
-      if (id) client.expand(id);
-    });
+  function onWheel(e: WheelEvent) {
+    e.preventDefault();
+    const [sx, sy] = clientToCanvas(e);
+    const v = view();
+    // mac pinch comes through as wheel + ctrlKey
+    const isPinch = e.ctrlKey;
+    // trackpad two-finger scroll: small deltas, deltaMode 0 → pan
+    const isTrackpadPan =
+      !isPinch && e.deltaMode === 0 && (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) < 50);
+
+    if (isTrackpadPan) {
+      setView({ ...v, tx: v.tx - e.deltaX, ty: v.ty - e.deltaY });
+      return;
+    }
+    // zoom anchored on cursor
+    const factor = Math.exp(-e.deltaY * (isPinch ? 0.012 : 0.0025));
+    const newK = clamp(v.k * factor, 0.1, 8);
+    const wx = (sx - v.tx) / v.k;
+    const wy = (sy - v.ty) / v.k;
+    setView({ k: newK, tx: sx - wx * newK, ty: sy - wy * newK });
   }
 
   return (
@@ -406,11 +569,15 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           "margin-bottom": `${props.insets?.bottom ?? 0}px`,
           "margin-right": `${props.insets?.right ?? 0}px`,
         }),
-        cursor: hoveredId() ? "pointer" : "default",
+        cursor: panState()?.moved ? "grabbing" : hoveredId() ? "pointer" : "default",
+        "touch-action": "none",
       }}
-      onMouseMove={onMouseMove}
-      onMouseLeave={onMouseLeave}
-      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onPointerLeave={onPointerLeave}
+      onWheel={onWheel}
     />
   );
 }
