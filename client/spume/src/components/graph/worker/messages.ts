@@ -113,12 +113,14 @@ export interface EdgeDeriveConfig {
   relatedArtists?: Map<string, Set<string>>;
 }
 
-/** how aggressively a topology change should reheat the sim.
- *  - `fresh`: full energy (alpha=1, restart). first build only.
- *  - `nudge`: low alpha (0.08, restart). default for incremental
- *    updates so nodes barely shuffle.
- *  - `quiet`: no reheat (alpha=0, stop). user is inspecting and
- *    paginated batches shouldn't disturb the layout. */
+/** how aggressively a topology change should affect the visible
+ *  layout.
+ *  - `fresh`: full re-pivot (init or explicit reset). animates from
+ *    blank to the new layout.
+ *  - `nudge`: incremental data update; re-layout with the existing
+ *    pivot and animate from old positions to new.
+ *  - `quiet`: silent insert; do not animate, do not re-emit unless
+ *    new nodes appeared, in which case fade them in at place. */
 export type UpdateMode = "fresh" | "nudge" | "quiet";
 
 // ----- main → worker ----------------------------------------------------
@@ -135,6 +137,10 @@ export interface MsgInit {
   /** phase 4: when present the worker derives edges from node
    *  taxonomy and emits `MsgEdges`. */
   edgeConfig?: EdgeDeriveConfig;
+  /** initial bloom pivot. when omitted the worker picks a default
+   *  (a hub-kind node with at least one neighbor, else the first
+   *  hub, else the first node). */
+  pivotId?: string;
 }
 
 export interface MsgUpdate {
@@ -231,27 +237,33 @@ export interface MsgQuit {
   type: "quit";
 }
 
-/** debug: live force-tuning overrides. every field is optional — omit
- *  a field to keep the compiled-in default from `forceTuning.ts`.
- *  send via `MsgTuning`; the worker rebuilds the sim on receipt.
- *
- *  phase 1 reset (2026-05-26): trimmed from 23 fields to 5. the dropped
- *  knobs targeted the prescriptive hub-ring + entity-wedge layout that
- *  was removed in this phase; those forces are gone, so their tuning
- *  fields would be no-ops. only the five live knobs that still feed
- *  buildSim.ts remain. */
+/** layout-side: change the layout pivot. worker re-runs graphLayout
+ *  with the new pivot, captures the current displayed positions as
+ *  `from`, and animates to the new layout over ~280ms. */
+export interface MsgSetPivot {
+  type: "setPivot";
+  nodeId: string;
+}
+
+/** layout-side: toggle the surplus set rendered behind a parent's
+ *  "more" stub. index 0 = visible set, 1 = surplus set. v1 only
+ *  supports a binary toggle. */
+export interface MsgSetStubToggle {
+  type: "setStubToggle";
+  parentId: string;
+  index: number;
+}
+
+/** debug: live force-tuning overrides. retained as a no-op since the
+ *  deterministic layout has no tunable knobs the main thread should
+ *  reach into; the field is here so the existing debug UI still
+ *  compiles while we delete it. */
 export interface TuningOverrides {
-  /** multiplier on link distance vs node size. (default: LINK_DISTANCE_NODE_SIZE_MUL) */
+  /** retained shape only; the worker ignores every field. */
   linkDistanceMul?: number;
-  /** baseline forceManyBody charge per node size (negative). (default: CHARGE_PER_NODE_SIZE) */
   chargePerNodeSize?: number;
-  /** d3-force velocityDecay. (default: SIM_COOLDOWN.velocityDecay) */
   velocityDecay?: number;
-  /** alpha-decay rate per tick. 0 = use density-based auto pick in buildSim. */
   alphaDecay?: number;
-  /** weak per-node forceX/Y toward canvas centre. 0 = off (default);
-   *  0.02-0.05 is a noticeable bias without overpowering link/charge. */
-  centerGravityStrength?: number;
 }
 
 /** debug: push live force-tuning overrides to the worker. the worker
@@ -276,6 +288,8 @@ export type MainToWorker =
   | MsgHitRect
   | MsgReheat
   | MsgSetEnabledKinds
+  | MsgSetPivot
+  | MsgSetStubToggle
   | MsgReturn
   | MsgTuning
   | MsgQuit;

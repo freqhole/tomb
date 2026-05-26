@@ -1957,6 +1957,48 @@ function Inner(props: {
     return out;
   });
 
+  // pivot for the deterministic bloom layout: follows the drill
+  // state so the just-clicked hub becomes the center of the
+  // bloom. without this the pivot would stay anchored on the
+  // remote hub even after a user clicks two layers deep into a
+  // relation, and the freshly-revealed children would all collapse
+  // into the remote hub's narrow wedge \u2014 the "single pile"
+  // failure mode.
+  //
+  //   root mode             \u2192 remote hub for the active/selected remote
+  //   relation_values mode  \u2192 the (remote, kind) relation hub itself
+  //   entities mode         \u2192 the (kind, valueNorm) value hub itself
+  //
+  // resolves to a stable string id so the worker can match it
+  // against the node list deterministically on every layout pass.
+  const pivotNodeId = createMemo(() => {
+    const mode = drillMode();
+    const kind = activeRelationKind();
+    if (mode === "entities" && kind) {
+      const valueNorm = activeRelationValueNorm();
+      if (valueNorm) return relationValueHubId(kind, valueNorm);
+    }
+    const explicit = activeRemoteId();
+    if (mode === "relation_values" && kind && explicit) {
+      return relationHubId(kind, explicit);
+    }
+    if (explicit) return remoteHubId(explicit);
+    const selected = selectedRemoteIds();
+    if (selected.size === 1) {
+      const only = selected.values().next().value;
+      if (only) return remoteHubId(only);
+    }
+    if (selected.size > 0) {
+      // stable pick: first remote in `props.remotes()` order that's
+      // in the selection, so the pivot doesn't shuffle frame-to-
+      // frame as set iteration order shifts.
+      for (const r of props.remotes()) {
+        if (selected.has(r.remote_id)) return remoteHubId(r.remote_id);
+      }
+    }
+    return null;
+  });
+
   const graph = createGraphLibraryView({
     nodes: graphNodes,
     customEdges,
@@ -1966,6 +2008,7 @@ function Inner(props: {
     paused: () => !props.isActive(),
     lockNodes: true,
     loadingNodeIds,
+    pivotId: pivotNodeId,
     getHoverPreview: (node) => {
       // peek-on-hover: ring up to ~12 child albums around a hub so
       // the user can sanity-check what's inside before drilling.

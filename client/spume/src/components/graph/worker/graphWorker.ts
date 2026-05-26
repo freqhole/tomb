@@ -1,26 +1,25 @@
 /// <reference lib="webworker" />
-// graphWorker — dedicated web worker hosting the graph viz compute
-// pipeline (force-sim, quadtree hit-testing, relation-edge derivation).
+// graphWorker — dedicated web worker hosting the deterministic
+// graph layout pipeline.
 //
-// PHASE 2: owns the d3-force simulation. ticks the sim, writes node
-// positions into a ping-pong `Float32Array` buffer, and transfers
-// ownership of the buffer to the main thread on each tick. the main
-// thread renders + returns the buffer for reuse.
+// owns:
+//  - the current node + link payload (kept across init/update)
+//  - the active pivot id
+//  - the most-recent layout snapshot (positions per visible node)
+//  - the animator that lerps from snapshot-to-snapshot when the
+//    pivot or topology changes
+//  - the quadtree hit cache (rebuilt lazily after each tick)
+//  - the relation-edge derivation pipeline (cached from sim era;
+//    the layout itself doesn't use links, but the main thread still
+//    consumes derived edges for ui + cross-tier rendering)
 //
-// quadtree hit-testing moves here in phase 3; relation-edge
-// derivation in phase 4.
-//
-// see [docs/graph-web-worker-plan.md](../../../../../../../docs/graph-web-worker-plan.md)
+// see [docs/graph-deterministic-layout-plan.md](../../../../../../../docs/graph-deterministic-layout-plan.md)
 
-import {
-  forceCenter,
-  type Simulation,
-} from "d3-force";
 import { buildRelationEdges } from "../relations";
 import { createHitTreeCache } from "./hit/hitTreeCache";
-import { createPositionBufferPool } from "./sim/positionBufferPool";
-import { buildSimulation } from "./sim/buildSim";
-import type { SimLink, SimNode } from "./sim/types";
+import { createAnimator } from "./graphLayout/animate";
+import { graphLayout } from "./graphLayout/graphLayout";
+import type { LayoutEdge, LayoutNode } from "./graphLayout/types";
 import type {
   AlbumNodeData,
   ArtistNodeData,
@@ -31,10 +30,7 @@ import type {
   EdgeDeriveConfig,
   MainToWorker,
   SimConfig,
-  SimLinkInit,
   SimNodeInit,
-  TuningOverrides,
-  UpdateMode,
   WorkerToMain,
 } from "./messages";
 
@@ -44,200 +40,279 @@ function post(msg: WorkerToMain, transfer: Transferable[] = []) {
   ctx.postMessage(msg, transfer);
 }
 
-// sim-side node + link types live in `./sim/types.ts` so the
-// extracted sim helpers can share them.
+// node shape the hit-tree cache + position emitter operate on. owns
+// the live x/y for each input node, updated on every animator tick.
+interface WorkerNode {
+  id: string;
+  kind: "album" | "artist" | "hub";
+  x: number;
+  y: number;
+}
 
-// ----- sim state --------------------------------------------------------
+// ---------- state -------------------------------------------------------
 
 let config: SimConfig = { nodeSize: 56, width: 800, height: 600 };
-let sim: Simulation<SimNode, SimLink> | null = null;
-let simNodes: SimNode[] = [];
-let simLinks: SimLink[] = [];
-/** debug: live-tuning overrides sent from the main thread. empty
- *  object = use compiled-in defaults from forceTuning.ts. */
-let tuningOverrides: TuningOverrides = {};
-/** node count from the last buildSim call, used to detect significant
- *  topology shrinkage so we can auto-reheat rather than nudge. */
-let prevSimNodeCount = 0;
+let nodes: WorkerNode[] = [];
+let nodeInits: SimNodeInit[] = [];
+let pivotId: string | null = null;
+const stubToggles = new Map<string, number>();
 
-// phase 4: edge derivation state. when `edgeConfig` is provided on
-// init/update we keep the full derived edge list cached so a
-// `setEnabledKinds` message can re-filter the sim-link subset
-// without re-deriving edges from scratch.
+// derived edges (cross-tier, navigation). the deterministic layout
+// walks structural edges via the same adjacency so we don't keep a
+// separate "structural-only" list; the full derived edges feed both
+// the layout's bfs and the main thread's renderer.
 let edgeConfig: EdgeDeriveConfig | null = null;
-let relationStrengths: Record<string, number> | undefined;
 let derivedEdges: GraphEdge[] = [];
-/** node payloads from the most recent init/update — kept around so
- *  edges can be re-derived if needed. references the same SimNode
- *  objects, just typed as GraphNodeData for `buildRelationEdges`. */
 let edgeNodes: GraphNodeData[] = [];
 
-// ping-pong position buffers. owned by the worker except while a
-// `positions` message is in-flight to the main thread (where the
-// ArrayBuffer is detached on this side). when main returns a buffer
-// via `{type:"return"}` it goes back into the pool. extracted to
-// `./sim/positionBufferPool.ts` (phase 12).
-const bufPool = createPositionBufferPool();
+// uninitialized-position sentinel. nodes start at NaN until the
+// first layout runs; snapshotPositions() then omits them from the
+// animator's `from` map so they snap-fade-in at their destination
+// rather than streaking across the canvas from an arbitrary point.
+const UNINIT = Number.NaN;
+
+const animator = createAnimator();
+const hitCache = createHitTreeCache<WorkerNode>();
 let tick = 0;
+let frameTimer: ReturnType<typeof setInterval> | null = null;
 
-// quadtree for hit-testing. rebuilt lazily on first query after the
-// sim emits a fresh position frame (or topology change). marking
-// stale on every tick is cheap; the rebuild only happens when the
-// main thread actually asks (pointer hover / down / contextmenu /
-// lasso). extracted to `./hit/hitTreeCache.ts` (phase 12).
-const hitCache = createHitTreeCache<SimNode>();
+// ---------- helpers -----------------------------------------------------
 
-// density-aware collide radii used to live in `./sim/collideRadii.ts`
-// (deleted in the phase 1 reset, 2026-05-26). a follow-up
-// `resolveResidualOverlaps` post-tick separation pass was also
-// deleted in phase 2.5 (2026-05-26) — it was a perf workaround for
-// 700+ node graphs that we no longer render at that scale, and it
-// was actively pushing nodes apart that d3-force's stock
-// `forceCollide` would otherwise leave alone.
+function toLayoutNodes(): LayoutNode[] {
+  return nodeInits.map((n) => ({
+    id: n.id,
+    kind: n.kind,
+    albumCount: n.albumCount,
+  }));
+}
 
-// relation curve helpers + buildSim live in `./sim/buildSim.ts`.
-// the per-relation strength lookup is no longer consulted there
-// after the phase 1 reset (2026-05-26) deleted the directional /
-// endpoint-count / relation-curve scaffolding.
+function toLayoutEdges(): LayoutEdge[] {
+  // prefer derived edges when edge derivation is on; fall back to
+  // whatever the most recent update passed in via `simLinks`.
+  if (derivedEdges.length > 0) {
+    return derivedEdges.map((e) => ({
+      source: typeof e.source === "string" ? e.source : e.source.id,
+      target: typeof e.target === "string" ? e.target : e.target.id,
+    }));
+  }
+  return lastLinks.map((l) => ({ source: l.source, target: l.target }));
+}
 
-// endpoint-count link tuning was removed in the phase 1 reset.
+// retained-only for the no-derive fallback path.
+let lastLinks: { source: string; target: string }[] = [];
 
-// directional hub layout helpers were removed in the phase 1 reset.
+function ensurePivot(): string | null {
+  if (pivotId && nodes.some((n) => n.id === pivotId)) return pivotId;
+  // desired pivot isn't present in the node list (yet). DON'T
+  // overwrite `pivotId` here — a subsequent update may bring the
+  // node in, and we want the very next relayout to honor the
+  // original request. compute a temporary fallback for *this*
+  // pass only.
+  const ledges = toLayoutEdges();
+  if (ledges.length > 0) {
+    const degree = new Map<string, number>();
+    for (const e of ledges) {
+      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+    }
+    // prefer a hub-kind node with neighbors (matches the historical
+    // "start on a hub triangle" feel); fall back to any node with
+    // neighbors.
+    let bestHub: string | null = null;
+    let bestHubDeg = 0;
+    let bestAny: string | null = null;
+    let bestAnyDeg = 0;
+    for (const n of nodes) {
+      const d = degree.get(n.id) ?? 0;
+      if (d === 0) continue;
+      if (n.kind === "hub" && d > bestHubDeg) {
+        bestHubDeg = d;
+        bestHub = n.id;
+      }
+      if (d > bestAnyDeg) {
+        bestAnyDeg = d;
+        bestAny = n.id;
+      }
+    }
+    const fallback = bestHub ?? bestAny;
+    if (fallback) return fallback;
+  }
+  // no edges (or no connected nodes): fall back to first hub, then
+  // first node, so the layout still has *some* center.
+  const firstHub = nodes.find((n) => n.kind === "hub");
+  return firstHub?.id ?? nodes[0]?.id ?? null;
+}
 
-function emitPositions() {
+function snapshotPositions(): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  for (const n of nodes) {
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+    out.set(n.id, { x: n.x, y: n.y });
+  }
+  return out;
+}
+
+function relayout(): {
+  positions: Map<string, { x: number; y: number }>;
+  order: string[];
+} {
+  const pivot = ensurePivot();
+  if (!pivot) return { positions: new Map(), order: [] };
+  const lnodes = toLayoutNodes();
+  const ledges = toLayoutEdges();
+  const layout = graphLayout(lnodes, ledges, {
+    pivotId: pivot,
+    viewport: { width: config.width, height: config.height },
+    nodeSize: config.nodeSize,
+    stubToggles,
+  });
+  // every visible node gets its computed layout position. invisible
+  // nodes (disconnected from pivot in the edge graph, or trimmed by
+  // hopHorizon) get a deterministic outer-ring slot so they stay
+  // browsable instead of stacking onto pivot. ring index + angle are
+  // derived from a stable hash of the node id so re-layouts don't
+  // jitter them and so the same node lands in the same spot every
+  // time. packing is intentionally dense (small step, many per ring)
+  // because in the current data model most entity nodes have no
+  // structural edge to the scaffold and would otherwise dominate the
+  // viewport.
+  const pivotPos = layout.positions.get(pivot) ?? {
+    x: config.width / 2,
+    y: config.height / 2,
+  };
+  const baseSize = config.nodeSize ?? 56;
+  // ring 0 sits just past the deepest visible bloom ring; subsequent
+  // rings step out by roughly one node diameter so neighbors don't
+  // physically overlap. count per ring scales with circumference so
+  // packing density stays roughly constant.
+  const minDim = Math.min(config.width, config.height);
+  const orphanRing0 = Math.max(minDim * 0.32, baseSize * 3.2);
+  const orphanRingStep = baseSize * 1.1;
+  const orphansPerRing = (ring: number): number => {
+    const r = orphanRing0 + ring * orphanRingStep;
+    return Math.max(8, Math.floor((2 * Math.PI * r) / (baseSize * 1.05)));
+  };
+  let orphanIdx = 0;
+  let orphanRing = 0;
+  let orphanRingCap = orphansPerRing(0);
+  let orphanRingStart = 0;
+  const out = new Map<string, { x: number; y: number }>();
+  for (const n of nodes) {
+    const p = layout.positions.get(n.id);
+    if (p) {
+      out.set(n.id, { x: p.x, y: p.y });
+      continue;
+    }
+    if (orphanIdx - orphanRingStart >= orphanRingCap) {
+      orphanRing++;
+      orphanRingStart = orphanIdx;
+      orphanRingCap = orphansPerRing(orphanRing);
+    }
+    const slot = orphanIdx - orphanRingStart;
+    const r = orphanRing0 + orphanRing * orphanRingStep;
+    // golden-angle offset per ring so adjacent rings don't line up
+    // radially; per-id hash jitter within the slot so reorderings
+    // don't shuffle everyone.
+    const idHash = hashStringToUnit(n.id);
+    const angle =
+      (slot / orphanRingCap) * Math.PI * 2 +
+      orphanRing * 2.39996 +
+      idHash * ((Math.PI * 2) / orphanRingCap);
+    out.set(n.id, {
+      x: pivotPos.x + Math.cos(angle) * r,
+      y: pivotPos.y + Math.sin(angle) * r,
+    });
+    orphanIdx++;
+  }
+  return { positions: out, order: nodes.map((n) => n.id) };
+}
+
+// stable string → [0,1) hash. fnv-1a 32-bit, scaled. used to give
+// orphan nodes deterministic angle jitter inside their ring slot.
+function hashStringToUnit(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+function emitPositions(): void {
   const tickStart = performance.now();
   performance.mark("graph-tick-start");
-  const buf = bufPool.obtain(simNodes.length);
-  for (let i = 0; i < simNodes.length; i++) {
-    const n = simNodes[i];
-    buf[i * 2] = n.x ?? 0;
-    buf[i * 2 + 1] = n.y ?? 0;
+  const frame = animator.tick(performance.now());
+  // copy into a fresh Float32Array (worker.tick already returns one)
+  // and apply to local nodes so hit-test sees the latest geometry.
+  for (let i = 0; i < nodes.length; i++) {
+    nodes[i].x = frame.buf[i * 2];
+    nodes[i].y = frame.buf[i * 2 + 1];
   }
   tick++;
   hitCache.markStale();
   const tickMs = performance.now() - tickStart;
   post(
-    { type: "positions", buf, tick, alpha: sim?.alpha() ?? 0, tickMs },
-    [buf.buffer],
+    { type: "positions", buf: frame.buf, tick, alpha: frame.done ? 0 : 1, tickMs },
+    [frame.buf.buffer],
   );
   performance.measure("graph-tick", "graph-tick-start");
   performance.clearMarks("graph-tick-start");
+  if (frame.done) stopFrameTimer();
 }
 
-// ----- build / rebuild --------------------------------------------------
+function startFrameTimer(): void {
+  if (frameTimer != null) return;
+  // ~60Hz. dedicated workers don't have requestAnimationFrame; this
+  // is the standard substitute. cheap when the animator is at rest
+  // since we stop the interval once it's done.
+  frameTimer = setInterval(emitPositions, 16);
+}
 
-// the heavy lifting (force config, link distance / strength curves,
-// charge profile per node class, directional hub layout, collide
-// radii, cool-down profile) lives in `./sim/buildSim.ts` (phase 12).
-// this wrapper keeps the module-state ownership + the topology /
-// alpha kick logic so existing callers (`init`, `update`,
-// `setEnabledKinds`) keep the same control surface.
-function buildSim(mode: UpdateMode) {
-  performance.mark("graph-build-start");
-  if (sim) sim.stop();
+function stopFrameTimer(): void {
+  if (frameTimer == null) return;
+  clearInterval(frameTimer);
+  frameTimer = null;
+}
 
-  const prevCount = prevSimNodeCount;
-  prevSimNodeCount = simNodes.length;
-
-  sim = buildSimulation({
-    nodes: simNodes,
-    links: simLinks,
-    config,
-    relationStrengths,
-    tuningOverrides,
-    onTick: emitPositions,
-  });
-
-  if (mode === "fresh") {
-    sim.alpha(1).restart();
-  } else if (mode === "quiet") {
-    sim.alpha(0).stop();
-    // still emit one frame so main can render any new nodes.
-    emitPositions();
-  } else {
-    // nudge: 0.05 is normally fine for incremental updates. but when the
-    // topology changes significantly (many nodes added OR removed), the
-    // layout needs real energy:
-    //   - shrink: survivors still spread to old positions → need force
-    //     to pull them together.
-    //   - grow: new nodes land at phyllotaxis seeds (spread out) → need
-    //     force to pull them toward their connected hubs.
-    // either way, 0.5 gives enough ticks for the active tuning settings
-    // (incl. d3 preset with alphaDecay=0.023) to converge a clean layout.
-    const changed =
-      prevCount > 0 &&
-      (simNodes.length < prevCount * 0.7 || simNodes.length > prevCount * 1.3);
-    sim.alpha(changed ? 0.5 : 0.05).restart();
-  }
-
+function rePivot(durationMs?: number): void {
+  const from: Map<string, { x: number; y: number }> = snapshotPositions();
+  const to = relayout();
+  animator.start(
+    { order: nodes.map((n) => n.id), positions: from },
+    { order: to.order, positions: to.positions },
+    durationMs,
+  );
+  startFrameTimer();
   post({
     type: "topology",
-    nodeCount: simNodes.length,
-    edgeCount: simLinks.length,
-    alpha: sim.alpha(),
+    nodeCount: nodes.length,
+    edgeCount: derivedEdges.length || lastLinks.length,
+    alpha: 1,
   });
-  performance.measure("graph-build", "graph-build-start");
-  performance.clearMarks("graph-build-start");
 }
 
-/** merge incoming nodes by id with the current sim nodes, preserving
- *  x/y/vx/vy/fx/fy of survivors so the sim doesn't visibly shuffle on
- *  every topology update. brand-new nodes are seeded from the
- *  caller-provided x/y (main thread does phyllotaxis up there). */
-function mergeNodes(incoming: SimNodeInit[]): SimNode[] {
-  const prev = new Map(simNodes.map((n) => [n.id, n] as const));
+function mergeNodes(incoming: SimNodeInit[]): WorkerNode[] {
+  const prev = new Map(nodes.map((n) => [n.id, n] as const));
   return incoming.map((n) => {
     const p = prev.get(n.id);
     if (p) {
       p.kind = n.kind;
-      // matchedByDrill can flip between rebuilds (album becomes contextual or
-      // re-matches the active drill) — always sync it from the latest payload.
-      p.matchedByDrill = n.matchedByDrill;
-      if (n.fx !== undefined) p.fx = n.fx;
-      if (n.fy !== undefined) p.fy = n.fy;
       return p;
     }
     return {
       id: n.id,
       kind: n.kind,
-      x: n.x,
-      y: n.y,
-      fx: n.fx ?? null,
-      fy: n.fy ?? null,
-    } as SimNode;
+      x: n.x ?? UNINIT,
+      y: n.y ?? UNINIT,
+    };
   });
 }
 
-function rebuildLinks(incoming: SimLinkInit[]) {
-  const byId = new Map(simNodes.map((n) => [n.id, n]));
-  simLinks = incoming
-    .map((l) => {
-      const s = byId.get(l.source);
-      const t = byId.get(l.target);
-      if (!s || !t) return null;
-      return {
-        source: s,
-        target: t,
-        kind: String(l.kind),
-        weight: l.weight,
-        label: l.label,
-      } as SimLink;
-    })
-    .filter((x): x is SimLink => x !== null);
-}
+// ---------- edge derivation (carried over from sim era) -----------------
 
-/** phase 4: build `GraphNodeData`-shaped node payloads from the
- *  taxonomy fields the main thread sent on `SimNodeInit`. lets us
- *  call `buildRelationEdges` directly without round-tripping through
- *  the main thread. fields missing from incoming nodes default to
- *  empty arrays / nulls so the edge builder treats them as
- *  participating in no taxonomic groups. */
 function adaptNodesForEdgeDerivation(incoming: SimNodeInit[]): GraphNodeData[] {
   return incoming.map((n) => {
     const tags = (n.tagLabels ?? []).map((label) => ({ label, weight: 0 }));
-    // hubs flow through the artist branch — they share the artist node-data
-    // shape on the main thread, and their taxonomy arrays are empty so the
-    // relation-edge builder produces nothing for them either way.
     if (n.kind === "artist" || n.kind === "hub") {
       return {
         id: n.id,
@@ -279,38 +354,6 @@ function adaptNodesForEdgeDerivation(incoming: SimNodeInit[]): GraphNodeData[] {
   });
 }
 
-/** build sim links from the cached `derivedEdges`, optionally
- *  filtered by the currently-enabled relation kinds. drops any edge
- *  whose endpoints are missing from `simNodes` (can happen briefly
- *  between an `update` and the next render frame). */
-function rebuildSimLinksFromDerived(): void {
-  const byId = new Map(simNodes.map((n) => [n.id, n]));
-  const enabled = edgeConfig?.enabledKinds
-    ? new Set<string>(edgeConfig.enabledKinds as string[])
-    : null;
-  simLinks = derivedEdges
-    .filter((e) => !enabled || enabled.has(String(e.kind)))
-    .map((e) => {
-      const srcId = typeof e.source === "string" ? e.source : e.source.id;
-      const tgtId = typeof e.target === "string" ? e.target : e.target.id;
-      const s = byId.get(srcId);
-      const t = byId.get(tgtId);
-      if (!s || !t) return null;
-      return {
-        source: s,
-        target: t,
-        kind: String(e.kind),
-        weight: e.weight,
-        label: e.label,
-      } as SimLink;
-    })
-    .filter((x): x is SimLink => x !== null);
-}
-
-/** derive edges from cached node taxonomy + emit them back to the
- *  main thread for ui consumption. also rebuilds `simLinks` filtered
- *  by `enabledKinds` so the sim picks up the new topology on its
- *  next build. */
 function deriveAndEmitEdges(): void {
   if (!edgeConfig) return;
   performance.mark("graph-edges-start");
@@ -319,112 +362,99 @@ function deriveAndEmitEdges(): void {
     minGroupSize: edgeConfig.minGroupSize,
     relatedArtists: edgeConfig.relatedArtists,
   });
-  rebuildSimLinksFromDerived();
   performance.measure("graph-edges-build", "graph-edges-start");
   performance.clearMarks("graph-edges-start");
   post({ type: "edges", edges: derivedEdges });
 }
 
-// ----- message handling -------------------------------------------------
+// ---------- message dispatch --------------------------------------------
 
 ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
   const msg = e.data;
   switch (msg.type) {
     case "init": {
       config = msg.config;
-      relationStrengths = msg.relationStrengths;
-      simNodes = mergeNodes(msg.nodes);
+      nodeInits = msg.nodes;
+      nodes = mergeNodes(msg.nodes);
       if (msg.edgeConfig) {
         edgeConfig = msg.edgeConfig;
         edgeNodes = adaptNodesForEdgeDerivation(msg.nodes);
         deriveAndEmitEdges();
       } else {
         edgeConfig = null;
-        rebuildLinks(msg.links);
+        derivedEdges = [];
+        lastLinks = msg.links.map((l) => ({ source: l.source, target: l.target }));
       }
+      // honor an explicit initial pivot from the parent (e.g. the
+      // library view's active remote). when omitted, ensurePivot()
+      // falls back to a smart default.
+      pivotId = msg.pivotId ?? null;
+      stubToggles.clear();
       hitCache.markStale();
       post({ type: "ready" });
-      buildSim("fresh");
-      if (config.paused) sim?.stop();
+      rePivot();
       break;
     }
     case "update": {
-      relationStrengths = msg.relationStrengths;
-      simNodes = mergeNodes(msg.nodes);
+      nodeInits = msg.nodes;
+      nodes = mergeNodes(msg.nodes);
       if (msg.edgeConfig) {
         edgeConfig = msg.edgeConfig;
         edgeNodes = adaptNodesForEdgeDerivation(msg.nodes);
         deriveAndEmitEdges();
       } else {
         edgeConfig = null;
-        rebuildLinks(msg.links);
+        derivedEdges = [];
+        lastLinks = msg.links.map((l) => ({ source: l.source, target: l.target }));
       }
       hitCache.markStale();
-      buildSim(msg.mode);
+      // a `quiet` update means: don't re-pivot, just absorb the new
+      // node set. emit one frame at current geometry so the main
+      // thread sees newcomers (placed off-screen until next layout).
+      if (msg.mode === "quiet") {
+        emitOneStaticFrame();
+      } else {
+        rePivot();
+      }
+      break;
+    }
+    case "setPivot": {
+      pivotId = msg.nodeId;
+      stubToggles.clear();
+      rePivot();
+      break;
+    }
+    case "setStubToggle": {
+      stubToggles.set(msg.parentId, msg.index);
+      rePivot();
       break;
     }
     case "resize": {
       config.width = msg.width;
       config.height = msg.height;
-      sim?.force("center", forceCenter(msg.width / 2, msg.height / 2));
-      if (msg.reheat) sim?.alpha(0.05).restart();
-      break;
-    }
-    case "pin": {
-      const n = simNodes.find((x) => x.id === msg.nodeId);
-      if (n) {
-        n.fx = msg.x;
-        n.fy = msg.y;
-      }
-      break;
-    }
-    case "unpin": {
-      const n = simNodes.find((x) => x.id === msg.nodeId);
-      if (n) {
-        n.fx = null;
-        n.fy = null;
-      }
-      break;
-    }
-    case "alphaTarget": {
-      if (!sim) break;
-      sim.alphaTarget(msg.target);
-      if (msg.restart && msg.target > 0) sim.restart();
-      break;
-    }
-    case "pause": {
-      sim?.stop();
-      break;
-    }
-    case "resume": {
-      if (!sim) break;
-      if (msg.alpha != null) sim.alpha(msg.alpha);
-      sim.restart();
-      break;
-    }
-    case "reheat": {
-      sim?.alpha(msg.alpha).restart();
+      if (msg.reheat) rePivot();
       break;
     }
     case "setEnabledKinds": {
-      if (!edgeConfig) break;
-      edgeConfig = { ...edgeConfig, enabledKinds: msg.kinds };
-      rebuildSimLinksFromDerived();
-      buildSim(msg.mode ?? "nudge");
-      break;
-    }
-    case "tuning": {
-      tuningOverrides = msg.overrides;
-      buildSim("fresh");
+      // edge filtering still flows through; layout consumes adjacency
+      // built from `derivedEdges`, so a kind change can shift which
+      // edges contribute to the bfs walk.
+      if (edgeConfig) {
+        edgeConfig = { ...edgeConfig, enabledKinds: msg.kinds };
+        // re-derive with the new filter to refresh adjacency.
+        deriveAndEmitEdges();
+        rePivot();
+      }
       break;
     }
     case "return": {
-      bufPool.release(msg.buf, simNodes.length);
+      // no buffer pool; new Float32Array per tick. let GC reclaim.
+      void msg;
       break;
     }
     case "hitTest": {
       performance.mark("graph-hittest-start");
-      const tree = hitCache.ensure(simNodes);
+      const tree = hitCache.ensure(nodes);
       const hit = tree.find(msg.x, msg.y, msg.radius);
       post({ type: "hitResult", id: msg.id, nodeId: hit ? hit.id : null });
       performance.measure("graph-hittest", "graph-hittest-start");
@@ -433,7 +463,7 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
     }
     case "hitRect": {
       performance.mark("graph-hitrect-start");
-      const tree = hitCache.ensure(simNodes);
+      const tree = hitCache.ensure(nodes);
       const minX = Math.min(msg.x0, msg.x1);
       const maxX = Math.max(msg.x0, msg.x1);
       const minY = Math.min(msg.y0, msg.y1);
@@ -441,13 +471,12 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
       const out: string[] = [];
       tree.visit((node, nx0, ny0, nx1, ny1) => {
         if (!("length" in node) || !node.length) {
-          // leaf chain
-          let n: { data: SimNode; next?: { data: SimNode; next?: unknown } } | undefined =
-            node as unknown as { data: SimNode; next?: { data: SimNode; next?: unknown } };
+          let n: { data: WorkerNode; next?: { data: WorkerNode; next?: unknown } } | undefined =
+            node as unknown as { data: WorkerNode; next?: { data: WorkerNode; next?: unknown } };
           do {
             const d = n.data;
-            const px = d.x ?? 0;
-            const py = d.y ?? 0;
+            const px = d.x;
+            const py = d.y;
             if (px >= minX && px <= maxX && py >= minY && py <= maxY) {
               out.push(d.id);
             }
@@ -461,9 +490,20 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
       performance.clearMarks("graph-hitrect-start");
       break;
     }
+    // legacy messages from the sim era; intentional no-ops. the
+    // deterministic layout doesn't drag, doesn't reheat, doesn't
+    // tune. callers stay compiling.
+    case "pin":
+    case "unpin":
+    case "alphaTarget":
+    case "pause":
+    case "resume":
+    case "reheat":
+    case "tuning": {
+      break;
+    }
     case "quit": {
-      sim?.stop();
-      sim = null;
+      stopFrameTimer();
       ctx.close();
       break;
     }
@@ -473,3 +513,24 @@ ctx.addEventListener("message", (e: MessageEvent<MainToWorker>) => {
     }
   }
 });
+
+function emitOneStaticFrame(): void {
+  // build a buffer with current node positions; no animation.
+  const buf = new Float32Array(nodes.length * 2);
+  for (let i = 0; i < nodes.length; i++) {
+    buf[i * 2] = nodes[i].x;
+    buf[i * 2 + 1] = nodes[i].y;
+  }
+  tick++;
+  hitCache.markStale();
+  post(
+    { type: "positions", buf, tick, alpha: 0, tickMs: 0 },
+    [buf.buffer],
+  );
+  post({
+    type: "topology",
+    nodeCount: nodes.length,
+    edgeCount: derivedEdges.length || lastLinks.length,
+    alpha: 0,
+  });
+}

@@ -122,6 +122,11 @@ export interface CreateGraphLibraryViewOpts {
    *  drilling. the canvas paints them in a ring around the hovered
    *  node with thin spokes. return `[]` (or omit) to disable. */
   getHoverPreview?: (node: GraphNodeData) => GraphNodeData[];
+  /** id of the node the deterministic bloom layout should center on.
+   *  in the library view this is the per-remote hub id of the active
+   *  remote. when omitted, the worker picks a sensible default (a
+   *  connected hub, else any hub, else the first node). */
+  pivotId?: () => string | null | undefined;
 }
 
 export interface GraphLibraryView {
@@ -721,6 +726,7 @@ export function createGraphLibraryView(opts: CreateGraphLibraryViewOpts): GraphL
         relationStrengths={relationStrengthConfig()}
         lockNodes={opts.lockNodes ?? false}
         selectedId={canvasSelectedId()}
+        pivotId={opts.pivotId?.() ?? undefined}
         selectedEdges={canvasEdges()}
         tool={tool()}
         edgeCurvature={wireTension() * 0.5}

@@ -22,7 +22,6 @@ import { createEffect, createMemo, createSignal, onCleanup, onMount } from "soli
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { drawNode } from "./draw/drawNode";
 import * as hitGeo from "./canvas/hitGeometry";
-import * as seedGrouping from "./canvas/seedGrouping";
 import { relationMeta } from "./relations";
 import { isAnyHubId, relationSupportsValueLayer } from "./hubNodes";
 import { HUB_SIZE_MAX_MUL, hubSizeMul } from "./hubSize";
@@ -77,6 +76,13 @@ export interface GraphCanvasProps {
   nodeSize?: number;
   /** controlled selection (parent owns state) */
   selectedId?: string | null;
+  /** controlled pivot — the node the deterministic layout blooms
+   *  outward from. when this changes, the worker re-runs the layout
+   *  and animates from the current snapshot to the new bloom. when
+   *  omitted, falls back to `selectedId`, and when that's also
+   *  missing the worker picks a sensible default (a hub with
+   *  neighbors, else the first hub, else the first node). */
+  pivotId?: string | null;
   /** node click — second arg conveys keyboard modifier intent:
    *  `multi=true` when shift/meta/ctrl was held during the click,
    *  signalling the parent to toggle into a multi-selection set. */
@@ -773,10 +779,6 @@ export function GraphCanvas(props: GraphCanvasProps) {
     rebuildEdgePairs();
   }
 
-  function seedGroupKey(node: GraphNodeData): string {
-    return seedGrouping.seedGroupKey(node);
-  }
-
   function rebuild() {
     if (!canvasEl) return;
 
@@ -800,131 +802,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
           fy: p.fy,
         } as SimNode;
       }
-      // brand-new node: positions filled in below from a phyllotaxis
-      // seed. clone the data so the upstream array isn't mutated by the
-      // sim.
+      // brand-new node: x/y stay undefined for now. step below seeds
+      // any new node with a connected, positioned neighbour. any
+      // truly-orphan node (no positioned neighbour) is left undefined
+      // so d3's built-in phyllotaxis seeds it near origin in the
+      // worker, after which forceCenter pulls it onto the canvas.
       return { ...n } as SimNode;
     }) as SimNode[];
-
-    // pre-seed any node that's still missing x/y (i.e. truly new).
-    // grouped seeding starts each batch in coarse clusters (artist/
-    // label/era/genre) so dense pages enter already separated.
-    // phase 2.5 (2026-05-26): replaced the piecewise density-aware
-    // spacing tables (cluster sz*7.6 \u2192 13.2 by node count) with
-    // small constants. we now walk out incrementally with much
-    // smaller graphs, and the old spread-by-1000-px seeding was
-    // landing nodes so far apart that link springs couldn't pull
-    // them back into a tight layout.
-    const cx = width / 2;
-    const cy = height / 2;
-    const sz0 = nodeSize();
-    const golden = 2.399963229728653;
-    const clusterSpacing = sz0 * 2.5;
-    const localStep = sz0 * 1.0;
-
-    const groups = new Map<string, SimNode[]>();
-    const centroid = new Map<string, { x: number; y: number; count: number }>();
-
-    for (const n of simNodes) {
-      const key = seedGroupKey(n);
-      if (n.x != null && n.y != null) {
-        const c = centroid.get(key);
-        if (c) {
-          c.x += n.x;
-          c.y += n.y;
-          c.count += 1;
-        } else {
-          centroid.set(key, { x: n.x, y: n.y, count: 1 });
-        }
-      } else {
-        const list = groups.get(key);
-        if (list) list.push(n);
-        else groups.set(key, [n]);
-      }
-    }
-
-    const groupEntries = Array.from(groups.entries()).sort((a, b) => {
-      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
-      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
-    });
-
-    const familyOf = seedGrouping.familyOf;
-    const byFamily = new Map<string, Array<[string, SimNode[]]>>();
-    for (const entry of groupEntries) {
-      const fam = familyOf(entry[0]);
-      const arr = byFamily.get(fam);
-      if (arr) arr.push(entry);
-      else byFamily.set(fam, [entry]);
-    }
-    const familyEntries = Array.from(byFamily.entries()).sort((a, b) => {
-      const sizeA = a[1].reduce((sum, item) => sum + item[1].length, 0);
-      const sizeB = b[1].reduce((sum, item) => sum + item[1].length, 0);
-      if (sizeB !== sizeA) return sizeB - sizeA;
-      return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
-    });
-
-    const familySpacing = clusterSpacing * 2.15;
-    const hubLaneOffset = seedGrouping.hubLaneOffset;
-    let familyIdx = 0;
-    for (const [family, entries] of familyEntries) {
-      let fx = cx;
-      let fy = cy;
-      let weighted = 0;
-      for (const [key] of entries) {
-        const c = centroid.get(key);
-        if (!c || c.count <= 0) continue;
-        fx += (c.x / c.count) * c.count;
-        fy += (c.y / c.count) * c.count;
-        weighted += c.count;
-      }
-      if (weighted > 0) {
-        fx /= weighted;
-        fy /= weighted;
-      } else {
-        const ga = familyIdx * golden;
-        const gr = Math.sqrt(familyIdx + 0.9) * familySpacing;
-        fx = cx + gr * Math.cos(ga);
-        fy = cy + gr * Math.sin(ga);
-        familyIdx++;
-      }
-
-      const groupRing = family === "artist" ? clusterSpacing * 0.42 : clusterSpacing * 0.72;
-      for (let gi = 0; gi < entries.length; gi++) {
-        const [key, bucket] = entries[gi];
-        const c = centroid.get(key);
-        let ax = fx;
-        let ay = fy;
-        if (c && c.count > 0) {
-          ax = c.x / c.count;
-          ay = c.y / c.count;
-        } else if (entries.length > 1) {
-          const ga = gi * golden;
-          const gr = Math.sqrt(gi + 0.6) * groupRing;
-          ax = fx + gr * Math.cos(ga);
-          ay = fy + gr * Math.sin(ga);
-        }
-
-        // synthetic hub classes use fixed lane offsets so remote /
-        // relation / value hubs don't collapse onto each other across
-        // rebuilds when centroid reuse would otherwise preserve overlap.
-        const lane = hubLaneOffset(key);
-        if (lane) {
-          ax = fx + lane.ox * clusterSpacing;
-          ay = fy + lane.oy * clusterSpacing;
-        }
-
-        for (let i = 0; i < bucket.length; i++) {
-          const n = bucket[i];
-          const groupLocalStep = key.startsWith("artist:") ? localStep * 0.6 : localStep;
-          const a = i * golden;
-          const r = Math.sqrt(i + 0.5) * groupLocalStep;
-          n.x = ax + r * Math.cos(a);
-          n.y = ay + r * Math.sin(a);
-          n.vx = 0;
-          n.vy = 0;
-        }
-      }
-    }
 
     const byId = new Map(simNodes.map((n) => [n.id, n]));
     simNodesById = byId;
@@ -952,6 +836,31 @@ export function GraphCanvas(props: GraphCanvasProps) {
         })
         .filter((x): x is SimLink => x !== null);
       rebuildEdgePairs();
+    }
+
+    // phase 2.6 (2026-05-26): seed any truly-new node (x/y still
+    // undefined) at its first connected positioned neighbour, plus a
+    // small jitter. this replaces the entire phyllotaxis / family /
+    // centroid / hub-lane pre-layout system that used to live here.
+    // see docs/graph-reset-plan.md phase 2.6 for the rationale.
+    // any node left without x/y (orphan, or only connected to other
+    // unseeded nodes) is left undefined — d3's built-in phyllotaxis
+    // seeds it near origin in the worker and forceCenter pulls it in.
+    const jitter = nodeSize() / 2;
+    for (const link of simLinks) {
+      const s = link.source as SimNode;
+      const t = link.target as SimNode;
+      if (s.x == null && t.x != null) {
+        s.x = (t.x as number) + (Math.random() - 0.5) * jitter * 2;
+        s.y = (t.y as number) + (Math.random() - 0.5) * jitter * 2;
+        s.vx = 0;
+        s.vy = 0;
+      } else if (t.x == null && s.x != null) {
+        t.x = (s.x as number) + (Math.random() - 0.5) * jitter * 2;
+        t.y = (s.y as number) + (Math.random() - 0.5) * jitter * 2;
+        t.vx = 0;
+        t.vy = 0;
+      }
     }
 
     // package the sim-relevant subset of nodes/links for the worker.
@@ -1024,7 +933,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
           paused: !!props.paused,
         },
         edgeConfig,
-        relationStrengths
+        relationStrengths,
+        props.pivotId ?? props.selectedId ?? undefined
       );
       if (
         typeof console !== "undefined" &&
@@ -2620,24 +2530,19 @@ export function GraphCanvas(props: GraphCanvasProps) {
       // pointerup already fired \u2014 treat as click.
       setDrag(null);
       if (hit) {
-        setSelectedEdgeKeys(new Set<string>());
-        props.onEdgeSelect?.(null);
         props.onSelect?.(hit, { multi: d.multi });
         if (!d.multi && props.selectedId === undefined) setInternalSelected(hit.id);
+        // deterministic layout: clicking a node re-pivots the bloom
+        // around it. worker animates from current positions to the
+        // new layout (~280ms).
+        if (!d.multi) worker?.setPivot(hit.id);
       } else {
-        // click on empty \u2014 mirror the old onPointerUp empty-pan path
-        const edge = findEdgeAt(d.startSx, d.startSy);
-        if (edge) {
-          setSelectedEdgeKeys(new Set([edge._key]));
-          props.onSelect?.(null);
-          if (props.selectedId === undefined) setInternalSelected(null);
-          props.onEdgeSelect?.(edge);
-        } else {
-          setSelectedEdgeKeys(new Set<string>());
-          props.onEdgeSelect?.(null);
-          props.onSelect?.(null);
-          if (props.selectedId === undefined) setInternalSelected(null);
-        }
+        // click on empty space \u2014 clear selection. edge-click was
+        // removed in phase 2.6.x (2026-05-26); edges are still
+        // hover-tooltipped via resolveHover but no longer steal
+        // clicks. node clicks cover meaningful selection cases.
+        props.onSelect?.(null);
+        if (props.selectedId === undefined) setInternalSelected(null);
       }
       requestDraw();
       return;
@@ -2840,12 +2745,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
       d.node.fy = null;
       worker?.unpin(d.node.id);
       if (!props.lockNodes) worker?.alphaTarget(0);
-      // click on node → select; clears any selected edges. modifier
-      // keys (shift/meta/ctrl) signal the parent to add to a multi-
-      // selection set instead of replacing the primary selection.
+      // click on node → select; modifier keys (shift/meta/ctrl) signal
+      // the parent to add to a multi-selection set instead of replacing
+      // the primary selection.
       const multi = e.shiftKey || e.metaKey || e.ctrlKey;
-      setSelectedEdgeKeys(new Set<string>());
-      props.onEdgeSelect?.(null);
       props.onSelect?.(d.node, { multi });
       // only mirror to internal single-selection when not modifier-add;
       // additive picks live in the parent's selectedIds set.
@@ -2872,21 +2775,10 @@ export function GraphCanvas(props: GraphCanvasProps) {
       }
     } else if (d.type === "pan") {
       if (!d.moved) {
-        // click on empty space — check for edge hit; otherwise clear selection
-        const [sx, sy] = clientToScreen(e);
-        const edge = findEdgeAt(sx, sy);
-        if (edge) {
-          setSelectedEdgeKeys(new Set([edge._key]));
-          // clear node selection so edge is the sole focus
-          props.onSelect?.(null);
-          if (props.selectedId === undefined) setInternalSelected(null);
-          props.onEdgeSelect?.(edge);
-        } else {
-          setSelectedEdgeKeys(new Set<string>());
-          props.onEdgeSelect?.(null);
-          props.onSelect?.(null);
-          if (props.selectedId === undefined) setInternalSelected(null);
-        }
+        // click on empty space — clear selection. (phase 2.6.x: edge
+        // click was removed; tooltip-on-hover still works.)
+        props.onSelect?.(null);
+        if (props.selectedId === undefined) setInternalSelected(null);
       }
     }
     setDrag(null);
@@ -3129,6 +3021,29 @@ export function GraphCanvas(props: GraphCanvasProps) {
     if (!worker) return;
     if (props.paused) worker.pause();
     else worker.resume(0.2);
+  });
+
+  // pivot sync: when the parent declares a pivot (the active remote,
+  // a programmatic focus, etc.), tell the worker so the deterministic
+  // bloom re-centers. falls through to selectedId when pivotId is
+  // omitted so a bare click-to-focus parent still gets sensible
+  // behaviour without wiring a second prop. emits at most once per
+  // change; the worker no-ops if the id is already the active pivot.
+  let lastPivotSent: string | null = null;
+  createEffect(() => {
+    const explicit = props.pivotId;
+    const next = explicit ?? props.selectedId ?? null;
+    if (next === lastPivotSent) return;
+    if (!worker || !next) {
+      // remember the desired pivot even if the worker isn't ready
+      // yet — the rebuild effect will run init shortly and the worker
+      // picks its own default; once the worker is alive a later
+      // change to the same value will re-emit.
+      lastPivotSent = next;
+      return;
+    }
+    lastPivotSent = next;
+    worker.setPivot(next);
   });
 
   // redraw on curvature change

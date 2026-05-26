@@ -56,6 +56,7 @@ export interface GraphWorkerClient {
     config: SimConfig,
     edgeConfig?: EdgeDeriveConfig,
     relationStrengths?: Record<string, number>,
+    pivotId?: string,
   ): void;
   update(
     nodes: SimNodeInit[],
@@ -80,10 +81,12 @@ export interface GraphWorkerClient {
    *  immediately. send `{}` to reset all overrides to compiled-in
    *  defaults. */
   sendTuning(overrides: TuningOverrides): void;
-  /** debug: push live force-tuning overrides; worker rebuilds sim
-   *  immediately. send `{}` to reset all overrides to compiled-in
-   *  defaults. */
-  sendTuning(overrides: TuningOverrides): void;
+  /** change the layout pivot. worker re-runs the deterministic
+   *  layout for the new pivot and animates from current positions. */
+  setPivot(nodeId: string): void;
+  /** toggle the surplus set behind a "more" stub. index 0 =
+   *  visible set, 1 = surplus set. */
+  setStubToggle(parentId: string, index: number): void;
   hitTest(x: number, y: number, radius: number, signal?: AbortSignal): Promise<string | null>;
   hitRect(x0: number, y0: number, x1: number, y1: number, signal?: AbortSignal): Promise<string[]>;
   /** subscribe to position ticks. listener owns `buf` and MUST call
@@ -195,8 +198,8 @@ export function createGraphWorkerClient(): GraphWorkerClient {
 
   return {
     ready: () => readyPromise,
-    init(nodes, links, config, edgeConfig, relationStrengths) {
-      post({ type: "init", nodes, links, config, edgeConfig, relationStrengths });
+    init(nodes, links, config, edgeConfig, relationStrengths, pivotId) {
+      post({ type: "init", nodes, links, config, edgeConfig, relationStrengths, pivotId });
     },
     update(nodes, links, mode, edgeConfig, relationStrengths) {
       post({ type: "update", nodes, links, mode, edgeConfig, relationStrengths });
@@ -227,6 +230,12 @@ export function createGraphWorkerClient(): GraphWorkerClient {
     },
     sendTuning(overrides) {
       post({ type: "tuning", overrides });
+    },
+    setPivot(nodeId) {
+      post({ type: "setPivot", nodeId });
+    },
+    setStubToggle(parentId, index) {
+      post({ type: "setStubToggle", parentId, index });
     },
     hitTest(x, y, radius, signal) {
       if (signal?.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
