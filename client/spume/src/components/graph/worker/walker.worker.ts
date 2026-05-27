@@ -54,6 +54,10 @@ interface SimNode extends SimulationNodeDatum {
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
   isBreadcrumb: boolean;
+  /** mirrors WalkEdge.isRelatedArtist — forceLink uses this to apply a
+   *  shorter distance + stronger spring so related-artist pairs are
+   *  visually clustered. */
+  isRelatedArtist?: boolean;
 }
 
 // ---- state -----------------------------------------------------------------
@@ -158,7 +162,12 @@ function nodeRadius(role: string, childCount: number): number {
     case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
     case "value":    return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
-    case "artist":   return 27;
+    // artists grow with album count when they have more than a couple of
+    // albums, which boosts the parent-radius input into computeTargets'
+    // baseR/radialStep and gives related-artist ghosts + album rings
+    // breathing room around a fat catalog. 3 albums → 27 (unchanged),
+    // 7 → ~37, 15 → ~46, 30+ → caps at ~51.
+    case "artist":   return 27 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 5, 24);
     case "album":    return 16;
     case "ghost_artist": return 8; // text-only, small footprint just for layout
     default:         return 14;
@@ -464,12 +473,13 @@ function buildSim() {
     const key = crossKey(src, tgt);
     if (emittedEdgeKeys.has(key)) continue;
     const isBC = breadcrumbSet.has(src) && breadcrumbSet.has(tgt);
-    simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC });
+    simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC, isRelatedArtist: e.isRelatedArtist });
     visibleEdges.push({
       sourceIdx: si,
       targetIdx: ti,
       isBreadcrumb: isBC,
       isRelatedArtist: e.isRelatedArtist,
+      isPending: e.isPending,
     });
     emittedEdgeKeys.add(key);
   }
@@ -571,12 +581,16 @@ function buildSim() {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
           const base = (s.radius + t.radius) * 2.6;
+          // related-artist edges: pull pairs in tight so the "related
+          // artist" relationship reads as a cluster rather than a long
+          // rangy wire.
+          if (d.isRelatedArtist) return (s.radius + t.radius) * 1.6;
           // keep albums hugging their parent artist. spring distance is
-          // sum-of-radii * 1.4 so it sits just past the collide radius
+          // sum-of-radii * 1.3 so it sits just past the collide radius
           // and inside the initial radial placement, which yanks albums
           // tight against their artist instead of letting them drift out.
           if (s.role === "artist" && t.role === "album")
-            return (s.radius + t.radius) * 1.4;
+            return (s.radius + t.radius) * 1.3;
           // value→artist / value→album fan-out: lots of room
           if (s.role === "value") return base * 1.8;
           return base;
@@ -584,8 +598,12 @@ function buildSim() {
         .strength((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
+          // related-artist edges: stronger spring so the pair sits
+          // close together regardless of the other taxon attractors
+          // each end is wired into.
+          if (d.isRelatedArtist) return 0.6;
           // strong spring on artist→album so albums stick close
-          if (s.role === "artist" && t.role === "album") return 0.8;
+          if (s.role === "artist" && t.role === "album") return 0.95;
           return 0.22;
         }),
     )
@@ -594,12 +612,11 @@ function buildSim() {
       forceCollide<SimNode>()
         // a bit more breathing room around leaves so labels/artwork don't
         // overlap as aggressively. hubs stay generous so their fan-outs
-        // don't get squashed. trimmed artist/album collide so albums can
-        // sit closer to their parent artist (was 2.45 / 1.9 — too pushy
-        // when combined with artist→album link distance).
+        // don't get squashed. artist/album collide bumped slightly so
+        // there's some visible padding around each tile even when packed.
         .radius((d) => {
-          if (d.role === "album") return d.radius * 1.4;
-          if (d.role === "artist") return d.radius * 1.6;
+          if (d.role === "album") return d.radius * 1.55;
+          if (d.role === "artist") return d.radius * 1.8;
           return d.radius * 1.9;
         })
         .strength(1.0)

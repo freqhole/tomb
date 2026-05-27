@@ -8,7 +8,7 @@
 // data. interaction surface kept intentionally small until product
 // requirements firm up — extend incrementally.
 
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { AlbumNodeData, ArtistNodeData, RelationKindLike } from "./types";
 import { IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
@@ -79,10 +79,44 @@ export interface ArtistDetailPopoverProps {
    *  a circular-avatar list beneath the album list. omit / empty hides
    *  the section entirely. */
   relatedArtists?: ArtistNodeData[];
+  /** optional per-row metadata keyed by `ArtistNodeData.id` — carries
+   *  the bidirectional relationship `direction` (`"outgoing"`,
+   *  `"incoming"`, `"both"`) and review `status` (`"accepted"` or
+   *  `"pending"`). when provided, the popover renders subtle direction
+   *  glyphs and a `pending` badge alongside each row. when absent, the
+   *  row renders as before. */
+  relatedArtistMeta?: Map<
+    string,
+    {
+      direction: "outgoing" | "incoming" | "both";
+      status: "accepted" | "pending";
+    }
+  >;
   /** click handler for a related-artist row — parent typically focuses
    *  the matching artist node on the graph (which keeps this popover
    *  open and swaps it to the picked artist). */
   onSelectRelatedArtist?: (artist: ArtistNodeData) => void;
+  /** optional label describing which remote the bio/image data was
+   *  fetched from. rendered as a small caption near the action row so
+   *  the user can tell when the detail data is coming from a different
+   *  remote than they expected (common in multi-remote graphs where
+   *  the active data source diverges from the selected node's remote). */
+  dataSourceRemoteName?: string | null;
+  /** id of the remote shown in `dataSourceRemoteName`. used to dim the
+   *  label when it matches the currently-selected artist's remote
+   *  (no surprise) and brighten it when it differs. */
+  dataSourceRemoteId?: string | null;
+  /** when the artist exists on multiple remotes (cross-remote cluster),
+   *  this list drives a small picker tucked next to the "data from"
+   *  caption so the user can manually choose which remote drives the
+   *  popover (bio, image, taxonomy). order matches RemoteSplitButton
+   *  conventions (parent sorts; first entry is the default). when
+   *  undefined or length <= 1, the picker is not rendered. */
+  dataSourceRemotes?: ContributingRemote[];
+  /** invoked when the user picks a different remote in the
+   *  data-source picker. parent owns the override state and should
+   *  re-render with new `dataSourceRemoteName`/`Id`. */
+  onPickDataSourceRemote?: (remoteId: string) => void;
 }
 
 export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
@@ -219,6 +253,36 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
           </div>
         </Show>
 
+        <Show when={props.dataSourceRemoteName}>
+          <div class="px-3 pb-2 -mt-1">
+            <div
+              class="text-[9px] uppercase tracking-wide text-white/45 flex items-center gap-1"
+              title="remote that supplied this artist's bio + images"
+            >
+              <span>data from</span>
+              <Show
+                when={
+                  props.dataSourceRemotes &&
+                  props.dataSourceRemotes.length > 1 &&
+                  props.onPickDataSourceRemote
+                }
+                fallback={
+                  <span class="text-white/70 normal-case tracking-normal">
+                    {props.dataSourceRemoteName}
+                  </span>
+                }
+              >
+                <DataSourceRemotePicker
+                  current={props.dataSourceRemoteId ?? null}
+                  currentName={props.dataSourceRemoteName ?? ""}
+                  remotes={props.dataSourceRemotes!}
+                  onPick={(id) => props.onPickDataSourceRemote!(id)}
+                />
+              </Show>
+            </div>
+          </div>
+        </Show>
+
         <Show when={bioText().length > 0}>
           <div class="px-3 pb-2">
             <div class="text-[10px] uppercase tracking-wide text-white/55 mb-1">bio</div>
@@ -300,17 +364,36 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                   // clickable since there's no node to focus.
                   const inLibrary = !!rel.artistId;
                   const clickable = inLibrary && !!props.onSelectRelatedArtist;
+                  const meta = () => props.relatedArtistMeta?.get(rel.id);
+                  const isPending = () => meta()?.status === "pending";
+                  const directionGlyph = () => {
+                    const d = meta()?.direction;
+                    if (d === "both") return "\u2194";
+                    if (d === "incoming") return "\u2190";
+                    return null; // outgoing or no meta — default, no glyph
+                  };
+                  const directionTitle = () => {
+                    const d = meta()?.direction;
+                    if (d === "both") return "mutual relation";
+                    if (d === "incoming") return "lists this artist as related";
+                    return undefined;
+                  };
                   return (
                     <button
                       type="button"
-                      class="flex items-center gap-2 px-1.5 py-1 rounded border border-transparent text-left transition-colors"
+                      class="flex items-center gap-2 px-1.5 py-1 rounded border text-left transition-colors"
                       classList={{
                         "hover:bg-white/5 hover:border-white/10 cursor-pointer": clickable,
                         "cursor-default": !clickable,
                         "opacity-60": !inLibrary,
+                        "border-transparent": !isPending(),
+                        // pending rows: dashed amber border so they
+                        // read as "proposed but unconfirmed" without
+                        // shouting at the user.
+                        "border-dashed border-amber-400/40": isPending(),
                       }}
                       disabled={!clickable}
-                      title={inLibrary ? undefined : "not in any loaded library"}
+                      title={inLibrary ? directionTitle() : "not in any loaded library"}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (clickable) props.onSelectRelatedArtist?.(rel);
@@ -324,6 +407,22 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                             class="text-[11px] text-white/90 leading-tight flex-1 min-w-0"
                             hoverOnly={true}
                           />
+                          <Show when={directionGlyph()}>
+                            <span
+                              class="shrink-0 text-[10px] text-white/55 leading-none"
+                              title={directionTitle()}
+                            >
+                              {directionGlyph()}
+                            </span>
+                          </Show>
+                          <Show when={isPending()}>
+                            <span
+                              class="shrink-0 text-[9px] uppercase tracking-wide text-amber-300/80 leading-none"
+                              title="proposed; not yet accepted"
+                            >
+                              pending
+                            </span>
+                          </Show>
                           <Show when={inLibrary}>
                             <span
                               class="shrink-0 w-1.5 h-1.5 rounded-full bg-[var(--color-accent-500,#ff1a9e)]"
@@ -424,6 +523,129 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
         </Show>
       </div>
     </Show>
+  );
+}
+
+// small inline picker rendered next to the "data from" caption when the
+// selected artist exists on more than one remote. lets the user choose
+// which contributing remote drives the popover content (bio, image,
+// taxonomy). same dropdown shape as RemoteSplitButton's chevron menu,
+// just collapsed into a single text-styled trigger so it sits in-line
+// with the caption.
+function DataSourceRemotePicker(props: {
+  current: string | null;
+  currentName: string;
+  remotes: ContributingRemote[];
+  onPick: (remoteId: string) => void;
+}) {
+  const [open, setOpen] = createSignal(false);
+  let containerRef: HTMLSpanElement | undefined;
+  let menuRef: HTMLDivElement | undefined;
+  const [shift, setShift] = createSignal<{ x: number; flip: boolean }>({ x: 0, flip: false });
+
+  const recomputeShift = () => {
+    if (!menuRef) return;
+    menuRef.style.transform = "";
+    const rect = menuRef.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pad = 6;
+    let x = 0;
+    if (rect.right > vw - pad) x -= rect.right - (vw - pad);
+    if (rect.left + x < pad) x += pad - (rect.left + x);
+    const flip =
+      rect.bottom > vh - pad && containerRef
+        ? containerRef.getBoundingClientRect().top > rect.height + pad
+        : false;
+    setShift({ x, flip });
+  };
+
+  // close on outside click + reposition on resize/scroll while open.
+  let docHandler: ((e: MouseEvent) => void) | null = null;
+  let winHandler: (() => void) | null = null;
+  const attach = () => {
+    docHandler = (e) => {
+      if (!containerRef) return;
+      if (!containerRef.contains(e.target as Node)) setOpen(false);
+    };
+    winHandler = () => recomputeShift();
+    document.addEventListener("mousedown", docHandler);
+    window.addEventListener("resize", winHandler);
+    window.addEventListener("scroll", winHandler, true);
+  };
+  const detach = () => {
+    if (docHandler) document.removeEventListener("mousedown", docHandler);
+    if (winHandler) {
+      window.removeEventListener("resize", winHandler);
+      window.removeEventListener("scroll", winHandler, true);
+    }
+    docHandler = null;
+    winHandler = null;
+  };
+  onCleanup(detach);
+
+  return (
+    <span ref={containerRef} class="relative inline-flex items-center">
+      <button
+        type="button"
+        title="switch data source remote"
+        aria-haspopup="menu"
+        aria-expanded={open()}
+        class="inline-flex items-center gap-0.5 text-white/70 normal-case tracking-normal hover:text-white cursor-pointer underline-offset-2 hover:underline"
+        onClick={(e) => {
+          e.stopPropagation();
+          const next = !open();
+          setOpen(next);
+          if (next) {
+            attach();
+            queueMicrotask(recomputeShift);
+          } else {
+            detach();
+          }
+        }}
+      >
+        <span>{props.currentName}</span>
+        <span class="text-[9px] text-white/45">▾</span>
+      </button>
+      <Show when={open()}>
+        <div
+          ref={menuRef}
+          role="menu"
+          class="absolute z-30 left-0 min-w-[10rem] max-w-[min(18rem,calc(100vw-1rem))] rounded border border-white/15 bg-[var(--color-bg-elevated)] shadow-lg py-1 max-h-[min(16rem,calc(100vh-2rem))] overflow-y-auto"
+          classList={{
+            "top-full mt-1": !shift().flip,
+            "bottom-full mb-1": shift().flip,
+          }}
+          style={shift().x !== 0 ? { transform: `translateX(${shift().x}px)` } : undefined}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <For each={props.remotes}>
+            {(r) => (
+              <button
+                type="button"
+                role="menuitem"
+                class="w-full text-left flex items-center gap-2 px-2 py-1 text-[11px] text-white/85 hover:bg-white/10 cursor-pointer"
+                classList={{ "bg-white/5": r.id === props.current }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  detach();
+                  props.onPick(r.id);
+                }}
+              >
+                <span class="flex-1 truncate normal-case tracking-normal">{r.name}</span>
+                <Show when={r.id === props.current}>
+                  <span class="text-[9px] text-emerald-300/80">●</span>
+                </Show>
+                <Show when={r.isCharnelManaged}>
+                  <span class="text-[9px] uppercase tracking-wide text-emerald-300/60">local</span>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+    </span>
   );
 }
 

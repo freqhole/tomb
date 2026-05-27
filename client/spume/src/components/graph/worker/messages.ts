@@ -40,6 +40,10 @@ export interface TopologyEdge {
   /** lazy-loaded related-artist relationship sourced from
    *  related_artistz. drawn in a dedicated color with a mid-edge label. */
   isRelatedArtist?: boolean;
+  /** true when the related-artist row is in `pending` review status
+   *  (proposed but not yet accepted). only meaningful alongside
+   *  `isRelatedArtist`. */
+  isPending?: boolean;
 }
 
 // ---- main → worker ---------------------------------------------------------

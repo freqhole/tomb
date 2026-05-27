@@ -3355,7 +3355,8 @@ export const ListListenSessionsResponseSchema = z.object({
 export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
 
 export const ListRelatedArtistsBatchRequestSchema = z.object({
-  artist_ids: z.array(z.string())
+  artist_ids: z.array(z.string()),
+  include_pending: z.boolean().nullish()
 });
 export type ListRelatedArtistsBatchRequest = z.infer<typeof ListRelatedArtistsBatchRequestSchema>;
 
@@ -3382,6 +3383,8 @@ export const ListRelatedArtistsBatchResponseSchema = z.object({
   url: z.string()
 })),
   in_library: z.boolean(),
+  direction: z.string(),
+  status: z.string(),
   fetched_at: z.number(),
   created_at: z.number(),
   updated_at: z.number()
@@ -3391,7 +3394,9 @@ export const ListRelatedArtistsBatchResponseSchema = z.object({
 export type ListRelatedArtistsBatchResponse = z.infer<typeof ListRelatedArtistsBatchResponseSchema>;
 
 export const ListRelatedArtistsRequestSchema = z.object({
-  artist_id: z.string()
+  artist_id: z.string(),
+  include_pending: z.boolean().nullish(),
+  include_incoming: z.boolean().nullish()
 });
 export type ListRelatedArtistsRequest = z.infer<typeof ListRelatedArtistsRequestSchema>;
 
@@ -3417,6 +3422,8 @@ export const ListRelatedArtistsResponseSchema = z.object({
   url: z.string()
 })),
   in_library: z.boolean(),
+  direction: z.string(),
+  status: z.string(),
   fetched_at: z.number(),
   created_at: z.number(),
   updated_at: z.number()
@@ -4952,6 +4959,7 @@ export const RelatedArtistSchema = z.object({
   bandcamp_album_urlz: z.string().nullish(),
   image_url: z.string().nullish(),
   external_urlz: z.string().nullish(),
+  status: z.string(),
   fetched_at: z.number(),
   created_at: z.number(),
   updated_at: z.number(),
@@ -4979,6 +4987,8 @@ export const RelatedArtistApiSchema = z.object({
   url: z.string()
 })),
   in_library: z.boolean(),
+  direction: z.string(),
+  status: z.string(),
   fetched_at: z.number(),
   created_at: z.number(),
   updated_at: z.number()
@@ -5022,6 +5032,8 @@ export const RelatedArtistsBatchEntrySchema = z.object({
   url: z.string()
 })),
   in_library: z.boolean(),
+  direction: z.string(),
+  status: z.string(),
   fetched_at: z.number(),
   created_at: z.number(),
   updated_at: z.number()

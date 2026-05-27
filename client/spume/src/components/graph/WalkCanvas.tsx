@@ -45,8 +45,11 @@ export interface WalkCanvasProps {
    *  prefer this over onClientReady for ui-level concerns. */
   onReady?: (api: WalkApi) => void;
   /** called whenever the breadcrumb depth changes (1 = at root, 2 = one level deep, etc.).
-   *  host uses this to show/hide the back button. */
-  onBreadcrumbChange?: (depth: number) => void;
+   *  host uses this to show/hide the back button. `breadcrumbIds` is the
+   *  (unordered) set of node ids currently on the breadcrumb path from
+   *  root to pivot, inclusive — host uses this to derive the primary
+   *  remote for the current walk (the `remote::*` entry). */
+  onBreadcrumbChange?: (depth: number, breadcrumbIds: string[]) => void;
   /** per-id image metadata lookup. when provided, album and artist nodes
    *  render their cover/avatar artwork inside the node shape. */
   getImage?: (id: string) => ImageMetadata | null;
@@ -846,9 +849,15 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       lastPivotId = piv;
       userPanned = false;
     }
-    // breadcrumb depth: count nodes with isBreadcrumb=true (ancestors) + 1 for the pivot
+    // breadcrumb depth: count nodes with isBreadcrumb=true (ancestors) + 1 for the pivot.
+    // also surface the id list (ancestors + pivot) so the host can pick the
+    // primary remote (the `remote::*` entry) for cluster-aware popover data.
+    const crumbIds: string[] = [];
+    for (const n of nds) {
+      if (n.isBreadcrumb || n.isPivot) crumbIds.push(n.id);
+    }
     const depth = nds.filter((n) => n.isBreadcrumb).length + 1;
-    props.onBreadcrumbChange?.(depth);
+    props.onBreadcrumbChange?.(depth, crumbIds);
   });
   client.onFrame((pos) => {
     positions = pos;
@@ -1036,6 +1045,10 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         ctx.lineTo(x1, y1);
         const isAlbumEdge =
           nodes[e.sourceIdx]?.role === "album" || nodes[e.targetIdx]?.role === "album";
+        // ghost-incident edges are kept in the sim for force layout
+        // (so ghosts stay near their pivot instead of drifting off)
+        // but rendered invisible — they'd just add clutter.
+        if (sn?.role === "ghost_artist" || tn?.role === "ghost_artist") continue;
         // taxon edges (anything touching a value node) inherit the value
         // kind's color so all "tagged-with" wires for a given kind share a hue.
         const kindEdge = edgeKindColor(nodes[e.sourceIdx], nodes[e.targetIdx]);
@@ -1047,9 +1060,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         if (e.isRelatedArtist) {
           // related-artist edges: lavender, slightly thicker so they
           // pop above the artist→album wires they coexist with.
+          // pending rows render dashed + dimmer so they read as
+          // "proposed but unconfirmed".
           ctx.strokeStyle = RELATED_ARTIST_EDGE_COLOR;
-          ctx.lineWidth = 1.75;
-          ctx.globalAlpha = 0.85;
+          ctx.lineWidth = e.isPending ? 1.25 : 1.75;
+          ctx.globalAlpha = e.isPending ? 0.5 : 0.85;
+          if (e.isPending) ctx.setLineDash([4, 3]);
         } else if (e.isCrossRemote) {
           ctx.setLineDash([6, 4]);
           ctx.strokeStyle = CROSS_REMOTE_COLOR;
@@ -1090,18 +1106,19 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           const my = (y0 + y1) / 2;
           const text = "related artist";
           ctx.save();
-          ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+          ctx.globalAlpha = 0.7;
+          ctx.font = "6.5px ui-sans-serif, system-ui, sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const tw = ctx.measureText(text).width;
-          const pillW = tw + 8;
-          const pillH = 14;
-          ctx.fillStyle = "rgba(0,0,0,0.75)";
+          const pillW = tw + 4;
+          const pillH = 9;
+          ctx.fillStyle = "rgba(0,0,0,0.7)";
           ctx.beginPath();
-          ctx.roundRect(mx - pillW / 2, my - pillH / 2, pillW, pillH, 3);
+          ctx.roundRect(mx - pillW / 2, my - pillH / 2, pillW, pillH, 2);
           ctx.fill();
           ctx.strokeStyle = RELATED_ARTIST_EDGE_COLOR;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 0.5;
           ctx.stroke();
           ctx.fillStyle = RELATED_ARTIST_EDGE_COLOR;
           ctx.fillText(text, mx, my);

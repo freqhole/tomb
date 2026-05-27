@@ -309,7 +309,14 @@ export function useArtistQuery(
       const id = artistId();
       if (!id) return null;
 
-      const dataSource = pickAlbumSource(remote?.());
+      const r = remote?.();
+      const dataSource = pickAlbumSource(r);
+      console.info("[artistQuery] fetch", {
+        artistId: id,
+        requestedRemoteId: r?.remote_id ?? null,
+        requestedRemoteName: r?.name ?? null,
+        usingGlobalSource: !r,
+      });
       if (!dataSource.getArtists) {
         return null;
       }
@@ -320,8 +327,17 @@ export function useArtistQuery(
         limit: 1,
       });
 
+      const got = result.items[0] || null;
+      console.info("[artistQuery] result", {
+        artistId: id,
+        requestedRemoteId: r?.remote_id ?? null,
+        gotItem: !!got,
+        gotName: got?.name ?? null,
+        hasBio: !!got?.bio,
+        imagesCount: got?.images?.length ?? 0,
+      });
       // artist already has thumbnail_url from data source
-      return result.items[0] || null;
+      return got;
     },
     enabled: () => !!artistId(),
   }));

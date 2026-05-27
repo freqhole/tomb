@@ -261,6 +261,11 @@ export interface WalkEdge {
    *  dedicated color with a mid-edge "related artist" label by the
    *  canvas renderer. */
   isRelatedArtist?: boolean;
+  /** true when the underlying related-artist row is in `pending` review
+   *  status (proposed but not yet accepted). drawn dashed + dimmed so
+   *  the user can tell it apart from confirmed relations. only
+   *  meaningful alongside `isRelatedArtist`. */
+  isPending?: boolean;
 }
 
 export interface WalkGraph {

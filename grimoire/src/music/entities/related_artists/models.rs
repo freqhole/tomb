@@ -62,6 +62,11 @@ pub struct RelatedArtist {
     pub image_url: Option<String>,
     /// raw json string; deserialize via [RelatedArtist::external_urls].
     pub external_urlz: Option<String>,
+    /// review state: `"accepted"` or `"pending"`. defaults to
+    /// `"pending"` on insert (per migration 043); accepted rows are
+    /// the ones the user has confirmed (or that were grandfathered
+    /// in by the migration's `UPDATE ... SET status = 'accepted'`).
+    pub status: String,
     pub fetched_at: i64,
     pub created_at: i64,
     pub updated_at: i64,

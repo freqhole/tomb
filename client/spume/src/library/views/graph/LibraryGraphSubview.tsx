@@ -244,6 +244,16 @@ function Inner(props: {
   const [favSongAlbumIds, setFavSongAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
   const [favSongArtistIds, setFavSongArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
   const favSongLoadedRemotes = new Set<string>();
+  // per-remote artist-image cache: artist_id -> primary ImageMetadata.
+  // populated lazily on first activation via query_artists; lets the
+  // artist graph nodes (deriveArtistNodes only sees albums) and the
+  // detail popover prefer real artist primary images over album-cover
+  // fallbacks. priority within the artist's images is
+  // is_primary === true > blob_type === "original" > first.
+  const [artistImagesByRemote, setArtistImagesByRemote] = createSignal<
+    Map<string, Map<string, ImageMetadata>>
+  >(new Map());
+  const artistImagesLoadedRemotes = new Set<string>();
   // remotes for which we've already fetched taxon kinds and seeded
   // first-order relation hubs into the graph.
   const taxonKindsLoadedRemotes = new Set<string>();
@@ -428,6 +438,62 @@ function Inner(props: {
     }
   });
 
+  // pick the "best" artist image for avatar/glyph display. priority:
+  //   1. is_primary === true (user/server flagged as featured)
+  //   2. blob_type === "original" (full-res over thumbnail)
+  //   3. first available
+  // returns null when the list is empty / nullish.
+  const pickPrimaryImage = (images: ImageMetadata[] | null | undefined): ImageMetadata | null => {
+    if (!images || images.length === 0) return null;
+    const primary = images.find((i) => i.is_primary === true);
+    if (primary) return primary;
+    const original = images.find((i) => i.blob_type === "original");
+    if (original) return original;
+    return images[0] ?? null;
+  };
+
+  // fetch all artists for a remote and cache each one's primary image
+  // (per pickPrimaryImage). only the chosen image is stored — the full
+  // images[] array stays on the in-flight artistQuery result for the
+  // popover carousel. dedup'd by artistImagesLoadedRemotes; refetched
+  // implicitly when activatedRemotes flips for a remote.
+  const loadArtistImagesForRemote = async (remote: Remote): Promise<void> => {
+    try {
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.queryArtists({
+        q: null,
+        search_fields: null,
+        filters: {},
+        sort_by: null,
+        sort_direction: null,
+        limit: 1000,
+        offset: 0,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
+      });
+      if (!resp.success || !resp.data) return;
+      const baseUrl = (remote as { base_url?: string }).base_url ?? "";
+      const rid = remote.remote_id;
+      const byArtistId = new Map<string, ImageMetadata>();
+      for (const it of resp.data.items) {
+        const apiImages = it.images ?? it.artist.images ?? null;
+        if (!apiImages || apiImages.length === 0) continue;
+        const adapted = apiImages.map((img) => adaptApiImage(img, baseUrl, rid));
+        const best = pickPrimaryImage(adapted);
+        if (best) byArtistId.set(it.artist.id, best);
+      }
+      if (byArtistId.size === 0) return;
+      setArtistImagesByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(rid, byArtistId);
+        return next;
+      });
+    } catch (err) {
+      console.warn("artist images fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
   const loadFavoriteSongsForRemote = async (remote: Remote): Promise<void> => {
     try {
       const client = await getClientForRemote(remote);
@@ -548,12 +614,28 @@ function Inner(props: {
 
   const artistsByRemote = createMemo<Map<string, ArtistNodeData[]>>(() => {
     const out = new Map<string, ArtistNodeData[]>();
+    const imgIdx = artistImagesByRemote();
     for (const [remoteId, albums] of nodesByRemote()) {
       const favIds = new Set<string>();
       for (const a of albums) {
         if (a.isFavorite && a.artistId) favIds.add(a.artistId);
       }
-      out.set(remoteId, deriveArtistNodes(albums, favIds));
+      const derived = deriveArtistNodes(albums, favIds);
+      // overlay real artist primary images on top of the album-derived
+      // placeholders. only the matching remote's cache is consulted —
+      // cross-remote fallbacks happen at render time in `getImage`.
+      const remoteImgs = imgIdx.get(remoteId);
+      if (remoteImgs && remoteImgs.size > 0) {
+        for (let i = 0; i < derived.length; i++) {
+          const node = derived[i];
+          const primary = remoteImgs.get(node.artistId);
+          if (!primary) continue;
+          // primary always wins over the album cover fallback so the
+          // graph reflects the user's chosen artist art.
+          derived[i] = { ...node, image: primary };
+        }
+      }
+      out.set(remoteId, derived);
     }
     return out;
   });
@@ -586,6 +668,13 @@ function Inner(props: {
   const [walkerClient, setWalkerClient] = createSignal<WalkerClient | null>(null);
   const [walkApi, setWalkApi] = createSignal<WalkApi | null>(null);
   const [breadcrumbDepth, setBreadcrumbDepth] = createSignal(1);
+  // current breadcrumb id set (root..pivot, unordered). populated by
+  // WalkCanvas via onBreadcrumbChange and read by selectedArtistRemote
+  // to derive the "primary" remote for the current walk path: whichever
+  // `remote::*` id sits on the breadcrumb. when the user walks
+  // root -> remote::X -> ... -> artist, X is the remote they "walked
+  // out from" and the popover should query that remote.
+  const [breadcrumbIds, setBreadcrumbIds] = createSignal<Set<string>>(new Set());
 
   let hadInit = false;
   const prevNodeIds = new Set<string>();
@@ -642,6 +731,17 @@ function Inner(props: {
     const client = walkerClient();
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
+      // prefetch related-artist edges for every visible artist node so
+      // the lavender wires appear as soon as the node renders rather
+      // than waiting for the user to pivot. the fetcher dedupes via
+      // relatedArtistsLoadedByPivot + relatedArtistsFetchPromises, so
+      // re-firing here is cheap; offline / unknown-remote guards live
+      // inside maybeLoadRelatedArtistsForPivot.
+      for (const id of ids) {
+        if (id.startsWith("artist::")) {
+          void maybeLoadRelatedArtistsForPivot(id);
+        }
+      }
       // accumulate candidates by remote so we can fire one batched
       // queryAlbums per remote (artist_names filter) rather than N
       // single-artist queries.
@@ -768,7 +868,298 @@ function Inner(props: {
     return out;
   });
 
-  const artistQuery = useArtistQuery(() => selectedArtist()?.artistId ?? undefined);
+  // ---- cross-remote artist cluster index ------------------------------
+  //
+  // each remote keeps its own per-remote artist node
+  // (`artist::{remoteId}::{artistId}`) with a remote-specific artistId.
+  // the worker visually collapses same-name artists across remotes into
+  // a single rendered glyph (the cluster "leader"), but the leader's id
+  // is arbitrary \u2014 it can belong to any contributing remote. when the
+  // user clicks the leader, selectedId() returns that arbitrary remote's
+  // id, which is wrong for two reasons:
+  //   1. the user walked the graph from a specific remote hub
+  //      (root \u2192 remote::X \u2192 ...); they expect data from X.
+  //   2. artist ids aren't portable across remotes, so querying the
+  //      "wrong" remote with the leader's artistId returns no bio.
+  //
+  // we rebuild a per-name index of every loaded artist node (across all
+  // remotes) keyed by slug(name). selectedArtistRemote / artistQuery
+  // then look up the cluster, pick the member whose remote matches the
+  // breadcrumb's `remote::*`, and query THAT member's (remoteId, artistId).
+  type ClusterMember = {
+    nodeId: string; // full graph key, `artist::{remoteId}::{artistId}`
+    remoteId: string;
+    data: ArtistNodeData;
+  };
+  const artistClusterByNameSlug = createMemo<Map<string, ClusterMember[]>>(() => {
+    const out = new Map<string, ClusterMember[]>();
+    const ingest = (id: string, n: AlbumNodeData | ArtistNodeData) => {
+      if (!("artistId" in n)) return;
+      // restrict to true artist graph keys (skip ghost_artist::, etc).
+      let parsed: ReturnType<typeof parseNodeId>;
+      try {
+        parsed = parseNodeId(id);
+      } catch {
+        return;
+      }
+      if (parsed.kind !== "artist") return;
+      const a = n as ArtistNodeData;
+      const key = slug(a.name);
+      if (!key) return;
+      let arr = out.get(key);
+      if (!arr) {
+        arr = [];
+        out.set(key, arr);
+      }
+      // dedupe by remoteId so a re-merged map entry doesn't pile up.
+      if (arr.some((m) => m.remoteId === parsed.remoteId)) return;
+      arr.push({ nodeId: id, remoteId: parsed.remoteId, data: a });
+    };
+    const main = buildResult()?.nodesById;
+    if (main) for (const [id, n] of main) ingest(id, n);
+    for (const [id, n] of extraNodesById()) ingest(id, n);
+    return out;
+  });
+
+  // the "primary remote" for the current walk: scan the breadcrumb for
+  // a `remote::*` id and decode it. when the user navigates
+  // root \u2192 remote::X \u2192 ..., this returns X. when the user is at
+  // root or in a context without a remote ancestor (e.g. global
+  // favorites hub), returns undefined.
+  const primaryWalkRemoteId = createMemo<string | null>(() => {
+    for (const id of breadcrumbIds()) {
+      if (id.startsWith("remote::")) {
+        try {
+          const parsed = parseNodeId(id);
+          if (parsed.kind === "remote") return parsed.remoteId;
+        } catch {
+          // ignore unparseable
+        }
+      }
+    }
+    return null;
+  });
+
+  // user-driven override for the popover's data-source remote. when set,
+  // selectedArtistMember picks this remote instead of the breadcrumb's
+  // primary. cleared whenever the selected artist's name slug changes
+  // (so picking a remote on artist A doesn't carry over to artist B).
+  const [dataSourceRemoteOverride, setDataSourceRemoteOverride] = createSignal<{
+    artistSlug: string;
+    remoteId: string;
+  } | null>(null);
+
+  // clear the manual override when the selected artist changes.
+  createEffect(() => {
+    const a = selectedArtist();
+    if (!a) {
+      setDataSourceRemoteOverride(null);
+      return;
+    }
+    const ov = dataSourceRemoteOverride();
+    if (ov && ov.artistSlug !== slug(a.name)) {
+      setDataSourceRemoteOverride(null);
+    }
+  });
+
+  // for the currently-selected artist, find the cluster member that
+  // should drive the popover. preference order:
+  //   1. user override (data-source picker in the popover).
+  //   2. cluster member matching primaryWalkRemoteId (the remote the
+  //      user walked out from).
+  //   3. cluster member matching parseNodeId(selectedId).remoteId (the
+  //      leader's own remote).
+  //   4. fallback: the selected node itself as a one-member cluster.
+  const selectedArtistMember = createMemo<ClusterMember | null>(() => {
+    const a = selectedArtist();
+    if (!a) return null;
+    const graphId = selectedId();
+    if (!graphId) return null;
+    const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
+    const override = dataSourceRemoteOverride();
+    if (override && override.artistSlug === slug(a.name)) {
+      const match = cluster.find((m) => m.remoteId === override.remoteId);
+      if (match) return match;
+    }
+    const primary = primaryWalkRemoteId();
+    if (primary) {
+      const match = cluster.find((m) => m.remoteId === primary);
+      if (match) return match;
+    }
+    let leaderRemote: string | null = null;
+    try {
+      const parsed = parseNodeId(graphId);
+      if (parsed.kind === "artist") leaderRemote = parsed.remoteId;
+    } catch {
+      // ignore
+    }
+    if (leaderRemote) {
+      const match = cluster.find((m) => m.remoteId === leaderRemote);
+      if (match) return match;
+    }
+    // last-resort one-member "cluster" from whatever we have selected.
+    if (leaderRemote) {
+      return { nodeId: graphId, remoteId: leaderRemote, data: a };
+    }
+    return null;
+  });
+
+  // resolve the authoritative remote for the currently-selected artist.
+  // uses the breadcrumb-derived primary first (so "the remote you walked
+  // out from" wins over the cluster leader's arbitrary remote), then
+  // falls back to the leader's own remote, then sourceRemoteIds, then
+  // the first remote in the picker.
+  const selectedArtistRemote = createMemo<Remote | undefined>(() => {
+    const member = selectedArtistMember();
+    if (member) {
+      const found = props.remotes().find((r) => r.remote_id === member.remoteId);
+      if (found) return found;
+    }
+    const a = selectedArtist();
+    if (!a) return undefined;
+    const fallback = a.sourceRemoteIds?.[0];
+    if (fallback) {
+      const found = props.remotes().find((r) => r.remote_id === fallback);
+      if (found) return found;
+    }
+    return props.remotes()[0];
+  });
+
+  // log the artist detail fetch context so we can see which remote the
+  // bio/image data is actually coming from versus which remote owns
+  // the selected graph node and which remote the user walked out from.
+  createEffect(() => {
+    const a = selectedArtist();
+    if (!a) return;
+    const r = selectedArtistRemote();
+    const member = selectedArtistMember();
+    console.info("[graph] artist detail source", {
+      selectedGraphId: selectedId(),
+      nodeIdField: a.id,
+      selectedArtistId: a.artistId,
+      selectedName: a.name,
+      sourceRemoteIds: a.sourceRemoteIds,
+      primaryWalkRemoteId: primaryWalkRemoteId(),
+      resolvedRemoteId: r?.remote_id,
+      resolvedRemoteName: r?.name,
+      resolvedMemberArtistId: member?.data.artistId,
+      clusterMembers:
+        artistClusterByNameSlug()
+          .get(slug(a.name))
+          ?.map((m) => ({ remoteId: m.remoteId, artistId: m.data.artistId })) ?? [],
+    });
+  });
+
+  const artistQuery = useArtistQuery(
+    () => selectedArtistMember()?.data.artistId ?? selectedArtist()?.artistId ?? undefined,
+    () => selectedArtistRemote()
+  );
+
+  // the artist object actually rendered in the popover. starts from the
+  // cluster member (correct for the chosen remote: name + albumCount +
+  // taxonomy reflect that remote's view), then overlays a best-effort
+  // image:
+  //   1. the member's own ArtistNodeData.image (derived from one of its
+  //      albums in deriveArtistNodes.ts).
+  //   2. the first ImageMetadata returned by the artist detail query
+  //      \u2014 these are actual artist images (vs album cover fallbacks).
+  //   3. any cluster member's image (cross-remote fallback so a remote
+  //      without artist art can still show an avatar from a peer).
+  // imageUrl is overlaid the same way as a legacy fallback for
+  // pre-resolved url paths.
+  const selectedArtistDisplay = createMemo<ArtistNodeData | null>(() => {
+    const a = selectedArtist();
+    if (!a) return null;
+    const member = selectedArtistMember();
+    const base = member?.data ?? a;
+    let image = base.image ?? null;
+    let imageUrl = base.imageUrl ?? null;
+    // 2. promote artist-detail query images when available + matching.
+    const q = artistQuery.data;
+    const memberArtistId = member?.data.artistId ?? a.artistId;
+    if (!image && q && q.artist_id === memberArtistId && q.images?.length) {
+      image = pickPrimaryImage(q.images);
+    }
+    // 3. cluster-wide cross-remote fallback.
+    if (!image) {
+      const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
+      for (const m of cluster) {
+        if (m.data.image) {
+          image = m.data.image;
+          break;
+        }
+      }
+    }
+    if (!imageUrl) {
+      const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
+      for (const m of cluster) {
+        if (m.data.imageUrl) {
+          imageUrl = m.data.imageUrl;
+          break;
+        }
+      }
+    }
+    if (image === base.image && imageUrl === base.imageUrl) return base;
+    return { ...base, image, imageUrl };
+  });
+
+  // contributing-remote list specifically for the data-source picker:
+  // marks the member matching the current selected remote so the popover
+  // can highlight it. parent of contributingRemotesForArtist already
+  // sorts charnel-managed first; reuse that ordering.
+  const dataSourceRemotesForSelected = createMemo<ContributingRemote[]>(() => {
+    const a = selectedArtist();
+    if (!a) return [];
+    return contributingRemotesForArtist(a);
+  });
+
+  // bidirectional client-side index of related-artist relations as we
+  // learn about them from any pivot's fetch. keyed by node id; the
+  // inner map's key is the other endpoint's node id. lets the popover
+  // surface relations that the *current* artist's own server response
+  // didn't include (e.g. row stored on remote X as name-only pointing
+  // at this artist — we discovered it from X's pivot fetch, but this
+  // artist's own remote returns 0 incoming rows because no
+  // `related_artist_id` resolved). declared up here (before the popover
+  // resource + augmentation memo that read it) to avoid TDZ when the
+  // memo runs at component setup.
+  const relatedArtistEdgeIndex = new Map<
+    string,
+    Map<string, { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" }>
+  >();
+  // monotonically-bumped on every recordRelatedEdge so the popover's
+  // augmentation memo recomputes when more relations are discovered
+  // *after* the popover already opened (e.g. prefetch finished after
+  // the user clicked).
+  const [relatedEdgeIndexVersion, setRelatedEdgeIndexVersion] = createSignal(0);
+  const recordRelatedEdge = (aId: string, bId: string, status: "accepted" | "pending"): void => {
+    const mergeDir = (
+      prev: "outgoing" | "incoming" | "both" | undefined,
+      next: "outgoing" | "incoming"
+    ): "outgoing" | "incoming" | "both" => {
+      if (!prev) return next;
+      if (prev === "both") return "both";
+      return prev === next ? prev : "both";
+    };
+    const upsert = (from: string, to: string, dir: "outgoing" | "incoming") => {
+      let inner = relatedArtistEdgeIndex.get(from);
+      if (!inner) {
+        inner = new Map();
+        relatedArtistEdgeIndex.set(from, inner);
+      }
+      const prev = inner.get(to);
+      // pending only "wins" if every observation is pending. once we
+      // see an accepted observation, treat as accepted.
+      const newStatus = prev?.status === "accepted" ? "accepted" : status;
+      inner.set(to, {
+        direction: mergeDir(prev?.direction, dir),
+        status: newStatus,
+      });
+    };
+    upsert(aId, bId, "outgoing");
+    upsert(bId, aId, "incoming");
+    setRelatedEdgeIndexVersion((v) => v + 1);
+  };
 
   // related-artists list for the currently-selected artist (popover
   // section). uses the same `client.music.listRelatedArtists` endpoint
@@ -785,13 +1176,28 @@ function Inner(props: {
         console.info("[graph] related-artists source: no selectedArtist");
         return null;
       }
-      const remote = remoteForArtist(a);
+      // prefer the remote encoded in the graph node id (always present
+      // and authoritative) over remoteForArtist, which falls back to
+      // remotes()[0] when sourceRemoteIds is empty and would silently
+      // query the wrong remote — yielding an empty popover even though
+      // the edge loader (which parses the node id) populated edges.
+      let remoteId: string | null = null;
+      try {
+        const parsed = parseNodeId(a.id);
+        if (parsed.kind === "artist") remoteId = parsed.remoteId;
+      } catch {
+        // fall through to remoteForArtist
+      }
+      const remote = remoteId
+        ? props.remotes().find((r) => r.remote_id === remoteId)
+        : remoteForArtist(a);
       if (!remote) {
         console.warn("[graph] related-artists source: no remote for artist", {
           id: a.id,
           artistId: a.artistId,
           name: a.name,
           sourceRemoteIds: a.sourceRemoteIds,
+          parsedRemoteId: remoteId,
         });
         return null;
       }
@@ -810,14 +1216,33 @@ function Inner(props: {
       });
       return { artistId: a.artistId, remote };
     },
-    async (key): Promise<ArtistNodeData[]> => {
+    async (
+      key
+    ): Promise<{
+      artists: ArtistNodeData[];
+      meta: Map<
+        string,
+        { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" }
+      >;
+    }> => {
+      const empty = {
+        artists: [] as ArtistNodeData[],
+        meta: new Map<
+          string,
+          { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" }
+        >(),
+      };
       try {
         const client = await getClientForRemote(key.remote);
         console.info("[graph] related-artists fetch start", {
           artistId: key.artistId,
           remote: key.remote.remote_id,
         });
-        const result = await client.music.listRelatedArtists({ artist_id: key.artistId });
+        const result = await client.music.listRelatedArtists({
+          artist_id: key.artistId,
+          include_pending: true,
+          include_incoming: true,
+        });
         if (!result.success || !result.data) {
           console.warn("[graph] related-artists fetch returned no data", {
             artistId: key.artistId,
@@ -825,51 +1250,96 @@ function Inner(props: {
             success: result.success,
             result,
           });
-          return [];
+          return empty;
         }
         const remoteId = key.remote.remote_id;
         const out: ArtistNodeData[] = [];
         const seen = new Set<string>();
+        // per-row metadata keyed by the resolved/stub node id, so the
+        // popover can render direction glyph + pending badge.
+        const meta = new Map<
+          string,
+          { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" }
+        >();
+        const rowMeta = (row: {
+          direction: string;
+          status: string;
+        }): { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" } => ({
+          direction:
+            row.direction === "incoming" || row.direction === "both"
+              ? (row.direction as "incoming" | "both")
+              : "outgoing",
+          status: row.status === "pending" ? "pending" : "accepted",
+        });
         // name-slug index over already-loaded artists for fallback
         // matches when related_artist_id is null but a same-remote
-        // artist with the same name exists.
-        const byNameSameRemote = new Map<string, ArtistNodeData>();
-        const byNameAnyRemote = new Map<string, ArtistNodeData>();
+        // artist with the same name exists. we store the map *key*
+        // (the graph node id, e.g. `artist::${remoteId}::${artistId}`)
+        // alongside the node because ArtistNodeData.id from
+        // deriveArtistNodes lacks the remote prefix — and selectAndPanTo
+        // / lookupNode key off the graph id.
+        const byNameSameRemote = new Map<string, { id: string; node: ArtistNodeData }>();
+        const byNameAnyRemote = new Map<string, { id: string; node: ArtistNodeData }>();
         const maps = [buildResult()?.nodesById, extraNodesById()] as const;
         for (const map of maps) {
           if (!map) continue;
-          for (const node of map.values()) {
+          for (const [mapKey, node] of map) {
             if (!("artistId" in node)) continue;
             const a = node as ArtistNodeData;
             const k = slug(a.name);
             if (!k) continue;
-            if (!byNameAnyRemote.has(k)) byNameAnyRemote.set(k, a);
+            if (!byNameAnyRemote.has(k)) byNameAnyRemote.set(k, { id: mapKey, node: a });
             const nr = a.sourceRemoteIds?.[0];
             if (nr === remoteId && !byNameSameRemote.has(k)) {
-              byNameSameRemote.set(k, a);
+              byNameSameRemote.set(k, { id: mapKey, node: a });
             }
           }
         }
         let resolved = 0;
         for (const row of result.data.items) {
-          let match: ArtistNodeData | null = null;
+          let matchNode: ArtistNodeData | null = null;
+          let matchId: string | null = null;
           if (row.in_library && row.related_artist_id) {
             const explicit = artistNodeId(remoteId, row.related_artist_id);
             const node =
               buildResult()?.nodesById.get(explicit) ?? extraNodesById().get(explicit) ?? null;
-            if (node && "artistId" in node) match = node as ArtistNodeData;
-          }
-          if (!match) {
-            const nameKey = slug(row.related_name ?? "");
-            if (nameKey) {
-              match = byNameSameRemote.get(nameKey) ?? byNameAnyRemote.get(nameKey) ?? null;
+            if (node && "artistId" in node) {
+              matchNode = node as ArtistNodeData;
+              matchId = explicit;
             }
           }
-          if (match) {
-            if (match.artistId === key.artistId) continue;
-            if (seen.has(match.id)) continue;
-            seen.add(match.id);
-            out.push(match);
+          if (!matchNode) {
+            const nameKey = slug(row.related_name ?? "");
+            if (nameKey) {
+              const m = byNameSameRemote.get(nameKey) ?? byNameAnyRemote.get(nameKey);
+              if (m) {
+                matchNode = m.node;
+                matchId = m.id;
+              }
+            }
+          }
+          if (matchNode && matchId) {
+            if (matchNode.artistId === key.artistId) continue;
+            if (seen.has(matchId)) continue;
+            seen.add(matchId);
+            // stamp the graph node id onto the returned artist so the
+            // popover's onSelectRelatedArtist -> selectAndPanTo can
+            // actually find the node. without this, ArtistNodeData.id
+            // is `artist::${artistId}` (no remote) and lookupNode
+            // returns null, silently dropping the click.
+            out.push({ ...matchNode, id: matchId });
+            meta.set(matchId, rowMeta(row));
+            // feed the bidirectional client-side index so the *other*
+            // artist's popover can also surface this relation later
+            // even if its own remote returns 0 rows.
+            const pivotNodeId = selectedArtist()?.id;
+            if (pivotNodeId) {
+              recordRelatedEdge(
+                pivotNodeId,
+                matchId,
+                row.status === "pending" ? "pending" : "accepted"
+              );
+            }
             resolved += 1;
             continue;
           }
@@ -897,6 +1367,7 @@ function Inner(props: {
             era: null,
             customTaxons: {},
           });
+          meta.set(stubId, rowMeta(row));
         }
         console.info("[graph] related-artists fetched", {
           artistId: key.artistId,
@@ -916,19 +1387,106 @@ function Inner(props: {
           if (row.artistId) resolvedRows.push(row);
           else stubRows.push(row);
         }
-        return [...resolvedRows, ...stubRows];
+        return { artists: [...resolvedRows, ...stubRows], meta };
       } catch (err) {
         console.warn("popover related-artists fetch failed", err);
-        return [];
+        return empty;
       }
     }
   );
 
-  // per-id image lookup for WalkCanvas artwork rendering (per S1/S11)
+  // reactive view that merges the server-derived popover data with
+  // client-side edges discovered via *other* pivots' fetches. recomputes
+  // whenever the edge index version bumps so late-arriving prefetches
+  // surface in the open popover without forcing a refetch.
+  const augmentedRelatedArtists = createMemo<{
+    artists: ArtistNodeData[];
+    meta: Map<
+      string,
+      { direction: "outgoing" | "incoming" | "both"; status: "accepted" | "pending" }
+    >;
+  }>(() => {
+    // depend on the index version so this memo re-runs when edges are
+    // recorded (the underlying Map mutates in place; the signal is our
+    // reactive trigger).
+    void relatedEdgeIndexVersion();
+    const base = selectedArtistRelated();
+    const a = selectedArtist();
+    const artists: ArtistNodeData[] = base?.artists ? [...base.artists] : [];
+    const meta = new Map(base?.meta ?? []);
+    if (!a) return { artists, meta };
+    const known = relatedArtistEdgeIndex.get(a.id);
+    if (!known || known.size === 0) return { artists, meta };
+    const seen = new Set(artists.map((x) => x.id));
+    let added = 0;
+    for (const [otherId, edgeMeta] of known) {
+      if (seen.has(otherId)) {
+        // already surfaced by server; merge direction so e.g. server's
+        // "outgoing" + client-known "incoming" becomes "both".
+        const existing = meta.get(otherId);
+        if (existing && existing.direction !== edgeMeta.direction) {
+          meta.set(otherId, { direction: "both", status: existing.status });
+        }
+        continue;
+      }
+      const node = buildResult()?.nodesById.get(otherId) ?? extraNodesById().get(otherId) ?? null;
+      if (!node || !("artistId" in node)) continue;
+      const matchNode = node as ArtistNodeData;
+      if (a.artistId && matchNode.artistId === a.artistId) continue;
+      seen.add(otherId);
+      artists.push({ ...matchNode, id: otherId });
+      meta.set(otherId, edgeMeta);
+      added += 1;
+    }
+    if (added > 0) {
+      console.info("[graph] related-artists augmented from edge index", {
+        selectedId: a.id,
+        added,
+        total: artists.length,
+      });
+    }
+    return { artists, meta };
+  });
+
+  // per-id image lookup for WalkCanvas artwork rendering (per S1/S11).
+  // for artist nodes we additionally fall back across the cross-remote
+  // cluster: if the leader's own remote has no image, we scan the
+  // cluster's other members and use the first non-null image we find.
+  // this lets a remote without artist art still display an avatar when
+  // any contributing remote has one. ordering puts the breadcrumb's
+  // primary remote first so its image wins when present.
   const getImage = (
     id: string
-  ): import("../../../music/services/storage/types").ImageMetadata | null =>
-    lookupNode(id)?.image ?? null;
+  ): import("../../../music/services/storage/types").ImageMetadata | null => {
+    const direct = lookupNode(id)?.image ?? null;
+    if (direct) return direct;
+    // only artist nodes get the cluster-fallback treatment; albums are
+    // not cluster-aggregated by the worker today.
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(id);
+    } catch {
+      return null;
+    }
+    if (parsed.kind !== "artist") return null;
+    const node = lookupNode(id) as ArtistNodeData | null;
+    if (!node) return null;
+    const cluster = artistClusterByNameSlug().get(slug(node.name)) ?? [];
+    if (cluster.length === 0) return null;
+    const primary = primaryWalkRemoteId();
+    // search primary remote first, then everyone else.
+    const ordered = primary
+      ? [...cluster].sort((a, b) => {
+          if (a.remoteId === primary && b.remoteId !== primary) return -1;
+          if (b.remoteId === primary && a.remoteId !== primary) return 1;
+          return 0;
+        })
+      : cluster;
+    for (const m of ordered) {
+      if (m.data.image) return m.data.image;
+    }
+    return null;
+  };
 
   // ---- action helpers ------------------------------------------------
 
@@ -2042,43 +2600,60 @@ function Inner(props: {
       setFetchingNodeFlag(nodeId, true);
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.music.listRelatedArtists({ artist_id: parsed.artistId });
+        const result = await client.music.listRelatedArtists({
+          artist_id: parsed.artistId,
+          include_pending: true,
+          include_incoming: true,
+        });
         if (!result.success || !result.data) return;
         const remoteId = parsed.remoteId;
         // build a one-shot name-slug -> nodeId index over loaded artists
-        // so we can resolve related-artist rows whose related_artist_id
-        // is null (api couldn't auto-link) but whose name matches an
-        // artist we already know about. prefer same-remote, fall back to
-        // any remote.
+        // on the SAME REMOTE as the pivot, so we can resolve related-artist
+        // rows whose related_artist_id is null (api couldn't auto-link)
+        // but whose name matches an artist we already know about on this
+        // remote. cross-remote name matching is intentionally NOT done:
+        // we want the graph walk to stay scoped to the remote the user
+        // started on, otherwise clicking a "matched" related artist
+        // would query the wrong remote (which doesn't have that artist
+        // id and so returns no bio / no related-artists).
         const byNameSameRemote = new Map<string, string>();
-        const byNameAnyRemote = new Map<string, string>();
+        const sameRemotePrefix = `artist::${remoteId}::`;
         const maps = [buildResult()?.nodesById, extraNodesById()] as const;
         for (const map of maps) {
           if (!map) continue;
           for (const [id, n] of map) {
             if (!("artistId" in n)) continue;
+            // trust the graph key (which always carries the remote)
+            // over ArtistNodeData.sourceRemoteIds (which can be empty
+            // or stale for nodes synthesized via cross-remote merges).
+            if (!id.startsWith(sameRemotePrefix)) continue;
             const a = n as ArtistNodeData;
             const k = slug(a.name);
             if (!k) continue;
-            if (!byNameAnyRemote.has(k)) byNameAnyRemote.set(k, id);
-            const nodeRemote = a.sourceRemoteIds?.[0];
-            if (nodeRemote === remoteId && !byNameSameRemote.has(k)) {
-              byNameSameRemote.set(k, id);
-            }
+            if (!byNameSameRemote.has(k)) byNameSameRemote.set(k, id);
           }
         }
         const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
         const seen = new Set<string>();
-        const pushEdge = (targetId: string) => {
+        const pushEdge = (targetId: string, isPending: boolean) => {
           if (targetId === nodeId) return;
           const key = `${nodeId}::${targetId}`;
           if (seen.has(key)) return;
           seen.add(key);
-          addEdges.push({ source: nodeId, target: targetId, isRelatedArtist: true });
+          addEdges.push({ source: nodeId, target: targetId, isRelatedArtist: true, isPending });
+          // record bidirectionally so the popover for either endpoint
+          // can surface this relation even if its own remote returned
+          // no rows (typical when the row was stored as name-only).
+          // ghosts are excluded because the popover can't show them
+          // as proper artist entries.
+          if (!targetId.startsWith("ghost_artist::")) {
+            recordRelatedEdge(nodeId, targetId, isPending ? "pending" : "accepted");
+          }
         };
         for (const row of result.data.items) {
           const nameKey = slug(row.related_name ?? "");
+          const isPending = row.status === "pending";
           // 1. preferred: explicit in-library link via related_artist_id.
           if (row.in_library && row.related_artist_id) {
             const explicit = artistNodeId(remoteId, row.related_artist_id);
@@ -2088,16 +2663,19 @@ function Inner(props: {
             const existsExplicit =
               buildResult()?.nodesById.has(explicit) === true || extraNodesById().has(explicit);
             if (existsExplicit) {
-              pushEdge(explicit);
+              pushEdge(explicit, isPending);
               continue;
             }
           }
-          // 2. name-slug fallback: match any loaded artist by name.
-          //    same-remote preferred, then any remote.
+          // 2. name-slug fallback: match a loaded artist on the SAME
+          //    remote only. cross-remote name matches would attach
+          //    edges to the wrong remote's artist node, causing the
+          //    popover to query the wrong remote (see the cluster /
+          //    primaryWalkRemoteId logic above).
           if (nameKey) {
-            const matched = byNameSameRemote.get(nameKey) ?? byNameAnyRemote.get(nameKey);
+            const matched = byNameSameRemote.get(nameKey);
             if (matched) {
-              pushEdge(matched);
+              pushEdge(matched, isPending);
               continue;
             }
           }
@@ -2115,7 +2693,7 @@ function Inner(props: {
               parentId: nodeId,
               childCount: 0,
             });
-            pushEdge(ghostId);
+            pushEdge(ghostId, isPending);
           }
         }
         if (addNodes.length > 0 || addEdges.length > 0) {
@@ -2286,6 +2864,18 @@ function Inner(props: {
     }
   });
 
+  // load artist primary images once per online+activated remote so the
+  // graph artist nodes can replace their album-derived placeholders with
+  // real artist art (when the remote has any). same activation gate as
+  // favorites — paid for only when the user reaches the remote.
+  createEffect(() => {
+    for (const remote of onlineRemotes()) {
+      if (artistImagesLoadedRemotes.has(remote.remote_id)) continue;
+      artistImagesLoadedRemotes.add(remote.remote_id);
+      void loadArtistImagesForRemote(remote);
+    }
+  });
+
   // seed first-order categorical relation hubs from list_taxon_kinds
   // for each online+activated remote (dedup'd by remote). album_count
   // comes from the server so badges render without a lazy round-trip.
@@ -2399,7 +2989,10 @@ function Inner(props: {
           height={canvasSize().height}
           onClientReady={(c) => setWalkerClient(c)}
           onReady={(api) => setWalkApi(api)}
-          onBreadcrumbChange={(depth) => setBreadcrumbDepth(depth)}
+          onBreadcrumbChange={(depth, ids) => {
+            setBreadcrumbDepth(depth);
+            setBreadcrumbIds(new Set(ids));
+          }}
           onSelect={handleSelect}
           onPivot={handlePivot}
           selectedId={selectedId()}
@@ -2552,15 +3145,24 @@ function Inner(props: {
               <Icon name="chevronDown" size={12} />
             </button>
             <ArtistDetailPopover
-              artist={selectedArtist()!}
+              artist={selectedArtistDisplay()!}
               contributingRemotes={
                 selectedArtist() ? contributingRemotesForArtist(selectedArtist()!) : undefined
               }
               bio={artistQuery.data?.bio ?? null}
               isFavorite={artistQuery.data?.is_favorite}
+              dataSourceRemoteName={selectedArtistRemote()?.name ?? null}
+              dataSourceRemoteId={selectedArtistRemote()?.remote_id ?? null}
+              dataSourceRemotes={dataSourceRemotesForSelected()}
+              onPickDataSourceRemote={(remoteId) => {
+                const a = selectedArtist();
+                if (!a) return;
+                setDataSourceRemoteOverride({ artistSlug: slug(a.name), remoteId });
+              }}
               albums={selectedArtistAlbums()}
               onSelectAlbum={(album) => selectAndPanTo(album.id)}
-              relatedArtists={selectedArtistRelated() ?? []}
+              relatedArtists={augmentedRelatedArtists().artists}
+              relatedArtistMeta={augmentedRelatedArtists().meta}
               onSelectRelatedArtist={(artist) => {
                 // stub rows (external / not-yet-loaded) have artistId=""
                 // and no node in the graph — skip the pan.
