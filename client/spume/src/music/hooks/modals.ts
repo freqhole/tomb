@@ -59,6 +59,10 @@ export function isAnyModalOpen(): boolean {
 
 interface SongEditorOptions {
   songId: string;
+  /** when set, the modal queries/updates against this remote instead of
+   *  the globally-active data source. used by context-menu actions on
+   *  songs that came from a remote different from the current source. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
 }
@@ -179,14 +183,21 @@ export function useImageCarouselState() {
 interface TagSelectorOptions {
   albumIds: string[];
   albumTitle?: string;
+  /** when set, the modal queries/mutates tags on this remote rather
+   *  than the globally-active data source. */
+  remote?: Remote;
   onSave?: () => void;
 }
 
 const [tagSelectorState, setTagSelectorState] =
   createSignal<TagSelectorOptions | null>(null);
 
-export function showTagSelector(albumIds: string[], albumTitle?: string) {
-  setTagSelectorState({ albumIds, albumTitle });
+export function showTagSelector(
+  albumIds: string[],
+  albumTitle?: string,
+  remote?: Remote,
+) {
+  setTagSelectorState({ albumIds, albumTitle, remote });
 }
 
 export function hideTagSelector() {

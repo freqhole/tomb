@@ -109,26 +109,32 @@ export interface ContextMenuOptions {
 
 /**
  * shared helper that opens the global share modal for a given target.
- * snapshots the current remote at click time and passes it as the source.
- * for kinds without a send-to scope (song / artist) `buildSendPayload` is
- * omitted and the modal will hide its send-to section automatically.
+ * by default snapshots the current remote at click time. when
+ * `sourceRemoteId` is supplied, uses that remote instead — needed for
+ * queue / non-active-remote share actions so the resulting permalink
+ * targets the song's origin server.
  */
 export function createShareMenuAction(
   target: ShareTarget,
   buildSendPayload?: () => SendPayload | Promise<SendPayload>,
+  sourceRemoteId?: string,
 ): MenuAction {
   return {
     label: "share...",
     icon: IconNames.share,
     onClick: async () => {
-      const info = getCurrentRemote();
-      if (!info) {
-        toast.error("share is only available on a remote");
-        return;
+      let remoteId = sourceRemoteId;
+      if (!remoteId || remoteId === "local") {
+        const info = getCurrentRemote();
+        if (!info) {
+          toast.error("share is only available on a remote");
+          return;
+        }
+        remoteId = info.remote_id;
       }
-      const remote = await getRemoteById(info.remote_id);
+      const remote = await getRemoteById(remoteId);
       if (!remote) {
-        toast.error("could not find current remote");
+        toast.error("could not find remote");
         return;
       }
       showShareModal({
@@ -146,7 +152,20 @@ export function useSongContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
+
+  // resolve the song's origin remote so every action below routes
+  // against the same source. `options.remote` (when the caller knows
+  // it eagerly) wins; otherwise we lazily look up by
+  // `song.remote_server_id` at click time.
+  const effectiveRemoteId =
+    options.remote?.remote_id ?? song.remote_server_id ?? undefined;
+  const resolveSongRemote = async (): Promise<Remote | undefined> => {
+    if (options.remote) return options.remote;
+    if (!song.remote_server_id) return undefined;
+    return (await getRemoteById(song.remote_server_id)) ?? undefined;
+  };
 
   // queue management actions FIRST (when in queue context)
   if (options.showRemoveFromQueue && options.queueIndex !== undefined) {
@@ -211,13 +230,18 @@ export function useSongContextMenu(
     actions.push({ type: "separator" });
   }
 
-  // navigation actions
+  // navigation actions — scope to the song's own source remote, not
+  // the globally-active one. queue items can come from any remote
+  // (or local), and routes.album/artist build prefixes from
+  // getCurrentRemote() which yields the wrong URL when the active
+  // remote differs from the song's origin.
+  const songRemoteId = effectiveRemoteId ?? "local";
   if (song.album_id) {
     actions.push({
       label: "view album",
       icon: IconNames.album,
       onClick: () => {
-        navigate(routes.album(song.album_id));
+        navigate(routes.albumOn(songRemoteId, song.album_id));
       },
     });
   }
@@ -227,7 +251,7 @@ export function useSongContextMenu(
       label: "view artist",
       icon: IconNames.artist,
       onClick: () => {
-        navigate(routes.artist(song.artist_id));
+        navigate(routes.artistOn(songRemoteId, song.artist_id));
       },
     });
   }
@@ -242,7 +266,10 @@ export function useSongContextMenu(
       label: "remove from playlist",
       icon: IconNames.close,
       onClick: async () => {
-        const dataSource = getDataSource();
+        // route to the song's origin remote, not the active source —
+        // the queue can contain songs from multiple remotes.
+        const remote = await resolveSongRemote();
+        const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
         if (dataSource.removeSongsFromPlaylist) {
           await dataSource.removeSongsFromPlaylist(options.playlistId!, [
             song.id,
@@ -257,21 +284,28 @@ export function useSongContextMenu(
   }
 
   // favorites
-  actions.push(
-    createFavoriteMenuAction(
-      "song",
-      song.id,
-      options.isFavorite ?? false,
-      song.sha256,
-    ),
-  );
+  actions.push({
+    label: options.isFavorite ? "remove from favorites" : "add to favorites",
+    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
+    onClick: async () => {
+      const remote = await resolveSongRemote();
+      toggleFavoriteMutation.mutate({
+        targetType: "song",
+        targetId: song.id,
+        sha256: song.sha256,
+        isFavorite: !(options.isFavorite ?? false),
+        remote,
+      });
+    },
+  });
 
   // playlists
   actions.push({
     label: "add to playlist...",
     icon: IconNames.playlist,
-    onClick: () => {
-      showPlaylistSelector([song.id]);
+    onClick: async () => {
+      const remote = await resolveSongRemote();
+      void showPlaylistSelector([song.id], remote);
     },
   });
 
@@ -307,6 +341,7 @@ export function useSongContextMenu(
         // touches blake3/sha256/title/album fields, all present here.
         song: song as unknown as RemoteSong,
       }),
+      effectiveRemoteId,
     ),
   );
 
@@ -315,8 +350,9 @@ export function useSongContextMenu(
     actions.push({
       label: "tags",
       icon: IconNames.tag,
-      onClick: () => {
-        showTagSelector([song.album_id!], song.album_title);
+      onClick: async () => {
+        const remote = await resolveSongRemote();
+        showTagSelector([song.album_id!], song.album_title, remote);
       },
     });
   }
@@ -328,8 +364,9 @@ export function useSongContextMenu(
     actions.push({
       label: "edit info...",
       icon: IconNames.edit,
-      onClick: () => {
-        showSongEditor({ songId: song.id });
+      onClick: async () => {
+        const remote = await resolveSongRemote();
+        showSongEditor({ songId: song.id, remote });
       },
     });
   }
@@ -350,7 +387,8 @@ export function useSongContextMenu(
 
         if (confirmed) {
           try {
-            const dataSource = getDataSource();
+            const remote = await resolveSongRemote();
+            const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
             if (dataSource.deleteSong) {
               await dataSource.deleteSong(song.id);
               toast.success(`deleted "${song.title}"`);

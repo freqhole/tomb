@@ -1035,7 +1035,7 @@ export function TopNav(props: TopNavProps) {
                           props.onNavigate?.(routes.library());
                         }}
                       >
-                        <Icon name="grid" size={14} />
+                        <Icon name="library" size={14} />
                         <span class="text-sm">library</span>
                       </button>
 

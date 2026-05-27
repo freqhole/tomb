@@ -5,6 +5,12 @@
 
 // v1 subset of relation kinds recognised by this module.
 // must match the strings used in AlbumNodeData / ArtistNodeData fields.
+//
+// `era` and `recent` are synthesized server-side hubs (see grimoire
+// `list_era_bins` / `list_recently_added_albums`): they don't map to
+// stored `taxonz` rows, but reuse the same `relation::` / `value::`
+// node id scheme so the walk explorer can render them with no
+// special cases on the drawing side.
 export type RelationKind =
   | "genre"
   | "tag"
@@ -12,7 +18,8 @@ export type RelationKind =
   | "style"
   | "era"
   | "label"
-  | "favorite";
+  | "favorite"
+  | "recently_added";
 
 // ---- slug ------------------------------------------------------------------
 // ported verbatim from walker.worker.ts so main-side and worker-side slugs

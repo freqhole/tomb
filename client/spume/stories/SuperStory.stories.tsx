@@ -17,6 +17,8 @@ import { TopNav } from "../src/components/navigation/TopNav";
 import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
+import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
@@ -921,9 +923,13 @@ export const FullAppDemo: Story = {
     const mainContent = () => {
       switch (currentRoute()) {
         case "library":
+          // mount the same graph2 WalkCanvas used in the dedicated
+          // GraphWalker story, against the same MOCK_GRAPH fixture. the
+          // real app uses LibraryGraphSubview which wires this up to
+          // live data; here we just want a representative visual.
           return (
-            <div class="flex-1 flex items-center justify-center text-white/30 text-sm">
-              graph view (use LibraryGraphSubview in production)
+            <div class="flex-1 relative bg-black overflow-hidden">
+              <WalkCanvas graph={MOCK_GRAPH} initialPivot="root" />
             </div>
           );
         case "songs":

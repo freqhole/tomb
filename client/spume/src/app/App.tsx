@@ -835,6 +835,7 @@ export function App() {
         {(state) => (
           <SongEditorModal
             songId={state().songId}
+            remote={state().remote}
             onClose={hideSongEditor}
             onSave={() => {
               state().onSave?.();
@@ -890,6 +891,7 @@ export function App() {
           <TagSelectorModal
             albumIds={state().albumIds}
             albumTitle={state().albumTitle}
+            remote={state().remote}
             onClose={hideTagSelector}
             onSave={() => {
               state().onSave?.();

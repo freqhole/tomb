@@ -6,6 +6,7 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import type { MusicDataSource } from "../data/types";
 import { queryKeys } from "./queryKeys";
 
 // pick a data source: a remote-scoped one when an explicit remote is
@@ -13,9 +14,9 @@ import { queryKeys } from "./queryKeys";
 // globally-active source. used by the album editor modal so it works
 // for both context-menu edits (active source) and bulk-enrichment review
 // (per-remote source).
-function pickAlbumSource(remote: Remote | undefined) {
+function pickAlbumSource(remote: Remote | undefined): MusicDataSource {
   if (remote && remote.remote_id) {
-    return new RemoteMusicDataSource(remote);
+    return new RemoteMusicDataSource(remote) as unknown as MusicDataSource;
   }
   return getDataSource();
 }
@@ -114,14 +115,17 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
 }
 
 // simple query hook for fetching a single song by id
-export function useSongQuery(songId: Accessor<string | undefined>) {
+export function useSongQuery(
+  songId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>,
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.songs.detail(songId() || ""),
+    queryKey: [...queryKeys.songs.detail(songId() || ""), remote?.()?.remote_id ?? null] as const,
     queryFn: async () => {
       const id = songId();
       if (!id) return null;
 
-      const dataSource = getDataSource();
+      const dataSource = pickAlbumSource(remote?.());
       return dataSource.getSongById(id);
     },
     enabled: !!songId(),
@@ -384,13 +388,16 @@ export function useUpdateSongsMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (params: UpdateSongsMutationParams) => {
-      const dataSource = getDataSource();
+    mutationFn: async (
+      params: UpdateSongsMutationParams & { remote?: Remote },
+    ) => {
+      const { remote, ...updateParams } = params;
+      const dataSource = pickAlbumSource(remote);
       if (!dataSource.updateSong) {
         throw new Error("current data source does not support updating songs");
       }
 
-      await dataSource.updateSong(params);
+      await dataSource.updateSong(updateParams);
     },
     onSuccess: () => {
       // invalidate all music queries to refresh data

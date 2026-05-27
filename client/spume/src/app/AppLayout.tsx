@@ -978,8 +978,11 @@ export function AppLayout(props: AppLayoutProps) {
       },
     });
 
-    // navigation actions based on type
+    // navigation actions based on type — scope to the entry's origin
+    // remote (server_remote_id or the first song's remote_server_id), not
+    // the globally-active remote, so links land on the right source.
     const firstSong = entry.songs[0];
+    const entryRemoteId = entry.server_remote_id ?? firstSong?.remote_server_id ?? "local";
     const navActions: MenuAction[] = [];
 
     // for song/album types, show both "view album" and "view artist"
@@ -990,14 +993,14 @@ export function AppLayout(props: AppLayoutProps) {
         navActions.push({
           label: "view album",
           icon: IconNames.album,
-          onClick: () => navigate(routes.album(albumId)),
+          onClick: () => navigate(routes.albumOn(entryRemoteId, albumId)),
         });
       }
       if (artistId) {
         navActions.push({
           label: "view artist",
           icon: IconNames.artist,
-          onClick: () => navigate(routes.artist(artistId)),
+          onClick: () => navigate(routes.artistOn(entryRemoteId, artistId)),
         });
       }
     } else if (entry.entity_id) {
@@ -1005,8 +1008,16 @@ export function AppLayout(props: AppLayoutProps) {
         string,
         { label: string; route: (id: string) => string; icon: IconName }
       > = {
-        artist: { label: "view artist", route: routes.artist, icon: IconNames.artist },
-        playlist: { label: "view playlist", route: routes.playlist, icon: IconNames.playlist },
+        artist: {
+          label: "view artist",
+          route: (id) => routes.artistOn(entryRemoteId, id),
+          icon: IconNames.artist,
+        },
+        playlist: {
+          label: "view playlist",
+          route: (id) => routes.playlistOn(entryRemoteId, id),
+          icon: IconNames.playlist,
+        },
       };
       const nav = typeNavMap[entry.type];
       if (nav) {
@@ -1516,7 +1527,9 @@ export function AppLayout(props: AppLayoutProps) {
               const cs = currentSongData();
               if (!cs || !cs.album_id) return;
               setHighlightedSongId(cs.id);
-              navigate(routes.album(cs.album_id));
+              // scope to the song's origin remote, not the currently-active
+              // one — queue items can come from any remote/local source.
+              navigate(routes.albumOn(cs.remote_server_id ?? "local", cs.album_id));
               return;
             }
 
@@ -1691,6 +1704,7 @@ export function AppLayout(props: AppLayoutProps) {
         isOpen={playlistSelectorState().isOpen}
         onClose={closePlaylistSelector}
         songIds={playlistSelectorState().songIds}
+        remote={playlistSelectorState().remote}
       />
 
       {/* global station selector modal (charnel-only) */}

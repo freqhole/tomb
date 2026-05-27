@@ -31,8 +31,17 @@ export interface BuildWalkGraphOutput {
 }
 
 // the ordered set of relation kinds the adapter processes, per S15.
+//
+// note: "era" is intentionally omitted here. era taxons are synthesized
+// server-side via `list_era_bins` (greedy decade-aware binning with
+// hysteresis), and the hub + its value nodes are merged in lazily by
+// LibraryGraphSubview on pivot. emitting an album-derived "era" hub
+// here would duplicate the synthesized hub id and confuse the lazy
+// loader. the "recently_added" hub is also synthesized (a flat list of
+// the most recently added albums, no value tier) and always emitted
+// below regardless of in-memory content.
 const RELATION_KINDS: RelationKind[] = [
-  "genre", "tag", "mood", "style", "era", "label", "favorite",
+  "genre", "tag", "mood", "style", "label", "favorite",
 ];
 
 /** collect the relation values for a given kind from one node.
@@ -49,6 +58,7 @@ function valuesForKind(
     case "era":      return node.era ? [node.era] : [];
     case "label":    return node.label ? [node.label] : [];
     case "favorite": return node.isFavorite === true ? ["favorite"] : [];
+    case "recently_added": return []; // synthesized hub, no album-derived values
   }
 }
 
@@ -91,6 +101,33 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
       childCount: artists.length, // direct artist children (not counting relation hubs for sizing)
     });
     edges.push({ source: rId, target: rhId });
+
+    // ---- synthesized hubs (always emitted, lazy-populated) ----------------
+    // these hubs aren't backed by stored taxonz: era is computed by the
+    // backend's greedy decade binner (`list_era_bins`) and recently_added
+    // is the top-N most-recently-added albums (`list_recently_added_albums`).
+    // children are merged in by LibraryGraphSubview when the user pivots
+    // into the hub. emit them unconditionally so they're always visible
+    // under each remote hub.
+    const eraHubId = relationHubId(remoteId, "era");
+    nodes.push({
+      id: eraHubId,
+      role: "relation",
+      label: "era",
+      parentId: rhId,
+      childCount: 0,
+    });
+    edges.push({ source: rhId, target: eraHubId });
+
+    const recentHubId = relationHubId(remoteId, "recently_added");
+    nodes.push({
+      id: recentHubId,
+      role: "relation",
+      label: "recently added",
+      parentId: rhId,
+      childCount: 0,
+    });
+    edges.push({ source: rhId, target: recentHubId });
 
     // ---- relation hubs + value nodes --------------------------------------
     // collect per-kind unique values across all artists + albums in this remote.

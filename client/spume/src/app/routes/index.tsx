@@ -1,6 +1,6 @@
 import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { whoami } from "../../app/services/remotes/authService";
 import { useLocalSource, getCurrentRemote } from "../../music/data";
 import {
@@ -264,24 +264,82 @@ function RemoteContextHandler(props: { children?: any }) {
     }
   };
 
-  onMount(async () => {
+  // react to `params.remoteId` changes — solid reuses this component
+  // instance across `/:remoteId` route param changes, so `onMount`
+  // would only fire on first entry. without re-running on param
+  // change, navigating from `/remoteA/...` to `/remoteB/...` would
+  // leave the global active data source pointing at remoteA, and the
+  // detail view would query the wrong remote.
+  createEffect(() => {
     const remoteId = params.remoteId;
     if (!remoteId) return;
 
-    const remote = await getRemoteById(remoteId);
-    if (!remote) {
-      console.warn(`remote not found: ${remoteId}`);
-      await goToFallback(remoteId);
-      return;
-    }
+    // track whether this effect run is still the latest — if the
+    // param changes again mid-flight, the older async chain should
+    // bail out so it doesn't clobber state for the new remote.
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
 
-    // fast path: this remote is already the active data source. just
-    // populate the auth-flow remoteInfo and render children immediately
-    // — no need to re-run the health check + source switch, which
-    // would briefly hide content (Show gates on isConnected) and could
-    // bounce if a transient health check fails.
-    const current = getCurrentRemote();
-    if (current && current.remote_id === remote.remote_id) {
+    void (async () => {
+      const remote = await getRemoteById(remoteId);
+      if (cancelled) return;
+      if (!remote) {
+        console.warn(`remote not found: ${remoteId}`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      // fast path: this remote is already the active data source. just
+      // populate the auth-flow remoteInfo and render children immediately
+      // — no need to re-run the health check + source switch, which
+      // would briefly hide content (Show gates on isConnected) and could
+      // bounce if a transient health check fails.
+      const current = getCurrentRemote();
+      if (current && current.remote_id === remote.remote_id) {
+        setRemoteInfo({
+          remote_id: remote.remote_id,
+          name: remote.name,
+          base_url: isHttpRemote(remote) ? remote.base_url : undefined,
+          peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
+          is_charnel_managed: remote.is_charnel_managed,
+        });
+        setIsConnected(true);
+        return;
+      }
+
+      // param changed to a different remote than the active one — hide
+      // children while we reconnect so stale data from the previous
+      // remote doesn't briefly render under the new URL.
+      setIsConnected(false);
+
+      // note: we deliberately do NOT short-circuit on `remote.is_offline`
+      // here. that flag can be stale (library multi-remote views talk to
+      // remotes via `getClientForRemote` without ever clearing it). let
+      // `connectToRemote` re-run the health check below — if the remote
+      // really is offline, the check fails and the fallback path runs as
+      // it would have anyway.
+
+      // attempt connection with progress modal support
+      // this handles health check, data source switching, and cancellation
+      const result = await connectToRemote(remoteId);
+      if (cancelled) return;
+
+      if (result.cancelled) {
+        debug("routes", `connection to ${remote.name} cancelled by user`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      if (!result.success) {
+        debug("routes", `failed to connect to ${remote.name}`);
+        toast.error(`cannot reach ${remote.name}`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      // connection successful - set remote info for auth flow
       setRemoteInfo({
         remote_id: remote.remote_id,
         name: remote.name,
@@ -290,43 +348,8 @@ function RemoteContextHandler(props: { children?: any }) {
         is_charnel_managed: remote.is_charnel_managed,
       });
       setIsConnected(true);
-      return;
-    }
-
-    // note: we deliberately do NOT short-circuit on `remote.is_offline`
-    // here. that flag can be stale (library multi-remote views talk to
-    // remotes via `getClientForRemote` without ever clearing it). let
-    // `connectToRemote` re-run the health check below — if the remote
-    // really is offline, the check fails and the fallback path runs as
-    // it would have anyway.
-
-    // attempt connection with progress modal support
-    // this handles health check, data source switching, and cancellation
-    const result = await connectToRemote(remoteId);
-
-    if (result.cancelled) {
-      debug("routes", `connection to ${remote.name} cancelled by user`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    if (!result.success) {
-      debug("routes", `failed to connect to ${remote.name}`);
-      toast.error(`cannot reach ${remote.name}`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    // connection successful - set remote info for auth flow
-    setRemoteInfo({
-      remote_id: remote.remote_id,
-      name: remote.name,
-      base_url: isHttpRemote(remote) ? remote.base_url : undefined,
-      peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
-      is_charnel_managed: remote.is_charnel_managed,
-    });
-    setIsConnected(true);
-    queryClient.invalidateQueries();
+      queryClient.invalidateQueries();
+    })();
   });
 
   // watch for auth expiry on this remote
