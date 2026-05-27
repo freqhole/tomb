@@ -442,14 +442,18 @@ function Inner(props: {
   //   1. is_primary === true (user/server flagged as featured)
   //   2. blob_type === "original" (full-res over thumbnail)
   //   3. first available
-  // returns null when the list is empty / nullish.
+  // waveforms are filtered out — they're audio peak data, not visual
+  // art. returns null when the list is empty or contains only
+  // waveforms, so the caller can fall back to an album cover.
   const pickPrimaryImage = (images: ImageMetadata[] | null | undefined): ImageMetadata | null => {
     if (!images || images.length === 0) return null;
-    const primary = images.find((i) => i.is_primary === true);
+    const visual = images.filter((i) => i.blob_type !== "waveform");
+    if (visual.length === 0) return null;
+    const primary = visual.find((i) => i.is_primary === true);
     if (primary) return primary;
-    const original = images.find((i) => i.blob_type === "original");
+    const original = visual.find((i) => i.blob_type === "original");
     if (original) return original;
-    return images[0] ?? null;
+    return visual[0] ?? null;
   };
 
   // fetch all artists for a remote and cache each one's primary image
@@ -621,18 +625,18 @@ function Inner(props: {
         if (a.isFavorite && a.artistId) favIds.add(a.artistId);
       }
       const derived = deriveArtistNodes(albums, favIds);
-      // overlay real artist primary images on top of the album-derived
-      // placeholders. only the matching remote's cache is consulted —
-      // cross-remote fallbacks happen at render time in `getImage`.
+      // image priority: album cover (already on node from
+      // deriveArtistNodes) wins. only fall back to the artist's own
+      // primary image when there's no album-derived cover — keeps
+      // waveforms / odd artist-level art from clobbering the catalog
+      // signal that an album cover provides.
       const remoteImgs = imgIdx.get(remoteId);
       if (remoteImgs && remoteImgs.size > 0) {
         for (let i = 0; i < derived.length; i++) {
           const node = derived[i];
+          if (node.image) continue;
           const primary = remoteImgs.get(node.artistId);
-          if (!primary) continue;
-          // primary always wins over the album cover fallback so the
-          // graph reflects the user's chosen artist art.
-          derived[i] = { ...node, image: primary };
+          if (primary) derived[i] = { ...node, image: primary };
         }
       }
       out.set(remoteId, derived);
@@ -847,6 +851,16 @@ function Inner(props: {
   const selectedArtistAlbums = createMemo<AlbumNodeData[]>(() => {
     const artist = selectedArtist();
     if (!artist) return [];
+    // align with the panel's data source: use the cluster member that
+    // selectedArtistMember picked (breadcrumb-derived primary remote,
+    // user override, or one-member fallback). without this the album
+    // list filtered by the leader's artistId — possibly a different
+    // remote than the one whose bio / images are showing — so the user
+    // would see "data from X" but X's albums hidden behind some other
+    // remote's catalog (or an empty list when no albums for that
+    // artistId loaded yet).
+    const member = selectedArtistMember();
+    const filterArtistId = member?.data.artistId ?? artist.artistId;
     const out: AlbumNodeData[] = [];
     // buildResult().nodesById keys album nodes by their graph id
     // (`album::${remoteId}::${albumId}`), but the stored AlbumNodeData
@@ -857,7 +871,7 @@ function Inner(props: {
     // non-existent node and the album panel never opens.
     const addFromMap = (map: Map<string, AlbumNodeData | ArtistNodeData>) => {
       for (const [key, node] of map) {
-        if ("title" in node && (node as AlbumNodeData).artistId === artist.artistId) {
+        if ("title" in node && (node as AlbumNodeData).artistId === filterArtistId) {
           out.push({ ...(node as AlbumNodeData), id: key });
         }
       }

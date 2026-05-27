@@ -69,12 +69,13 @@ SELECT
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
 
-    -- artist images as JSON array
+    -- artist images as JSON array (waveforms excluded — they're
+    -- audio peak data, not visual art)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM artist_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.artist_id = ar.id),
+         WHERE ai.artist_id = ar.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as artist_images,
 
@@ -155,12 +156,13 @@ SELECT
         '[]'
     ) as album_tags,
 
-    -- album images as JSON array
+    -- album images as JSON array (waveforms excluded — audio
+    -- peak data should never surface as cover art)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM album_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.album_id = al.id),
+         WHERE ai.album_id = al.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as album_images,
 

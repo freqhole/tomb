@@ -17,12 +17,13 @@ SELECT
     ar.lastfm_lookup_status as artist_lastfm_lookup_status,
     ar.audiodb_lookup_status as artist_audiodb_lookup_status,
 
-    -- images as JSON array
+    -- images as JSON array (waveforms excluded — they're audio peak
+    -- data and should never surface as artist art)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM artist_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.artist_id = ar.id),
+         WHERE ai.artist_id = ar.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as artist_images,
 

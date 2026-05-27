@@ -47,9 +47,12 @@ export interface AdaptAlbumOpts {
 
 export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNodeData {
   // prefer the explicit `is_primary` image; fall back to the first;
-  // then to a server thumbnail blob route by `remote_blob_id`.
+  // then to a server thumbnail blob route by `remote_blob_id`. waveforms
+  // are filtered out — they're audio peak data, not cover art, and
+  // can leak in here if a remote tagged one is_primary by mistake.
+  const visualImages = summary.images?.filter((i) => i.blob_type !== "waveform") ?? [];
   const primaryImage =
-    summary.images?.find((i) => i.is_primary) ?? summary.images?.[0] ?? null;
+    visualImages.find((i) => i.is_primary) ?? visualImages[0] ?? null;
   const imageUrl =
     primaryImage?.remote_url ??
     (primaryImage?.remote_blob_id

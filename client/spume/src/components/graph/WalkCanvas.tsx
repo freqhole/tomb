@@ -1209,16 +1209,17 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
-        // co-highlight ring: when an artist is selected/hovered, draw a
-        // soft ring on its connected album neighbors so the artist's
-        // discography pops out visually.
-        if ((coSelectedIds.has(n.id) || coHoveredIds.has(n.id)) && selId !== n.id && hov !== n.id) {
+        // co-highlight ring: when an artist is HOVERED, draw a
+        // prominent ring on its connected album neighbors so the
+        // artist's discography pops out visually. selection alone
+        // doesn't trigger the ring (would be too noisy and the
+        // selected artist's albums are already visually obvious
+        // around the pivot).
+        if (coHoveredIds.has(n.id) && hov !== n.id) {
           ctx.beginPath();
-          ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-          ctx.strokeStyle = coSelectedIds.has(n.id)
-            ? "rgba(255,26,158,0.55)"
-            : "rgba(255,255,255,0.35)";
-          ctx.lineWidth = 2;
+          ctx.arc(x, y, r + 7, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255,255,255,0.75)";
+          ctx.lineWidth = 3;
           ctx.stroke();
         }
 
@@ -1269,18 +1270,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             ctx.lineWidth = 2;
             ctx.stroke();
           }
-          // co-highlight ring for lifted node (same logic as pass 1)
-          if (
-            (coSelectedIds.has(n.id) || coHoveredIds.has(n.id)) &&
-            selId !== n.id &&
-            hov !== n.id
-          ) {
+          // co-highlight ring for lifted node (hover only, same as pass 1)
+          if (coHoveredIds.has(n.id) && hov !== n.id) {
             ctx.beginPath();
-            ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-            ctx.strokeStyle = coSelectedIds.has(n.id)
-              ? "rgba(255,26,158,0.55)"
-              : "rgba(255,255,255,0.35)";
-            ctx.lineWidth = 2;
+            ctx.arc(x, y, r + 7, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255,255,255,0.75)";
+            ctx.lineWidth = 3;
             ctx.stroke();
           }
           drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);

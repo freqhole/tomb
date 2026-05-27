@@ -221,11 +221,18 @@ function computeTargets(
       if (r > maxR) maxR = r;
     }
     const avgR = sumR / kidIds.length;
-    // arc gap = ~2.6 * average diameter; radial gap = ~2.4 * max diameter
-    const minArc    = Math.max(36, avgR * 2.6);
-    const radialStep = Math.max(54, maxR * 2.4);
-    // first row sits parent-radius + a bit + max-kid-radius away from parent
-    const baseR    = parentR + maxR + Math.max(28, avgR * 1.4);
+    // arc gap = ~2.6 * average diameter; radial gap = ~2.4 * max diameter.
+    // tie both knobs to parentR as well so a fat-catalog artist (whose
+    // nodeRadius scales with childCount) actually gets a roomier album
+    // ring, not just a bigger central glyph crowding the same shell.
+    const minArc    = Math.max(36, avgR * 2.6, parentR * 0.55);
+    const radialStep = Math.max(54, maxR * 2.4, parentR * 1.1);
+    // first row sits parent-radius + a bit + max-kid-radius away from
+    // parent. the third term (`parentR * 1.2`) adds personal space
+    // proportional to the parent's footprint — for a 51px artist it
+    // pads the album ring outward by ~61px instead of the previous flat
+    // 28px floor, which is what was making "fat artist" feel tight.
+    const baseR    = parentR + maxR + Math.max(28, avgR * 1.4, parentR * 1.2);
 
     // how many siblings fit per row before they'd be closer than minArc
     const perRow = Math.max(2, Math.floor((wedge * baseR) / minArc));
@@ -413,6 +420,40 @@ function buildSim() {
   const cy = height / 2;
   const targets = computeTargets(pivot(), visible, cx, cy);
   const pivLeader = leaderOf(pivot());
+  // pivot-aware spacing knob: any pivot artist gets a personal-space
+  // cordon, scaled by catalog size. small catalogs still get cleared
+  // breathing room; big catalogs get proportionally more. `pivotBoost`
+  // ramps from ~0.1 (1 album) toward a soft cap of 1.5 (15+ albums).
+  //
+  // CLUSTER-AWARE COUNT: aggregated artists (dashed-stroke, multiple
+  // members merged across remotes via slug) count their *combined*
+  // catalog, not just the leader's own albums. we walk fullGraph.edges
+  // with leaderOf collapse and tally unique album leader ids attached
+  // to pivLeader.
+  const pivLeaderNode = nodeMap.get(pivLeader);
+  const pivotIsArtist = pivLeaderNode?.role === "artist";
+  const pivotAlbumChildren = new Set<string>();
+  if (pivotIsArtist) {
+    for (const e of fullGraph.edges) {
+      const rs = typeof e.source === "string" ? e.source : (e.source as SimNode).id;
+      const rt = typeof e.target === "string" ? e.target : (e.target as SimNode).id;
+      const ls = leaderOf(rs);
+      const lt = leaderOf(rt);
+      const sn = nodeMap.get(ls);
+      const tn = nodeMap.get(lt);
+      if (!sn || !tn) continue;
+      if (ls === pivLeader && sn.role === "artist" && tn.role === "album") {
+        pivotAlbumChildren.add(lt);
+      } else if (lt === pivLeader && tn.role === "artist" && sn.role === "album") {
+        pivotAlbumChildren.add(ls);
+      }
+    }
+  }
+  const pivotAlbumCount = pivotAlbumChildren.size;
+  const pivotBoost = pivotIsArtist
+    ? Math.min(Math.max(pivotAlbumCount, 1) / 10, 1.5)
+    : 0;
+  const pivotActive = pivotIsArtist;
   // strategy A — breadcrumb may contain member ids; collapse to leader ids so
   // the visible leader still reads as "on breadcrumb path" (drives stroke +
   // label tints).
@@ -436,11 +477,19 @@ function buildSim() {
     if (!wn) continue;
     const target = targets.get(id) ?? { x: cx, y: cy };
     const prev = prevPositions.get(id);
-    const r = nodeRadius(wn.role, wn.childCount);
+    // for the pivot artist when aggregated across cluster members, use
+    // the cluster-wide album count so the visual node + collide reflect
+    // the true catalog size (otherwise dashed-stroke aggregated artists
+    // look small relative to their actual fan-out).
+    const effectiveChildCount =
+      id === pivLeader && pivotIsArtist && pivotAlbumCount > wn.childCount
+        ? pivotAlbumCount
+        : wn.childCount;
+    const r = nodeRadius(wn.role, effectiveChildCount);
     const sn: SimNode = {
       id,
       role: wn.role,
-      childCount: wn.childCount,
+      childCount: effectiveChildCount,
       radius: r,
       targetX: target.x,
       targetY: target.y,
@@ -572,6 +621,62 @@ function buildSim() {
   post({ type: "topology", nodes: topologyNodes, edges: visibleEdges });
   post({ type: "visibleIds", ids: simNodes.map((n) => n.id) });
 
+  // capture live pivot sim node so cordon reads current position each
+  // tick. nodeMap holds walk-graph nodes; we need the SimNode whose x/y
+  // updates every tick. pivotAlbumChildren was computed up-front (cluster-
+  // aware) so the cordon can exempt the inner album ring.
+  const pivotSimNode = pivotActive
+    ? simNodes[idToIdx.get(pivLeader) ?? -1]
+    : undefined;
+  // max album radius among pivot's children — sets how wide the
+  // protected inner ring must be before everything else gets evicted.
+  let pivotMaxAlbumR = 0;
+  if (pivotActive) {
+    for (const aid of pivotAlbumChildren) {
+      const idx = idToIdx.get(aid);
+      if (idx === undefined) continue;
+      const r = simNodes[idx].radius;
+      if (r > pivotMaxAlbumR) pivotMaxAlbumR = r;
+    }
+  }
+  // cordon radius: pivot disc + full album ring + generous padding
+  // that scales with album count. for a 30-album artist this clears
+  // ~600px around the pivot, evicting hub nodes and ghost satellites
+  // to the periphery.
+  const cordonR = pivotActive && pivotSimNode
+    ? pivotSimNode.radius + pivotMaxAlbumR * 2.6 + 220 + pivotBoost * 180
+    : 0;
+
+  // custom cordon force: every tick, push non-album-of-pivot nodes
+  // outward if they're inside the cordon. uses an alpha-scaled
+  // velocity nudge proportional to (cordonR - dist), so deeply
+  // penetrating nodes are evicted hard while just-outside nodes feel
+  // nothing. this is the lever that finally clears space around fat
+  // pivots in dense (multi-remote) graphs — conventional charge alone
+  // can't reach far enough.
+  function cordonForce(alpha: number) {
+    if (!pivotActive || !pivotSimNode) return;
+    const px = pivotSimNode.x ?? 0;
+    const py = pivotSimNode.y ?? 0;
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+    for (const n of simNodes) {
+      if (n.id === pivLeader) continue;
+      if (pivotAlbumChildren.has(n.id)) continue;
+      // ghost related artists are reference points — they should sit
+      // near the pivot, not get evicted to the periphery. they're
+      // tiny (r=8) and label-only so they don't crowd anything.
+      if (n.role === "ghost_artist") continue;
+      const dx = (n.x ?? 0) - px;
+      const dy = (n.y ?? 0) - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= cordonR * cordonR) continue;
+      const d = Math.sqrt(d2) || 0.0001;
+      const push = (cordonR - d) * 0.22 * alpha;
+      n.vx = (n.vx ?? 0) + (dx / d) * push;
+      n.vy = (n.vy ?? 0) + (dy / d) * push;
+    }
+  }
+
   sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
       "link",
@@ -580,31 +685,49 @@ function buildSim() {
         .distance((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
-          const base = (s.radius + t.radius) * 2.6;
-          // related-artist edges: pull pairs in tight so the "related
-          // artist" relationship reads as a cluster rather than a long
-          // rangy wire.
-          if (d.isRelatedArtist) return (s.radius + t.radius) * 1.6;
-          // keep albums hugging their parent artist. spring distance is
-          // sum-of-radii * 1.3 so it sits just past the collide radius
-          // and inside the initial radial placement, which yanks albums
-          // tight against their artist instead of letting them drift out.
-          if (s.role === "artist" && t.role === "album")
-            return (s.radius + t.radius) * 1.3;
-          // value→artist / value→album fan-out: lots of room
-          if (s.role === "value") return base * 1.8;
+          // album edges: tight inner ring, even more so when the
+          // parent is the selected pivot (creates a cohesive catalog
+          // halo against which the pivot's repulsion field can clear
+          // outer space).
+          if (s.role === "artist" && t.role === "album") {
+            const tight = s.id === pivLeader && pivotActive
+              ? Math.max(1.05, 1.3 - pivotBoost * 0.15)
+              : 1.3;
+            return (s.radius + t.radius) * tight;
+          }
+          // every other edge touching the pivot artist (related-artist,
+          // taxon hubs, value chips...) gets pushed outward in
+          // proportion to the catalog size. one knob, every edge type.
+          const base = d.isRelatedArtist
+            ? (s.radius + t.radius) * 1.6
+            : s.role === "value"
+              ? (s.radius + t.radius) * 4.7  // value→x fan-out
+              : (s.radius + t.radius) * 2.6;
+          if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
+            return base * (1 + pivotBoost * 1.2);
+          }
           return base;
         })
         .strength((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
-          // related-artist edges: stronger spring so the pair sits
-          // close together regardless of the other taxon attractors
-          // each end is wired into.
-          if (d.isRelatedArtist) return 0.6;
-          // strong spring on artist→album so albums stick close
-          if (s.role === "artist" && t.role === "album") return 0.95;
-          return 0.22;
+          // album edges: lock tight (near-max) so the catalog ring
+          // shrugs off every other attractor pulling at the albums.
+          if (s.role === "artist" && t.role === "album") {
+            return s.id === pivLeader && pivotActive
+              ? Math.min(1, 0.95 + pivotBoost * 0.05)
+              : 0.95;
+          }
+          // every other edge touching the pivot artist gets RELAXED
+          // — related-artist links, hub connections, ghost satellites
+          // — so they don't yank the pivot off-center or crowd the
+          // album ring. base strength varies by edge type but pivot-
+          // touching ones are uniformly divided by `1 + boost * 2`.
+          const base = d.isRelatedArtist ? 0.6 : 0.22;
+          if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
+            return base / (1 + pivotBoost * 2);
+          }
+          return base;
         }),
     )
     .force(
@@ -614,6 +737,11 @@ function buildSim() {
         // overlap as aggressively. hubs stay generous so their fan-outs
         // don't get squashed. artist/album collide bumped slightly so
         // there's some visible padding around each tile even when packed.
+        // NOTE: keep pivot artist's collide modest — its big personal-
+        // space bubble is enforced by the strong negative charge below,
+        // not by collide, because a huge collide radius would fight the
+        // album spring (albums sit at ~1.3 * sum-of-radii and would get
+        // shoved out of formation by an oversized pivot collide).
         .radius((d) => {
           if (d.role === "album") return d.radius * 1.55;
           if (d.role === "artist") return d.radius * 1.8;
@@ -624,29 +752,51 @@ function buildSim() {
     )
     .force(
       "x",
-      forceX<SimNode>((d) => d.targetX).strength((d) =>
-        d.role === "album" ? 0.45 : 0.18,
-      ),
+      forceX<SimNode>((d) => d.targetX).strength((d) => {
+        if (d.role === "album") return 0.45;
+        // when pivot is a fat artist, relax the bloom-target homing
+        // on every satellite so they can drift outward under the
+        // pivot's strong negative charge instead of being yanked
+        // back to their original placement.
+        if (pivotActive && d.id !== pivLeader) {
+          return Math.max(0.05, 0.18 - pivotBoost * 0.09);
+        }
+        return 0.18;
+      }),
     )
     .force(
       "y",
-      forceY<SimNode>((d) => d.targetY).strength((d) =>
-        d.role === "album" ? 0.45 : 0.18,
-      ),
+      forceY<SimNode>((d) => d.targetY).strength((d) => {
+        if (d.role === "album") return 0.45;
+        if (pivotActive && d.id !== pivLeader) {
+          return Math.max(0.05, 0.18 - pivotBoost * 0.09);
+        }
+        return 0.18;
+      }),
     )
     .force(
       "charge",
       forceManyBody<SimNode>()
-        // hubs (relation/value) push harder than leaves so dense clusters fan out
+        // hubs (relation/value) push harder than leaves so dense
+        // clusters fan out. the pivot artist with a fat catalog gets a
+        // dramatically larger negative charge — combined with
+        // distanceMax=1400 it reaches every ghost satellite and clears
+        // outer space without disturbing the tight album ring (which
+        // is held in place by the near-max album spring).
         .strength((d) => {
           if (d.role === "value" || d.role === "relation") return -180;
-          if (d.role === "artist") return -90;
-          // albums barely repel each other — let collide handle spacing
+          if (d.role === "artist") {
+            if (d.id === pivLeader && pivotActive) {
+              return -(400 + pivotBoost * 600);
+            }
+            return -90;
+          }
           if (d.role === "album") return -20;
           return -55;
         })
-        .distanceMax(900),
+        .distanceMax(1400),
     )
+    .force("cordon", cordonForce)
     .alphaDecay(0.015)
     .velocityDecay(0.42)
     .on("tick", onTick);
