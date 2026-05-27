@@ -27,7 +27,6 @@ import {
   mockArtists,
   mockGenres,
   mockPlaylists,
-  mockTags,
   type Artist,
   type Genre,
   type Playlist,

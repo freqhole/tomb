@@ -12,7 +12,6 @@ export interface VisibleNode {
   isPivot: boolean;
   /** true if this node is on the breadcrumb path from root to pivot */
   isBreadcrumb: boolean;
-  imageUrl?: string;
 }
 
 export interface TopologyEdge {

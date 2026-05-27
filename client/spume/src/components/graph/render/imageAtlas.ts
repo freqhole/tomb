@@ -7,7 +7,7 @@
 // phase 8 will move the implementation source here (since graph2/ → graph/ rename
 // collapses everything), but until then this thin import is the right approach.
 
-import { getImageFor } from "../../graph/imageCache";
+import { getImageFor } from "../imageCache";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 
 const noop = () => {};
