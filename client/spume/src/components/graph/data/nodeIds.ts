@@ -19,7 +19,9 @@ export type RelationKind =
   | "era"
   | "label"
   | "favorite"
-  | "recently_added";
+  | "recently_added"
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {}); // user-defined kind_slugs
 
 // ---- slug ------------------------------------------------------------------
 // ported verbatim from walker.worker.ts so main-side and worker-side slugs

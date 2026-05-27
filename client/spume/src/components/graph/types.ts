@@ -18,7 +18,9 @@ export type RelationKind =
    *  offal route. */
   | "recently_added"
   /** artist node connected to one of its in-library albums */
-  | "artist_album";
+  | "artist_album"
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  | (string & {}); // user-defined kind_slugs (e.g. "vibe", "decade")
 
 /** discriminator for the graph node union. albums get `"album"`, artist
  *  avatar nodes get `"artist"`. older code paths that pre-date the union
@@ -56,6 +58,8 @@ export interface AlbumNodeData {
   label: string | null;
   /** 5-year bucket label like "1990-1994" */
   era: string | null;
+  /** user-defined taxon kinds not in the well-known set. kind_slug -> labels[]. */
+  customTaxons: Record<string, string[]>;
 
   // sugar
   trackCount: number;
@@ -147,6 +151,8 @@ export interface ArtistNodeData {
   label: string | null;
   /** most common 5-year era across the artist's albums, or null. */
   era: string | null;
+  /** user-defined taxon kinds unioned from the artist's albums. kind_slug -> labels[]. */
+  customTaxons: Record<string, string[]>;
 
   /** whether the user has favorited this artist. populated by the
    *  view layer from the favorites feed; relations.ts reads it to
@@ -239,6 +245,10 @@ export interface WalkNode {
   /** for hub nodes (root/remote/relation/value): # of direct children.
    *  drives proportional size scaling. */
   childCount: number;
+  /** when true, this hub's children are loaded lazily on pivot rather than
+   *  pre-populated by buildWalkGraph. skips the zero-childCount visibility
+   *  filter so the hub remains visible before expansion. */
+  lazy?: boolean;
 }
 
 export interface WalkEdge {

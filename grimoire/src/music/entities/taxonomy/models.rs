@@ -51,6 +51,11 @@ pub struct TaxonKind {
     pub display_order: i64,
     pub is_user_defined: bool,
     pub created_at: i64,
+    /// distinct (non-deleted) album count having at least one taxon of
+    /// this kind. populated by `list_taxon_kinds`; fresh-create paths
+    /// (`find_or_create_taxon_kind`, `create_taxon_kind`) set 0 since
+    /// no album_taxonz rows exist yet.
+    pub album_count: i64,
 }
 
 /// a categorical taxon node (e.g. `(kind=genre, label="rock")`).

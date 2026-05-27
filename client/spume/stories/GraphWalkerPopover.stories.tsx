@@ -38,6 +38,7 @@ const ALBUMS: AlbumNodeData[] = [
     isFavorite: false,
     sourceRemoteId: REMOTE,
     sourceRemoteIds: [REMOTE],
+    customTaxons: {},
   },
   {
     id: "alb2",
@@ -59,6 +60,7 @@ const ALBUMS: AlbumNodeData[] = [
     isFavorite: false,
     sourceRemoteId: REMOTE,
     sourceRemoteIds: [REMOTE],
+    customTaxons: {},
   },
   {
     id: "alb3",
@@ -80,6 +82,7 @@ const ALBUMS: AlbumNodeData[] = [
     isFavorite: false,
     sourceRemoteId: REMOTE,
     sourceRemoteIds: [REMOTE],
+    customTaxons: {},
   },
   {
     id: "alb4",
@@ -101,6 +104,7 @@ const ALBUMS: AlbumNodeData[] = [
     isFavorite: false,
     sourceRemoteId: REMOTE,
     sourceRemoteIds: [REMOTE],
+    customTaxons: {},
   },
 ];
 
@@ -120,6 +124,7 @@ const ARTISTS: ArtistNodeData[] = [
     styles: ["lo-fi"],
     label: null,
     era: null,
+    customTaxons: {},
     isFavorite: false,
     sourceRemoteIds: [REMOTE],
   },
@@ -138,6 +143,7 @@ const ARTISTS: ArtistNodeData[] = [
     styles: ["experimental"],
     label: null,
     era: null,
+    customTaxons: {},
     isFavorite: false,
     sourceRemoteIds: [REMOTE],
   },
@@ -156,6 +162,7 @@ const ARTISTS: ArtistNodeData[] = [
     styles: [],
     label: null,
     era: null,
+    customTaxons: {},
     isFavorite: false,
     sourceRemoteIds: [REMOTE],
   },

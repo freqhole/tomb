@@ -64,6 +64,7 @@ import {
   rootId,
   parseNodeId,
   slug,
+  remoteHubId,
   relationHubId,
   valueNodeId,
   type RelationKind,
@@ -232,6 +233,15 @@ function Inner(props: {
   // (relation hub, value, artist...) can paint a comet while its lazy
   // expansion fetch is in flight.
   const [fetchingByNode, setFetchingByNode] = createSignal<Map<string, boolean>>(new Map());
+  // song-derived favorite ids per remote. loaded once per activated remote
+  // via querySongs({ favorites_only: true }). unioned with album/artist
+  // isFavorite flags in buildWalkGraph to build the flat favorite hub.
+  const [favSongAlbumIds, setFavSongAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const [favSongArtistIds, setFavSongArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const favSongLoadedRemotes = new Set<string>();
+  // remotes for which we've already fetched taxon kinds and seeded
+  // first-order relation hubs into the graph.
+  const taxonKindsLoadedRemotes = new Set<string>();
   // relation hubs whose query_taxons fetch has settled (success OR error).
   // prevents re-firing on every pivot revisit.
   const taxonsLoadedByHub = new Set<string>();
@@ -413,6 +423,84 @@ function Inner(props: {
     }
   });
 
+  const loadFavoriteSongsForRemote = async (remote: Remote): Promise<void> => {
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.querySongs({
+        q: null,
+        search_fields: null,
+        filters: {},
+        favorites_only: true,
+        limit: 1000,
+        offset: 0,
+        sort_by: null,
+        sort_direction: null,
+        user_id: null,
+        min_rating: null,
+        mb_lookup_status: null,
+      });
+      if (!result.success || !result.data) return;
+      const albumIds = new Set<string>();
+      const artistIds = new Set<string>();
+      for (const item of result.data.items) {
+        if (item.album?.id) albumIds.add(item.album.id);
+        if (item.artist?.id) artistIds.add(item.artist.id);
+      }
+      setFavSongAlbumIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, albumIds);
+        return next;
+      });
+      setFavSongArtistIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, artistIds);
+        return next;
+      });
+    } catch (err) {
+      console.warn("song favorites fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
+  // fetch taxon kinds for a remote and seed first-order relation hub
+  // nodes (one per categorical user-defined kind). synthesized hubs
+  // (era, recently_added, favorites) are emitted by buildWalkGraph and
+  // intentionally skipped here — they have no taxon_kindz row.
+  const loadTaxonKindsForRemote = async (remote: Remote): Promise<void> => {
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.listTaxonKinds();
+      if (!result.success || !result.data) return;
+      const remoteId = remote.remote_id;
+      const rhId = remoteHubId(remoteId);
+      const SKIP_SLUGS = new Set(["era", "recently_added", "favorite", "favorites"]);
+      const addNodes: WalkNode[] = [];
+      const addEdges: WalkEdge[] = [];
+      for (const kind of result.data) {
+        // only categorical kinds become hubs; scalar kinds (bpm,
+        // energy, loudness_db, ...) are surfaced elsewhere.
+        if (kind.value_type !== "categorical") continue;
+        if (SKIP_SLUGS.has(kind.slug)) continue;
+        // skip empties so we don't pollute the hub with hollow nodes.
+        if (!kind.album_count || kind.album_count <= 0) continue;
+        const id = relationHubId(remoteId, kind.slug);
+        addNodes.push({
+          id,
+          role: "relation",
+          label: kind.slug,
+          parentId: rhId,
+          childCount: kind.album_count,
+          lazy: true,
+        });
+        addEdges.push({ source: rhId, target: id });
+      }
+      if (addNodes.length > 0 || addEdges.length > 0) {
+        walkerClient()?.merge(addNodes, addEdges);
+      }
+    } catch (err) {
+      console.warn("taxon kinds fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
   // run a health check (deduped) and reflect the result into offlineByRemote.
   const runHealthCheck = async (remoteId: string): Promise<boolean | null> => {
     if (recheckingRemotes.has(remoteId)) return null;
@@ -474,6 +562,8 @@ function Inner(props: {
       remoteIds,
       albumsByRemote: byRemote,
       artistsByRemote: artistsByRemote(),
+      favoriteSongAlbumIds: favSongAlbumIds(),
+      favoriteSongArtistIds: favSongArtistIds(),
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -992,6 +1082,10 @@ function Inner(props: {
     // under the era hub, then attach value->album edges by classifying
     // in-memory album years into the bin ranges.
     void maybeLoadEraBinsForPivot(nodeId);
+    // lazy era-bin album expansion: when the pivot is an era bin value
+    // node, fetch all albums whose year falls inside its range so the
+    // bin fans out into real content.
+    void maybeLoadAlbumsForEraBin(nodeId);
     // lazy recently-added expansion: pull the top-N most recently added
     // albums and attach them as direct children of the recently_added
     // hub. flat (no value tier).
@@ -1003,10 +1097,11 @@ function Inner(props: {
     void maybeLoadAlbumsForPivot(nodeId);
   };
 
-  // kind_slugs that map 1:1 onto our RelationKind taxonomy. "favorite"
-  // is a per-user flag not backed by a taxon kind; "era" + "recently_added"
-  // are synthesized server-side and handled by their own loaders.
-  const TAXON_BACKED_KINDS = new Set<RelationKind>(["genre", "tag", "mood", "style", "label"]);
+  // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
+  // flag, "era" and "recently_added" are synthesized server-side. everything
+  // else (genre/tag/mood/style/label plus any user-defined custom slug) can
+  // be lazy-loaded via queryTaxons.
+  const NON_TAXON_KINDS = new Set<string>(["favorites", "era", "recently_added"]);
 
   // pivot-loader dedup sets for synthesized hubs.
   const eraBinsLoadedByHub = new Set<string>();
@@ -1043,7 +1138,7 @@ function Inner(props: {
       return;
     }
     if (parsed.kind !== "relation") return;
-    if (!TAXON_BACKED_KINDS.has(parsed.relationKind)) return;
+    if (NON_TAXON_KINDS.has(parsed.relationKind)) return;
     if (taxonsLoadedByHub.has(nodeId)) return;
     const inFlight = taxonFetchPromises.get(nodeId);
     if (inFlight) return inFlight;
@@ -1066,8 +1161,10 @@ function Inner(props: {
         const remoteId = parsed.remoteId;
         const kind = parsed.relationKind;
         const relHubId = relationHubId(remoteId, kind);
-        // populate slug-keyed taxon cache for downstream value-pivot lookups
+        // populate id-keyed taxon cache for downstream value-pivot lookups
         // (need taxon.id for genre_id filter, taxon.label for include_tags).
+        // keying by id (not label-slug) avoids any client/server slug-format
+        // drift since value node ids embed item.id directly.
         let cache = taxonItemsByHub.get(relHubId);
         if (!cache) {
           cache = new Map();
@@ -1076,16 +1173,27 @@ function Inner(props: {
         const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
         for (const item of result.data.items) {
-          cache.set(item.slug, { id: item.id, label: item.label });
+          // key by slug(item.id) so cache.get(parsed.valueSlug) matches what
+          // valueNodeId() embeds in the node id (slug is idempotent for
+          // already-slug-shaped ids but defensive against odd casing).
+          cache.set(slug(item.id), { id: item.id, label: item.label });
           // skip empty taxons — no albums means no traversable subtree.
           if (item.album_count <= 0) continue;
-          const valId = valueNodeId(remoteId, kind, item.label);
+          const valId = valueNodeId(remoteId, kind, item.id);
           addNodes.push({
             id: valId,
             role: "value",
             label: item.label,
             parentId: relHubId,
-            childCount: 0,
+            // eager count from query_taxons so the badge is correct
+            // before albums for this value have been lazy-loaded.
+            childCount: item.album_count,
+            // mark lazy so the value renders even before any albums
+            // for this taxon have been loaded (worker visibility
+            // filter hides value nodes with childCount === 0 unless
+            // lazy). album fanout is fetched on-demand via
+            // maybeLoadAlbumsForPivot when the user pivots in.
+            lazy: true,
           });
           addEdges.push({ source: relHubId, target: valId });
         }
@@ -1151,6 +1259,12 @@ function Inner(props: {
             label: bin.label,
             parentId: relHubId,
             childCount: bin.count,
+            // mark lazy so the bin renders even before any albums for
+            // this remote have been loaded (worker visibility filter
+            // hides value nodes with childCount === 0 unless lazy).
+            // album-fanout is fetched on-demand via
+            // maybeLoadAlbumsForEraBin when the user pivots into the bin.
+            lazy: true,
           });
           addEdges.push({ source: relHubId, target: valId });
           bins.push({
@@ -1202,6 +1316,86 @@ function Inner(props: {
     return promise;
   };
 
+  // dedup state for per-bin album lazy fetches.
+  const eraBinAlbumsLoadedByHub = new Set<string>();
+  const eraBinAlbumsFetchPromises = new Map<string, Promise<void>>();
+
+  // lazy era-bin album expansion. triggered on pivot into a
+  // `value::{remoteId}::era::{value_norm}` node. fetches all albums
+  // whose release_date year falls inside the bin's [min_year, max_year]
+  // via `client.music.eraAlbums(...)`, appends them to nodesByRemote
+  // (so artists derive normally), and merges direct value->album edges
+  // so the bin fans out immediately.
+  const maybeLoadAlbumsForEraBin = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "value" || parsed.relationKind !== "era") return;
+    if (eraBinAlbumsLoadedByHub.has(nodeId)) return;
+    const inFlight = eraBinAlbumsFetchPromises.get(nodeId);
+    if (inFlight) return inFlight;
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+    // bin metadata must be present — populated by maybeLoadEraBinsForPivot.
+    const relHubId = relationHubId(parsed.remoteId, "era");
+    const bins = eraBinsByHub.get(relHubId);
+    const bin = bins?.find((b) => b.value_norm === parsed.valueSlug);
+    if (!bin || bin.min_year == null || bin.max_year == null) return;
+    const promise = (async () => {
+      setFetchingNodeFlag(nodeId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.music.eraAlbums({
+          min_year: bin.min_year!,
+          max_year: bin.max_year!,
+          limit: null,
+          offset: null,
+        });
+        if (!result.success || !result.data) return;
+        const remoteId = parsed.remoteId;
+        const adapted: AlbumNodeData[] = result.data.albums.map((item) =>
+          adaptQueryAlbumItem(item, remote)
+        );
+        appendAlbumsToRemote(remoteId, adapted);
+        // attach value->album AND value->artist edges so the bin fans
+        // out into both albums and their owning artists without waiting
+        // for buildResult's pass to classify in-memory albums.
+        const addEdges: WalkEdge[] = [];
+        const prefix = `${remoteId}::`;
+        const seenArtists = new Set<string>();
+        for (const album of adapted) {
+          const bareAlbumId = album.id.startsWith(prefix)
+            ? album.id.slice(prefix.length)
+            : album.id;
+          addEdges.push({
+            source: nodeId,
+            target: `album::${remoteId}::${bareAlbumId}`,
+          });
+          if (album.artistId && !seenArtists.has(album.artistId)) {
+            seenArtists.add(album.artistId);
+            addEdges.push({
+              source: nodeId,
+              target: `artist::${remoteId}::${album.artistId}`,
+            });
+          }
+        }
+        walkerClient()?.merge([], addEdges);
+        eraBinAlbumsLoadedByHub.add(nodeId);
+      } catch (err) {
+        console.warn("lazy era-bin albums fetch failed", { nodeId, err });
+      } finally {
+        setFetchingNodeFlag(nodeId, false);
+        eraBinAlbumsFetchPromises.delete(nodeId);
+      }
+    })();
+    eraBinAlbumsFetchPromises.set(nodeId, promise);
+    return promise;
+  };
+
   // lazy recently-added expansion. triggered on pivot into a
   // `relation::{remoteId}::recently_added` hub. fetches the top-N most
   // recently added albums via `client.music.recentlyAddedAlbums(...)`,
@@ -1237,12 +1431,14 @@ function Inner(props: {
         // incremental client.merge picks up the album nodes (and any
         // new artist nodes derived from them).
         appendAlbumsToRemote(remoteId, adapted);
-        // then merge the hub->album edges directly. the album nodes
-        // themselves will arrive via the rAF-batched buildResult merge;
-        // the worker dedupes edges by `${source}::${target}` so this is
-        // safe to issue before/after the node merge.
+        // then merge the hub->album and hub->artist edges directly.
+        // the album/artist nodes themselves arrive via the rAF-batched
+        // buildResult merge; the worker dedupes edges by
+        // `${source}::${target}` so this is safe to issue before/after
+        // the node merge.
         const addEdges: WalkEdge[] = [];
         const prefix = `${remoteId}::`;
+        const seenArtists = new Set<string>();
         for (const album of adapted) {
           const bareAlbumId = album.id.startsWith(prefix)
             ? album.id.slice(prefix.length)
@@ -1251,6 +1447,13 @@ function Inner(props: {
             source: relHubId,
             target: `album::${remoteId}::${bareAlbumId}`,
           });
+          if (album.artistId && !seenArtists.has(album.artistId)) {
+            seenArtists.add(album.artistId);
+            addEdges.push({
+              source: relHubId,
+              target: `artist::${remoteId}::${album.artistId}`,
+            });
+          }
         }
         walkerClient()?.merge([], addEdges);
         recentlyAddedLoadedByHub.add(nodeId);
@@ -1281,8 +1484,17 @@ function Inner(props: {
         return { genre_id: taxon.id };
       case "tag":
         return { include_tags: [taxon.label] };
-      default:
+      case "era":
+      case "recently_added":
+      case "favorites":
+        // synthesised hubs — handled by dedicated loaders, not query_albums.
         return null;
+      case "mood":
+      case "style":
+      case "label":
+      default:
+        // taxon-backed kind — filter albums by taxon id.
+        return { taxon_ids: [taxon.id] };
     }
   };
 
@@ -1384,6 +1596,34 @@ function Inner(props: {
       // append to nodesByRemote — buildResult re-runs and the incremental
       // merge effect picks up the new albums/artists/edges automatically.
       appendAlbumsToRemote(remote.remote_id, adapted);
+      // for value pivots: buildResult only wires album↔artist edges, not
+      // value→album/artist. emit those directly so the value node fans
+      // out into its matched albums (and their owning artists) the same
+      // way era-bin pivots do. artist pivots already have proper edges
+      // from buildResult so we skip in that case.
+      if (parsed.kind === "value") {
+        const remoteId = parsed.remoteId;
+        const prefix = `${remoteId}::`;
+        const addEdges: WalkEdge[] = [];
+        const seenArtists = new Set<string>();
+        for (const album of adapted) {
+          const bareAlbumId = album.id.startsWith(prefix)
+            ? album.id.slice(prefix.length)
+            : album.id;
+          addEdges.push({
+            source: nodeId,
+            target: `album::${remoteId}::${bareAlbumId}`,
+          });
+          if (album.artistId && !seenArtists.has(album.artistId)) {
+            seenArtists.add(album.artistId);
+            addEdges.push({
+              source: nodeId,
+              target: `artist::${remoteId}::${album.artistId}`,
+            });
+          }
+        }
+        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+      }
     } catch (err) {
       console.warn("lazy album fetch failed", { nodeId, err });
       // allow retry on next pivot
@@ -1452,6 +1692,27 @@ function Inner(props: {
     const off = offlineByRemote();
     const act = activatedRemotes();
     return props.remotes().filter((r) => off.get(r.remote_id) !== true && act.has(r.remote_id));
+  });
+
+  // load song favorites once per online+activated remote. fires whenever
+  // onlineRemotes changes (new remote activated, came back online, etc.).
+  createEffect(() => {
+    for (const remote of onlineRemotes()) {
+      if (favSongLoadedRemotes.has(remote.remote_id)) continue;
+      favSongLoadedRemotes.add(remote.remote_id);
+      void loadFavoriteSongsForRemote(remote);
+    }
+  });
+
+  // seed first-order categorical relation hubs from list_taxon_kinds
+  // for each online+activated remote (dedup'd by remote). album_count
+  // comes from the server so badges render without a lazy round-trip.
+  createEffect(() => {
+    for (const remote of onlineRemotes()) {
+      if (taxonKindsLoadedRemotes.has(remote.remote_id)) continue;
+      taxonKindsLoadedRemotes.add(remote.remote_id);
+      void loadTaxonKindsForRemote(remote);
+    }
   });
 
   // offline-aware lookups for WalkCanvas. nodes for offline remotes (and

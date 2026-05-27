@@ -58,21 +58,35 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         }
     };
 
+    // join in a per-kind distinct-album count so the ui can render
+    // first-order relation hub badges without a second round-trip per
+    // kind. scalar kinds (bpm, loudness_db, energy, ...) have no
+    // taxonz rows so this returns 0 for them — they're sourced from
+    // scalar_attributez and aren't surfaced as relation hubs anyway.
     let rows = match sqlx::query!(
         r#"SELECT
-            id              as "id!",
-            slug            as "slug!",
-            label           as "label!",
-            description,
-            color,
-            value_type      as "value_type!",
-            unit,
-            display_order   as "display_order!",
-            is_user_defined as "is_user_defined!: bool",
-            created_at      as "created_at!"
-           FROM taxon_kindz
-           WHERE deleted_at IS NULL
-           ORDER BY display_order ASC, label ASC"#
+            k.id              as "id!",
+            k.slug            as "slug!",
+            k.label           as "label!",
+            k.description,
+            k.color,
+            k.value_type      as "value_type!",
+            k.unit,
+            k.display_order   as "display_order!",
+            k.is_user_defined as "is_user_defined!: bool",
+            k.created_at      as "created_at!",
+            (
+              SELECT COUNT(DISTINCT at.album_id)
+              FROM album_taxonz at
+              JOIN taxonz t ON t.id = at.taxon_id
+              JOIN albumz a ON a.id = at.album_id
+              WHERE t.kind_id = k.id
+                AND t.deleted_at IS NULL
+                AND a.deleted_at IS NULL
+            ) as "album_count!: i64"
+           FROM taxon_kindz k
+           WHERE k.deleted_at IS NULL
+           ORDER BY k.display_order ASC, k.label ASC"#
     )
     .fetch_all(&pool)
     .await
@@ -99,6 +113,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             display_order: r.display_order,
             is_user_defined: r.is_user_defined,
             created_at: r.created_at,
+            album_count: r.album_count,
         })
         .collect();
 
@@ -166,6 +181,9 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
                 display_order: row.display_order,
                 is_user_defined: row.is_user_defined,
                 created_at: row.created_at,
+                // find-or-create doesn't recompute counts — callers
+                // that need it call list_taxon_kinds.
+                album_count: 0,
             },
         );
     }
@@ -219,6 +237,8 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
             display_order: row.display_order,
             is_user_defined: row.is_user_defined,
             created_at: row.created_at,
+            // fresh kind, no album links yet.
+            album_count: 0,
         },
     )
 }
@@ -303,6 +323,8 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
             display_order: row.display_order,
             is_user_defined: row.is_user_defined,
             created_at: row.created_at,
+            // fresh kind, no album links yet.
+            album_count: 0,
         },
     )
 }
@@ -592,7 +614,9 @@ pub async fn query_taxons(req: QueryTaxonsRequest) -> GrimoireResponse<TaxonsQue
               t.created_at                                 as "created_at!",
               COALESCE((SELECT COUNT(DISTINCT at.album_id)
                           FROM album_taxonz at
-                         WHERE at.taxon_id = t.id), 0)     as "album_count!",
+                          JOIN albumz a ON a.id = at.album_id
+                         WHERE at.taxon_id = t.id
+                           AND a.deleted_at IS NULL), 0)  as "album_count!",
               0                                            as "song_count!",
               0                                            as "total_duration!"
             FROM taxonz t

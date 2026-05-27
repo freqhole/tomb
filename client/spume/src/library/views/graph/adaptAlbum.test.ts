@@ -124,4 +124,21 @@ describe("adaptAlbum", () => {
     expect(a.sourceRemoteId).toBe("local");
     expect(b.sourceRemoteId).toBe("remote-x");
   });
+
+  it("captures unknown kind_slugs into customTaxons and keeps well-known fields empty", () => {
+    const node = adaptAlbum(
+      baseSummary({
+        taxons: [{ id: "v1", kind_slug: "vibe", label: "dreamy" }],
+      }),
+      { remoteId: "local" },
+    );
+    expect(node.customTaxons).toEqual({ vibe: ["dreamy"] });
+    expect(node.genres).toEqual([]);
+    expect(node.moods).toEqual([]);
+  });
+
+  it("defaults customTaxons to {} when no taxons are present", () => {
+    const node = adaptAlbum(baseSummary({}), { remoteId: "local" });
+    expect(node.customTaxons).toEqual({});
+  });
 });

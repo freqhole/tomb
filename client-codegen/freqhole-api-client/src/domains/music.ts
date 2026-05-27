@@ -1585,6 +1585,22 @@ export function createMusicMethods(call: CallFn) {
         params,
       );
     },
+
+    // fan-out one era bin to its member albums (release_date year
+    // inside [min_year, max_year]). enriched album shape mirrors
+    // recentlyAddedAlbums/albumsByValue so a single adapter handles
+    // all walk-pulled albums.
+    eraAlbums: (params: s.EraAlbumsRequest) => {
+      return call(
+        "music",
+        "era_albums",
+        routes.music.era_albums.resp,
+        routes.music.era_albums.req,
+        routes.music.era_albums.method,
+        routes.music.era_albums.path,
+        params,
+      );
+    },
   };
 }
 

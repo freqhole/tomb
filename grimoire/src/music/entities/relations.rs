@@ -166,6 +166,76 @@ pub async fn list_recently_added_albums(
     GrimoireResponse::success("recently added albums retrieved", albums)
 }
 
+/// list (non-deleted) albums whose `release_date` year falls inside
+/// `[min_year, max_year]` (both inclusive). used by the graph view
+/// to lazy-fan-out an era bin value node into its member albums when
+/// the user pivots into the bin.
+///
+/// returns the same enriched `AlbumQueryResult` shape as
+/// `list_albums_by_taxon_value` so the client can reuse one adapter
+/// for all walk-pulled albums.
+pub async fn list_albums_in_era_bin(
+    min_year: i32,
+    max_year: i32,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    user_id: Option<&str>,
+) -> GrimoireResponse<Vec<AlbumQueryResult>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let limit = limit.unwrap_or(200).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+    let min = min_year as i64;
+    let max = max_year as i64;
+
+    // parse year from leading 4 chars of release_date (same approach
+    // as the histogram pass in list_era_bins) and filter inclusive.
+    let sql = r#"SELECT v.*
+        FROM album_query_view v
+        WHERE v.album_deleted_at IS NULL
+          AND v.album_release_date IS NOT NULL
+          AND v.album_release_date != ''
+          AND CAST(SUBSTR(v.album_release_date, 1, 4) AS INTEGER) BETWEEN ?1 AND ?2
+        ORDER BY v.album_created_at DESC
+        LIMIT ?3 OFFSET ?4"#;
+
+    let rows: Vec<AlbumViewRow> = match sqlx::query_as::<_, AlbumViewRow>(sql)
+        .bind(min)
+        .bind(max)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&pool)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to list albums in era bin",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let mut albums: Vec<AlbumQueryResult> = rows
+        .into_iter()
+        .map(|r| r.to_album_query_result(user_id))
+        .collect();
+
+    if let Some(uid) = user_id {
+        apply_user_preferences_albums(&mut albums, uid).await;
+    }
+
+    GrimoireResponse::success("albums in era bin retrieved", albums)
+}
+
 /// one synthesized era bin — used by the graph view's first-order
 /// "era" hub fan-out (phase 22). bins are computed server-side from
 /// `release_date`-derived years using a greedy hysteresis pass so

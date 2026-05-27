@@ -89,6 +89,7 @@ export const routes = {
     enqueue_lastfm_album_detail: { method: 'POST', path: '/api/music/albums/lastfm/enqueue', req: s.EnqueueLastFmAlbumDetailRequestSchema, resp: s.EnqueueLastFmAlbumDetailResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     enqueue_mb_album_search: { method: 'POST', path: '/api/music/albums/mb-search/enqueue', req: s.EnqueueMbAlbumSearchRequestSchema, resp: s.EnqueueMbAlbumSearchResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     entity_taxons_batch: { method: 'POST', path: '/api/music/entities/taxons', req: s.EntityTaxonsBatchRequestSchema, resp: s.EntityTaxonsBatchResponseSchema, auth: { type: 'authenticated' } as const },
+    era_albums: { method: 'POST', path: '/api/music/relations/era-albums', req: s.EraAlbumsRequestSchema, resp: s.EraAlbumsResponseSchema, auth: { type: 'authenticated' } as const },
     era_bins: { method: 'POST', path: '/api/music/relations/era-bins', req: s.EraBinsRequestSchema, resp: s.EraBinsResponseSchema, auth: { type: 'authenticated' } as const },
     events_snapshot: { method: 'POST', path: '/api/jobs/events/snapshot', req: s.EventFilterSchema, resp: s.JobStateSnapshotSchema.array(), auth: { type: 'authenticated' } as const },
     events_subscribe: { method: 'POST', path: '/api/jobs/events/subscribe', req: s.EventFilterSchema, resp: s.JobEventSchema, auth: { type: 'authenticated' } as const },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWalkGraph } from "./buildWalkGraph";
-import { albumNodeId, artistNodeId, parseNodeId, relationHubId, valueNodeId } from "./nodeIds";
+import { albumNodeId, artistNodeId, parseNodeId, relationHubId } from "./nodeIds";
 import type { AlbumNodeData, ArtistNodeData } from "../../graph/types";
 
 // ---- minimal fixture helpers -----------------------------------------------
@@ -26,6 +26,7 @@ function makeArtist(
     styles: [],
     label: null,
     era: null,
+    customTaxons: {},
     ...overrides,
   };
 }
@@ -54,6 +55,7 @@ function makeAlbum(
     era: null,
     trackCount: 0,
     totalDurationSec: 0,
+    customTaxons: {},
     sourceRemoteId: remoteId,
     ...overrides,
   };
@@ -100,22 +102,6 @@ describe("buildWalkGraph", () => {
     expect(graph.nodes.find((n) => n.id === "remote::raid")).toBeDefined();
   });
 
-  it("emits separate genre relation hubs per remote (S15)", () => {
-    const localGenreHub = graph.nodes.find((n) => n.id === relationHubId("local", "genre"));
-    const raidGenreHub  = graph.nodes.find((n) => n.id === relationHubId("raid",  "genre"));
-    expect(localGenreHub).toBeDefined();
-    expect(raidGenreHub).toBeDefined();
-    expect(localGenreHub!.id).not.toBe(raidGenreHub!.id);
-  });
-
-  it("emits separate ambient value nodes for local and raid (S15)", () => {
-    const localAmbient = valueNodeId("local", "genre", "ambient");
-    const raidAmbient  = valueNodeId("raid",  "genre", "ambient");
-    expect(localAmbient).not.toBe(raidAmbient);
-    expect(graph.nodes.find((n) => n.id === localAmbient)).toBeDefined();
-    expect(graph.nodes.find((n) => n.id === raidAmbient)).toBeDefined();
-  });
-
   it("populates nodesById for albums", () => {
     const key = albumNodeId("local", "alb-ling");
     expect(nodesById.get(key)).toBeDefined();
@@ -134,27 +120,16 @@ describe("buildWalkGraph", () => {
     expect(graph.edges.find((e) => e.source === aId && e.target === albId)).toBeDefined();
   });
 
-  it("connects ambient value node to its artist on local", () => {
-    const valId = valueNodeId("local", "genre", "ambient");
-    const aId   = artistNodeId("local", "art-grouper");
-    expect(graph.edges.find((e) => e.source === valId && e.target === aId)).toBeDefined();
-  });
-
-  it("connects ambient value node to its album on local", () => {
-    const valId = valueNodeId("local", "genre", "ambient");
-    const albId = albumNodeId("local", "alb-ling");
-    expect(graph.edges.find((e) => e.source === valId && e.target === albId)).toBeDefined();
-  });
-
   it("total node count is within expected range", () => {
-    // root(1) + remotes(2) + relation hubs per remote (≥1 each) + value nodes + artists(4) + albums(3)
-    expect(graph.nodes.length).toBeGreaterThanOrEqual(1 + 2 + 2 + 3 + 4 + 3);
+    // root(1) + remotes(2) + artists(4) + albums(3). no value/relation
+    // hubs from buildWalkGraph anymore — those are seeded by the
+    // LibraryGraphSubview from list_taxon_kinds.
+    expect(graph.nodes.length).toBeGreaterThanOrEqual(1 + 2 + 4 + 3);
   });
 
   it("does not include hub nodes in nodesById", () => {
     expect(nodesById.has("root")).toBe(false);
     expect(nodesById.has("remote::local")).toBe(false);
-    expect(nodesById.has(relationHubId("local", "genre"))).toBe(false);
   });
 
   it("album graph id parses to a bare albumId (no doubled remoteId)", () => {
@@ -169,5 +144,58 @@ describe("buildWalkGraph", () => {
       expect(parsed.albumId).toBe("alb-ling"); // bare id, no "local::" prefix
       expect(parsed.remoteId).toBe("local");
     }
+  });
+});
+
+describe("buildWalkGraph - favorite hub", () => {
+  it("emits flat favorite hub with direct artist/album edges from isFavorite flags", () => {
+    const artist = makeArtist("local", "art-fav", "Fav Artist", { isFavorite: true });
+    const album = makeAlbum("local", "alb-fav", "Fav Album", "art-fav", { isFavorite: true });
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map([["local", [album]]]),
+      artistsByRemote: new Map([["local", [artist]]]),
+    });
+
+    const favHubId = relationHubId("local", "favorites");
+    expect(graph.nodes.find((n) => n.id === favHubId)).toBeDefined();
+
+    const artId = artistNodeId("local", "art-fav");
+    const albId = albumNodeId("local", "alb-fav");
+    expect(graph.edges.find((e) => e.source === favHubId && e.target === artId)).toBeDefined();
+    expect(graph.edges.find((e) => e.source === favHubId && e.target === albId)).toBeDefined();
+  });
+
+  it("includes song-derived favorites from favoriteSongAlbumIds/favoriteSongArtistIds", () => {
+    const artist = makeArtist("local", "art-norm", "Normal Artist");
+    const album = makeAlbum("local", "alb-norm", "Normal Album", "art-norm");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map([["local", [album]]]),
+      artistsByRemote: new Map([["local", [artist]]]),
+      favoriteSongAlbumIds: new Map([["local", new Set(["alb-norm"])]]),
+      favoriteSongArtistIds: new Map([["local", new Set(["art-norm"])]]),
+    });
+
+    const favHubId = relationHubId("local", "favorites");
+    expect(graph.nodes.find((n) => n.id === favHubId)).toBeDefined();
+
+    const artId = artistNodeId("local", "art-norm");
+    const albId = albumNodeId("local", "alb-norm");
+    expect(graph.edges.find((e) => e.source === favHubId && e.target === artId)).toBeDefined();
+    expect(graph.edges.find((e) => e.source === favHubId && e.target === albId)).toBeDefined();
+  });
+
+  it("does not emit favorite hub when no favorites exist", () => {
+    const artist = makeArtist("local", "art-plain", "Plain Artist");
+    const album = makeAlbum("local", "alb-plain", "Plain Album", "art-plain");
+    const { graph } = buildWalkGraph({
+      remoteIds: ["local"],
+      albumsByRemote: new Map([["local", [album]]]),
+      artistsByRemote: new Map([["local", [artist]]]),
+    });
+
+    const favHubId = relationHubId("local", "favorites");
+    expect(graph.nodes.find((n) => n.id === favHubId)).toBeUndefined();
   });
 });

@@ -107,6 +107,8 @@ enum CommonColumns {
     AlbumGenres,
     #[iden = "album_tags"]
     AlbumTags,
+    #[iden = "album_taxons"]
+    AlbumTaxons,
 }
 
 // Row structures
@@ -742,6 +744,36 @@ fn add_global_filters(
                 .is_not_null()
                 .and(Expr::col(CommonColumns::AlbumGenres).like(json_pattern)),
         );
+    }
+
+    // taxon_id: singular convenience — delegates to the array path.
+    if let Some(tid) = params.filters.get("taxon_id").and_then(|v| v.as_str()) {
+        let json_pattern = format!("%\"id\":\"{}\"%", tid);
+        query.and_where(
+            Expr::col(CommonColumns::AlbumTaxons)
+                .is_not_null()
+                .and(Expr::col(CommonColumns::AlbumTaxons).like(json_pattern)),
+        );
+    }
+
+    // taxon_ids: album must have at least one matching taxon (OR logic).
+    if let Some(taxon_ids) = params.filters.get("taxon_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = taxon_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            let mut cond = Cond::any();
+            for id in ids {
+                let json_pattern = format!("%\"id\":\"{}\"%", id);
+                cond = cond.add(
+                    Expr::col(CommonColumns::AlbumTaxons)
+                        .is_not_null()
+                        .and(Expr::col(CommonColumns::AlbumTaxons).like(json_pattern)),
+                );
+            }
+            query.cond_where(cond);
+        }
     }
 
     // Handle tag filters (include_tags and exclude_tags)
@@ -1512,4 +1544,80 @@ pub async fn list_albums_by_artist(
         mb_lookup_status: None,
     };
     query_albums(params).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Query, SqliteQueryBuilder};
+
+    fn album_sql_with_filters(
+        filters: std::collections::HashMap<String, serde_json::Value>,
+    ) -> (String, sea_query::Values) {
+        let params = crate::music::crud::models::QueryParams {
+            q: None,
+            search_fields: None,
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            limit: None,
+            offset: None,
+            user_id: None,
+            favorites_only: None,
+            min_rating: None,
+            mb_lookup_status: None,
+        };
+        let mut q = Query::select();
+        q.column(sea_query::Asterisk).from(AlbumView::Table);
+        add_global_filters(
+            &mut q,
+            &params,
+            AlbumView::AlbumTitle,
+            AlbumView::ArtistName,
+            AlbumView::AlbumTitle,
+        );
+        q.build(SqliteQueryBuilder)
+    }
+
+    #[test]
+    fn taxon_id_filter_targets_album_taxons_column() {
+        let mut filters = std::collections::HashMap::new();
+        filters.insert("taxon_id".to_string(), serde_json::json!("taxon-abc-123"));
+        let (sql, values) = album_sql_with_filters(filters);
+        assert!(
+            sql.contains("album_taxons"),
+            "expected album_taxons in sql, got: {sql}"
+        );
+        assert!(sql.contains("LIKE"), "expected LIKE in sql, got: {sql}");
+        let found = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-abc-123")));
+        assert!(found, "expected taxon-abc-123 in bound params");
+    }
+
+    #[test]
+    fn taxon_ids_filter_uses_or_for_multiple_ids() {
+        let mut filters = std::collections::HashMap::new();
+        filters.insert(
+            "taxon_ids".to_string(),
+            serde_json::json!(["taxon-a", "taxon-b"]),
+        );
+        let (sql, values) = album_sql_with_filters(filters);
+        assert!(
+            sql.contains("album_taxons"),
+            "expected album_taxons in sql, got: {sql}"
+        );
+        assert!(sql.contains("LIKE"), "expected LIKE in sql, got: {sql}");
+        let has_a = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-a")));
+        let has_b = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-b")));
+        assert!(has_a, "expected taxon-a in bound params");
+        assert!(has_b, "expected taxon-b in bound params");
+    }
 }

@@ -235,6 +235,7 @@ export function enrichAlbum(
     totalDurationSec: album.duration,
     rating: album.rating,
     isFavorite: r() < 0.2,
+    customTaxons: {},
   };
 }
 

@@ -6,20 +6,21 @@
 
 import type { WalkGraph, WalkNode, WalkEdge, AlbumNodeData, ArtistNodeData } from "../types";
 import {
-  type RelationKind,
   rootId,
   remoteHubId,
   relationHubId,
-  valueNodeId,
   artistNodeId,
   albumNodeId,
-  slug,
 } from "./nodeIds";
 
 export interface BuildWalkGraphInput {
   remoteIds: string[];
   albumsByRemote: Map<string, AlbumNodeData[]>;
   artistsByRemote: Map<string, ArtistNodeData[]>;
+  /** bare album ids (from song favorites) per remote, unioned with album.isFavorite */
+  favoriteSongAlbumIds?: Map<string, Set<string>>;
+  /** bare artist ids (from song favorites) per remote, unioned with artist.isFavorite */
+  favoriteSongArtistIds?: Map<string, Set<string>>;
 }
 
 export interface BuildWalkGraphOutput {
@@ -30,37 +31,23 @@ export interface BuildWalkGraphOutput {
   nodesById: Map<string, AlbumNodeData | ArtistNodeData>;
 }
 
-// the ordered set of relation kinds the adapter processes, per S15.
+// note: relation hubs (genre, mood, style, custom kinds, ...) are NOT
+// derived from in-memory albums anymore. doing so was broken — page-1
+// of an album catalogue (~200 rows) only covers a sliver of a library
+// and would silently drop taxons attached to off-page albums.
 //
-// note: "era" is intentionally omitted here. era taxons are synthesized
-// server-side via `list_era_bins` (greedy decade-aware binning with
-// hysteresis), and the hub + its value nodes are merged in lazily by
-// LibraryGraphSubview on pivot. emitting an album-derived "era" hub
-// here would duplicate the synthesized hub id and confuse the lazy
-// loader. the "recently_added" hub is also synthesized (a flat list of
-// the most recently added albums, no value tier) and always emitted
-// below regardless of in-memory content.
-const RELATION_KINDS: RelationKind[] = [
-  "genre", "tag", "mood", "style", "label", "favorite",
-];
-
-/** collect the relation values for a given kind from one node.
- *  returns an array of raw (un-slugged) display strings. */
-function valuesForKind(
-  node: AlbumNodeData | ArtistNodeData,
-  kind: RelationKind,
-): string[] {
-  switch (kind) {
-    case "genre":    return (node.genres ?? []).slice();
-    case "tag":      return (node.tags ?? []).map((t) => t.label);
-    case "mood":     return (node.moods ?? []).slice();
-    case "style":    return (node.styles ?? []).slice();
-    case "era":      return node.era ? [node.era] : [];
-    case "label":    return node.label ? [node.label] : [];
-    case "favorite": return node.isFavorite === true ? ["favorite"] : [];
-    case "recently_added": return []; // synthesized hub, no album-derived values
-  }
-}
+// hubs are now seeded by LibraryGraphSubview from the dedicated
+// `list_taxon_kinds` endpoint (one lazy hub per categorical kind);
+// value nodes are lazy-loaded via `query_taxons` on hub pivot
+// (`maybeLoadTaxonsForPivot`); and value->album edges are lazy-loaded
+// via `query_albums` on value pivot (`maybeLoadAlbumsForPivot`).
+//
+// the synthesized hubs (`era`, `recently_added`, `favorite`) remain
+// here because they have no row in `taxon_kindz`:
+//   - era: server-side greedy decade binner (`list_era_bins`).
+//   - recently_added: top-N by created_at (`list_recently_added_albums`).
+//   - favorite: per-user signal unioned from album.isFavorite +
+//     artist.isFavorite + song-derived favorite ids.
 
 // AlbumNodeData.id is `${remoteId}::${albumId}` (set by adaptAlbum). albumNodeId
 // expects a bare albumId, so strip the prefix before calling it.
@@ -116,6 +103,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
       label: "era",
       parentId: rhId,
       childCount: 0,
+      lazy: true,
     });
     edges.push({ source: rhId, target: eraHubId });
 
@@ -126,60 +114,48 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
       label: "recently added",
       parentId: rhId,
       childCount: 0,
+      lazy: true,
     });
     edges.push({ source: rhId, target: recentHubId });
 
-    // ---- relation hubs + value nodes --------------------------------------
-    // collect per-kind unique values across all artists + albums in this remote.
-    for (const kind of RELATION_KINDS) {
-      // gather unique raw strings (deduped by slug so display label is stable).
-      const seenSlug = new Map<string, string>(); // slug -> first-seen raw value
-      for (const node of [...artists, ...albums]) {
-        for (const raw of valuesForKind(node, kind)) {
-          const s = slug(raw);
-          if (s && !seenSlug.has(s)) seenSlug.set(s, raw);
-        }
-      }
-      if (seenSlug.size === 0) continue; // skip kinds with no data on this remote
-
-      const relHubId = relationHubId(remoteId, kind);
-      nodes.push({
-        id: relHubId,
-        role: "relation",
-        label: kind,
-        parentId: rhId,
-        childCount: seenSlug.size,
-      });
-      edges.push({ source: rhId, target: relHubId });
-
-      for (const [s, raw] of seenSlug) {
-        const valId = valueNodeId(remoteId, kind, raw); // valueNodeId slugs internally
+    // ---- favorite hub (flat: hub -> artist/album, no value tier) -----------
+    // sources: album.isFavorite, artist.isFavorite, plus song-derived ids
+    // passed in via BuildWalkGraphInput (querySongs with favorites_only: true).
+    {
+      const songFavAlbums = input.favoriteSongAlbumIds?.get(remoteId) ?? new Set<string>();
+      const songFavArtists = input.favoriteSongArtistIds?.get(remoteId) ?? new Set<string>();
+      const favArtistIds = new Set<string>([
+        ...artists.filter((a) => a.isFavorite).map((a) => toBareArtistId(a)),
+        ...Array.from(songFavArtists),
+      ]);
+      const favAlbumIds = new Set<string>([
+        ...albums.filter((a) => a.isFavorite).map((a) => toBareAlbumId(remoteId, a)),
+        ...Array.from(songFavAlbums),
+      ]);
+      if (favArtistIds.size > 0 || favAlbumIds.size > 0) {
+        const favHubId = relationHubId(remoteId, "favorites");
         nodes.push({
-          id: valId,
-          role: "value",
-          label: raw,
-          parentId: relHubId,
-          childCount: 0, // child count not tracked for value nodes in v1
+          id: favHubId,
+          role: "relation",
+          label: "favorites",
+          parentId: rhId,
+          childCount: favArtistIds.size + favAlbumIds.size,
         });
-        edges.push({ source: relHubId, target: valId });
-
-        // value -> artist edges
-        for (const artist of artists) {
-          const hasValue = valuesForKind(artist, kind).some((v) => slug(v) === s);
-          if (hasValue) {
-            edges.push({ source: valId, target: artistNodeId(remoteId, toBareArtistId(artist)) });
-          }
+        edges.push({ source: rhId, target: favHubId });
+        for (const bareArtistId of favArtistIds) {
+          edges.push({ source: favHubId, target: artistNodeId(remoteId, bareArtistId) });
         }
-
-        // value -> album edges
-        for (const album of albums) {
-          const hasValue = valuesForKind(album, kind).some((v) => slug(v) === s);
-          if (hasValue) {
-            edges.push({ source: valId, target: albumNodeId(remoteId, toBareAlbumId(remoteId, album)) });
-          }
+        for (const bareAlbumId of favAlbumIds) {
+          edges.push({ source: favHubId, target: albumNodeId(remoteId, bareAlbumId) });
         }
       }
     }
+
+    // ---- relation hubs --------------------------------------------------
+    // moved out: hubs are now seeded by LibraryGraphSubview from
+    // `list_taxon_kinds` (see header comment). values + edges are
+    // lazy-loaded on pivot via maybeLoadTaxonsForPivot /
+    // maybeLoadAlbumsForPivot. no per-album taxon scan happens here.
 
     // ---- artist nodes ------------------------------------------------------
     for (const artist of artists) {

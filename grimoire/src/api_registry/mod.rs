@@ -300,13 +300,13 @@ pub mod type_registry {
     };
 
     // cross-remote relations / walk (phase 11)
+    use crate::music::entities::relations::EraBin;
     use crate::offal::music::relations::{
         AlbumsByValueRequest, AlbumsByValueResponse, EntityTaxonsBatchRequest,
-        EntityTaxonsBatchResponse, EntityTaxonsEntry, EraBinsRequest, EraBinsResponse,
-        FindByMergedKeyRequest, FindByMergedKeyResponse, MergedKeyMatch,
-        RecentlyAddedAlbumsRequest, RecentlyAddedAlbumsResponse,
+        EntityTaxonsBatchResponse, EntityTaxonsEntry, EraAlbumsRequest, EraAlbumsResponse,
+        EraBinsRequest, EraBinsResponse, FindByMergedKeyRequest, FindByMergedKeyResponse,
+        MergedKeyMatch, RecentlyAddedAlbumsRequest, RecentlyAddedAlbumsResponse,
     };
-    use crate::music::entities::relations::EraBin;
 
     // radio public types
     use crate::offal::public::radio::{
@@ -498,6 +498,10 @@ pub mod type_registry {
         registered.insert("RecentlyAddedAlbumsRequest".to_string());
         gen.add_schema::<RecentlyAddedAlbumsResponse>("RecentlyAddedAlbumsResponse");
         registered.insert("RecentlyAddedAlbumsResponse".to_string());
+        gen.add_schema::<EraAlbumsRequest>("EraAlbumsRequest");
+        registered.insert("EraAlbumsRequest".to_string());
+        gen.add_schema::<EraAlbumsResponse>("EraAlbumsResponse");
+        registered.insert("EraAlbumsResponse".to_string());
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());

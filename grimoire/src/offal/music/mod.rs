@@ -141,11 +141,12 @@ pub async fn dispatch(
         "/api/music/relations/by-merged-key" => {
             Some(relations::find_by_merged_key(caller, body.clone()).await)
         }
-        "/api/music/relations/era-bins" => {
-            Some(relations::era_bins(caller, body.clone()).await)
-        }
+        "/api/music/relations/era-bins" => Some(relations::era_bins(caller, body.clone()).await),
         "/api/music/relations/recently-added-albums" => {
             Some(relations::recently_added_albums(caller, body.clone()).await)
+        }
+        "/api/music/relations/era-albums" => {
+            Some(relations::era_albums(caller, body.clone()).await)
         }
 
         // favorites

@@ -108,8 +108,8 @@ function nodeRadius(role: string, childCount: number): number {
     case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
     case "value":    return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
-    case "artist":   return 18;
-    case "album":    return 11;
+    case "artist":   return 27;
+    case "album":    return 16;
     case "ghost_artist": return 8; // text-only, small footprint just for layout
     default:         return 14;
   }
@@ -277,8 +277,10 @@ function getVisible(): Set<string> {
   for (const childId of childrenOf.get(piv) ?? []) {
     const wn = nodeMap.get(childId);
     if (!wn) continue;
-    // skip hub nodes that ended up with no children (e.g. unmapped genre)
-    if ((wn.role === "value" || wn.role === "relation") && wn.childCount === 0) continue;
+    // skip hub nodes that ended up with no children (e.g. unmapped genre).
+    // lazy hubs are exempt: their children are loaded on pivot, so they
+    // legitimately have zero children until the user expands them.
+    if ((wn.role === "value" || wn.role === "relation") && wn.childCount === 0 && !wn.lazy) continue;
     // when pivot is a remote hub, only surface its first-order taxon
     // children (relation hubs: genre, mood, tag, style, era, label,
     // favorite). artists/albums are intentionally hidden until the user
@@ -428,10 +430,12 @@ function buildSim() {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
           const base = (s.radius + t.radius) * 2.6;
-          // keep albums hugging their parent artist — the layout already
-          // places them at parentR + albumR + ~28px, so a shorter spring
-          // matches and stops the collision force from yanking them out.
-          if (s.role === "artist" && t.role === "album") return base * 0.85;
+          // keep albums hugging their parent artist. spring distance is
+          // sum-of-radii * 1.4 so it sits just past the collide radius
+          // and inside the initial radial placement, which yanks albums
+          // tight against their artist instead of letting them drift out.
+          if (s.role === "artist" && t.role === "album")
+            return (s.radius + t.radius) * 1.4;
           // value→artist / value→album fan-out: lots of room
           if (s.role === "value") return base * 1.8;
           return base;
@@ -439,8 +443,8 @@ function buildSim() {
         .strength((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
-          // stronger spring on artist→album so albums stick close
-          if (s.role === "artist" && t.role === "album") return 0.55;
+          // strong spring on artist→album so albums stick close
+          if (s.role === "artist" && t.role === "album") return 0.8;
           return 0.22;
         }),
     )
@@ -449,10 +453,12 @@ function buildSim() {
       forceCollide<SimNode>()
         // a bit more breathing room around leaves so labels/artwork don't
         // overlap as aggressively. hubs stay generous so their fan-outs
-        // don't get squashed.
+        // don't get squashed. trimmed artist/album collide so albums can
+        // sit closer to their parent artist (was 2.45 / 1.9 — too pushy
+        // when combined with artist→album link distance).
         .radius((d) => {
-          if (d.role === "album") return d.radius * 1.9;
-          if (d.role === "artist") return d.radius * 2.45;
+          if (d.role === "album") return d.radius * 1.4;
+          if (d.role === "artist") return d.radius * 1.6;
           return d.radius * 1.9;
         })
         .strength(1.0)
@@ -518,9 +524,15 @@ function indexGraph() {
     if (!parentsOf.has(tgt)) parentsOf.set(tgt, []);
     parentsOf.get(tgt)!.push(src);
   }
-  // recompute childCount from actual edges — mock data numbers are unreliable
+  // recompute childCount from actual edges, but preserve any eager
+  // count the producer set (e.g. list_taxon_kinds returns album_count
+  // for relation hubs before their value nodes are loaded; era bins
+  // know their album counts before fanout). take max so the badge
+  // surfaces real totals up-front, and once the actual edge count
+  // exceeds the eager hint (cross-remote links etc.) edges win.
   for (const [id, node] of nodeMap) {
-    node.childCount = childrenOf.get(id)?.length ?? 0;
+    const edgeCount = childrenOf.get(id)?.length ?? 0;
+    node.childCount = Math.max(node.childCount ?? 0, edgeCount);
   }
 
   // phase 1: reverse value→album and value→artist edges in childrenOf so that

@@ -42,9 +42,10 @@ interface ArtistAccum {
   genres: Set<string>;
   moods: Set<string>;
   styles: Set<string>;
-  tags: Map<string, number>; // label → max weight
+  tags: Map<string, number>; // label -> max weight
   labelCounts: Map<string, number>;
   eraCounts: Map<string, number>;
+  customTaxons: Map<string, Set<string>>; // kind_slug -> label set
   sourceRemoteIds: Set<string>;
 }
 
@@ -81,6 +82,7 @@ export function deriveArtistNodes(
         tags: new Map(),
         labelCounts: new Map(),
         eraCounts: new Map(),
+        customTaxons: new Map(),
         sourceRemoteIds: new Set(),
       };
       byArtist.set(a.artistId, acc);
@@ -99,6 +101,12 @@ export function deriveArtistNodes(
     }
     if (a.label) acc.labelCounts.set(a.label, (acc.labelCounts.get(a.label) ?? 0) + 1);
     if (a.era) acc.eraCounts.set(a.era, (acc.eraCounts.get(a.era) ?? 0) + 1);
+    // union custom taxons from this album
+    for (const [kind, labels] of Object.entries(a.customTaxons ?? {})) {
+      let s = acc.customTaxons.get(kind);
+      if (!s) { s = new Set(); acc.customTaxons.set(kind, s); }
+      for (const lbl of labels) if (lbl) s.add(lbl);
+    }
     // union contributing remotes — prefer modern `sourceRemoteIds`,
     // fall back to the legacy single id for back-compat.
     if (a.sourceRemoteIds && a.sourceRemoteIds.length > 0) {
@@ -112,6 +120,10 @@ export function deriveArtistNodes(
   for (const acc of byArtist.values()) {
     const tags: TagRef[] = [];
     for (const [label, weight] of acc.tags) tags.push({ label, weight });
+    const customTaxons: Record<string, string[]> = {};
+    for (const [kind, labelSet] of acc.customTaxons) {
+      customTaxons[kind] = Array.from(labelSet);
+    }
     out.push({
       id: artistNodeId(acc.artistId),
       kind: "artist",
@@ -127,6 +139,7 @@ export function deriveArtistNodes(
       tags,
       label: pickMostCommon(acc.labelCounts),
       era: pickMostCommon(acc.eraCounts),
+      customTaxons,
       isFavorite: favoriteArtistIds?.has(acc.artistId) ?? false,
       sourceRemoteIds: Array.from(acc.sourceRemoteIds),
     });

@@ -68,7 +68,7 @@ export interface WalkCanvasProps {
 // ---- colors ----------------------------------------------------------------
 
 const ROLE_COLOR: Record<string, string> = {
-  root: "#4b5563",
+  root: "#ff00ff",
   remote: "#ec4899",
   relation: "#0891b2",
   value: "#059669",
@@ -392,11 +392,23 @@ function drawNode(
   y: number,
   radius: number,
   getImage?: (id: string) => ImageMetadata | null,
-  isOffline?: boolean
+  isOffline?: boolean,
+  isHovered?: boolean
 ) {
   // ghost artists are label-only: skip all shape/fill/stroke; drawLabel
   // handles their text styling in the label pass.
   if (n.role === "ghost_artist") return;
+
+  // offline remote hubs: draw an opaque black backdrop disk so the dimmed
+  // hex shape doesn't bleed through the connecting edge behind it.
+  if (isOffline && n.role === "remote") {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#000000";
+    nodeShapePath(ctx, n.role, x, y, radius);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // offline nodes (e.g. unreachable remote hubs): dim everything we draw
   // for this node by reducing alpha. label pass also dims separately below.
@@ -457,8 +469,11 @@ function drawNode(
 
   ctx.stroke();
 
-  // count badge for hub nodes
-  if ((n.role === "relation" || n.role === "value" || n.role === "remote") && n.childCount > 0) {
+  // count badge for hub nodes; remote count only shown on hover to reduce clutter
+  if (
+    (n.role === "relation" || n.role === "value" || (n.role === "remote" && isHovered)) &&
+    n.childCount > 0
+  ) {
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.font = `bold ${Math.max(9, Math.round(radius * 0.42))}px system-ui,sans-serif`;
     ctx.textAlign = "center";
@@ -882,7 +897,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
-        drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id));
+        drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);
 
         // loading comet — drawn last so it sits on top of the node fill,
         // image, stroke, and badge. uses the same rAF-driven clock as the
@@ -929,7 +944,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             ctx.lineWidth = 2;
             ctx.stroke();
           }
-          drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id));
+          drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);
           if (props.isLoadingNode?.(n.id)) {
             drawLoadingComet(ctx, n.role, x, y, r, performance.now());
           }
@@ -1233,9 +1248,9 @@ function nodeDisplayRadius(n: VisibleNode): number {
     case "value":
       return 14 + Math.min(Math.sqrt(n.childCount) * 3, 16);
     case "artist":
-      return 18;
+      return 27;
     case "album":
-      return 11;
+      return 16;
     default:
       return 14;
   }

@@ -66,6 +66,16 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
   const labelFromTaxon = firstTaxonOfKind(summary.taxons, "label");
   const eraFromTaxon = firstTaxonOfKind(summary.taxons, "era");
 
+  // collect any taxon whose kind_slug isn't in the well-known set into a
+  // catch-all map so the graph can emit relation hubs for custom kinds.
+  const WELL_KNOWN_KINDS = new Set(["genre", "mood", "style", "label", "era", "tag"]);
+  const customTaxons: Record<string, string[]> = {};
+  for (const t of summary.taxons ?? []) {
+    if (!WELL_KNOWN_KINDS.has(t.kind_slug)) {
+      (customTaxons[t.kind_slug] ??= []).push(t.label);
+    }
+  }
+
   return {
     id: albumNodeId(opts.remoteId, summary.album_id),
     kind: "album",
@@ -87,6 +97,7 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
     isFavorite: summary.is_favorite ?? false,
     sourceRemoteId: opts.remoteId,
     sourceRemoteIds: [opts.remoteId],
+    customTaxons,
   };
 }
 
