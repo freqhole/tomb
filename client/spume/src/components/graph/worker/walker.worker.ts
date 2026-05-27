@@ -447,8 +447,14 @@ function buildSim() {
     .force(
       "collide",
       forceCollide<SimNode>()
-        // tighter collision around small leaves (albums); generous around hubs
-        .radius((d) => d.radius * (d.role === "album" ? 1.35 : 1.9))
+        // a bit more breathing room around leaves so labels/artwork don't
+        // overlap as aggressively. hubs stay generous so their fan-outs
+        // don't get squashed.
+        .radius((d) => {
+          if (d.role === "album") return d.radius * 1.9;
+          if (d.role === "artist") return d.radius * 2.45;
+          return d.radius * 1.9;
+        })
         .strength(1.0)
         .iterations(4),
     )

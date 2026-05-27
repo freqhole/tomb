@@ -25,7 +25,11 @@ import {
   recheckRemote,
 } from "./services/remotes/connectionProgress";
 import { TopNav } from "../components/navigation/TopNav";
-import { topNavRightContent, topNavSecondaryRowContent } from "./shell/topNavSlots";
+import {
+  topNavRightContent,
+  topNavSecondaryRowContent,
+  topNavHideSearch,
+} from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
@@ -1145,6 +1149,7 @@ export function AppLayout(props: AppLayoutProps) {
         viewOptions={viewOptions()}
         rightContent={topNavRightContent()}
         secondaryRowContent={topNavSecondaryRowContent()}
+        hideSearch={topNavHideSearch()}
         mainNavSections={[
           {
             items: [

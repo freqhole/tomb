@@ -963,6 +963,8 @@ function Inner(props: {
     );
     slots.setSecondaryRowContent(chips);
     if (!narrow) slots.setRightContent(topNavTools);
+    // search input has no meaning in the graph viz for now; hide it.
+    slots.setHideSearch(true);
   });
 
   // ---- event handlers ------------------------------------------------

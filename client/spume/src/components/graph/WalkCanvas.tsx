@@ -159,46 +159,84 @@ function drawPolygon(
 // wonky triangle: slightly irregular like the freqhole logo - one vertex taller
 // kept for reference but replaced by freqholeMarkPath below
 
-/** the real freqhole brand mark — 4-sided silhouette from assets/freqhole.svg.
- *  vertex fractions are taken directly from src/components/graph/draw/shared/shapes.ts.
- *  `r` is the half-extent of the bounding square (so the shape fits a 2r × 2r box). */
-function freqholeMarkPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+/** returns the 4 freqhole-mark vertices in world coords. when `gap > 0`,
+ *  each vertex is pushed outward from the shape's *centroid* (not the
+ *  node center) by `gap` world pixels. uniform-offset outset — needed
+ *  because the shape is asymmetric and naïve scaling around (cx, cy)
+ *  gives an uneven gap on the left vs the bottom. */
+function freqholeMarkVerts(
+  cx: number,
+  cy: number,
+  r: number,
+  gap: number
+): { x: number; y: number }[] {
   const size = r * 2;
   const x0 = cx - r;
   const y0 = cy - r;
-  ctx.beginPath();
-  ctx.moveTo(x0 + 0.5 * size, y0 + 0.95 * size); // bottom center
-  ctx.lineTo(x0 + 0.14 * size, y0 + 0.18 * size); // top-left
-  ctx.lineTo(x0 + 0.86 * size, y0 + 0.18 * size); // top-right
-  ctx.lineTo(x0 + 0.66 * size, y0 + 0.74 * size); // inner-right notch
-  ctx.closePath();
+  // shape-local vertex fractions (0..1 over the 2r × 2r bounding box)
+  const frac: ReadonlyArray<readonly [number, number]> = [
+    [0.5, 0.95], // bottom center
+    [0.14, 0.18], // top-left
+    [0.86, 0.18], // top-right
+    [0.66, 0.74], // inner-right notch
+  ];
+  // centroid of the 4 vertices in world coords (drives the outset direction).
+  // pre-computed: ((0.5+0.14+0.86+0.66)/4, (0.95+0.18+0.18+0.74)/4) = (0.54, 0.5125)
+  const ccx = x0 + 0.54 * size;
+  const ccy = y0 + 0.5125 * size;
+  const out: { x: number; y: number }[] = new Array(frac.length);
+  for (let i = 0; i < frac.length; i++) {
+    const wx = x0 + frac[i][0] * size;
+    const wy = y0 + frac[i][1] * size;
+    if (gap === 0) {
+      out[i] = { x: wx, y: wy };
+      continue;
+    }
+    const dx = wx - ccx;
+    const dy = wy - ccy;
+    const d = Math.hypot(dx, dy) || 1;
+    out[i] = { x: wx + (dx / d) * gap, y: wy + (dy / d) * gap };
+  }
+  return out;
 }
 
 /** sets up the canvas path for a node's shape without filling or stroking.
- *  used for both the node fill and the hover/pivot ring (at r + gap). */
+ *  used for both the node fill and the hover/pivot ring. for most roles the
+ *  ring is achieved by passing `r + gap`; the `remote` role uses a true
+ *  uniform outset via freqholeMarkVerts so its asymmetric silhouette gets
+ *  an even gap on every side. callers may pass `gap` (defaults to 0) when
+ *  drawing a ring instead of the base shape. */
 function nodeShapePath(
   ctx: CanvasRenderingContext2D,
   role: string,
   x: number,
   y: number,
-  r: number
+  r: number,
+  gap: number = 0
 ) {
   switch (role) {
     case "root":
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.arc(x, y, r + gap, 0, Math.PI * 2);
       break;
-    case "remote":
-      freqholeMarkPath(ctx, x, y, r);
+    case "remote": {
+      // uniform outset via shape centroid keeps the hover/selection ring
+      // equidistant from every silhouette edge.
+      const verts = freqholeMarkVerts(x, y, r, gap);
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+      ctx.closePath();
       break;
+    }
     case "relation":
-      drawPolygon(ctx, x, y, r, 6, 0);
+      drawPolygon(ctx, x, y, r + gap, 6, 0);
       break;
     case "value":
-      drawPolygon(ctx, x, y, r, 8, Math.PI / 8);
+      drawPolygon(ctx, x, y, r + gap, 8, Math.PI / 8);
       break;
     case "album": {
-      const half = r * 0.88;
+      const half = r * 0.88 + gap;
       ctx.beginPath();
       ctx.rect(x - half, y - half, half * 2, half * 2);
       break;
@@ -206,7 +244,7 @@ function nodeShapePath(
     case "artist":
     default:
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.arc(x, y, r + gap, 0, Math.PI * 2);
       break;
   }
 }
@@ -226,19 +264,9 @@ function shapePolyline(
 ): { x: number; y: number }[] {
   switch (role) {
     case "remote": {
-      // freqhole mark — scale vertex offsets from center by (r+outset)/r so
-      // every vertex moves uniformly outward along the radial from center.
-      const k = (r + outset) / r;
-      const size = r * 2;
-      const x0 = cx - r;
-      const y0 = cy - r;
-      const raw = [
-        { x: x0 + 0.5 * size, y: y0 + 0.95 * size },
-        { x: x0 + 0.14 * size, y: y0 + 0.18 * size },
-        { x: x0 + 0.86 * size, y: y0 + 0.18 * size },
-        { x: x0 + 0.66 * size, y: y0 + 0.74 * size },
-      ];
-      return raw.map((p) => ({ x: cx + (p.x - cx) * k, y: cy + (p.y - cy) * k }));
+      // freqhole mark — uniform outset along centroid-to-vertex direction
+      // so the comet trails the silhouette evenly on every side.
+      return freqholeMarkVerts(cx, cy, r, outset);
     }
     case "relation":
       return regularPolyVerts(cx, cy, r + outset, 6, 0);
@@ -450,20 +478,37 @@ function drawLabel(
   y: number,
   radius: number,
   cx: number,
-  cy: number
+  cy: number,
+  emphasis: "none" | "hover" | "select" = "none"
 ) {
-  const fontSize = n.role === "album" ? 10 : 12;
+  const baseFontSize = n.role === "album" ? 10 : 12;
+  // bump font + weight when emphasized so the active label clearly
+  // pairs with its node and pops above neighbouring labels.
+  const fontSize = emphasis === "none" ? baseFontSize : baseFontSize + 2;
+  const weight = emphasis === "none" ? "" : "600 ";
   const italic = n.role === "ghost_artist" ? "italic " : "";
-  ctx.font = `${italic}${fontSize}px system-ui,sans-serif`;
+  ctx.font = `${italic}${weight}${fontSize}px system-ui,sans-serif`;
 
-  const label = n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label;
-  const color = n.isPivot
-    ? "#ffffff"
-    : n.isBreadcrumb
-      ? BREADCRUMB_COLOR
-      : n.role === "ghost_artist"
-        ? GHOST_LABEL_COLOR
-        : LABEL_COLOR;
+  // when emphasized, show the FULL label and marquee-bounce horizontally
+  // if it overflows the visible cap. when not emphasized, truncate with
+  // an ellipsis like before to avoid label sprawl.
+  const MAX_LABEL_PX = 180;
+  const truncated = n.label.length > 18 ? n.label.slice(0, 17) + "…" : n.label;
+  const label = emphasis === "none" ? truncated : n.label;
+  const fullW = ctx.measureText(label).width;
+  const tw = emphasis !== "none" && fullW > MAX_LABEL_PX ? MAX_LABEL_PX : fullW;
+  const isMarquee = emphasis !== "none" && fullW > MAX_LABEL_PX;
+
+  const color =
+    emphasis !== "none"
+      ? "#ffffff"
+      : n.isPivot
+        ? "#ffffff"
+        : n.isBreadcrumb
+          ? BREADCRUMB_COLOR
+          : n.role === "ghost_artist"
+            ? GHOST_LABEL_COLOR
+            : LABEL_COLOR;
 
   let lx: number, ly: number;
 
@@ -494,16 +539,21 @@ function drawLabel(
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
   } else {
+    // hubs (relation/value/remote/root) — center label vertically on
+    // its own baseline anchor so the pill hugs the glyphs evenly top
+    // and bottom (textBaseline="top" leaves a big optical gap above).
     lx = x;
-    ly = y + radius + 12;
+    ly = y + radius + 12 + fontSize / 2;
     ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    ctx.textBaseline = "middle";
   }
 
-  // semi-transparent pill behind the label for legibility
-  const tw = ctx.measureText(label).width;
-  const pw = 4,
-    ph = 2;
+  // semi-transparent pill behind the label for legibility. emphasized
+  // labels get a thicker, more opaque pill with an accent border so the
+  // pairing with the active node is unambiguous.
+  const pw = emphasis === "none" ? 4 : 6;
+  const ph = emphasis === "none" ? 2 : 3;
+  const pillH = fontSize + ph * 2;
   let bx: number;
   if (ctx.textAlign === "right") bx = lx - tw;
   else if (ctx.textAlign === "center") bx = lx - tw / 2;
@@ -512,12 +562,42 @@ function drawLabel(
   if (ctx.textBaseline === "bottom") by = ly - fontSize;
   else if (ctx.textBaseline === "middle") by = ly - fontSize / 2;
   else by = ly;
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  const pillY = by - ph;
+  ctx.fillStyle = emphasis === "none" ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.85)";
   ctx.beginPath();
-  ctx.roundRect(bx - pw, by - ph, tw + pw * 2, fontSize + ph * 2, 3);
+  ctx.roundRect(bx - pw, pillY, tw + pw * 2, pillH, 3);
   ctx.fill();
+  if (emphasis !== "none") {
+    ctx.strokeStyle = emphasis === "select" ? SELECTION_RING_COLOR : HOVER_RING_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
   ctx.fillStyle = color;
-  ctx.fillText(label, lx, ly);
+
+  if (isMarquee) {
+    // marquee bounce: triangle-wave offset across the overflow with a
+    // brief dwell at each extreme so the eye can settle. clip to the
+    // pill interior so the text doesn't escape the border.
+    const overflow = fullW - tw;
+    const period = 4000; // ms for a full round trip
+    const t = (performance.now() % period) / period;
+    const tri = t < 0.5 ? t * 2 : 2 - t * 2;
+    // ease: dwell ~10% at each extreme
+    const eased = tri < 0.1 ? 0 : tri > 0.9 ? 1 : (tri - 0.1) / 0.8;
+    const offset = overflow * eased;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(bx, pillY, tw, pillH);
+    ctx.clip();
+    // switch to left-align for predictable origin while clipped
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "left";
+    ctx.fillText(label, bx - offset, ly);
+    ctx.textAlign = prevAlign;
+    ctx.restore();
+  } else {
+    ctx.fillText(label, lx, ly);
+  }
 }
 
 // ---- component -------------------------------------------------------------
@@ -759,9 +839,26 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });
 
-      // pass 1: shapes + hover rings + selection ring (back to front)
+      // pass 1: shapes + hover rings + selection ring (back to front).
+      // the "lifted" node (hovered, else selected — restricted to
+      // artist/album) is skipped here and re-drawn after pass 2 so it
+      // sits on top of every other shape AND label.
+      const liftIdx = (() => {
+        const pick = (id: string | null) => {
+          if (id === null) return -1;
+          const i = nodes.findIndex((n) => n.id === id);
+          if (i === -1) return -1;
+          const r = nodes[i].role;
+          return r === "artist" || r === "album" ? i : -1;
+        };
+        const hi = pick(hov);
+        if (hi !== -1) return hi;
+        return pick(selId);
+      })();
+
       for (const i of sorted) {
         const n = nodes[i];
+        if (i === liftIdx) continue;
         const x = positions[i * 2];
         const y = positions[i * 2 + 1];
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
@@ -771,7 +868,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         // selection ring — drawn outermost so it's visible behind hover ring
         if (selId === n.id) {
           const selGap = n.role === "remote" ? 10 : 11;
-          nodeShapePath(ctx, n.role, x, y, r + selGap);
+          nodeShapePath(ctx, n.role, x, y, r, selGap);
           ctx.strokeStyle = SELECTION_RING_COLOR;
           ctx.lineWidth = 2;
           ctx.stroke();
@@ -779,7 +876,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 
         if (hov === n.id) {
           const gap = n.role === "remote" ? 5 : 6;
-          nodeShapePath(ctx, n.role, x, y, r + gap);
+          nodeShapePath(ctx, n.role, x, y, r, gap);
           ctx.strokeStyle = HOVER_RING_COLOR;
           ctx.lineWidth = 2;
           ctx.stroke();
@@ -795,16 +892,53 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         }
       }
 
-      // pass 2: all labels for non-hovered nodes
+      // pass 2: all labels for non-hovered, non-lifted nodes
       const cx = w() / 2;
       const cy = h() / 2;
       for (const i of sorted) {
         const n = nodes[i];
         if (hov === n.id) continue; // drawn in pass 3
+        if (i === liftIdx) continue; // drawn in lifted pass
         const x = positions[i * 2];
         const y = positions[i * 2 + 1];
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-        drawLabel(ctx, n, x, y, nodeDisplayRadius(n), cx, cy);
+        const emph: "none" | "select" = selId === n.id ? "select" : "none";
+        drawLabel(ctx, n, x, y, nodeDisplayRadius(n), cx, cy, emph);
+      }
+
+      // lifted pass: draw the hover-or-select artist/album on top of
+      // every shape AND every label so its image + outline isn't buried
+      // by neighbouring nodes or labels.
+      if (liftIdx !== -1) {
+        const n = nodes[liftIdx];
+        const x = positions[liftIdx * 2];
+        const y = positions[liftIdx * 2 + 1];
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          const r = nodeDisplayRadius(n);
+          if (selId === n.id) {
+            const selGap = n.role === "remote" ? 10 : 11;
+            nodeShapePath(ctx, n.role, x, y, r, selGap);
+            ctx.strokeStyle = SELECTION_RING_COLOR;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          if (hov === n.id) {
+            const gap = n.role === "remote" ? 5 : 6;
+            nodeShapePath(ctx, n.role, x, y, r, gap);
+            ctx.strokeStyle = HOVER_RING_COLOR;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id));
+          if (props.isLoadingNode?.(n.id)) {
+            drawLoadingComet(ctx, n.role, x, y, r, performance.now());
+          }
+          // its label too — but only when not the hovered node (pass 3
+          // handles that case so hover always wins z-order).
+          if (hov !== n.id) {
+            drawLabel(ctx, n, x, y, r, cx, cy, "select");
+          }
+        }
       }
 
       // pass 3: hovered node label — always on top regardless of role
@@ -818,7 +952,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             positions[hi * 2 + 1],
             nodeDisplayRadius(nodes[hi]),
             cx,
-            cy
+            cy,
+            "hover"
           );
         }
       }

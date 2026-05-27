@@ -15,14 +15,19 @@ const [rightContent, setRightContentInternal] = createSignal<JSX.Element | undef
 const [secondaryRowContent, setSecondaryRowContentInternal] = createSignal<
   JSX.Element | undefined
 >(undefined);
+const [hideSearch, setHideSearchInternal] = createSignal<boolean>(false);
 
 /** read-only accessors — consumed by AppLayout's TopNav. */
 export const topNavRightContent: Accessor<JSX.Element | undefined> = rightContent;
 export const topNavSecondaryRowContent: Accessor<JSX.Element | undefined> = secondaryRowContent;
+/** when true, AppLayout asks TopNav to suppress the search input. used
+ *  by views (e.g. library graph viz) where the search has no meaning. */
+export const topNavHideSearch: Accessor<boolean> = hideSearch;
 
 export interface UseTopNavSlotsApi {
   setRightContent(node: JSX.Element | undefined): void;
   setSecondaryRowContent(node: JSX.Element | undefined): void;
+  setHideSearch(hide: boolean): void;
 }
 
 /**
@@ -33,10 +38,12 @@ export interface UseTopNavSlotsApi {
 export function useTopNavSlots(): UseTopNavSlotsApi {
   let ownsRight = false;
   let ownsSecondary = false;
+  let ownsHideSearch = false;
 
   onCleanup(() => {
     if (ownsRight) setRightContentInternal(undefined);
     if (ownsSecondary) setSecondaryRowContentInternal(undefined);
+    if (ownsHideSearch) setHideSearchInternal(false);
   });
 
   return {
@@ -47,6 +54,10 @@ export function useTopNavSlots(): UseTopNavSlotsApi {
     setSecondaryRowContent(node) {
       ownsSecondary = true;
       setSecondaryRowContentInternal(node);
+    },
+    setHideSearch(hide) {
+      ownsHideSearch = true;
+      setHideSearchInternal(hide);
     },
   };
 }

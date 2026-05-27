@@ -138,6 +138,9 @@ export interface TopNavProps {
   secondaryRowContent?: JSX.Element;
   /** custom search component (optional - if not provided, uses TopNavSearchContainer) */
   searchComponent?: JSX.Element;
+  /** when true, suppress the topnav search input entirely. used by
+   *  views (e.g. library graph viz) where search has no meaning. */
+  hideSearch?: boolean;
   /** page title to show in nav bar (e.g. "songs", "playlists") */
   pageTitle?: string;
   /** page item count to show with title */
@@ -1409,7 +1412,11 @@ export function TopNav(props: TopNavProps) {
             </Show>
 
             {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
-            <Show when={!isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute()}>
+            <Show
+              when={
+                !isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute() && !props.hideSearch
+              }
+            >
               <div
                 class="order-last"
                 classList={{
