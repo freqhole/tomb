@@ -1,8 +1,7 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { Button } from "../src/components/buttons/Button";
 import { IconButton } from "../src/components/buttons/IconButton";
-import { TagFilterPicker, type TagFilter } from "../src/components/forms/TagFilterPicker";
 import {
   formatDuration,
   formatNumber,
@@ -20,8 +19,6 @@ import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
-import { createGraphLibraryView } from "../src/library/views/graph/createGraphLibraryView";
-import { MEDIUM_GRAPH, withArtists } from "./mockGraphData";
 import type { Song as DomainSong } from "../src/music/data/types";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import {
@@ -140,44 +137,6 @@ export const FullAppDemo: Story = {
     // searchValue is declared here (out of order with the other
     // view-state signals below) so the factory can capture it.
     const [searchValue, setSearchValue] = createSignal("");
-
-    // tag filter picker state — shown in the topnav rightContent and
-    // wired into the graph node accessor below so toggling tags
-    // actually narrows the visible albums (and the derived artist
-    // avatars). filters use include/exclude semantics.
-    const [tagFilters, setTagFilters] = createSignal<TagFilter[]>([]);
-
-    // build the graph dataset: 200 mock albums + the derived artist
-    // avatar nodes for each unique artist across that set. memo'd so
-    // the derivation isn't redone on every render. filtered by the
-    // active tag filter set so the picker has visible effect.
-    const graphNodes = createMemo(() => {
-      const filters = tagFilters();
-      let albums = MEDIUM_GRAPH;
-      if (filters.length > 0) {
-        albums = MEDIUM_GRAPH.filter((al) => {
-          const labels = new Set(al.tags.map((t) => t.label));
-          for (const f of filters) {
-            const has = labels.has(f.tag);
-            if (f.mode === "include" && !has) return false;
-            if (f.mode === "exclude" && has) return false;
-          }
-          return true;
-        });
-      }
-      return withArtists(albums);
-    });
-
-    const libraryGraph = createGraphLibraryView({
-      nodes: graphNodes,
-      searchQuery: searchValue,
-      onPlay: (a) => console.log("[graph] play", a.title),
-      onShuffle: (a) => console.log("[graph] shuffle", a.title),
-      onAddToQueue: (a) => console.log("[graph] queue", a.title),
-      onViewAlbum: (a) => console.log("[graph] view album", a.title),
-      onViewArtist: (a) => console.log("[graph] view artist", a.artistName),
-      onToggleFavorite: (a) => console.log("[graph] favorite", a.title),
-    });
 
     // artists view state
     const [_selectedArtist, _setSelectedArtist] = createSignal<Artist | null>(mockArtists[0]);
@@ -963,7 +922,7 @@ export const FullAppDemo: Story = {
     const mainContent = () => {
       switch (currentRoute()) {
         case "library":
-          return libraryGraph.pane;
+          return <div class="flex-1 flex items-center justify-center text-white/30 text-sm">graph view (use LibraryGraphSubview in production)</div>;
         case "songs":
           return songsView();
         case "albums":
@@ -1006,44 +965,7 @@ export const FullAppDemo: Story = {
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
           currentPath={`/${currentRoute()}`}
-          rightContent={
-            currentRoute() === "library" ? (
-              // tag filter picker sits to the left of the graph's own
-              // topnav tools (relation toggles, lock, etc.) so the
-              // most-frequently-touched controls (relation legend +
-              // lock) stay flush right and the tag picker has room to
-              // expand its dropdown without being clipped by the
-              // viewport edge.
-              <div class="flex items-center gap-3">
-                <TagFilterPicker
-                  availableTags={mockTags.map((t) => ({
-                    value: t.label,
-                    label: t.label,
-                    count: t.count,
-                  }))}
-                  selectedFilters={tagFilters()}
-                  onAddTag={(tag) =>
-                    setTagFilters((prev) =>
-                      prev.some((f) => f.tag === tag) ? prev : [...prev, { tag, mode: "include" }]
-                    )
-                  }
-                  onRemoveTag={(tag) => setTagFilters((prev) => prev.filter((f) => f.tag !== tag))}
-                  onToggleMode={(tag) =>
-                    setTagFilters((prev) =>
-                      prev.map((f) =>
-                        f.tag === tag
-                          ? { ...f, mode: f.mode === "include" ? "exclude" : "include" }
-                          : f
-                      )
-                    )
-                  }
-                  onClearAll={() => setTagFilters([])}
-                  compact
-                />
-                {libraryGraph.topNavTools}
-              </div>
-            ) : undefined
-          }
+          rightContent={undefined}
           secondaryRowContent={undefined}
           onNavigate={(path) => {
             // map topnav's built-in route buttons onto the demo's Route
@@ -1126,13 +1048,10 @@ export const FullAppDemo: Story = {
           }}
         >
           {/* main content — `flex flex-col` so children with `flex-1`
-              (e.g. libraryGraph.pane) actually fill the available
-              vertical space instead of collapsing to content height. */}
+              fill the available vertical space. */}
           <div class="flex-1 overflow-hidden flex flex-col">{mainContent()}</div>
 
-          {/* queue sidebar — inline so opening it shrinks the canvas
-              (GraphCanvas auto-resizes via ResizeObserver) instead
-              of floating over the graph. */}
+          {/* queue sidebar — inline so opening it shrinks the content area */}
           <QueueSidebar
             isOpen={queueOpen()}
             variant="inline"
@@ -1170,160 +1089,6 @@ export const FullAppDemo: Story = {
                 const duration = song().duration_seconds;
                 const timeInSeconds = (percentage / 100) * duration;
                 setCurrentTime(timeInSeconds);
-              }}
-              onVolumeChange={(vol) => setVolume(vol)}
-              onQueueToggle={() => setQueueOpen(!queueOpen())}
-              queueLength={queueSongs().length}
-            />
-          )}
-        </Show>
-      </div>
-    );
-  },
-};
-
-// ---------------------------------------------------------------------
-// LibraryGraphView
-//
-// alternate library shell where the force-directed album graph IS the
-// primary view. demonstrates how the graph composes with the rest of
-// the chrome:
-//   - the graph's zoom/tool/wire-tension/relations controls live in the
-//     topnav's right-side slot (rightContent) instead of floating over
-//     the canvas.
-//   - the topnav's search input drives a node-highlight filter that
-//     dims everything not matching, leaving matches at full opacity.
-//   - the queue sidebar runs in "inline" mode so opening it shrinks
-//     the canvas (GraphCanvas auto-resizes via ResizeObserver).
-//   - a player bar pinned to the bottom further trims the canvas height.
-// createGraphLibraryView lives in
-// src/library/views/graph/createGraphLibraryView.tsx — see the import
-// at the top of this file. (used by both LibraryGraphView below and the
-// FullAppDemo "library" route.)
-
-// ---------------------------------------------------------------------
-// LibraryGraphView
-//
-// alternate library shell where the force-directed album graph IS the
-// primary view. composes via createGraphLibraryView() and adds the
-// surrounding topnav + queue + playerbar chrome.
-// ---------------------------------------------------------------------
-export const LibraryGraphView: Story = {
-  render: () => {
-    // ---- player + queue (mirrors FullAppDemo) ----
-    const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
-    const [isPlaying, setIsPlaying] = createSignal(false);
-    const [volume, setVolume] = createSignal(0.75);
-    const [currentTime, setCurrentTime] = createSignal(45);
-    const [queueOpen, setQueueOpen] = createSignal(false);
-    const [queueSongs, setQueueSongs] = createSignal<Song[]>(generatedSongs.slice(0, 20));
-    const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
-    const [searchQuery, setSearchQuery] = createSignal("");
-
-    const handlePlayPause = () => setIsPlaying((p) => !p);
-    const handleSkip = (dir: "prev" | "next") => {
-      const idx = currentQueueIndex();
-      const next = dir === "next" ? idx + 1 : idx - 1;
-      if (next >= 0 && next < queueSongs().length) {
-        setCurrentQueueIndex(next);
-        setCurrentSong(queueSongs()[next]);
-      }
-    };
-    const handleQueueSongClick = (index: number) => {
-      const song = queueSongs()[index];
-      if (!song) return;
-      setCurrentQueueIndex(index);
-      setCurrentSong(song);
-      setIsPlaying(true);
-    };
-    const handleRemoveFromQueue = (index: number) => {
-      setQueueSongs((prev) => prev.filter((_s, i) => i !== index));
-    };
-
-    const graph = createGraphLibraryView({
-      nodes: () => MEDIUM_GRAPH,
-      searchQuery,
-      onPlay: (a) => console.log("[graph] play", a.title),
-      onShuffle: (a) => console.log("[graph] shuffle", a.title),
-      onAddToQueue: (a) => console.log("[graph] queue", a.title),
-      onViewAlbum: (a) => console.log("[graph] view album", a.title),
-      onViewArtist: (a) => console.log("[graph] view artist", a.artistName),
-      onToggleFavorite: (a) => console.log("[graph] favorite", a.title),
-    });
-
-    return (
-      <div class="h-[100dvh] flex flex-col bg-[var(--color-bg-primary)]">
-        <TopNav
-          brandName="freqhole"
-          brandTagline="album graph"
-          searchPlaceholder="search albums + artists..."
-          searchComponent={
-            <TopNavSearch
-              placeholder="search albums + artists..."
-              onSearchChange={(v) => setSearchQuery(v)}
-              onNavigate={() => undefined}
-              currentPath="/library"
-            />
-          }
-          rightContent={graph.topNavTools}
-          mainNavSections={[
-            {
-              items: [
-                { label: "graph", onClick: () => undefined },
-                { label: "songs", onClick: () => undefined },
-                { label: "albums", onClick: () => undefined },
-                { label: "artists", onClick: () => undefined },
-              ],
-            },
-          ]}
-          pageTitle="library graph"
-          pageCount={graph.nodeCount()}
-        />
-
-        {/* main content area + queue — padding-bottom only when the
-            playerbar is actually mounted (mirrors FullAppDemo). */}
-        <div
-          class="flex-1 overflow-hidden flex"
-          style={{ "padding-bottom": currentSong() ? "var(--player-height, 72px)" : undefined }}
-        >
-          {graph.pane}
-
-          {/* inline queue — shrinks the canvas instead of overlaying */}
-          <QueueSidebar
-            isOpen={queueOpen()}
-            variant="inline"
-            songs={queueSongs()}
-            currentIndex={currentQueueIndex()}
-            onClose={() => setQueueOpen(false)}
-            onSongClick={handleQueueSongClick}
-            onRemoveSong={handleRemoveFromQueue}
-            onClearAll={() => setQueueSongs([])}
-            historyEntries={[]}
-          />
-        </div>
-
-        <Show when={currentSong()}>
-          {(song) => (
-            <PlayerBar
-              song={{
-                id: song().id,
-                title: song().title,
-                artist: song().artist_name,
-                album: song().album_title,
-                thumbnailUrl: "",
-                isFavorite: song().is_favorite ?? false,
-              }}
-              isPlaying={isPlaying()}
-              volume={volume()}
-              currentTime={currentTime()}
-              duration={song().duration_seconds}
-              queueOpen={queueOpen()}
-              onPlayPause={handlePlayPause}
-              onPrevious={() => handleSkip("prev")}
-              onNext={() => handleSkip("next")}
-              onSeek={(percentage) => {
-                const duration = song().duration_seconds;
-                setCurrentTime((percentage / 100) * duration);
               }}
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}

@@ -1,6 +1,6 @@
 // LibraryGraphSubview
 //
-// real graph subview using the bloom-walk explorer (graph2).
+// real graph subview using the bloom-walk explorer.
 // fans RemoteAlbumsLoader over every provided remote, builds a WalkGraph
 // via buildWalkGraph, and drives WalkCanvas with incremental merge so
 // large libraries stream in without restarting the sim from scratch.
@@ -55,12 +55,12 @@ import { usesBlobResolver } from "../../../music/services/storage/transportCache
 import { resolveLocalBlobUrl } from "../../../music/utils/images";
 import { useArtistQuery } from "../../../music/queries/songs";
 import type { ImageMetadata } from "../../../music/services/storage/types";
-import WalkCanvas from "../../../components/graph2/WalkCanvas";
-import type { WalkApi } from "../../../components/graph2/WalkCanvas";
-import type { WalkerClient } from "../../../components/graph2/worker/client";
+import WalkCanvas from "../../../components/graph/WalkCanvas";
+import type { WalkApi } from "../../../components/graph/WalkCanvas";
+import type { WalkerClient } from "../../../components/graph/worker/client";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
-import { buildWalkGraph } from "../../../components/graph2/data/buildWalkGraph";
-import { rootId, parseNodeId, slug } from "../../../components/graph2/data/nodeIds";
+import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
+import { rootId, parseNodeId, slug } from "../../../components/graph/data/nodeIds";
 import { getClientForRemote } from "../../../app/api/client";
 import { adaptApiImage, adaptApiUrls } from "../../../music/data/remote/adapters";
 import type { AlbumSummary } from "../../../music/data/types";

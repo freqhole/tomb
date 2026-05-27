@@ -5,9 +5,9 @@
 
 import { createSignal, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import WalkCanvas from "../src/components/graph2/WalkCanvas";
-import { buildWalkGraph } from "../src/components/graph2/data/buildWalkGraph";
-import { artistNodeId, rootId } from "../src/components/graph2/data/nodeIds";
+import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { buildWalkGraph } from "../src/components/graph/data/buildWalkGraph";
+import { artistNodeId, rootId } from "../src/components/graph/data/nodeIds";
 import type { AlbumNodeData, ArtistNodeData } from "../src/components/graph/types";
 import { AlbumDetailPopover } from "../src/components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../src/components/graph/ArtistDetailPopover";
