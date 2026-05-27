@@ -69,6 +69,11 @@ interface SongEditorOptions {
 
 interface ArtistEditorOptions {
   artistId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. mirrors the album/song editor pattern
+   *  for cases (e.g. graph view) where the displayed entity belongs to
+   *  a non-active remote. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
 }

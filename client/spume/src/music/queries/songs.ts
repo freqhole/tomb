@@ -299,14 +299,17 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   }));
 }
 
-export function useArtistQuery(artistId: Accessor<string | undefined>) {
+export function useArtistQuery(
+  artistId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.artists.detail(artistId() || ""),
+    queryKey: queryKeys.artists.detail(artistId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = artistId();
       if (!id) return null;
 
-      const dataSource = getDataSource();
+      const dataSource = pickAlbumSource(remote?.());
       if (!dataSource.getArtists) {
         return null;
       }

@@ -62,7 +62,10 @@ export const queryKeys = {
     all: () => ["artists", getDataSourceKey()] as const,
     lists: () => [...queryKeys.artists.all(), "list"] as const,
     list: (search?: string) => [...queryKeys.artists.lists(), search] as const,
-    detail: (id: string) => [...queryKeys.artists.all(), id] as const,
+    detail: (id: string, remoteId?: string) =>
+      remoteId
+        ? ([...queryKeys.artists.all(), "remote", remoteId, id] as const)
+        : ([...queryKeys.artists.all(), id] as const),
     songs: (artistId: string) => ["artist", "songs", artistId] as const,
     albums: (artistId: string) => ["artist", "albums", artistId] as const,
     autocomplete: (search?: string) =>

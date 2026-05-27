@@ -390,7 +390,12 @@ function buildSim() {
     if (si === undefined || ti === undefined) continue;
     const isBC = breadcrumbSet.has(src) && breadcrumbSet.has(tgt);
     simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC });
-    visibleEdges.push({ sourceIdx: si, targetIdx: ti, isBreadcrumb: isBC });
+    visibleEdges.push({
+      sourceIdx: si,
+      targetIdx: ti,
+      isBreadcrumb: isBC,
+      isRelatedArtist: e.isRelatedArtist,
+    });
     emittedEdgeKeys.add(crossKey(src, tgt));
   }
 

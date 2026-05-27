@@ -850,6 +850,7 @@ export function App() {
         {(state) => (
           <ArtistEditorModal
             artistId={state().artistId}
+            remote={state().remote}
             onClose={hideArtistEditor}
             onSave={() => {
               state().onSave?.();

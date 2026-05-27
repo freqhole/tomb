@@ -256,6 +256,11 @@ export interface WalkNode {
 export interface WalkEdge {
   source: string;
   target: string;
+  /** true when this edge represents a "related artist" relationship
+   *  harvested from related_artistz (lastfm / audiodb / mb). drawn in a
+   *  dedicated color with a mid-edge "related artist" label by the
+   *  canvas renderer. */
+  isRelatedArtist?: boolean;
 }
 
 export interface WalkGraph {

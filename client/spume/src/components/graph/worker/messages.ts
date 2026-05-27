@@ -29,6 +29,9 @@ export interface TopologyEdge {
   /** synthesized link between matched nodes in different remotes (artist or
    *  album). drawn amber-dashed so federation is visually obvious. */
   isCrossRemote?: boolean;
+  /** lazy-loaded related-artist relationship sourced from
+   *  related_artistz. drawn in a dedicated color with a mid-edge label. */
+  isRelatedArtist?: boolean;
 }
 
 // ---- main → worker ---------------------------------------------------------

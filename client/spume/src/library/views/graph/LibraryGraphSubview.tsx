@@ -67,6 +67,7 @@ import {
   remoteHubId,
   relationHubId,
   valueNodeId,
+  artistNodeId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
 import type { WalkNode, WalkEdge } from "../../../components/graph/types";
@@ -769,6 +770,22 @@ function Inner(props: {
     return props.remotes()[0];
   };
 
+  const remoteForArtist = (artist: ArtistNodeData): Remote | undefined => {
+    const remoteId = artist.sourceRemoteIds?.[0];
+    if (remoteId) return props.remotes().find((r) => r.remote_id === remoteId);
+    return props.remotes()[0];
+  };
+
+  /** select a node and pan the canvas to it without resetting the
+   *  breadcrumb. used by detail popover links (album row, relation chip,
+   *  related-artist row) to keep ui in sync with the visual focus. */
+  const selectAndPanTo = (nodeId: string) => {
+    setSelectedId(nodeId);
+    albumPanel.restore();
+    artistPanel.restore();
+    walkerClient()?.repivot(nodeId, false);
+  };
+
   const fetchAlbumSongs = async (remote: Remote, albumId: string) => {
     const { RemoteMusicDataSource } = await import("../../../music/data/remote/remoteSource");
     const ds = new RemoteMusicDataSource(remote);
@@ -1097,6 +1114,15 @@ function Inner(props: {
     // append into nodesByRemote and propagate through buildResult ->
     // incremental client.merge.
     void maybeLoadAlbumsForPivot(nodeId);
+    // lazy related-artists expansion: when the pivot is an artist,
+    // fetch rows from related_artistz for that artist and emit
+    // related-artist edges to any in-library counterparts.
+    void maybeLoadRelatedArtistsForPivot(nodeId);
+    // lazy relation fan-out: when the pivot is an artist or album,
+    // ensure every relation hub's taxons are loaded and synthesize
+    // value->entity edges from the entity's unioned taxon fields so
+    // all relevant taxons render around the pivot.
+    void maybeLoadRelationsForEntityPivot(nodeId);
   };
 
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
@@ -1112,6 +1138,14 @@ function Inner(props: {
   const eraBinsFetchPromises = new Map<string, Promise<void>>();
   const recentlyAddedLoadedByHub = new Set<string>();
   const recentlyAddedFetchPromises = new Map<string, Promise<void>>();
+  // related-artists pivot dedup: keyed by the full artist node id
+  // (`artist::{remoteId}::{artistId}`). populated after a successful fetch
+  // so subsequent pivots on the same artist don't re-issue the call.
+  const relatedArtistsLoadedByPivot = new Set<string>();
+  const relatedArtistsFetchPromises = new Map<string, Promise<void>>();
+  // entity-relation fan-out dedup: keyed by full artist/album node id.
+  // populated after emitting value->entity edges for that pivot.
+  const entityRelationsLoadedByPivot = new Set<string>();
   // era bin metadata per era hub id, keyed by value_norm slug. used to
   // re-classify newly-arrived albums into existing bins and to shape
   // future filter requests if/when server-side year-range filters land.
@@ -1650,6 +1684,145 @@ function Inner(props: {
     return null;
   };
 
+  // lazy related-artists expansion. triggered on pivot into an
+  // `artist::{remoteId}::{artistId}` node. fetches rows from the remote's
+  // related_artistz table via `client.music.listRelatedArtists` and
+  // merges related-artist edges (flagged `isRelatedArtist: true`) for any
+  // row whose `related_artist_id` resolves to an artist node already in
+  // (or later merged into) the same remote's library. external-only rows
+  // (no in-library counterpart) are skipped for v1; future work could
+  // synthesize ghost artist nodes for them.
+  const maybeLoadRelatedArtistsForPivot = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "artist") return;
+    if (relatedArtistsLoadedByPivot.has(nodeId)) return;
+    const inFlight = relatedArtistsFetchPromises.get(nodeId);
+    if (inFlight) return inFlight;
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+    const promise = (async () => {
+      setFetchingNodeFlag(nodeId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.music.listRelatedArtists({ artist_id: parsed.artistId });
+        if (!result.success || !result.data) return;
+        const remoteId = parsed.remoteId;
+        const addEdges: WalkEdge[] = [];
+        const seen = new Set<string>();
+        for (const row of result.data.items) {
+          if (!row.in_library || !row.related_artist_id) continue;
+          const targetId = artistNodeId(remoteId, row.related_artist_id);
+          if (targetId === nodeId) continue;
+          const key = `${nodeId}::${targetId}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          addEdges.push({ source: nodeId, target: targetId, isRelatedArtist: true });
+        }
+        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+        relatedArtistsLoadedByPivot.add(nodeId);
+      } catch (err) {
+        console.warn("lazy related-artists fetch failed", { nodeId, err });
+        // allow retry on next pivot
+      } finally {
+        setFetchingNodeFlag(nodeId, false);
+        relatedArtistsFetchPromises.delete(nodeId);
+      }
+    })();
+    relatedArtistsFetchPromises.set(nodeId, promise);
+    return promise;
+  };
+
+  // lazy relation fan-out for artist / album pivots. when the user
+  // pivots into an entity node we want every relation taxon the entity
+  // belongs to to render around it (genre / tag / mood / style / label /
+  // era / customTaxons). buildWalkGraph doesn't emit value->entity edges
+  // and per-hub loaders only emit hub->value edges, so on its own the
+  // pivot has no taxon connections. this loader:
+  //   1. reads the unioned taxon fields off the entity node data
+  //      (set by deriveArtistNodes / adaptAlbum).
+  //   2. fires `maybeLoadTaxonsForPivot(relHubId)` in parallel for every
+  //      kind the entity has values for so the value nodes get loaded.
+  //   3. synthesizes value->entity edges using `slug(label)` to match
+  //      the same id scheme that `maybeLoadTaxonsForPivot` produces
+  //      (matches the lookup pattern used by detail panels).
+  //
+  // edges land in the worker via the normal merge path; the worker
+  // dedupes and only renders the ones whose endpoints are both visible.
+  // value nodes arriving later will activate the previously-queued
+  // edges automatically.
+  const maybeLoadRelationsForEntityPivot = (nodeId: string): void => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "artist" && parsed.kind !== "album") return;
+    if (entityRelationsLoadedByPivot.has(nodeId)) return;
+    const node = lookupNode(nodeId);
+    if (!node) return;
+    const remoteId = parsed.remoteId;
+    // collect (kind, label) pairs from the unioned taxon fields. the
+    // well-known kinds map to specific field names; customTaxons carries
+    // the long tail under user-defined kind slugs.
+    const pairs: Array<{ kind: RelationKind; label: string }> = [];
+    const pushAll = (kind: RelationKind, labels: readonly string[] | undefined) => {
+      if (!labels) return;
+      for (const l of labels) {
+        if (l && l.trim().length > 0) pairs.push({ kind, label: l });
+      }
+    };
+    pushAll("genre", node.genres);
+    pushAll("mood", node.moods);
+    pushAll("style", node.styles);
+    // tags carry { label, weight }; reduce to labels.
+    if (node.tags) {
+      for (const t of node.tags) {
+        if (t.label && t.label.trim().length > 0) pairs.push({ kind: "tag", label: t.label });
+      }
+    }
+    if (node.label) pushAll("label", [node.label]);
+    if (node.era) pushAll("era", [node.era]);
+    if (node.customTaxons) {
+      for (const [kindSlug, labels] of Object.entries(node.customTaxons)) {
+        pushAll(kindSlug as RelationKind, labels);
+      }
+    }
+    if (pairs.length === 0) {
+      entityRelationsLoadedByPivot.add(nodeId);
+      return;
+    }
+    // kick off taxon loads in parallel for every kind we need values
+    // for. fire-and-forget; the worker activates edges once both
+    // endpoints are visible.
+    const seenKinds = new Set<RelationKind>();
+    for (const { kind } of pairs) {
+      if (seenKinds.has(kind)) continue;
+      seenKinds.add(kind);
+      void maybeLoadTaxonsForPivot(relationHubId(remoteId, kind));
+    }
+    // synthesize value->entity edges. dedup at the edge-key level so a
+    // tag appearing on multiple albums of a pivoted artist still only
+    // produces one edge.
+    const addEdges: WalkEdge[] = [];
+    const seenEdges = new Set<string>();
+    for (const { kind, label } of pairs) {
+      const valId = valueNodeId(remoteId, kind, slug(label));
+      const key = `${valId}::${nodeId}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      addEdges.push({ source: valId, target: nodeId });
+    }
+    if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+    entityRelationsLoadedByPivot.add(nodeId);
+  };
+
   // ---- render --------------------------------------------------------
 
   // seed activatedRemotes: prefer the charnel-managed remote (tauri local
@@ -1735,7 +1908,11 @@ function Inner(props: {
     }
   };
 
-  // click interceptor: tapping an offline remote hub re-checks health;
+  // click interceptor: tapping an offline remote hub optimistically
+  // re-checks health, draws the loading comet on the hub, and lets the
+  // canvas pivot through so the drill-in feels instant. if the recheck
+  // confirms the remote is still offline we surface a single warning
+  // toast — no more "checking..." / "back online" chatter.
   // tapping an online-but-not-yet-activated remote hub mounts its loader
   // (and lets the click fall through so the canvas pivots there). active
   // online remote hubs use the default pivot/expand behavior.
@@ -1750,12 +1927,21 @@ function Inner(props: {
     if (offlineByRemote().get(parsed.remoteId) === true) {
       const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
       const name = remote?.name ?? parsed.remoteId;
-      toast.info(`checking ${name}...`);
-      void runHealthCheck(parsed.remoteId).then((online) => {
-        if (online === true) toast.success(`${name} is back online`);
-        else if (online === false) toast.warning(`${name} is still offline`);
-      });
-      return true;
+      // optimistic comet while the health check runs
+      setFetchingNodeFlag(id, true);
+      void runHealthCheck(parsed.remoteId)
+        .then((online) => {
+          if (online === true) {
+            // came back online: mount the loader so albums stream in.
+            // the offlineByRemote flip already undimmed the subtree.
+            activateRemote(parsed.remoteId);
+          } else if (online === false) {
+            toast.warning(`${name} is still offline`);
+          }
+        })
+        .finally(() => setFetchingNodeFlag(id, false));
+      // fall through so the canvas pivots to the hub immediately
+      return false;
     }
     if (!activatedRemotes().has(parsed.remoteId)) {
       activateRemote(parsed.remoteId);
@@ -1887,7 +2073,14 @@ function Inner(props: {
               }}
               onSelectArtistById={(artistId) => {
                 const nodeId = findArtistNodeId(artistId);
-                if (nodeId) setSelectedId(nodeId);
+                if (nodeId) selectAndPanTo(nodeId);
+              }}
+              onRelationClick={(kind, label) => {
+                const album = selectedAlbum();
+                const r = album ? remoteForNode(album) : undefined;
+                const remoteId = r?.remote_id ?? album?.sourceRemoteId;
+                if (!remoteId) return;
+                selectAndPanTo(valueNodeId(remoteId, kind as RelationKind, slug(label)));
               }}
               onToggleFavorite={(album) => {
                 const r = remoteForNode(album);
@@ -1951,14 +2144,26 @@ function Inner(props: {
               bio={artistQuery.data?.bio ?? null}
               isFavorite={artistQuery.data?.is_favorite}
               albums={selectedArtistAlbums()}
-              onSelectAlbum={(album) => setSelectedId(album.id)}
+              onSelectAlbum={(album) => selectAndPanTo(album.id)}
+              onRelationClick={(kind, label) => {
+                const artist = selectedArtist();
+                const r = artist ? remoteForArtist(artist) : undefined;
+                const remoteId = r?.remote_id ?? artist?.sourceRemoteIds?.[0];
+                if (!remoteId) return;
+                selectAndPanTo(valueNodeId(remoteId, kind as RelationKind, slug(label)));
+              }}
               onViewArtist={(artist) => {
                 navigate(routes.artistOn(null, artist.artistId));
               }}
               onEdit={
                 isAnyRemoteAdmin()
                   ? (artist) => {
-                      showArtistEditor({ artistId: artist.artistId });
+                      const r = remoteForArtist(artist);
+                      if (!r || !isRemoteAdmin(r.remote_id)) {
+                        toast.error("admin permission required");
+                        return;
+                      }
+                      showArtistEditor({ artistId: artist.artistId, remote: r });
                     }
                   : undefined
               }

@@ -127,6 +127,29 @@ function valueKind(id: string): string | undefined {
   return parts[0] === "value" ? parts[1] : undefined;
 }
 
+// extract the remote id from an entity node id. covers the encoded
+// forms produced by nodeIds.ts:
+//   artist::{remoteId}::{artistId}
+//   album::{remoteId}::{albumId}
+//   remote::{remoteId}
+//   relation::{remoteId}::{kind}
+//   value::{remoteId}::{kind}::{slug}
+// returns undefined for root or unrecognised shapes.
+function nodeRemoteId(id: string): string | undefined {
+  const parts = id.split("::");
+  if (parts.length < 2) return undefined;
+  switch (parts[0]) {
+    case "remote":
+    case "artist":
+    case "album":
+    case "relation":
+    case "value":
+      return parts[1];
+    default:
+      return undefined;
+  }
+}
+
 // fills stay role-neutral so labels rendered on top keep consistent contrast.
 // per-kind color only shows up on the stroke + outgoing edge lines.
 function nodeFillColor(n: VisibleNode): string {
@@ -159,10 +182,35 @@ function edgeKindColor(a: VisibleNode | undefined, b: VisibleNode | undefined): 
   return null;
 }
 
+/** hierarchy rank for picking the more-central ("hub") endpoint of an
+ *  edge. lower rank = closer to root. used so breadcrumb edges adopt
+ *  the parent hub's color instead of a uniform amber. */
+const ROLE_RANK: Record<string, number> = {
+  root: 0,
+  remote: 1,
+  relation: 2,
+  value: 3,
+  artist: 4,
+  album: 5,
+  ghost_artist: 6,
+};
+
+/** pick the fill color of the higher-rank (closer-to-root) endpoint so
+ *  edges read as extensions of the upstream hub rather than a generic
+ *  navigation highlight. */
+function hubEdgeColor(a: VisibleNode | undefined, b: VisibleNode | undefined): string {
+  if (!a) return b ? nodeFillColor(b) : EDGE_BREADCRUMB;
+  if (!b) return nodeFillColor(a);
+  const ra = ROLE_RANK[a.role] ?? 99;
+  const rb = ROLE_RANK[b.role] ?? 99;
+  return nodeFillColor(ra <= rb ? a : b);
+}
+
 const EDGE_COLOR = "#6b7280"; // visible on black
 const EDGE_ALBUM = "#94a3b8"; // lighter for artist→album wires
 const EDGE_BREADCRUMB = "#f59e0b";
 const CROSS_REMOTE_COLOR = "#fbbf24"; // amber, slightly brighter than breadcrumb — used dashed
+const RELATED_ARTIST_EDGE_COLOR = "#c4b5fd"; // lavender; distinct from taxon hues + cross-remote amber
 const GHOST_LABEL_COLOR = "rgba(241,245,249,0.55)"; // dimmed label tint for ghost artists
 const PIVOT_RING_COLOR = "#ffffff";
 const SELECTION_RING_COLOR = "#ff1a9e";
@@ -466,14 +514,26 @@ function drawNode(
   // breadcrumb states still win since they convey navigation state.
   const valueStroke =
     n.role === "value" ? (valueKind(n.id) && valueKindStroke(valueKind(n.id)!)) || null : null;
-  ctx.strokeStyle = n.isPivot
-    ? PIVOT_RING_COLOR
-    : n.isBreadcrumb
-      ? BREADCRUMB_COLOR
-      : valueStroke
-        ? valueStroke
-        : color;
-  ctx.lineWidth = n.isPivot ? 3 : n.isBreadcrumb ? 2 : valueStroke ? 2 : 1;
+  ctx.strokeStyle =
+    n.role === "root" || n.role === "remote"
+      ? color // root/remote: stroke matches the magenta-ish fill (override pivot ring)
+      : n.isPivot
+        ? PIVOT_RING_COLOR
+        : n.isBreadcrumb
+          ? BREADCRUMB_COLOR
+          : valueStroke
+            ? valueStroke
+            : color;
+  ctx.lineWidth =
+    n.role === "root" || n.role === "remote"
+      ? 1
+      : n.isPivot
+        ? 3
+        : n.isBreadcrumb
+          ? 2
+          : valueStroke
+            ? 2
+            : 1;
 
   nodeShapePath(ctx, n.role, x, y, radius);
   ctx.fill();
@@ -904,14 +964,34 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         const kindEdge = edgeKindColor(nodes[e.sourceIdx], nodes[e.targetIdx]);
         // cross-remote synthetic links: drawn amber-dashed so federation is
         // visually obvious and distinguishable from the breadcrumb path.
-        if (e.isCrossRemote) {
+        const isRootRemoteEdge =
+          (sn?.role === "root" && tn?.role === "remote") ||
+          (tn?.role === "root" && sn?.role === "remote");
+        if (e.isRelatedArtist) {
+          // related-artist edges: lavender, slightly thicker so they
+          // pop above the artist→album wires they coexist with.
+          ctx.strokeStyle = RELATED_ARTIST_EDGE_COLOR;
+          ctx.lineWidth = 1.75;
+          ctx.globalAlpha = 0.85;
+        } else if (e.isCrossRemote) {
           ctx.setLineDash([6, 4]);
           ctx.strokeStyle = CROSS_REMOTE_COLOR;
           ctx.lineWidth = 1.5;
           ctx.globalAlpha = 0.75;
+        } else if (isRootRemoteEdge) {
+          // root↔remote spokes use the root's magenta hue so the
+          // "federation backbone" reads as a single coherent unit
+          // instead of inheriting the breadcrumb amber.
+          ctx.strokeStyle = ROLE_COLOR.root;
+          ctx.lineWidth = e.isBreadcrumb ? 2.5 : 1.5;
+          ctx.globalAlpha = 0.85;
         } else {
+          // breadcrumb edges adopt the upstream hub's color so the
+          // navigation trail reads as a continuation of the hub it
+          // emanates from (root magenta, remote pink, relation cyan,
+          // etc.) instead of a uniform amber stripe.
           ctx.strokeStyle = e.isBreadcrumb
-            ? EDGE_BREADCRUMB
+            ? hubEdgeColor(sn, tn)
             : kindEdge
               ? kindEdge
               : isAlbumEdge
@@ -923,6 +1003,64 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
+
+        // mid-edge label for related-artist edges so the relationship
+        // is self-describing. drawn as a small pill at the midpoint.
+        if (e.isRelatedArtist) {
+          const mx = (x0 + x1) / 2;
+          const my = (y0 + y1) / 2;
+          const text = "related artist";
+          ctx.save();
+          ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const tw = ctx.measureText(text).width;
+          const pillW = tw + 8;
+          const pillH = 14;
+          ctx.fillStyle = "rgba(0,0,0,0.75)";
+          ctx.beginPath();
+          ctx.roundRect(mx - pillW / 2, my - pillH / 2, pillW, pillH, 3);
+          ctx.fill();
+          ctx.strokeStyle = RELATED_ARTIST_EDGE_COLOR;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.fillStyle = RELATED_ARTIST_EDGE_COLOR;
+          ctx.fillText(text, mx, my);
+          ctx.restore();
+        }
+
+        // mid-edge label for cross-remote dashed edges so the user can
+        // see which remote is bridged at a glance. shows the target
+        // endpoint's remote id (single name — both endpoints carry the
+        // same entity, so either side works; once 1.c lands and the
+        // edge re-routes to the source-remote hub, this naturally
+        // reads as "lives also on $remote").
+        if (e.isCrossRemote) {
+          const srcR = sn ? nodeRemoteId(sn.id) : undefined;
+          const tgtR = tn ? nodeRemoteId(tn.id) : undefined;
+          if (srcR && tgtR && srcR !== tgtR) {
+            const mx = (x0 + x1) / 2;
+            const my = (y0 + y1) / 2;
+            const text = tgtR;
+            ctx.save();
+            ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const tw = ctx.measureText(text).width;
+            const pillW = tw + 8;
+            const pillH = 14;
+            ctx.fillStyle = "rgba(0,0,0,0.75)";
+            ctx.beginPath();
+            ctx.roundRect(mx - pillW / 2, my - pillH / 2, pillW, pillH, 3);
+            ctx.fill();
+            ctx.strokeStyle = CROSS_REMOTE_COLOR;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = CROSS_REMOTE_COLOR;
+            ctx.fillText(text, mx, my);
+            ctx.restore();
+          }
+        }
       }
 
       // draw nodes (back to front: ghosts (label-only) first, then albums, artists, values, relations, remotes, root)
