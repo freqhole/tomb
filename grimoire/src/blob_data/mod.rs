@@ -13,6 +13,7 @@ pub use helpers::{
     create_audio_waveform_blob, create_image_blob_from_webp_data, create_media_blob_from_file,
     CollectedImages,
 };
+pub(crate) use helpers::stream_sha256_hash;
 pub use purge::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlob, OrphanedBlobSummary,
 };

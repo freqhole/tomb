@@ -12,16 +12,18 @@ use super::music::{
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
-    mark_job_failed,
+    mark_job_failed, peek_pending_jobs, try_claim_pending_job,
 };
 use crate::error::ErrorDetail;
 use crate::events::{emit, GrimoireEvent};
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, Semaphore};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -363,93 +365,229 @@ pub async fn run_job_processor_with_token(
     run_job_processor_loop(cancellation_token).await
 }
 
-/// Internal job processing loop shared by both entry points
+/// Internal job processing loop shared by both entry points.
+///
+/// runs a worker pool that drains the jobz queue in parallel. pool
+/// size is taken from `config.jobs.max_concurrency` (auto = available
+/// parallelism, capped at 8). a per-(job_type, key) busy set keeps
+/// two workers from racing on jobs that would clobber each other
+/// (e.g. two scans of the same directory). graceful shutdown stops
+/// claiming new jobs and waits up to ~10s for in-flight workers.
 async fn run_job_processor_loop(cancellation_token: CancellationToken) -> GrimoireResponse<()> {
-    let current_job_id = Arc::new(RwLock::new(None::<String>));
+    let max_workers = if crate::config::is_config_initialized() {
+        crate::config::get_config().jobs.resolved_max_concurrency()
+    } else {
+        4
+    };
+    info!(
+        "job processor pool starting with up to {} concurrent worker(s)",
+        max_workers
+    );
+
+    let semaphore = Arc::new(Semaphore::new(max_workers));
+    let busy_keys: Arc<Mutex<HashSet<(JobType, String)>>> = Arc::new(Mutex::new(HashSet::new()));
+    let mut workers: JoinSet<()> = JoinSet::new();
 
     loop {
-        // Check if shutdown requested
         if cancellation_token.is_cancelled() {
             info!("shutdown requested, stopping job processor");
-            return GrimoireResponse::success("job processor stopped gracefully", ());
+            break;
         }
 
-        let next_job_response = get_next_pending_job().await;
-        let next_job = match next_job_response.data {
-            Some(job_opt) => job_opt,
-            None => {
-                // log the error but don't kill the processor - this is likely a transient
-                // db pool timeout, especially on slower hardware
-                let error_msgs: Vec<String> = next_job_response
-                    .errors
-                    .iter()
-                    .map(|e| e.detail.clone())
-                    .collect();
-                warn!(
-                    "failed to get next pending job (will retry): {}",
-                    error_msgs.join(", ")
-                );
-                // back off a bit before retrying
+        // wait for an available worker slot (or shutdown).
+        let permit = tokio::select! {
+            biased;
+            _ = cancellation_token.cancelled() => {
+                info!("shutdown requested while waiting for worker slot");
+                break;
+            }
+            res = semaphore.clone().acquire_owned() => match res {
+                Ok(p) => p,
+                Err(_) => break, // semaphore closed, shouldn't happen
+            },
+        };
+
+        // peek a batch of pending jobs, skip any whose conflict key is
+        // currently busy in another worker, then atomically claim the
+        // first claimable candidate.
+        let claimed = match claim_next_unblocked_job(busy_keys.clone(), max_workers).await {
+            Ok(j) => j,
+            Err(msg) => {
+                warn!("failed to peek/claim next job (will retry): {}", msg);
+                drop(permit);
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(10)) => {},
                     _ = cancellation_token.cancelled() => {
-                        info!("shutdown requested during error backoff, stopping job processor");
-                        return GrimoireResponse::success("job processor stopped gracefully", ());
+                        info!("shutdown requested during error backoff");
+                        break;
                     }
                 }
                 continue;
             }
         };
 
-        match next_job {
-            Some(job) => {
-                // Update current job ID
-                {
-                    let mut current_job = current_job_id.write().await;
-                    *current_job = Some(job.id.clone());
-                }
-
-                info!("processing job: {} (type: {})", job.id, job.job_type);
-
-                // Process job with cancellation check - if cancelled during job,
-                // let the job finish but exit immediately after
-                let result = process_job(job.clone()).await;
-
-                // Check cancellation after job completes
-                let should_exit = cancellation_token.is_cancelled();
-
-                // Clear current job ID
-                {
-                    let mut current_job = current_job_id.write().await;
-                    *current_job = None;
-                }
-
-                // Log result
-                if result.success {
-                    info!("job completed successfully: {}", job.id);
-                } else {
-                    warn!("job failed: {} - {}", job.id, result.message);
-                }
-
-                // Exit if shutdown was requested during job processing
-                if should_exit {
-                    info!("shutdown was requested during job processing, stopping now");
-                    return GrimoireResponse::success("job processor stopped gracefully", ());
-                }
-            }
+        let job = match claimed {
+            Some(job) => job,
             None => {
-                // no jobs available, wait a bit before checking again
-                // Use select to allow interruption during sleep
+                // nothing claimable right now (queue empty, or every
+                // pending job's key is busy). drop the permit and
+                // sleep before peeking again.
+                drop(permit);
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {},
                     _ = cancellation_token.cancelled() => {
-                        info!("shutdown requested during sleep, stopping job processor");
-                        return GrimoireResponse::success("job processor stopped gracefully", ());
+                        info!("shutdown requested during idle sleep");
+                        break;
                     }
                 }
+                continue;
+            }
+        };
+
+        let key = conflict_key_for(&job);
+        let busy_keys_clone = busy_keys.clone();
+        info!("processing job: {} (type: {})", job.id, job.job_type);
+
+        workers.spawn(async move {
+            let job_id = job.id.clone();
+            let result = process_job(job).await;
+            if result.success {
+                info!("job completed successfully: {}", job_id);
+            } else {
+                warn!("job failed: {} - {}", job_id, result.message);
+            }
+            if let Some(k) = key {
+                busy_keys_clone.lock().await.remove(&k);
+            }
+            drop(permit);
+        });
+
+        // opportunistically harvest any workers that have finished.
+        while let Some(res) = workers.try_join_next() {
+            if let Err(e) = res {
+                warn!("worker task panicked: {:?}", e);
             }
         }
     }
+
+    // graceful drain: stop claiming new jobs and wait for in-flight
+    // workers to finish, capped by a ~10s timeout to match the
+    // existing shutdown budget.
+    info!(
+        "draining {} in-flight job worker(s) (up to 10s)...",
+        workers.len()
+    );
+    let drain_deadline = tokio::time::sleep(Duration::from_secs(10));
+    tokio::pin!(drain_deadline);
+    loop {
+        if workers.is_empty() {
+            break;
+        }
+        tokio::select! {
+            res = workers.join_next() => {
+                match res {
+                    Some(Err(e)) => warn!("worker task panicked during drain: {:?}", e),
+                    Some(Ok(())) | None => {}
+                }
+            }
+            _ = &mut drain_deadline => {
+                warn!(
+                    "drain timeout reached with {} worker(s) still running; abandoning",
+                    workers.len()
+                );
+                workers.abort_all();
+                while let Some(_) = workers.join_next().await {}
+                break;
+            }
+        }
+    }
+
+    GrimoireResponse::success("job processor stopped gracefully", ())
+}
+
+/// conflict key for a job: returns `Some((job_type, key))` when two
+/// concurrent jobs with the same key would clobber each other.
+/// returns `None` for job types that are safe to run in parallel
+/// regardless of parameters.
+fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
+    let job_type = job.job_type().ok()?;
+    match job_type {
+        JobType::ScanDirectory => {
+            let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
+            let path = params.get("directory_path")?.as_str()?.to_string();
+            Some((JobType::ScanDirectory, path))
+        }
+        JobType::RescanDirectories => {
+            // singleton: only one rescan can run at a time
+            Some((JobType::RescanDirectories, String::new()))
+        }
+        JobType::ProcessFile => {
+            let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
+            let path = params.get("file_path")?.as_str()?.to_string();
+            Some((JobType::ProcessFile, path))
+        }
+        // other job types (fetch, webp convert, import, mb/lastfm/audiodb
+        // enrichment, pipeline orchestrators) have unique per-row keys
+        // and are safe to interleave; rate-limiting for external apis
+        // is enforced via the global gates in `jobs::rate_limit`.
+        _ => None,
+    }
+}
+
+/// peek a batch of pending jobs and claim the first whose conflict key
+/// isn't already busy in another worker. atomic claim via
+/// `try_claim_pending_job` handles cross-worker races on the same row.
+/// returns `Ok(None)` when the queue is empty or every candidate is
+/// blocked.
+async fn claim_next_unblocked_job(
+    busy_keys: Arc<Mutex<HashSet<(JobType, String)>>>,
+    pool_size: usize,
+) -> Result<Option<Job>, String> {
+    // peek at least one job, and grab a few extras so we can skip
+    // past blocked keys without re-querying every iteration.
+    let limit = (pool_size as u32 + 4).max(8);
+    let peek = peek_pending_jobs(limit).await;
+    if !peek.success {
+        let msgs: Vec<String> = peek.errors.iter().map(|e| e.detail.clone()).collect();
+        return Err(msgs.join(", "));
+    }
+    let candidates = peek.data.unwrap_or_default();
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    for candidate in candidates {
+        let key = conflict_key_for(&candidate);
+        // reserve the key (if any) before issuing the claim so a
+        // second worker peeking the same row in parallel skips it.
+        if let Some(ref k) = key {
+            let mut guard = busy_keys.lock().await;
+            if guard.contains(k) {
+                continue;
+            }
+            guard.insert(k.clone());
+        }
+        let claim = try_claim_pending_job(&candidate.id).await;
+        if !claim.success {
+            if let Some(ref k) = key {
+                busy_keys.lock().await.remove(k);
+            }
+            let msgs: Vec<String> = claim.errors.iter().map(|e| e.detail.clone()).collect();
+            return Err(msgs.join(", "));
+        }
+        match claim.data.flatten() {
+            Some(job) => return Ok(Some(job)),
+            None => {
+                // another worker won the row race; release the key
+                // reservation and keep scanning the rest of the batch.
+                if let Some(ref k) = key {
+                    busy_keys.lock().await.remove(k);
+                }
+                continue;
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// run the job processor once - process all pending jobs and then exit

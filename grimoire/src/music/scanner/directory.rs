@@ -141,15 +141,17 @@ pub async fn scan_directory_and_create_jobs(
     let mut files_skipped = 0;
 
     for file_path in audio_files {
-        // Get file modified time
-        let file_modified_at = std::fs::metadata(&file_path)
-            .ok()
+        // get file modified time and size (cheap dedup signal, no hashing)
+        let file_meta = std::fs::metadata(&file_path).ok();
+        let file_modified_at = file_meta
+            .as_ref()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
+        let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
 
-        // Check if file already exists in database with same modified time
+        // check if file already exists in database
         let existing_blob = sqlx::query!(
             r#"
             SELECT id, metadata
@@ -164,31 +166,55 @@ pub async fn scan_directory_and_create_jobs(
         .ok()
         .flatten();
 
-        // Check if we can skip this file
-        if let Some(blob) = existing_blob {
-            if let Some(metadata_str) = blob.metadata {
-                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_str) {
-                    if let Some(stored_modified_at) =
-                        metadata.get("file_modified_at").and_then(|v| v.as_i64())
-                    {
-                        if stored_modified_at == file_modified_at {
-                            // File hasn't changed, skip it
-                            debug!("skipping unchanged file: {}", file_path);
-                            files_skipped += 1;
-                            continue;
-                        }
-                    }
+        // when an existing blob is found, decide between cheap-skip and rescan-update
+        let existing_blob_id_for_update = if let Some(blob) = existing_blob {
+            let mut stored_modified_at: Option<i64> = None;
+            let mut stored_size: Option<i64> = None;
+            if let Some(metadata_str) = blob.metadata.as_deref() {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
+                    stored_modified_at = metadata.get("file_modified_at").and_then(|v| v.as_i64());
+                    stored_size = metadata.get("file_size").and_then(|v| v.as_i64());
                 }
             }
-        }
 
-        // File is new or has changed, create a processing job
+            // cheap unchanged check: both mtime and size match what we recorded
+            let mtime_match = stored_modified_at == Some(file_modified_at);
+            let size_match = match stored_size {
+                Some(s) => s == file_size,
+                // legacy rows without recorded file_size fall back to mtime-only match
+                None => mtime_match,
+            };
+            if mtime_match && size_match {
+                debug!("skipping unchanged file: {}", file_path);
+                files_skipped += 1;
+                continue;
+            }
+
+            // file at this path differs from what we recorded - take the
+            // rescan-update path on the existing record instead of inserting
+            // a duplicate blob/song
+            let blob_id = blob.id.unwrap_or_default();
+            debug!(
+                "file changed since last scan, will update existing record: {} (blob_id={})",
+                file_path, blob_id
+            );
+            if blob_id.is_empty() {
+                None
+            } else {
+                Some(blob_id)
+            }
+        } else {
+            None
+        };
+
+        // file is new, or matches an existing record that needs updating
         let params = ProcessFileParams {
             file_path: file_path.clone(),
             extract_metadata: true,
             generate_thumbnail: true,
             generate_waveform: true,
             source_url: None,
+            existing_blob_id: existing_blob_id_for_update,
         };
 
         let job_request = CreateJobRequest {

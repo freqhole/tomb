@@ -26,6 +26,8 @@ import {
 import { AlbumArtistTab } from "../enrichment/AlbumArtistTab";
 import { parseAlbumMetadata } from "../../library/data/albumMetadata";
 import { getClientForRemote } from "../../app/api/client";
+import { EnrichmentReviewPanel } from "../../library/components/EnrichmentReviewPanel";
+import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
 import { Modal } from "./Modal";
 import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -463,6 +465,14 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // library view's bulk-enrichment review) supplied an explicit remote,
   // use it; otherwise fall back to whatever the active data source is.
   const currentRemote = () => props.remote ?? getCurrentRemote();
+
+  // admin gating for the per-source raw-data review surfaces — non-admins
+  // can read stored snapshots but can't trigger fetch/refetch jobs. the
+  // hook + panel only consume `remote_id`, so the runtime shape of
+  // `CurrentRemoteInfo` (which omits some fields from `Remote`) is fine
+  // here — we just need the type to line up.
+  const reviewRemote = () => (currentRemote() ?? undefined) as Remote | undefined;
+  const isRemoteAdmin = useRemoteIsAdmin(reviewRemote);
 
   // poll per-source enrichment progress while the modal is open. polled
   // every 5s; bumped to 2s briefly after a manual refetch/requery.
@@ -1107,6 +1117,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               progress={enrichmentProgress().lastfm}
               onRequeried={refreshEnrichmentProgress}
             />
+            <Show when={reviewRemote()}>
+              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
+                <EnrichmentReviewPanel
+                  source="lastfm"
+                  albumId={props.albumId}
+                  metadataRaw={albumQuery.data?.metadata ?? null}
+                  remote={reviewRemote()!}
+                  isAdmin={isRemoteAdmin()}
+                />
+              </div>
+            </Show>
           </TabPanel>
 
           <TabPanel id="audiodb" class="flex-1 overflow-y-auto p-6">
@@ -1119,6 +1140,17 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               progress={enrichmentProgress().audiodb}
               onRequeried={refreshEnrichmentProgress}
             />
+            <Show when={reviewRemote()}>
+              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
+                <EnrichmentReviewPanel
+                  source="audiodb"
+                  albumId={props.albumId}
+                  metadataRaw={albumQuery.data?.metadata ?? null}
+                  remote={reviewRemote()!}
+                  isAdmin={isRemoteAdmin()}
+                />
+              </div>
+            </Show>
           </TabPanel>
 
           <TabPanel id="artist" class="flex-1 overflow-y-auto p-6">

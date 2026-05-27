@@ -26,6 +26,12 @@ pub struct ProcessFileParams {
     /// original fetch URL (set when this file came from a FetchMedia job)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_url: Option<String>,
+    /// id of an existing media_blobz row already pointing at this local_path.
+    /// when set, the processor takes the rescan-update path instead of
+    /// creating new blob/song records (preserves song id, playlist
+    /// memberships, favorites, ratings, listening sessions, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_blob_id: Option<String>,
 }
 
 /// results from directory scan jobs

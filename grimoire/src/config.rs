@@ -45,6 +45,9 @@ pub struct GrimoireConfig {
     /// charnel host via a tauri command on app boot.
     #[serde(default)]
     pub client: Option<ClientConfig>,
+    /// background job processor configuration (concurrency, etc.)
+    #[serde(default)]
+    pub jobs: JobsConfig,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
@@ -563,6 +566,36 @@ fn default_queue_size_limit() -> u32 {
     150
 }
 
+/// background job processor configuration.
+///
+/// `max_concurrency` controls how many jobs run in parallel. `None`
+/// (or `0`) means "auto" — pick a sensible value from the host's
+/// available parallelism (capped to avoid swamping sqlite writers).
+/// any positive value pins the worker count explicitly.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JobsConfig {
+    /// max number of jobs run in parallel. omit / null / 0 = auto
+    /// (uses `std::thread::available_parallelism()`, capped at 8).
+    #[serde(default)]
+    pub max_concurrency: Option<u32>,
+}
+
+impl JobsConfig {
+    /// resolve the configured value to a concrete worker count.
+    /// auto = available parallelism, capped at 8 to keep sqlite
+    /// write contention manageable; never returns 0.
+    pub fn resolved_max_concurrency(&self) -> usize {
+        let explicit = self.max_concurrency.unwrap_or(0);
+        if explicit > 0 {
+            return explicit as usize;
+        }
+        let auto = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        auto.clamp(1, 8)
+    }
+}
+
 /// Fetch music configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchMusicConfig {
@@ -775,6 +808,7 @@ pub fn init_config_for_tests() {
         federation: None,
         radio: None,
         client: None,
+        jobs: JobsConfig::default(),
         loaded_from: None,
     };
     match CONFIG.get() {
@@ -1656,6 +1690,7 @@ mod tests {
             federation: None,
             radio: None,
             client: None,
+            jobs: JobsConfig::default(),
             loaded_from: None,
         };
 
@@ -1699,6 +1734,7 @@ mod tests {
             federation: None,
             radio: None,
             client: None,
+            jobs: JobsConfig::default(),
             loaded_from: None,
         };
 
@@ -1740,6 +1776,7 @@ mod tests {
             federation: None,
             radio: None,
             client: None,
+            jobs: JobsConfig::default(),
             loaded_from: None,
         };
 

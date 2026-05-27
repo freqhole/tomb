@@ -7,7 +7,7 @@ use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
 /// Job types supported by the queue
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ZodSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, ZodSchema)]
 pub enum JobType {
     // filesystem operations
     ScanDirectory,

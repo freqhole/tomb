@@ -300,6 +300,76 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
     GrimoireResponse::success("Retrieved and claimed next pending job", job)
 }
 
+/// peek the top `limit` pending jobs (priority desc, scheduled_at asc)
+/// without claiming any of them. used by the parallel worker pool to
+/// scan for a job whose conflict key isn't busy in another worker; the
+/// actual claim happens via `try_claim_pending_job`.
+pub async fn peek_pending_jobs(limit: u32) -> GrimoireResponse<Vec<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let jobs = match sqlx::query_as!(
+        Job,
+        r#"
+        SELECT id as "id!", session_id, job_type as "job_type!", status as "status!",
+               parameters as "parameters!", result, retry_count as "retry_count!: i32",
+               max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
+               started_at, completed_at, error_message, created_by
+        FROM jobz
+        WHERE status = 'Pending' AND scheduled_at <= unixepoch()
+        ORDER BY priority DESC, scheduled_at ASC
+        LIMIT ?
+        "#,
+        limit
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("failed to peek pending jobs", vec![e.into()]),
+    };
+
+    GrimoireResponse::success("peeked pending jobs", jobs)
+}
+
+/// attempt to atomically claim a specific pending job by id. returns
+/// `Ok(None)` if the row is no longer Pending (another worker won the
+/// race). returns the claimed (Running) Job on success.
+pub async fn try_claim_pending_job(job_id: &str) -> GrimoireResponse<Option<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let job = match sqlx::query_as!(
+        Job,
+        r#"
+        UPDATE jobz
+        SET status = 'Running', started_at = unixepoch()
+        WHERE id = ? AND status = 'Pending'
+        RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
+                  parameters as "parameters!", result, retry_count as "retry_count!: i32",
+                  max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
+                  started_at, completed_at, error_message, created_by
+        "#,
+        job_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("failed to claim pending job", vec![e.into()]),
+    };
+
+    GrimoireResponse::success("attempted to claim pending job", job)
+}
+
 /// Mark a job as started
 pub async fn mark_job_started(job_id: &str) -> GrimoireResponse<Job> {
     let pool = match database::connect().await {

@@ -31,17 +31,16 @@ pub use music::{
     AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
     AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
     AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
-    BulkEnrichmentRequest,
-    BulkEnrichmentResponse, CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse,
-    EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
-    EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
-    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
-    GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
-    LastFmArtistDetailParams, LastFmArtistDetailResult,
-    MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams, MbAlbumSearchResult,
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
-    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
-    ScanJobCreatedResponse,
+    BulkEnrichmentRequest, BulkEnrichmentResponse, CancelBulkEnrichmentRequest,
+    CancelBulkEnrichmentResponse, EnqueueAudioDbAlbumDetailRequest,
+    EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
+    EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
+    EnrichmentSourceStatus, GetEnrichmentProgressRequest, GetEnrichmentProgressResponse,
+    LastFmAlbumDetailParams, LastFmAlbumDetailResult, LastFmArtistDetailParams,
+    LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams,
+    MbAlbumSearchResult, ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
+    RequeryEnrichmentRequest, RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams,
+    ScanDirectoryResult, ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions
@@ -69,7 +68,7 @@ pub use service::{
     cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session,
     get_job, get_job_session, get_jobs_status, get_next_pending_job, get_queue_stats,
     get_session_job_counts, list_jobs, mark_job_completed, mark_job_failed, mark_job_started,
-    update_session_progress, SessionJobCounts,
+    peek_pending_jobs, try_claim_pending_job, update_session_progress, SessionJobCounts,
 };
 
 // re-export music job processors (used by runner module)

@@ -5,6 +5,7 @@ mod directory;
 mod filename_parser;
 mod import;
 mod models;
+mod rescan;
 mod service;
 
 // re-export public types from models
@@ -20,6 +21,9 @@ pub use directory::{is_audio_file, scan_directory_and_create_jobs};
 
 // re-export import functions
 pub use import::{extract_and_import, import_basic, ImportResult};
+
+// re-export rescan-update path
+pub use rescan::{update_existing_from_rescan, RescanUpdateResult};
 
 // re-export filename parser
 pub use filename_parser::{parse_filename, ParsedFilename};

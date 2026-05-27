@@ -64,8 +64,6 @@ export default function LibraryView() {
   const [showAddModal, setShowAddModal] = createSignal(false);
   const [pendingPath, setPendingPath] = createSignal("");
   const [pendingTags, setPendingTags] = createSignal("");
-  // remote-mode: user types the path manually; we validate before scan
-  const [pendingPathEditable, setPendingPathEditable] = createSignal(false);
   const [pathValidating, setPathValidating] = createSignal(false);
   const [pathValidation, setPathValidation] =
     createSignal<ValidatePathResult | null>(null);
@@ -139,15 +137,21 @@ export default function LibraryView() {
   }
 
   async function browseDirectory() {
+    // open the add-directory section with an editable text input;
+    // the user can either type a path or click "browse..." inside
+    // the modal (local mode only) to fill it from the os file picker.
+    // they must press "confirm" to actually submit.
+    setPendingPath("");
+    setPendingTags("");
+    setPathValidation(null);
+    setShowAddModal(true);
+  }
+
+  async function browseAndFillPath() {
+    // local-only: open the os file picker and write the selected path into
+    // the text input. does NOT auto-submit; the user still has to press
+    // "confirm" in the modal.
     if (admin.isRemote()) {
-      // remote mode: open the modal with an editable path field; the user
-      // types a server-side absolute path and we validate via
-      // library_validate_path before scanning.
-      setPendingPath("");
-      setPendingTags("");
-      setPendingPathEditable(true);
-      setPathValidation(null);
-      setShowAddModal(true);
       return;
     }
     try {
@@ -157,15 +161,27 @@ export default function LibraryView() {
         title: "choose music directory to scan",
       });
       if (selected) {
-        setPendingPath(await resolvePath(selected as string));
-        setPendingTags("");
-        setPendingPathEditable(false);
+        const resolved = await resolvePath(selected as string);
+        setPendingPath(resolved);
         setPathValidation(null);
-        setShowAddModal(true);
       }
     } catch (e) {
       console.error("browse error:", e);
     }
+  }
+
+  // basic non-empty + plausible filesystem-path sanity check (used for
+  // local-mode confirm; remote mode still requires the server-side
+  // library_validate_path round-trip).
+  function isPathPlausible(p: string): boolean {
+    const trimmed = p.trim();
+    if (!trimmed) return false;
+    // absolute unix path, home-relative, or windows drive letter
+    return (
+      trimmed.startsWith("/") ||
+      trimmed.startsWith("~") ||
+      /^[a-zA-Z]:[\\/]/.test(trimmed)
+    );
   }
 
   async function validatePendingPath() {
@@ -484,17 +500,26 @@ export default function LibraryView() {
             <h2>add scan directory</h2>
             <div class="form-group">
               <label>path</label>
-              <Show when={pendingPathEditable()}>
-                <input
-                  type="text"
-                  value={pendingPath()}
-                  placeholder="/absolute/path/on/remote"
-                  onInput={(e) => {
-                    setPendingPath(e.currentTarget.value);
-                    setPathValidation(null);
-                  }}
-                  onBlur={validatePendingPath}
-                />
+              {/* always show an editable text input. local mode also
+                  exposes a "browse..." button that fills the input via
+                  the os file picker; user still has to press confirm.
+                  remote mode exposes a "validate" button + onBlur
+                  validation against the server. */}
+              <input
+                type="text"
+                value={pendingPath()}
+                placeholder={
+                  admin.isRemote()
+                    ? "/absolute/path/on/remote"
+                    : "/absolute/path/to/music"
+                }
+                onInput={(e) => {
+                  setPendingPath(e.currentTarget.value);
+                  setPathValidation(null);
+                }}
+                onBlur={admin.isRemote() ? validatePendingPath : undefined}
+              />
+              <Show when={admin.isRemote()}>
                 <p class="hint">
                   enter a path that exists on the remote server. press tab or
                   click "validate" to check.
@@ -526,12 +551,16 @@ export default function LibraryView() {
                   }}
                 </Show>
               </Show>
-              <Show when={!pendingPathEditable()}>
-                <input
-                  type="text"
-                  value={pendingPath()}
-                  onInput={(e) => setPendingPath(e.currentTarget.value)}
-                />
+              <Show when={!admin.isRemote()}>
+                <p class="hint">
+                  type a path or click "browse..." to pick one. you must still
+                  press "confirm" to add it.
+                </p>
+                <div class="button-row">
+                  <button class="secondary small" onClick={browseAndFillPath}>
+                    browse...
+                  </button>
+                </div>
               </Show>
             </div>
             <div class="form-group">
@@ -554,11 +583,12 @@ export default function LibraryView() {
                 class="primary"
                 onClick={confirmAddDirectory}
                 disabled={
-                  pendingPathEditable() &&
-                  (!pathValidation() ||
-                    !pathValidation()!.exists ||
-                    !pathValidation()!.is_dir ||
-                    !pathValidation()!.is_readable)
+                  admin.isRemote()
+                    ? !pathValidation() ||
+                      !pathValidation()!.exists ||
+                      !pathValidation()!.is_dir ||
+                      !pathValidation()!.is_readable
+                    : !isPathPlausible(pendingPath())
                 }
               >
                 add & scan

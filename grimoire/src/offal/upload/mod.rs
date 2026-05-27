@@ -918,6 +918,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 generate_thumbnail: true,
                 generate_waveform: true,
                 source_url: None,
+                existing_blob_id: None,
             };
 
             let job_request = CreateJobRequest {
