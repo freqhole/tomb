@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWalkGraph } from "./buildWalkGraph";
-import { albumNodeId, artistNodeId, relationHubId, valueNodeId } from "./nodeIds";
+import { albumNodeId, artistNodeId, parseNodeId, relationHubId, valueNodeId } from "./nodeIds";
 import type { AlbumNodeData, ArtistNodeData } from "../../graph/types";
 
 // ---- minimal fixture helpers -----------------------------------------------
@@ -38,7 +38,8 @@ function makeAlbum(
   overrides: Partial<AlbumNodeData> = {},
 ): AlbumNodeData {
   return {
-    id: albumId,
+    // use realistic adaptAlbum id format: `${remoteId}::${albumId}`
+    id: `${remoteId}::${albumId}`,
     title,
     artistId,
     artistName: "",
@@ -154,5 +155,19 @@ describe("buildWalkGraph", () => {
     expect(nodesById.has("root")).toBe(false);
     expect(nodesById.has("remote::local")).toBe(false);
     expect(nodesById.has(relationHubId("local", "genre"))).toBe(false);
+  });
+
+  it("album graph id parses to a bare albumId (no doubled remoteId)", () => {
+    // AlbumNodeData.id is `${remoteId}::${albumId}` (adaptAlbum convention).
+    // buildWalkGraph must strip the prefix before calling albumNodeId so the
+    // resulting graph node id is `album::${remoteId}::${albumId}`, not
+    // `album::${remoteId}::${remoteId}::${albumId}`.
+    const albId = albumNodeId("local", "alb-ling");
+    const parsed = parseNodeId(albId);
+    expect(parsed.kind).toBe("album");
+    if (parsed.kind === "album") {
+      expect(parsed.albumId).toBe("alb-ling"); // bare id, no "local::" prefix
+      expect(parsed.remoteId).toBe("local");
+    }
   });
 });

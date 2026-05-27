@@ -218,3 +218,35 @@ export interface ViewportTransform {
   /** scale factor; 1 = identity */
   k: number;
 }
+
+// ---- walk explorer types (graph2 / bloom-walker stack) ---------------------
+
+export type NodeRole =
+  | "root"
+  | "remote"
+  | "relation"
+  | "value"
+  | "artist"
+  | "album"
+  | "ghost_artist";
+
+export interface WalkNode {
+  id: string;
+  role: NodeRole;
+  label: string;
+  /** direct parent id in the walk tree. null only for the virtual root. */
+  parentId: string | null;
+  /** for hub nodes (root/remote/relation/value): # of direct children.
+   *  drives proportional size scaling. */
+  childCount: number;
+}
+
+export interface WalkEdge {
+  source: string;
+  target: string;
+}
+
+export interface WalkGraph {
+  nodes: WalkNode[];
+  edges: WalkEdge[];
+}

@@ -4,8 +4,7 @@
 // output must NOT be wrapped in createStore before posting to the worker —
 // the worker expects plain JSON (see S13 in graph2-integration.md).
 
-import type { WalkGraph, WalkNode, WalkEdge } from "../types";
-import type { AlbumNodeData, ArtistNodeData } from "../../graph/types";
+import type { WalkGraph, WalkNode, WalkEdge, AlbumNodeData, ArtistNodeData } from "../types";
 import {
   type RelationKind,
   rootId,
@@ -51,6 +50,20 @@ function valuesForKind(
     case "label":    return node.label ? [node.label] : [];
     case "favorite": return node.isFavorite === true ? ["favorite"] : [];
   }
+}
+
+// AlbumNodeData.id is `${remoteId}::${albumId}` (set by adaptAlbum). albumNodeId
+// expects a bare albumId, so strip the prefix before calling it.
+function toBareAlbumId(remoteId: string, album: AlbumNodeData): string {
+  const p = `${remoteId}::`;
+  return album.id.startsWith(p) ? album.id.slice(p.length) : album.id;
+}
+
+// ArtistNodeData.id is `artist::${artistId}` (set by deriveArtistNodes) but
+// .artistId is always bare. strip any accidental `artist::` prefix defensively.
+function toBareArtistId(artist: ArtistNodeData): string {
+  const p = "artist::";
+  return artist.artistId.startsWith(p) ? artist.artistId.slice(p.length) : artist.artistId;
 }
 
 export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput {
@@ -117,7 +130,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         for (const artist of artists) {
           const hasValue = valuesForKind(artist, kind).some((v) => slug(v) === s);
           if (hasValue) {
-            edges.push({ source: valId, target: artistNodeId(remoteId, artist.artistId) });
+            edges.push({ source: valId, target: artistNodeId(remoteId, toBareArtistId(artist)) });
           }
         }
 
@@ -125,7 +138,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         for (const album of albums) {
           const hasValue = valuesForKind(album, kind).some((v) => slug(v) === s);
           if (hasValue) {
-            edges.push({ source: valId, target: albumNodeId(remoteId, album.id) });
+            edges.push({ source: valId, target: albumNodeId(remoteId, toBareAlbumId(remoteId, album)) });
           }
         }
       }
@@ -133,7 +146,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
 
     // ---- artist nodes ------------------------------------------------------
     for (const artist of artists) {
-      const aId = artistNodeId(remoteId, artist.artistId);
+      const aId = artistNodeId(remoteId, toBareArtistId(artist));
       // count albums belonging to this artist in this remote
       const artistAlbums = albums.filter((alb) => alb.artistId === artist.artistId);
       nodes.push({
@@ -142,21 +155,19 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         label: artist.name,
         parentId: rhId,
         childCount: artistAlbums.length,
-        imageUrl: artist.imageUrl ?? undefined,
       });
       edges.push({ source: rhId, target: aId });
       nodesById.set(aId, artist);
 
       // ---- album nodes ---------------------------------------------------
       for (const album of artistAlbums) {
-        const albId = albumNodeId(remoteId, album.id);
+        const albId = albumNodeId(remoteId, toBareAlbumId(remoteId, album));
         nodes.push({
           id: albId,
           role: "album",
           label: album.title,
           parentId: aId,
           childCount: 0,
-          imageUrl: album.imageUrl ?? undefined,
         });
         edges.push({ source: aId, target: albId });
         nodesById.set(albId, album);
@@ -168,14 +179,13 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
     const knownArtistIds = new Set(artists.map((a) => a.artistId));
     for (const album of albums) {
       if (!knownArtistIds.has(album.artistId)) {
-        const albId = albumNodeId(remoteId, album.id);
+        const albId = albumNodeId(remoteId, toBareAlbumId(remoteId, album));
         nodes.push({
           id: albId,
           role: "album",
           label: album.title,
           parentId: rhId,
           childCount: 0,
-          imageUrl: album.imageUrl ?? undefined,
         });
         edges.push({ source: rhId, target: albId });
         nodesById.set(albId, album);

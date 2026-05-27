@@ -42,10 +42,14 @@ export function valueNodeId(remoteId: string, kind: RelationKind, value: string)
 }
 
 export function artistNodeId(remoteId: string, artistId: string): string {
+  // artistId must be a bare local id (e.g. "123"), not the full ArtistNodeData.id
+  // (which is "artist::${artistId}"). strip the prefix before calling this.
   return `artist::${remoteId}::${artistId}`;
 }
 
 export function albumNodeId(remoteId: string, albumId: string): string {
+  // albumId must be a bare local id (e.g. "456"), not the full AlbumNodeData.id
+  // (which is "${remoteId}::${albumId}" per adaptAlbum). strip the prefix before calling this.
   return `album::${remoteId}::${albumId}`;
 }
 

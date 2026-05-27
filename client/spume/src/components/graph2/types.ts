@@ -1,34 +1,17 @@
-// graph2/types.ts — core types for the greenfield graph walker.
-// kept separate from src/components/graph/* on purpose.
+// graph2/types.ts — re-exports from the merged graph/types.ts.
+// after the phase-8 rename (graph2 → graph) this shim is replaced by
+// the full types.ts. all internal graph2 imports of this file continue
+// to resolve correctly both before and after the rename.
 
-export type NodeRole =
-  | "root"
-  | "remote"
-  | "relation"
-  | "value"
-  | "artist"
-  | "album"
-  | "ghost_artist"; // artists referenced in metadata (e.g. collaborators) but not in any remote's library
-
-export interface WalkNode {
-  id: string;
-  role: NodeRole;
-  label: string;
-  /** direct parent id in the walk tree. null only for the virtual root. */
-  parentId: string | null;
-  /** for hub nodes (root/remote/relation/value): # of direct children.
-   *  drives proportional size scaling. */
-  childCount: number;
-  /** optional thumbnail url — used for artist/album circle nodes */
-  imageUrl?: string;
-}
-
-export interface WalkEdge {
-  source: string;
-  target: string;
-}
-
-export interface WalkGraph {
-  nodes: WalkNode[];
-  edges: WalkEdge[];
-}
+export type {
+  NodeRole,
+  WalkNode,
+  WalkEdge,
+  WalkGraph,
+  AlbumNodeData,
+  ArtistNodeData,
+  TagRef,
+  GraphNodeData,
+  RelationKindLike,
+  NodeState,
+} from "../../graph/types";
