@@ -63,6 +63,7 @@ let width = 800;
 let height = 600;
 let breadcrumb: string[] = [];
 let sim: Simulation<SimNode, SimLink> | null = null;
+let paused = false;
 
 // node + edge maps rebuilt on each init
 const nodeMap = new Map<string, WalkNode>();
@@ -404,6 +405,7 @@ function buildSim() {
     imageUrl: nodeMap.get(n.id)?.imageUrl,
   }));
   post({ type: "topology", nodes: topologyNodes, edges: visibleEdges });
+  post({ type: "visibleIds", ids: simNodes.map((n) => n.id) });
 
   sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
@@ -466,6 +468,8 @@ function buildSim() {
     .alphaDecay(0.015)
     .velocityDecay(0.42)
     .on("tick", onTick);
+
+  if (paused) sim.stop();
 }
 
 // ---- tick → emit frame -----------------------------------------------------
@@ -657,6 +661,80 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         }
       }
       post({ type: "hitResult", reqId: msg.reqId, nodeId: best });
+      break;
+    }
+
+    case "merge": {
+      const existingIds = new Set(fullGraph.nodes.map((n) => n.id));
+      const existingEdgeKeys = new Set(
+        fullGraph.edges.map((e) => `${e.source as string}::${e.target as string}`),
+      );
+      for (const n of msg.addNodes) {
+        if (!existingIds.has(n.id)) {
+          fullGraph.nodes.push(n);
+          existingIds.add(n.id);
+        }
+      }
+      for (const e of msg.addEdges) {
+        const key = `${e.source as string}::${e.target as string}`;
+        if (!existingEdgeKeys.has(key)) {
+          fullGraph.edges.push(e);
+          existingEdgeKeys.add(key);
+        }
+      }
+      indexGraph();
+      buildSim();
+      break;
+    }
+
+    case "repivot": {
+      if (!nodeMap.has(msg.nodeId)) break;
+      if (msg.resetBreadcrumb) {
+        breadcrumb = [msg.nodeId];
+      } else {
+        breadcrumb = [...breadcrumb, msg.nodeId];
+      }
+      buildSim();
+      break;
+    }
+
+    case "back": {
+      if (breadcrumb.length > 1) {
+        breadcrumb = breadcrumb.slice(0, -1);
+      }
+      buildSim();
+      break;
+    }
+
+    case "setPaused": {
+      paused = msg.paused;
+      if (paused) {
+        sim?.stop();
+      } else {
+        sim?.alpha(0.3).restart();
+      }
+      break;
+    }
+
+    case "getBounds": {
+      if (!sim || sim.nodes().length === 0) {
+        post({ type: "boundsResult", reqId: msg.reqId, bounds: null });
+        break;
+      }
+      const nodes = sim.nodes();
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const n of nodes) {
+        const x = n.x ?? 0;
+        const y = n.y ?? 0;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      post({ type: "boundsResult", reqId: msg.reqId, bounds: { minX, minY, maxX, maxY } });
       break;
     }
   }

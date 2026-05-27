@@ -2,9 +2,23 @@
 // renders the walk graph: shapes per role, edge lines, labels, hover highlight.
 
 import { createEffect, createSignal, onCleanup, onMount, createMemo } from "solid-js";
-import type { WalkGraph } from "./types";
+import type { WalkGraph, NodeRole } from "./types";
 import { createWalkerClient } from "./worker/client";
 import type { VisibleNode, TopologyEdge } from "./worker/messages";
+import type { ImageMetadata } from "../../music/services/storage/types";
+import { getNodeImage } from "./render/imageAtlas";
+
+/** imperative api for controlling the walk canvas from outside. obtained via onReady prop. */
+export interface WalkApi {
+  /** fit all visible nodes into the viewport with a margin. no-op if no visible nodes. */
+  fit(): void;
+  /** reset viewport to origin (tx=0, ty=0, k=1), clears auto-follow latch. does not touch worker state. */
+  resetView(): void;
+  /** repivot to the initial pivot with breadcrumb reset, then reset viewport. */
+  resetWalk(): void;
+  /** pop one breadcrumb step (no-op if already at root). */
+  back(): void;
+}
 
 export interface WalkCanvasProps {
   graph: WalkGraph;
@@ -18,6 +32,24 @@ export interface WalkCanvasProps {
   initialBreadcrumb?: string[];
   width?: number;
   height?: number;
+  /** called when a node is selected (album: inspect only; artist: inspect + pivot) */
+  onSelect?: (nodeId: string, role: NodeRole) => void;
+  /** called when a click results in a pivot change (expand was called) */
+  onPivot?: (nodeId: string) => void;
+  /** controlled selection ring, distinct from the pivot ring */
+  selectedId?: string | null;
+  /** fires once after onMount, with the internal WalkerClient.
+   *  callers can capture this to drive incremental merge/init externally. */
+  onClientReady?: (client: import("./worker/client").WalkerClient) => void;
+  /** fires once after onMount, with the curated WalkApi for fit/reset/back.
+   *  prefer this over onClientReady for ui-level concerns. */
+  onReady?: (api: WalkApi) => void;
+  /** called whenever the breadcrumb depth changes (1 = at root, 2 = one level deep, etc.).
+   *  host uses this to show/hide the back button. */
+  onBreadcrumbChange?: (depth: number) => void;
+  /** per-id image metadata lookup. when provided, album and artist nodes
+   *  render their cover/avatar artwork inside the node shape. */
+  getImage?: (id: string) => ImageMetadata | null;
 }
 
 // ---- colors ----------------------------------------------------------------
@@ -78,6 +110,7 @@ const EDGE_BREADCRUMB = "#f59e0b";
 const CROSS_REMOTE_COLOR = "#fbbf24"; // amber, slightly brighter than breadcrumb — used dashed
 const GHOST_LABEL_COLOR = "rgba(241,245,249,0.55)"; // dimmed label tint for ghost artists
 const PIVOT_RING_COLOR = "#ffffff";
+const SELECTION_RING_COLOR = "#ff1a9e";
 const BREADCRUMB_COLOR = "#fcd34d";
 const LABEL_COLOR = "#f1f5f9";
 const HOVER_RING_COLOR = "rgba(255,255,255,0.5)";
@@ -163,7 +196,8 @@ function drawNode(
   n: VisibleNode,
   x: number,
   y: number,
-  radius: number
+  radius: number,
+  getImage?: (id: string) => ImageMetadata | null
 ) {
   // ghost artists are label-only: skip all shape/fill/stroke; drawLabel
   // handles their text styling in the label pass.
@@ -187,6 +221,38 @@ function drawNode(
 
   nodeShapePath(ctx, n.role, x, y, radius);
   ctx.fill();
+
+  // artwork for album and artist nodes: clip image to the node shape interior.
+  // drawn after fill (image covers the placeholder color) but before stroke
+  // (outline is always visible on top). the rAF loop redraws every frame so
+  // onReady is a noop — image will appear on the next frame automatically.
+  if (n.role === "album" && getImage) {
+    const half = radius * 0.88;
+    const img = getNodeImage(n.id, getImage(n.id), undefined);
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x - half, y - half, half * 2, half * 2);
+      ctx.clip();
+      ctx.drawImage(img, x - half, y - half, half * 2, half * 2);
+      ctx.restore();
+      // re-establish path for stroke (clip block called beginPath)
+      nodeShapePath(ctx, n.role, x, y, radius);
+    }
+  } else if (n.role === "artist" && getImage) {
+    const img = getNodeImage(n.id, getImage(n.id), undefined);
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+      ctx.restore();
+      // re-establish path for stroke (clip block called beginPath)
+      nodeShapePath(ctx, n.role, x, y, radius);
+    }
+  }
+
   ctx.stroke();
 
   // count badge for hub nodes
@@ -372,6 +438,9 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       lastPivotId = piv;
       userPanned = false;
     }
+    // breadcrumb depth: count nodes with isBreadcrumb=true (ancestors) + 1 for the pivot
+    const depth = nds.filter((n) => n.isBreadcrumb).length + 1;
+    props.onBreadcrumbChange?.(depth);
   });
   client.onFrame((pos) => {
     positions = pos;
@@ -500,7 +569,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });
 
-      // pass 1: shapes + hover rings (back to front)
+      // pass 1: shapes + hover rings + selection ring (back to front)
+      const selId = props.selectedId ?? null;
       for (const i of sorted) {
         const n = nodes[i];
         const x = positions[i * 2];
@@ -508,6 +578,15 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 
         const r = nodeDisplayRadius(n);
+
+        // selection ring — drawn outermost so it's visible behind hover ring
+        if (selId === n.id) {
+          const selGap = n.role === "remote" ? 10 : 11;
+          nodeShapePath(ctx, n.role, x, y, r + selGap);
+          ctx.strokeStyle = SELECTION_RING_COLOR;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
 
         if (hov === n.id) {
           const gap = n.role === "remote" ? 5 : 6;
@@ -517,7 +596,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
-        drawNode(ctx, n, x, y, r);
+        drawNode(ctx, n, x, y, r, props.getImage);
       }
 
       // pass 2: all labels for non-hovered nodes
@@ -552,6 +631,59 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     }
 
     rafId = requestAnimationFrame(draw);
+
+    // warm the image atlas for nodes that become visible early — kick the load
+    // queue so images are ready (or in-flight) before drawNode asks for them.
+    // the rAF loop picks them up without needing the onReady callback.
+    client.onVisibleIds((ids) => {
+      if (!props.getImage) return;
+      const gi = props.getImage;
+      for (const id of ids) {
+        getNodeImage(id, gi(id), undefined);
+      }
+    });
+
+    // notify caller so it can drive incremental init/merge externally.
+    // fires after listeners are registered so the first topology/frame
+    // events won't be missed.
+    props.onClientReady?.(client);
+
+    // curated imperative api — built after onClientReady so the client is ready.
+    // S24: getBounds returns node centers; pad by 40px to keep largest nodes in frame.
+    const FIT_MARGIN = 40;
+    const api: WalkApi = {
+      fit() {
+        void client.getBounds().then((bounds) => {
+          if (!bounds) return;
+          const W = w();
+          const H = h();
+          const rangeX = bounds.maxX - bounds.minX;
+          const rangeY = bounds.maxY - bounds.minY;
+          if (rangeX <= 0 || rangeY <= 0) return;
+          const k = Math.min(
+            Math.max(0.1, Math.min(8, (W - 2 * FIT_MARGIN) / rangeX)),
+            Math.max(0.1, Math.min(8, (H - 2 * FIT_MARGIN) / rangeY))
+          );
+          const cx = (bounds.minX + bounds.maxX) / 2;
+          const cy = (bounds.minY + bounds.maxY) / 2;
+          setView({ k, tx: W / 2 - cx * k, ty: H / 2 - cy * k });
+          userPanned = false;
+        });
+      },
+      resetView() {
+        setView({ tx: 0, ty: 0, k: 1 });
+        userPanned = false;
+      },
+      resetWalk() {
+        client.repivot(props.initialPivot, true);
+        setView({ tx: 0, ty: 0, k: 1 });
+        userPanned = false;
+      },
+      back() {
+        client.back();
+      },
+    };
+    props.onReady?.(api);
   });
 
   // resize
@@ -658,11 +790,24 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     const sy = ps.startSy;
     setPanState(null);
     if (wasPan) return;
-    // click → expand
+    // click → dispatch by role
     const v = view();
     const [wx, wy] = screenToWorld(sx, sy);
     client.hitTest(wx, wy, v.k).then((id) => {
-      if (id) client.expand(id);
+      if (!id) return;
+      const node = nodes.find((n) => n.id === id);
+      const role = node?.role;
+      if (role === "album") {
+        // albums are leaves — select for inspection, do not pivot
+        props.onSelect?.(id, "album");
+      } else if (role === "artist") {
+        props.onSelect?.(id, "artist");
+        client.expand(id);
+        props.onPivot?.(id);
+      } else {
+        client.expand(id);
+        props.onPivot?.(id);
+      }
     });
   }
 

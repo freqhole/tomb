@@ -1,13 +1,16 @@
 // inline horizontal cluster of graph controls designed to live in the
-// topnav's right-side icon row. exposes the same affordances as the
-// floating GraphControls panel (zoom in/out/fit, pan/lasso tool toggle,
-// wire-tension drag pad) but with a flat, borderless look that blends
-// with the topnav's other icon buttons.
+// topnav's right-side icon row. exposes fit, reset-walk, refresh, and
+// (conditionally) back. the refresh button is dual-action: tap = reset
+// view position, long-press = refetch data.
 //
 // note: the per-kind relation picker (filter + strength chips) used to
 // live here. it's been removed — relation kinds are always all
 // enabled, and per-kind strength is now controlled by dragging the
 // relation hub nodes directly on the canvas.
+//
+// note: wireTension + lasso toggle props are kept for backward compatibility
+// with the legacy graph stack (createGraphLibraryView). the new graph2
+// subview (LibraryGraphSubview) does not pass them.
 //
 // styling notes:
 //   - icon buttons mirror the topnav's white/60 -> white hover idiom.
@@ -21,19 +24,33 @@ import { isNarrowViewport } from "../../config/breakpoints";
 
 export type GraphTool = "pan" | "lasso";
 
+const LONG_PRESS_MS = 450;
+
 export interface GraphTopNavToolsProps {
-  tool: GraphTool;
+  // --- legacy props (kept for createGraphLibraryView backward compat) ---
+  tool?: GraphTool;
   onToolChange?: (next: GraphTool) => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
-  onFit?: () => void;
-
-  /** wire tension (0–1) and live setter */
+  /** wire tension (0-1) and live setter (legacy graph stack only) */
   wireTension?: number;
   onWireTensionChange?: (next: number) => void;
-
   /** narrow-viewport mode — hides labels, tightens spacing */
   compact?: boolean;
+
+  // --- new graph2 actions ---
+  /** called when the user taps the back arrow (gated: only shown when provided) */
+  onBack?: () => void;
+  /** called when the user taps the fit button */
+  onFit?: () => void;
+  /** called when the user taps the reset-walk button */
+  onResetWalk?: () => void;
+  /** called when the user short-presses the refresh button (reset view position only) */
+  onResetView?: () => void;
+  /** called when the user long-presses the refresh button (refetch data) */
+  onRefetch?: () => void;
+  /** when true, dims the refresh button to indicate an in-flight refetch */
+  isRefetching?: () => boolean;
 
   /** optional trailing slot — rendered after the last control on
    *  the right edge of the cluster. used by LibraryGraphSubview to
@@ -57,13 +74,19 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
   const iconPx = () => (narrow() ? 18 : 14);
 
   return (
-    // flex-nowrap + flex-shrink-0 so fit/lasso/tension/relations stay
-    // on a single row even when the parent surface (e.g. the topnav
-    // secondary row) wraps its other children.
     <div class="flex items-center gap-0.5 flex-nowrap flex-shrink-0">
-      {/* zoom in/out intentionally omitted from the topnav cluster:
-          pinch + wheel cover zoom already, and the buttons added
-          clutter to the narrow mobile layout. fit + reset remain. */}
+      {/* back arrow — only shown when onBack is provided (breadcrumb depth > 1) */}
+      <Show when={props.onBack}>
+        <IconBtn
+          icon="chevronLeft"
+          label="go back"
+          onClick={props.onBack}
+          sizeClass={btnSize()}
+          iconPx={iconPx()}
+        />
+        <Divider />
+      </Show>
+
       <IconBtn
         icon="fit"
         label="fit to view"
@@ -71,21 +94,30 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
         sizeClass={btnSize()}
         iconPx={iconPx()}
       />
-      {/* single/multi-select toggle removed: graph subview is
-          single-select only; remote-hub clicks toggle multi-remote
-          membership directly (see LibraryGraphSubview). */}
-      {/* lasso toggle intentionally hidden for now until lasso mode
-          behavior is stabilized again.
-      <Divider />
-      <IconBtn
-        icon={props.tool === "pan" ? "drag" : "lasso"}
-        label={props.tool === "pan" ? "pan mode (click for lasso)" : "lasso mode (click for pan)"}
-        active={props.tool === "lasso"}
-        onClick={() => props.onToolChange?.(props.tool === "pan" ? "lasso" : "pan")}
-        sizeClass={btnSize()}
-        iconPx={iconPx()}
-      />
-      */}
+
+      <Show when={props.onResetWalk}>
+        <Divider />
+        <IconBtn
+          icon="home"
+          label="reset walk to root"
+          onClick={props.onResetWalk}
+          sizeClass={btnSize()}
+          iconPx={iconPx()}
+        />
+      </Show>
+
+      <Show when={props.onResetView || props.onRefetch}>
+        <Divider />
+        <RefreshButton
+          onResetView={props.onResetView}
+          onRefetch={props.onRefetch}
+          isRefetching={props.isRefetching}
+          sizeClass={btnSize()}
+          iconPx={iconPx()}
+        />
+      </Show>
+
+      {/* legacy wire-tension pad — only shown when wired up (old graph stack) */}
       <Show when={props.onWireTensionChange}>
         <Divider />
         <WireTensionButton
@@ -95,6 +127,7 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
           iconPx={iconPx()}
         />
       </Show>
+
       <Show when={props.extra}>
         <Divider />
         {props.extra}
@@ -133,6 +166,73 @@ function IconBtn(props: {
 
 function Divider() {
   return <div class="w-px h-5 bg-white/10 mx-0.5 self-center" />;
+}
+
+// dual-action refresh button: tap = reset view position, long-press = refetch data.
+function RefreshButton(props: {
+  onResetView?: () => void;
+  onRefetch?: () => void;
+  isRefetching?: () => boolean;
+  sizeClass?: string;
+  iconPx?: number;
+}) {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  let fired = false;
+
+  const cancel = () => {
+    if (timerId !== null) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      class={`inline-flex items-center justify-center ${props.sizeClass ?? "w-7 h-7"} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0`}
+      classList={{
+        "text-white/35 pointer-events-none": props.isRefetching?.() ?? false,
+        "text-white/65 hover:text-white hover:bg-white/10": !(props.isRefetching?.() ?? false),
+      }}
+      title="refresh (hold for refetch)"
+      aria-label="refresh"
+      onPointerDown={(e) => {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        fired = false;
+        timerId = setTimeout(() => {
+          fired = true;
+          timerId = null;
+          props.onRefetch?.();
+        }, LONG_PRESS_MS);
+        e.preventDefault();
+      }}
+      onPointerUp={() => {
+        cancel();
+        if (!fired) {
+          props.onResetView?.();
+        }
+        fired = false;
+      }}
+      onPointerCancel={() => {
+        cancel();
+        fired = false;
+      }}
+    >
+      <svg
+        width={props.iconPx ?? 14}
+        height={props.iconPx ?? 14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="23 4 23 10 17 10" />
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+      </svg>
+    </button>
+  );
 }
 
 // press-and-drag pad — duplicated from GraphControls so the topnav copy

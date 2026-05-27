@@ -1,6 +1,6 @@
 // graph2/worker/messages.ts — slim message protocol between main thread and walker worker.
 
-import type { WalkGraph, NodeRole } from "../types";
+import type { WalkGraph, WalkNode, WalkEdge, NodeRole } from "../types";
 
 // ---- visible node descriptor (sent in topology messages) -------------------
 
@@ -62,7 +62,48 @@ export interface MsgHitTest {
   k: number;
 }
 
-export type MainToWorker = MsgInit | MsgExpand | MsgResize | MsgHitTest;
+/** pop one breadcrumb step (no-op if breadcrumb length is 1) */
+export interface MsgBack {
+  type: "back";
+}
+
+/** request the bounding box of all currently visible sim nodes */
+export interface MsgGetBounds {
+  type: "getBounds";
+  reqId: number;
+}
+
+/** add nodes and edges to the full graph without discarding positions */
+export interface MsgMerge {
+  type: "merge";
+  addNodes: WalkNode[];
+  addEdges: WalkEdge[];
+}
+
+/** jump to a new pivot; optionally reset breadcrumb instead of pushing */
+export interface MsgRepivot {
+  type: "repivot";
+  nodeId: string;
+  /** when true, breadcrumb is reset to [nodeId]; when false (default), nodeId is pushed */
+  resetBreadcrumb?: boolean;
+}
+
+/** pause or resume the simulation */
+export interface MsgSetPaused {
+  type: "setPaused";
+  paused: boolean;
+}
+
+export type MainToWorker =
+  | MsgBack
+  | MsgExpand
+  | MsgGetBounds
+  | MsgHitTest
+  | MsgInit
+  | MsgMerge
+  | MsgRepivot
+  | MsgResize
+  | MsgSetPaused;
 
 // ---- worker → main ---------------------------------------------------------
 
@@ -91,4 +132,24 @@ export interface MsgHitResult {
   nodeId: string | null;
 }
 
-export type WorkerToMain = MsgReady | MsgTopology | MsgFrame | MsgHitResult;
+/** response to MsgGetBounds */
+export interface MsgBoundsResult {
+  type: "boundsResult";
+  reqId: number;
+  /** null when there are no visible nodes */
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+}
+
+/** emitted after every topology change; ids of nodes in the current visible set */
+export interface MsgVisibleIds {
+  type: "visibleIds";
+  ids: string[];
+}
+
+export type WorkerToMain =
+  | MsgBoundsResult
+  | MsgFrame
+  | MsgHitResult
+  | MsgReady
+  | MsgTopology
+  | MsgVisibleIds;
