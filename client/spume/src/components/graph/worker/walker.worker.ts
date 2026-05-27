@@ -417,6 +417,7 @@ function buildSim() {
     childCount: n.childCount,
     isPivot: n.id === piv,
     isBreadcrumb: breadcrumbSet.has(n.id),
+    tint: nodeMap.get(n.id)?.tint,
   }));
   post({ type: "topology", nodes: topologyNodes, edges: visibleEdges });
   post({ type: "visibleIds", ids: simNodes.map((n) => n.id) });

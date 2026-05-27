@@ -93,6 +93,34 @@ function valueKindStroke(kind: string): string {
   return `hsl(${hashKind(kind)} 75% 62%)`;
 }
 
+/** pick black or white based on the perceived luminance of bg. accepts
+ *  hex (#rrggbb or #rgb) or hsl(h s% l%) strings. returns #ffffff for
+ *  dark fills, #000000 for light fills. */
+function readableTextColor(bg: string): string {
+  if (bg.startsWith("hsl")) {
+    const match = bg.match(/hsl\(\s*\d+\s+\d+%\s+(\d+)%\s*\)/);
+    if (match) {
+      const l = parseInt(match[1], 10);
+      return l < 60 ? "#ffffff" : "#000000";
+    }
+  } else if (bg.startsWith("#")) {
+    let hex = bg.slice(1);
+    if (hex.length === 3)
+      hex = hex
+        .split("")
+        .map((c) => c + c)
+        .join("");
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+      return luma < 128 ? "#ffffff" : "#000000";
+    }
+  }
+  return "#ffffff";
+}
+
 function valueKind(id: string): string | undefined {
   // `value::KIND::val` → KIND
   const parts = id.split("::");
@@ -102,6 +130,20 @@ function valueKind(id: string): string | undefined {
 // fills stay role-neutral so labels rendered on top keep consistent contrast.
 // per-kind color only shows up on the stroke + outgoing edge lines.
 function nodeFillColor(n: VisibleNode): string {
+  if (n.tint) return n.tint;
+  if (n.role === "value") {
+    const kind = valueKind(n.id);
+    if (kind) return valueKindStroke(kind);
+    // fallback: hash the third :: segment (taxon id slug) for deterministic color
+    const parts = n.id.split("::");
+    if (parts.length >= 3 && parts[0] === "value") {
+      const taxonSlug = parts[2];
+      let h = 5381;
+      for (let i = 0; i < taxonSlug.length; i++) h = (h * 33 + taxonSlug.charCodeAt(i)) | 0;
+      const hue = ((h >>> 0) * 137) % 360;
+      return `hsl(${hue} 70% 55%)`;
+    }
+  }
   return ROLE_COLOR[n.role] ?? "#888";
 }
 
@@ -479,6 +521,9 @@ function drawNode(
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(String(n.childCount), x, y);
+    // draw text overlay with contrast-aware color
+    ctx.fillStyle = readableTextColor(nodeFillColor(n));
+    ctx.fillText(String(n.childCount), x, y);
   }
 
   if (isOffline) {
@@ -496,6 +541,7 @@ function drawLabel(
   cy: number,
   emphasis: "none" | "hover" | "select" = "none"
 ) {
+  if (n.role === "root") return;
   const baseFontSize = n.role === "album" ? 10 : 12;
   // bump font + weight when emphasized so the active label clearly
   // pairs with its node and pops above neighbouring labels.
@@ -515,15 +561,17 @@ function drawLabel(
   const isMarquee = emphasis !== "none" && fullW > MAX_LABEL_PX;
 
   const color =
-    emphasis !== "none"
-      ? "#ffffff"
-      : n.isPivot
+    emphasis === "select"
+      ? SELECTION_RING_COLOR
+      : emphasis === "hover"
         ? "#ffffff"
-        : n.isBreadcrumb
-          ? BREADCRUMB_COLOR
-          : n.role === "ghost_artist"
-            ? GHOST_LABEL_COLOR
-            : LABEL_COLOR;
+        : n.isPivot
+          ? "#ffffff"
+          : n.isBreadcrumb
+            ? BREADCRUMB_COLOR
+            : n.role === "ghost_artist"
+              ? GHOST_LABEL_COLOR
+              : LABEL_COLOR;
 
   let lx: number, ly: number;
 
@@ -796,6 +844,35 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       const hov = hoveredId();
       const selId = props.selectedId ?? null;
 
+      // compute co-highlight sets: when an artist is hovered/selected,
+      // mark all its connected album nodes for secondary ring rendering.
+      const coHoveredIds = new Set<string>();
+      const coSelectedIds = new Set<string>();
+
+      if (hov) {
+        const hovNode = nodes.find((n) => n.id === hov);
+        if (hovNode?.role === "artist") {
+          for (const e of edges) {
+            const src = nodes[e.sourceIdx];
+            const tgt = nodes[e.targetIdx];
+            if (src?.id === hov && tgt?.role === "album") coHoveredIds.add(tgt.id);
+            if (tgt?.id === hov && src?.role === "album") coHoveredIds.add(src.id);
+          }
+        }
+      }
+
+      if (selId) {
+        const selNode = nodes.find((n) => n.id === selId);
+        if (selNode?.role === "artist") {
+          for (const e of edges) {
+            const src = nodes[e.sourceIdx];
+            const tgt = nodes[e.targetIdx];
+            if (src?.id === selId && tgt?.role === "album") coSelectedIds.add(tgt.id);
+            if (tgt?.id === selId && src?.role === "album") coSelectedIds.add(src.id);
+          }
+        }
+      }
+
       // draw edges
       for (const e of edges) {
         const x0 = positions[e.sourceIdx * 2];
@@ -897,6 +974,19 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
+        // co-highlight ring: when an artist is selected/hovered, draw a
+        // soft ring on its connected album neighbors so the artist's
+        // discography pops out visually.
+        if ((coSelectedIds.has(n.id) || coHoveredIds.has(n.id)) && selId !== n.id && hov !== n.id) {
+          ctx.beginPath();
+          ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = coSelectedIds.has(n.id)
+            ? "rgba(255,26,158,0.55)"
+            : "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
         drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);
 
         // loading comet — drawn last so it sits on top of the node fill,
@@ -941,6 +1031,20 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             const gap = n.role === "remote" ? 5 : 6;
             nodeShapePath(ctx, n.role, x, y, r, gap);
             ctx.strokeStyle = HOVER_RING_COLOR;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          // co-highlight ring for lifted node (same logic as pass 1)
+          if (
+            (coSelectedIds.has(n.id) || coHoveredIds.has(n.id)) &&
+            selId !== n.id &&
+            hov !== n.id
+          ) {
+            ctx.beginPath();
+            ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = coSelectedIds.has(n.id)
+              ? "rgba(255,26,158,0.55)"
+              : "rgba(255,255,255,0.35)";
             ctx.lineWidth = 2;
             ctx.stroke();
           }

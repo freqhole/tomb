@@ -100,7 +100,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         }
     };
 
-    let kinds = rows
+    let mut kinds: Vec<TaxonKind> = rows
         .into_iter()
         .map(|r| TaxonKind {
             id: r.id,
@@ -116,6 +116,84 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             album_count: r.album_count,
         })
         .collect();
+
+    // synthesize two extra kinds that aren't backed by real taxon_kindz
+    // rows: "era" (albums grouped by release decade) and "recently_added"
+    // (albums added in the last 30 days). these are first-class hub kinds
+    // in the client but have no seeded migration rows.
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+
+    // era: albums with a release_date taxon (release_date column was
+    // migrated to taxonz in migration 039)
+    let era_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(DISTINCT at.album_id) as "count!"
+           FROM album_taxonz at
+           JOIN taxonz t ON t.id = at.taxon_id
+           JOIN albumz a ON a.id = at.album_id
+           WHERE t.kind_id = (SELECT id FROM taxon_kindz WHERE slug = 'release_date')
+             AND t.deleted_at IS NULL
+             AND a.deleted_at IS NULL"#
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to count era albums",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    kinds.push(TaxonKind {
+        id: "synth::era".to_string(),
+        slug: "era".to_string(),
+        label: "era".to_string(),
+        description: Some("synthesized hub: albums grouped by release decade".to_string()),
+        color: None,
+        value_type: "categorical".to_string(),
+        unit: None,
+        // large display_order so it sorts after seeded kinds
+        display_order: 9000,
+        is_user_defined: false,
+        created_at: now,
+        album_count: era_count,
+    });
+
+    // recently_added: albums created in the last 30 days
+    let recently_added_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!"
+           FROM albumz
+           WHERE deleted_at IS NULL
+             AND created_at >= unixepoch('now', '-30 days')"#
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to count recently added albums",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    kinds.push(TaxonKind {
+        id: "synth::recently_added".to_string(),
+        slug: "recently_added".to_string(),
+        label: "recently added".to_string(),
+        description: Some("synthesized hub: albums added in the last 30 days".to_string()),
+        color: None,
+        value_type: "categorical".to_string(),
+        unit: None,
+        // sort after era
+        display_order: 9001,
+        is_user_defined: false,
+        created_at: now,
+        album_count: recently_added_count,
+    });
 
     GrimoireResponse::success("taxon kinds retrieved", kinds)
 }

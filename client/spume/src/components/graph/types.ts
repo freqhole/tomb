@@ -249,6 +249,8 @@ export interface WalkNode {
    *  pre-populated by buildWalkGraph. skips the zero-childCount visibility
    *  filter so the hub remains visible before expansion. */
   lazy?: boolean;
+  /** optional hex color override for node fill (e.g. taxon kind colors). */
+  tint?: string;
 }
 
 export interface WalkEdge {

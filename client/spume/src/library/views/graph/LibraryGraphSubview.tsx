@@ -462,9 +462,9 @@ function Inner(props: {
   };
 
   // fetch taxon kinds for a remote and seed first-order relation hub
-  // nodes (one per categorical user-defined kind). synthesized hubs
-  // (era, recently_added, favorites) are emitted by buildWalkGraph and
-  // intentionally skipped here — they have no taxon_kindz row.
+  // nodes (one per categorical user-defined kind). favorites is still
+  // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
+  // era and recently_added are now returned by list_taxon_kinds.
   const loadTaxonKindsForRemote = async (remote: Remote): Promise<void> => {
     try {
       const client = await getClientForRemote(remote);
@@ -472,7 +472,7 @@ function Inner(props: {
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
       const rhId = remoteHubId(remoteId);
-      const SKIP_SLUGS = new Set(["era", "recently_added", "favorite", "favorites"]);
+      const SKIP_SLUGS = new Set(["favorite", "favorites"]);
       const addNodes: WalkNode[] = [];
       const addEdges: WalkEdge[] = [];
       for (const kind of result.data) {
@@ -486,10 +486,12 @@ function Inner(props: {
         addNodes.push({
           id,
           role: "relation",
-          label: kind.slug,
+          label:
+            kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
           parentId: rhId,
           childCount: kind.album_count,
           lazy: true,
+          tint: kind.color ?? undefined,
         });
         addEdges.push({ source: rhId, target: id });
       }
@@ -1098,9 +1100,11 @@ function Inner(props: {
   };
 
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
-  // flag, "era" and "recently_added" are synthesized server-side. everything
-  // else (genre/tag/mood/style/label plus any user-defined custom slug) can
-  // be lazy-loaded via queryTaxons.
+  // flag. "era" and "recently_added" are now synthesized in list_taxon_kinds
+  // so they render as first-class hubs, but they still have no queryable
+  // taxonz rows — pivot drill-in is handled by maybeLoadEraBinsForPivot and
+  // maybeLoadRecentlyAddedForPivot. keep them in the filter so the generic
+  // queryTaxons lazy-loader skips them and doesn't fire a wasted request.
   const NON_TAXON_KINDS = new Set<string>(["favorites", "era", "recently_added"]);
 
   // pivot-loader dedup sets for synthesized hubs.
@@ -1183,7 +1187,10 @@ function Inner(props: {
           addNodes.push({
             id: valId,
             role: "value",
-            label: item.label,
+            label:
+              item.label && item.label.trim().length > 0
+                ? item.label
+                : (item.slug ?? item.id).replace(/_/g, " "),
             parentId: relHubId,
             // eager count from query_taxons so the badge is correct
             // before albums for this value have been lazy-loaded.

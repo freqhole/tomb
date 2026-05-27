@@ -12,6 +12,12 @@ export interface VisibleNode {
   isPivot: boolean;
   /** true if this node is on the breadcrumb path from root to pivot */
   isBreadcrumb: boolean;
+  /** when an artist is hovered, its connected albums get coHovered = true */
+  coHovered?: boolean;
+  /** when an artist is selected, its connected albums get coSelected = true */
+  coSelected?: boolean;
+  /** optional hex color override for node fill (e.g. taxon kind colors). */
+  tint?: string;
 }
 
 export interface TopologyEdge {
