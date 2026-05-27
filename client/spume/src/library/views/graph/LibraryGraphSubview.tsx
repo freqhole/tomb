@@ -235,6 +235,17 @@ function Inner(props: {
   // relation hubs whose query_taxons fetch has settled (success OR error).
   // prevents re-firing on every pivot revisit.
   const taxonsLoadedByHub = new Set<string>();
+  // shared in-flight taxon fetches keyed by relation-hub id. lets the
+  // value-pivot album loader await the parent hub's fetch without
+  // duplicating the request when both fire on the same gesture.
+  const taxonFetchPromises = new Map<string, Promise<void>>();
+  // value/artist pivots whose lazy album fetch has been issued. dedup
+  // guard for query_albums calls in maybeLoadAlbumsForPivot.
+  const albumsLoadedByPivot = new Set<string>();
+  // taxon metadata by parent relation hub id -> slug -> { id, label }.
+  // populated by maybeLoadTaxonsForPivot; used by value-pivot album
+  // fetch to look up the original label / taxon id for filter shaping.
+  const taxonItemsByHub = new Map<string, Map<string, { id: string; label: string }>>();
   const [extraNodesById, setExtraNodesById] = createSignal<
     Map<string, AlbumNodeData | ArtistNodeData>
   >(new Map());
@@ -275,6 +286,31 @@ function Inner(props: {
     } else {
       queueMicrotask(flushPending);
     }
+  };
+
+  /** append-merge variant of setNodesFor used by lazy pivot fetches.
+   *  dedupes by album node id, preserves the existing list ordering, and
+   *  routes through the same rAF batcher so a pending page-1 flush isn't
+   *  clobbered by an in-flight pivot fetch. returns the number of new
+   *  albums actually added. */
+  const appendAlbumsToRemote = (remoteId: string, incoming: AlbumNodeData[]): number => {
+    if (incoming.length === 0) return 0;
+    // prefer any in-flight pending list (covers the race where page-1
+    // landed but its rAF flush hasn't run yet); else fall back to the
+    // current signal value.
+    const baseline = pendingUpdates.get(remoteId) ?? nodesByRemote().get(remoteId) ?? [];
+    const seen = new Set(baseline.map((n) => n.id));
+    const out = baseline.slice();
+    let added = 0;
+    for (const a of incoming) {
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+      added++;
+    }
+    if (added === 0) return 0;
+    setNodesFor(remoteId, out);
+    return added;
   };
 
   // prune stale remotes when the provided list changes
@@ -336,6 +372,16 @@ function Inner(props: {
       const parts = hubId.split("::");
       const remoteId = parts[1];
       if (remoteId && !active.has(remoteId)) taxonsLoadedByHub.delete(hubId);
+    }
+    for (const pivotId of [...albumsLoadedByPivot]) {
+      const parts = pivotId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) albumsLoadedByPivot.delete(pivotId);
+    }
+    for (const hubId of [...taxonItemsByHub.keys()]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonItemsByHub.delete(hubId);
     }
   });
 
@@ -939,6 +985,11 @@ function Inner(props: {
     // fetch only surfaces taxons referenced by those albums; this fills
     // in the long tail without paginating the entire catalogue.
     void maybeLoadTaxonsForPivot(nodeId);
+    // lazy album expansion: when the pivot is a value (taxon) or an
+    // artist, fetch only the albums belonging to that subtree. results
+    // append into nodesByRemote and propagate through buildResult ->
+    // incremental client.merge.
+    void maybeLoadAlbumsForPivot(nodeId);
   };
 
   // kind_slugs that map 1:1 onto our RelationKind taxonomy. "favorite"
@@ -973,47 +1024,189 @@ function Inner(props: {
     if (parsed.kind !== "relation") return;
     if (!TAXON_BACKED_KINDS.has(parsed.relationKind)) return;
     if (taxonsLoadedByHub.has(nodeId)) return;
+    const inFlight = taxonFetchPromises.get(nodeId);
+    if (inFlight) return inFlight;
     if (offlineByRemote().get(parsed.remoteId) === true) return;
     const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
     if (!remote) return;
-    taxonsLoadedByHub.add(nodeId);
+    const promise = (async () => {
+      setFetchingNodeFlag(nodeId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.music.queryTaxons({
+          kind_slug: parsed.relationKind,
+          q: null,
+          // large enough to cover most libraries in one shot; if any kind
+          // grows past this we'll need to wire pagination here.
+          limit: 1000,
+          offset: 0,
+        });
+        if (!result.success || !result.data) return;
+        const remoteId = parsed.remoteId;
+        const kind = parsed.relationKind;
+        const relHubId = relationHubId(remoteId, kind);
+        // populate slug-keyed taxon cache for downstream value-pivot lookups
+        // (need taxon.id for genre_id filter, taxon.label for include_tags).
+        let cache = taxonItemsByHub.get(relHubId);
+        if (!cache) {
+          cache = new Map();
+          taxonItemsByHub.set(relHubId, cache);
+        }
+        const addNodes: WalkNode[] = [];
+        const addEdges: WalkEdge[] = [];
+        for (const item of result.data.items) {
+          cache.set(item.slug, { id: item.id, label: item.label });
+          // skip empty taxons — no albums means no traversable subtree.
+          if (item.album_count <= 0) continue;
+          const valId = valueNodeId(remoteId, kind, item.label);
+          addNodes.push({
+            id: valId,
+            role: "value",
+            label: item.label,
+            parentId: relHubId,
+            childCount: 0,
+          });
+          addEdges.push({ source: relHubId, target: valId });
+        }
+        // worker merge dedupes by id + edge key, so re-adding nodes already
+        // synthesised from page-1 albums is a no-op.
+        walkerClient()?.merge(addNodes, addEdges);
+        taxonsLoadedByHub.add(nodeId);
+      } catch (err) {
+        console.warn("lazy taxon fetch failed", { nodeId, err });
+        // leave taxonsLoadedByHub unset so a future pivot retries
+      } finally {
+        setFetchingNodeFlag(nodeId, false);
+        taxonFetchPromises.delete(nodeId);
+      }
+    })();
+    taxonFetchPromises.set(nodeId, promise);
+    return promise;
+  };
+
+  // build a query_albums filter for a value pivot. returns null if the
+  // relation kind has no usable server-side filter (mood/style/era/label
+  // aren't first-class filters today — they'll fall back to whatever
+  // page-1 produced until we add filter support server-side).
+  const filterForValuePivot = (
+    relHubId: string,
+    relationKind: RelationKind,
+    valueSlug: string
+  ): Record<string, unknown> | null => {
+    const taxon = taxonItemsByHub.get(relHubId)?.get(valueSlug);
+    if (!taxon) return null;
+    switch (relationKind) {
+      case "genre":
+        return { genre_id: taxon.id };
+      case "tag":
+        return { include_tags: [taxon.label] };
+      default:
+        return null;
+    }
+  };
+
+  // adapt the raw query_albums item shape into an AlbumSummary, then into
+  // an AlbumNodeData. mirrors the inline mapping in useLibraryAlbums.
+  const adaptQueryAlbumItem = (
+    // typing the wire shape loosely keeps this isolated from codegen
+    // drift; the fields read here are all stable.
+    item: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    remote: Remote
+  ): AlbumNodeData => {
+    const baseUrl = (remote as { base_url?: string }).base_url ?? "";
+    const remoteId = remote.remote_id;
+    const summary: AlbumSummary = {
+      album_id: item.album.id,
+      title: item.album.title,
+      artist_id: item.artist?.id ?? "",
+      artist_name: item.artist?.name ?? "unknown artist",
+      album_type: item.album.album_type,
+      year: undefined,
+      release_date: item.album.release_date ?? undefined,
+      label: item.album.label ?? undefined,
+      genres: item.album.genres ?? undefined,
+      song_count: item.album.song_count,
+      total_duration: item.album.total_duration,
+      images:
+        item.images && item.images.length > 0
+          ? item.images.map((img: unknown) => adaptApiImage(img as never, baseUrl, remoteId))
+          : undefined,
+      urls: adaptApiUrls(item.album.urls),
+      is_favorite: item.is_favorite ?? undefined,
+      user_rating: item.rating ?? undefined,
+      tags: item.album_tags ?? undefined,
+      created_at: item.album.created_at,
+      updated_at: item.album.updated_at,
+      created_by_username: item.album.created_by_username ?? undefined,
+      updated_by_username: item.album.updated_by_username ?? undefined,
+      metadata: item.album.metadata ?? null,
+      mb_lookup_status: item.album.mb_lookup_status ?? null,
+      mb_lookup_at: item.album.mb_lookup_at ?? null,
+      mb_lookup_by: item.album.mb_lookup_by ?? null,
+    };
+    return adaptAlbum(summary, { remoteId });
+  };
+
+  const maybeLoadAlbumsForPivot = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "value" && parsed.kind !== "artist") return;
+    if (albumsLoadedByPivot.has(nodeId)) return;
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+
+    // resolve filter shape per pivot kind.
+    let filters: Record<string, unknown> | null = null;
+    if (parsed.kind === "value") {
+      // ensure parent hub's taxons are loaded so we have id + label to
+      // shape the filter. shares any in-flight fetch via the promise map.
+      const relHubId = relationHubId(parsed.remoteId, parsed.relationKind);
+      if (!taxonItemsByHub.has(relHubId)) {
+        await maybeLoadTaxonsForPivot(relHubId);
+      }
+      filters = filterForValuePivot(relHubId, parsed.relationKind, parsed.valueSlug);
+      // unsupported kind (mood/style/era/label) or taxon not found —
+      // leave the subtree to whatever page-1 already surfaced.
+      if (!filters) return;
+    } else {
+      filters = { artist_id: parsed.artistId };
+    }
+
+    albumsLoadedByPivot.add(nodeId);
     setFetchingNodeFlag(nodeId, true);
     try {
       const client = await getClientForRemote(remote);
-      const result = await client.music.queryTaxons({
-        kind_slug: parsed.relationKind,
+      const result = await client.music.queryAlbums({
         q: null,
-        // large enough to cover most libraries in one shot; if any kind
-        // grows past this we'll need to wire pagination here.
-        limit: 1000,
+        search_fields: null,
+        filters,
+        sort_by: null,
+        sort_direction: null,
+        // single-shot cap. popular genres on huge libraries can exceed
+        // this; pagination is a follow-up if needed.
+        limit: 500,
         offset: 0,
+        user_id: null,
+        favorites_only: null,
+        min_rating: null,
       });
       if (!result.success || !result.data) return;
-      const remoteId = parsed.remoteId;
-      const kind = parsed.relationKind;
-      const relHubId = relationHubId(remoteId, kind);
-      const addNodes: WalkNode[] = [];
-      const addEdges: WalkEdge[] = [];
+      const adapted: AlbumNodeData[] = [];
       for (const item of result.data.items) {
-        // skip empty taxons — no albums means no traversable subtree.
-        if (item.album_count <= 0) continue;
-        const valId = valueNodeId(remoteId, kind, item.label);
-        addNodes.push({
-          id: valId,
-          role: "value",
-          label: item.label,
-          parentId: relHubId,
-          childCount: 0,
-        });
-        addEdges.push({ source: relHubId, target: valId });
+        adapted.push(adaptQueryAlbumItem(item, remote));
       }
-      // worker merge dedupes by id + edge key, so re-adding nodes already
-      // synthesised from page-1 albums is a no-op.
-      walkerClient()?.merge(addNodes, addEdges);
+      // append to nodesByRemote — buildResult re-runs and the incremental
+      // merge effect picks up the new albums/artists/edges automatically.
+      appendAlbumsToRemote(remote.remote_id, adapted);
     } catch (err) {
-      console.warn("lazy taxon fetch failed", { nodeId, err });
-      // allow a future pivot to retry by removing the marker
-      taxonsLoadedByHub.delete(nodeId);
+      console.warn("lazy album fetch failed", { nodeId, err });
+      // allow retry on next pivot
+      albumsLoadedByPivot.delete(nodeId);
     } finally {
       setFetchingNodeFlag(nodeId, false);
     }
