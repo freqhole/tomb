@@ -69,7 +69,7 @@ export interface WalkCanvasProps {
 
 const ROLE_COLOR: Record<string, string> = {
   root: "#4b5563",
-  remote: "#7c3aed",
+  remote: "#ec4899",
   relation: "#0891b2",
   value: "#059669",
   artist: "#d97706",
@@ -390,7 +390,7 @@ function drawNode(
       ? BREADCRUMB_COLOR
       : valueStroke
         ? valueStroke
-        : "rgba(255,255,255,0.15)";
+        : color;
   ctx.lineWidth = n.isPivot ? 3 : n.isBreadcrumb ? 2 : valueStroke ? 2 : 1;
 
   nodeShapePath(ctx, n.role, x, y, radius);
@@ -435,7 +435,7 @@ function drawNode(
     ctx.font = `bold ${Math.max(9, Math.round(radius * 0.42))}px system-ui,sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(n.childCount), x, y + radius * 0.18);
+    ctx.fillText(String(n.childCount), x, y);
   }
 
   if (isOffline) {

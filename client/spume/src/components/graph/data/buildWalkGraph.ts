@@ -156,7 +156,11 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         parentId: rhId,
         childCount: artistAlbums.length,
       });
-      edges.push({ source: rhId, target: aId });
+      // NOTE: no remoteHub -> artist edge. parentId still points at rhId
+      // for breadcrumb / hierarchy traversal, but the visible link is
+      // suppressed to cut radial clutter. artists reach the rest of the
+      // graph via value -> artist edges emitted in the relation-hub loop
+      // above.
       nodesById.set(aId, artist);
 
       // ---- album nodes ---------------------------------------------------
