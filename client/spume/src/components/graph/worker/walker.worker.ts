@@ -273,21 +273,34 @@ function computeTargets(
 function getVisible(): Set<string> {
   const visible = new Set<string>(breadcrumb);
   const piv = pivot();
+  const pivRole = nodeMap.get(piv)?.role;
   for (const childId of childrenOf.get(piv) ?? []) {
     const wn = nodeMap.get(childId);
     if (!wn) continue;
     // skip hub nodes that ended up with no children (e.g. unmapped genre)
     if ((wn.role === "value" || wn.role === "relation") && wn.childCount === 0) continue;
+    // when pivot is a remote hub, only surface its first-order taxon
+    // children (relation hubs: genre, mood, tag, style, era, label,
+    // favorite). artists/albums are intentionally hidden until the user
+    // drills through a relation \u2192 value path. without this scope a
+    // remote with hundreds of artists would dump the entire library on
+    // screen the moment you opened it.
+    if (pivRole === "remote" && wn.role !== "relation") continue;
     visible.add(childId);
   }
-  // auto-expand album children of any visible artist — no click required
+  // auto-expand album children only for the pivot artist (or any artist on
+  // the breadcrumb path). without this scope, opening a remote hub would
+  // surface every artist AND every album in that remote at once \u2014 huge
+  // graphs and a giant ball of nodes. progressive expansion is the goal:
+  // pivot a remote \u2192 see artists; click an artist \u2192 see its albums.
+  const breadcrumbSet = new Set(breadcrumb);
   for (const id of [...visible]) {
     const wn = nodeMap.get(id);
-    if (wn?.role === "artist") {
-      for (const childId of childrenOf.get(id) ?? []) {
-        const child = nodeMap.get(childId);
-        if (child?.role === "album") visible.add(childId);
-      }
+    if (wn?.role !== "artist") continue;
+    if (id !== piv && !breadcrumbSet.has(id)) continue;
+    for (const childId of childrenOf.get(id) ?? []) {
+      const child = nodeMap.get(childId);
+      if (child?.role === "album") visible.add(childId);
     }
   }
   // when an album is visible (breadcrumb or auto-expanded), keep its parent artist visible

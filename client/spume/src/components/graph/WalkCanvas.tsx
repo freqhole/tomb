@@ -50,6 +50,19 @@ export interface WalkCanvasProps {
   /** per-id image metadata lookup. when provided, album and artist nodes
    *  render their cover/avatar artwork inside the node shape. */
   getImage?: (id: string) => ImageMetadata | null;
+  /** per-id offline flag. when true for a node, it's drawn dimmed.
+   *  used to mark unreachable remote hubs (and their subtrees) without
+   *  taking them out of the graph. */
+  isOfflineNode?: (id: string) => boolean;
+  /** per-id loading flag. when true, the node renders an animated
+   *  pink→purple comet arc orbiting its silhouette, matching the
+   *  player-bar play/pause loading ring. used to signal that a remote
+   *  hub is fetching its album page (or other async work in progress). */
+  isLoadingNode?: (id: string) => boolean;
+  /** optional click interceptor. return true to consume the click; the
+   *  canvas will skip its default expand/pivot behavior for that node.
+   *  used to retry a health check when clicking an offline remote. */
+  interceptClick?: (id: string, role: NodeRole) => boolean;
 }
 
 // ---- colors ----------------------------------------------------------------
@@ -114,6 +127,13 @@ const SELECTION_RING_COLOR = "#ff1a9e";
 const BREADCRUMB_COLOR = "#fcd34d";
 const LABEL_COLOR = "#f1f5f9";
 const HOVER_RING_COLOR = "rgba(255,255,255,0.5)";
+
+// loading-comet palette mirrors the conic-gradient on the player-bar
+// play/pause ring: pink head → magenta mid → purple tail. used by the
+// per-node loading arc so all "async in progress" signals match.
+const COMET_HEAD = "#ec4899";
+const COMET_MID = "#c026d3";
+const COMET_TAIL = "#a855f7";
 
 // ---- shape drawing ---------------------------------------------------------
 
@@ -191,17 +211,171 @@ function nodeShapePath(
   }
 }
 
+/** outset polyline approximating a node's silhouette, used by drawLoadingComet
+ *  to trace the comet around the actual shape (square, hex, octagon,
+ *  freqhole mark) rather than always falling back to a circle. polygons use
+ *  the same vertex generators as nodeShapePath; circles are discretized to
+ *  64 points so the arc-length sampler stays uniform. `outset` pushes every
+ *  vertex outward from the node center by that many world pixels. */
+function shapePolyline(
+  role: string,
+  cx: number,
+  cy: number,
+  r: number,
+  outset: number
+): { x: number; y: number }[] {
+  switch (role) {
+    case "remote": {
+      // freqhole mark — scale vertex offsets from center by (r+outset)/r so
+      // every vertex moves uniformly outward along the radial from center.
+      const k = (r + outset) / r;
+      const size = r * 2;
+      const x0 = cx - r;
+      const y0 = cy - r;
+      const raw = [
+        { x: x0 + 0.5 * size, y: y0 + 0.95 * size },
+        { x: x0 + 0.14 * size, y: y0 + 0.18 * size },
+        { x: x0 + 0.86 * size, y: y0 + 0.18 * size },
+        { x: x0 + 0.66 * size, y: y0 + 0.74 * size },
+      ];
+      return raw.map((p) => ({ x: cx + (p.x - cx) * k, y: cy + (p.y - cy) * k }));
+    }
+    case "relation":
+      return regularPolyVerts(cx, cy, r + outset, 6, 0);
+    case "value":
+      return regularPolyVerts(cx, cy, r + outset, 8, Math.PI / 8);
+    case "album": {
+      const half = r * 0.88 + outset;
+      return [
+        { x: cx - half, y: cy - half },
+        { x: cx + half, y: cy - half },
+        { x: cx + half, y: cy + half },
+        { x: cx - half, y: cy + half },
+      ];
+    }
+    case "artist":
+    case "root":
+    default: {
+      // circle → discretize to 64 segments so the perimeter sampler can
+      // walk it with the same arc-length math as polygon shapes.
+      const N = 64;
+      const rr = r + outset;
+      const pts: { x: number; y: number }[] = new Array(N);
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        pts[i] = { x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr };
+      }
+      return pts;
+    }
+  }
+}
+
+function regularPolyVerts(
+  cx: number,
+  cy: number,
+  r: number,
+  sides: number,
+  rotation: number
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = new Array(sides);
+  for (let i = 0; i < sides; i++) {
+    const a = rotation + (i / sides) * Math.PI * 2;
+    pts[i] = { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+  }
+  return pts;
+}
+
+/** rotating gradient arc — same vibe as the player-bar play/pause loading
+ *  ring, but drawn into canvas so it works inside the graph viz. traces the
+ *  node's actual silhouette (square / hex / octagon / freqhole mark / circle)
+ *  by sampling an outset polyline at uniform arc-length steps; head leads
+ *  with pink, tail fades through magenta to translucent purple. `time` is a
+ *  monotonic ms value; a full revolution takes ROT_MS. */
+function drawLoadingComet(
+  ctx: CanvasRenderingContext2D,
+  role: string,
+  x: number,
+  y: number,
+  radius: number,
+  time: number
+) {
+  const ROT_MS = 1500;
+  const TAIL = 0.7; // tail covers ~70% of perimeter
+  const SEGS = 48;
+
+  const poly = shapePolyline(role, x, y, radius, 5);
+  const n = poly.length;
+  if (n < 2) return;
+
+  // cumulative arc length around the closed loop
+  const cum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % n];
+    cum[i + 1] = cum[i] + Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const total = cum[n];
+  if (total <= 0) return;
+
+  // sample a point on the closed polyline at arc-length fraction u ∈ ℝ
+  // (wraps automatically); cheap linear search since n is small (≤ 64).
+  const sample = (u: number) => {
+    let d = (((u % 1) + 1) % 1) * total;
+    let lo = 0;
+    for (let i = 0; i < n; i++) {
+      if (cum[i + 1] >= d) {
+        lo = i;
+        break;
+      }
+    }
+    const segLen = cum[lo + 1] - cum[lo];
+    const f = segLen > 0 ? (d - cum[lo]) / segLen : 0;
+    const a = poly[lo];
+    const b = poly[(lo + 1) % n];
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  };
+
+  const headT = (time / ROT_MS) % 1;
+
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineWidth = 3;
+  let prev = sample(headT);
+  for (let i = 1; i <= SEGS; i++) {
+    const t = i / SEGS; // 0 head .. 1 tail
+    const u = headT - t * TAIL;
+    const cur = sample(u);
+    const color = t < 0.33 ? COMET_HEAD : t < 0.66 ? COMET_MID : COMET_TAIL;
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = (1 - t) ** 1.5;
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(cur.x, cur.y);
+    ctx.stroke();
+    prev = cur;
+  }
+  ctx.restore();
+}
+
 function drawNode(
   ctx: CanvasRenderingContext2D,
   n: VisibleNode,
   x: number,
   y: number,
   radius: number,
-  getImage?: (id: string) => ImageMetadata | null
+  getImage?: (id: string) => ImageMetadata | null,
+  isOffline?: boolean
 ) {
   // ghost artists are label-only: skip all shape/fill/stroke; drawLabel
   // handles their text styling in the label pass.
   if (n.role === "ghost_artist") return;
+
+  // offline nodes (e.g. unreachable remote hubs): dim everything we draw
+  // for this node by reducing alpha. label pass also dims separately below.
+  if (isOffline) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+  }
 
   const color = nodeFillColor(n);
   ctx.fillStyle = color;
@@ -262,6 +436,10 @@ function drawNode(
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(String(n.childCount), x, y + radius * 0.18);
+  }
+
+  if (isOffline) {
+    ctx.restore();
   }
 }
 
@@ -457,11 +635,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     window.addEventListener("resize", onWindowResize);
     client.init(plainGraph, props.initialPivot, w(), h(), plainBreadcrumb);
 
-    const dpr = window.devicePixelRatio ?? 1;
-    canvas.width = w() * dpr;
-    canvas.height = h() * dpr;
-    canvas.style.width = `${w()}px`;
-    canvas.style.height = `${h()}px`;
+    // canvas bitmap + css sizing are owned by the resize createEffect below;
+    // running it once at mount is enough to get the first frame right.
     const ctx = canvas.getContext("2d")!;
     // note: no ctx.scale(dpr,dpr) here — we set the full transform every
     // frame in draw() to fold dpr together with the viewport tx/ty/k.
@@ -519,10 +694,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       }
 
       const v = view();
+      const dpr = window.devicePixelRatio ?? 1;
       // world → device px:  (world * k + t) * dpr
       ctx.setTransform(dpr * v.k, 0, 0, dpr * v.k, dpr * v.tx, dpr * v.ty);
 
       const hov = hoveredId();
+      const selId = props.selectedId ?? null;
 
       // draw edges
       for (const e of edges) {
@@ -531,6 +708,19 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         const x1 = positions[e.targetIdx * 2];
         const y1 = positions[e.targetIdx * 2 + 1];
         if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
+
+        // by default, an album only shows its parent-artist wire \u2014 the
+        // value/relation/remote cross-edges into it would clutter the graph
+        // with rays from every taxon hub the album belongs to. when the
+        // album is selected we surface them again so the user can see what
+        // taxons connect it.
+        const sn = nodes[e.sourceIdx];
+        const tn = nodes[e.targetIdx];
+        const albumEnd = sn?.role === "album" ? sn : tn?.role === "album" ? tn : null;
+        if (albumEnd && albumEnd.id !== selId) {
+          const otherRole = sn?.role === "album" ? tn?.role : sn?.role;
+          if (otherRole !== "artist") continue;
+        }
 
         ctx.beginPath();
         ctx.moveTo(x0, y0);
@@ -570,7 +760,6 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       });
 
       // pass 1: shapes + hover rings + selection ring (back to front)
-      const selId = props.selectedId ?? null;
       for (const i of sorted) {
         const n = nodes[i];
         const x = positions[i * 2];
@@ -596,7 +785,14 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
-        drawNode(ctx, n, x, y, r, props.getImage);
+        drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id));
+
+        // loading comet — drawn last so it sits on top of the node fill,
+        // image, stroke, and badge. uses the same rAF-driven clock as the
+        // sim so it animates smoothly without its own ticker.
+        if (props.isLoadingNode?.(n.id)) {
+          drawLoadingComet(ctx, n.role, x, y, r, performance.now());
+        }
       }
 
       // pass 2: all labels for non-hovered nodes
@@ -686,9 +882,21 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     props.onReady?.(api);
   });
 
-  // resize
+  // resize: keep worker sim, canvas bitmap, and canvas css dimensions in sync
+  // whenever w()/h() change (driven by ResizeObserver in the parent or by
+  // window resize in fullscreen mode). without the canvas updates the
+  // bitmap stays at its onMount size and the rendered viz is clipped /
+  // letterboxed when the host pane resizes (player bar appears, queue
+  // sidebar toggles, viewport changes).
   createEffect(() => {
-    client.resize(w(), h());
+    const ww = w();
+    const hh = h();
+    const dpr = window.devicePixelRatio ?? 1;
+    canvas.width = Math.max(1, Math.floor(ww * dpr));
+    canvas.height = Math.max(1, Math.floor(hh * dpr));
+    canvas.style.width = `${ww}px`;
+    canvas.style.height = `${hh}px`;
+    client.resize(ww, hh);
   });
 
   // ---- pointer + wheel handlers ---------------------------------------------
@@ -797,6 +1005,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       if (!id) return;
       const node = nodes.find((n) => n.id === id);
       const role = node?.role;
+      // give host a chance to intercept (e.g. retry health for offline remote)
+      if (role && props.interceptClick?.(id, role)) return;
       if (role === "album") {
         // albums are leaves — select for inspection, do not pivot
         props.onSelect?.(id, "album");
@@ -844,14 +1054,24 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       style={{
         display: "block",
         // when no explicit size given, fill the viewport
-        ...(props.width == null && {
-          position: "fixed" as const,
-          inset: "0",
-          width: "100vw",
-          height: "100vh",
-          "margin-bottom": `${props.insets?.bottom ?? 0}px`,
-          "margin-right": `${props.insets?.right ?? 0}px`,
-        }),
+        ...(props.width == null
+          ? {
+              position: "fixed" as const,
+              inset: "0",
+              width: "100vw",
+              height: "100vh",
+              "margin-bottom": `${props.insets?.bottom ?? 0}px`,
+              "margin-right": `${props.insets?.right ?? 0}px`,
+            }
+          : {
+              // in-pane mode: fill the host element. the resize createEffect
+              // also sets explicit pixel canvas.style.width/height to keep
+              // the bitmap in sync with the laid-out box, but these defaults
+              // ensure the first paint doesn't overflow the container while
+              // the effect catches up.
+              width: "100%",
+              height: "100%",
+            }),
         cursor: panState()?.moved ? "grabbing" : hoveredId() ? "pointer" : "default",
         "touch-action": "none",
       }}

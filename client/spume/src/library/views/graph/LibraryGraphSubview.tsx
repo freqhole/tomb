@@ -60,8 +60,21 @@ import type { WalkApi } from "../../../components/graph/WalkCanvas";
 import type { WalkerClient } from "../../../components/graph/worker/client";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
-import { rootId, parseNodeId, slug } from "../../../components/graph/data/nodeIds";
+import {
+  rootId,
+  parseNodeId,
+  slug,
+  relationHubId,
+  valueNodeId,
+  type RelationKind,
+} from "../../../components/graph/data/nodeIds";
+import type { WalkNode, WalkEdge } from "../../../components/graph/types";
 import { getClientForRemote } from "../../../app/api/client";
+import {
+  checkRemoteHealth,
+  onRemoteStatusChange,
+  getRemoteById,
+} from "../../../app/services/remotes/remoteManager";
 import { adaptApiImage, adaptApiUrls } from "../../../music/data/remote/adapters";
 import type { AlbumSummary } from "../../../music/data/types";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
@@ -122,43 +135,25 @@ function RemoteAlbumsLoader(props: {
   onNodes: (remoteId: string, nodes: AlbumNodeData[]) => void;
   onFetchingChange?: (remoteId: string, fetching: boolean) => void;
 }) {
-  const INITIAL_PAGE_SIZE = 500;
-  const MAX_PAGE_SIZE = 2500;
-  const TARGET_PAGE_COUNT = 4;
-  const [pageSize, setPageSize] = createSignal(INITIAL_PAGE_SIZE);
+  // 2026-05-26: lazy-load phase 1. previously this loader auto-paginated
+  // the entire album catalogue per remote to populate relation hubs.
+  // now we only fetch page 1 (a sample sized for first-render usefulness)
+  // and rely on per-pivot query_taxons / query_albums calls to fill in
+  // the rest on demand. ramp-up + fetchNextPage loop removed.
+  const PAGE_SIZE = 200;
 
   const albumsQuery = useLibraryAlbumsQuery({
     remote: () => props.remote,
     search: () => props.search() || undefined,
-    pageSizeFn: pageSize,
+    pageSize: PAGE_SIZE,
     disablePolling: true,
   });
 
-  // ramp page size once we know total_count
-  createEffect(() => {
-    const first = albumsQuery.data?.pages?.[0];
-    if (!first) return;
-    const total = first.total ?? 0;
-    if (total <= INITIAL_PAGE_SIZE) return;
-    const target = Math.min(
-      MAX_PAGE_SIZE,
-      Math.max(INITIAL_PAGE_SIZE, Math.ceil(total / TARGET_PAGE_COUNT))
-    );
-    if (target !== pageSize()) setPageSize(target);
-  });
-
-  // auto-fetch all pages
+  // report in-flight status. only the first page now, so this clears as
+  // soon as that single fetch settles.
   createEffect(() => {
     const q = albumsQuery;
-    if (q.hasNextPage && !q.isFetchingNextPage && !q.isFetching) {
-      void q.fetchNextPage();
-    }
-  });
-
-  // report in-flight status
-  createEffect(() => {
-    const q = albumsQuery;
-    const fetching = q.isFetching || q.isFetchingNextPage || !!q.hasNextPage;
+    const fetching = q.isFetching;
     props.onFetchingChange?.(props.remote.remote_id, fetching);
   });
   onCleanup(() => {
@@ -220,6 +215,26 @@ function Inner(props: {
 
   const [nodesByRemote, setNodesByRemote] = createSignal<Map<string, AlbumNodeData[]>>(new Map());
   const [fetchingByRemote, setFetchingByRemote] = createSignal<Map<string, boolean>>(new Map());
+  // per-remote offline flag. seeded from Remote.is_offline and kept fresh by
+  // checkRemoteHealth + onRemoteStatusChange. offline remotes still appear in
+  // the graph (as dimmed remote hubs) but we skip mounting their album loaders
+  // so no api requests fan out.
+  const [offlineByRemote, setOfflineByRemote] = createSignal<Map<string, boolean>>(new Map());
+  // remotes currently being re-checked (debounce + spinner-ish ux for clicks)
+  const recheckingRemotes = new Set<string>();
+  // remotes whose album loader has been mounted. seeded with the
+  // charnel-managed remote (tauri local sidecar) when it exists so we get
+  // an instant first render without firing N concurrent fetches; other
+  // remotes are mounted on-demand when the user clicks their hub.
+  const [activatedRemotes, setActivatedRemotes] = createSignal<Set<string>>(new Set());
+  // per-node in-flight loading flag. distinct from fetchingByRemote which
+  // tracks the broad initial-page query. used by isLoadingNode so any pivot
+  // (relation hub, value, artist...) can paint a comet while its lazy
+  // expansion fetch is in flight.
+  const [fetchingByNode, setFetchingByNode] = createSignal<Map<string, boolean>>(new Map());
+  // relation hubs whose query_taxons fetch has settled (success OR error).
+  // prevents re-firing on every pivot revisit.
+  const taxonsLoadedByHub = new Set<string>();
   const [extraNodesById, setExtraNodesById] = createSignal<
     Map<string, AlbumNodeData | ArtistNodeData>
   >(new Map());
@@ -287,9 +302,105 @@ function Inner(props: {
       }
       return changed ? next : prev;
     });
+    setOfflineByRemote((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        if (!active.has(k)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
     // remote set churned — slug-based assumptions are invalid
     crossRemoteLookups.clear();
     setExtraNodesById(new Map());
+    // drop lazy-load bookkeeping for stale remotes so re-adding the
+    // same remote later triggers a fresh fetch.
+    setFetchingByNode((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        // node ids carry `::${remoteId}::` for non-root/non-ghost kinds.
+        const parts = k.split("::");
+        const remoteId = parts[1];
+        if (remoteId && !active.has(remoteId)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    for (const hubId of [...taxonsLoadedByHub]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonsLoadedByHub.delete(hubId);
+    }
+  });
+
+  // seed offline flags from Remote.is_offline and run a fresh health check
+  // for any remote whose last_checked is stale (or missing). re-runs whenever
+  // props.remotes() changes so newly-added remotes get probed.
+  const HEALTH_TTL_MS = 30_000;
+  createEffect(() => {
+    const list = props.remotes();
+    // seed signal synchronously so first render gates loaders correctly
+    setOfflineByRemote((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const r of list) {
+        const flag = r.is_offline === true;
+        if (next.get(r.remote_id) !== flag) {
+          next.set(r.remote_id, flag);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // kick off async refresh for stale entries
+    const now = Date.now();
+    for (const r of list) {
+      const last = r.last_checked ?? 0;
+      if (now - last < HEALTH_TTL_MS) continue;
+      void runHealthCheck(r.remote_id);
+    }
+  });
+
+  // run a health check (deduped) and reflect the result into offlineByRemote.
+  const runHealthCheck = async (remoteId: string): Promise<boolean | null> => {
+    if (recheckingRemotes.has(remoteId)) return null;
+    recheckingRemotes.add(remoteId);
+    try {
+      const remote = await getRemoteById(remoteId);
+      if (!remote) return null;
+      const online = await checkRemoteHealth(remote);
+      setOfflineByRemote((prev) => {
+        if (prev.get(remoteId) === !online) return prev;
+        const next = new Map(prev);
+        next.set(remoteId, !online);
+        return next;
+      });
+      return online;
+    } catch {
+      return null;
+    } finally {
+      recheckingRemotes.delete(remoteId);
+    }
+  };
+
+  // listen for status changes from anywhere else in the app (e.g. p2p peer
+  // offline events, settings view recheck) so the graph dims/undims in sync.
+  onMount(() => {
+    const unsub = onRemoteStatusChange((remoteId, isOffline) => {
+      setOfflineByRemote((prev) => {
+        if (prev.get(remoteId) === isOffline) return prev;
+        const next = new Map(prev);
+        next.set(remoteId, isOffline);
+        return next;
+      });
+    });
+    onCleanup(unsub);
   });
 
   // ---- graph derivation -----------------------------------------------
@@ -308,7 +419,10 @@ function Inner(props: {
 
   const buildResult = createMemo(() => {
     const byRemote = nodesByRemote();
-    const remoteIds = [...byRemote.keys()].filter((id) => (byRemote.get(id)?.length ?? 0) > 0);
+    // include every selected remote so offline / not-yet-loaded remotes still
+    // surface in the graph as remote hubs (dimmed if offline). filtering by
+    // data presence would hide them entirely.
+    const remoteIds = props.remotes().map((r) => r.remote_id);
     if (remoteIds.length === 0) return null;
     return buildWalkGraph({
       remoteIds,
@@ -819,6 +933,90 @@ function Inner(props: {
     if (!result || !result.nodesById.has(nodeId)) {
       setSelectedId(null);
     }
+    // lazy taxon expansion: when the user pivots into a relation hub,
+    // fetch every taxon of that kind from the remote and merge missing
+    // value nodes + edges into the worker graph. eager page-1 album
+    // fetch only surfaces taxons referenced by those albums; this fills
+    // in the long tail without paginating the entire catalogue.
+    void maybeLoadTaxonsForPivot(nodeId);
+  };
+
+  // kind_slugs that map 1:1 onto our RelationKind taxonomy. "favorite"
+  // is a per-user flag not backed by a taxon kind, so we skip it.
+  const TAXON_BACKED_KINDS = new Set<RelationKind>([
+    "genre",
+    "tag",
+    "mood",
+    "style",
+    "era",
+    "label",
+  ]);
+
+  const setFetchingNodeFlag = (nodeId: string, fetching: boolean) => {
+    setFetchingByNode((prev) => {
+      const cur = prev.get(nodeId) ?? false;
+      if (cur === fetching) return prev;
+      const next = new Map(prev);
+      if (fetching) next.set(nodeId, true);
+      else next.delete(nodeId);
+      return next;
+    });
+  };
+
+  const maybeLoadTaxonsForPivot = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "relation") return;
+    if (!TAXON_BACKED_KINDS.has(parsed.relationKind)) return;
+    if (taxonsLoadedByHub.has(nodeId)) return;
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+    taxonsLoadedByHub.add(nodeId);
+    setFetchingNodeFlag(nodeId, true);
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.queryTaxons({
+        kind_slug: parsed.relationKind,
+        q: null,
+        // large enough to cover most libraries in one shot; if any kind
+        // grows past this we'll need to wire pagination here.
+        limit: 1000,
+        offset: 0,
+      });
+      if (!result.success || !result.data) return;
+      const remoteId = parsed.remoteId;
+      const kind = parsed.relationKind;
+      const relHubId = relationHubId(remoteId, kind);
+      const addNodes: WalkNode[] = [];
+      const addEdges: WalkEdge[] = [];
+      for (const item of result.data.items) {
+        // skip empty taxons — no albums means no traversable subtree.
+        if (item.album_count <= 0) continue;
+        const valId = valueNodeId(remoteId, kind, item.label);
+        addNodes.push({
+          id: valId,
+          role: "value",
+          label: item.label,
+          parentId: relHubId,
+          childCount: 0,
+        });
+        addEdges.push({ source: relHubId, target: valId });
+      }
+      // worker merge dedupes by id + edge key, so re-adding nodes already
+      // synthesised from page-1 albums is a no-op.
+      walkerClient()?.merge(addNodes, addEdges);
+    } catch (err) {
+      console.warn("lazy taxon fetch failed", { nodeId, err });
+      // allow a future pivot to retry by removing the marker
+      taxonsLoadedByHub.delete(nodeId);
+    } finally {
+      setFetchingNodeFlag(nodeId, false);
+    }
   };
 
   const findArtistNodeId = (artistId: string): string | null => {
@@ -833,9 +1031,120 @@ function Inner(props: {
 
   // ---- render --------------------------------------------------------
 
+  // seed activatedRemotes: prefer the charnel-managed remote (tauri local
+  // sidecar). if there isn't one, fall back to the first remote so the
+  // user always sees an initial dataset. additional remotes activate when
+  // their hub is clicked. prune entries for removed remotes.
+  createEffect(() => {
+    const list = props.remotes();
+    if (list.length === 0) return;
+    setActivatedRemotes((prev) => {
+      const ids = new Set(list.map((r) => r.remote_id));
+      const next = new Set<string>();
+      for (const id of prev) if (ids.has(id)) next.add(id);
+      if (next.size === 0) {
+        const charnel = list.find((r) => r.is_charnel_managed);
+        const seed = charnel ?? list[0];
+        if (seed) next.add(seed.remote_id);
+      }
+      // identity-stable when membership unchanged
+      if (next.size === prev.size) {
+        let same = true;
+        for (const id of next)
+          if (!prev.has(id)) {
+            same = false;
+            break;
+          }
+        if (same) return prev;
+      }
+      return next;
+    });
+  });
+
+  const activateRemote = (remoteId: string) => {
+    setActivatedRemotes((prev) => {
+      if (prev.has(remoteId)) return prev;
+      const next = new Set(prev);
+      next.add(remoteId);
+      return next;
+    });
+  };
+
+  // loaders only mount for remotes that are (a) online AND (b) activated.
+  // skipping offline remotes avoids hammering an unreachable server; the
+  // activation gate defers initial-load cost until the user actually
+  // navigates to that remote's hub.
+  const onlineRemotes = createMemo(() => {
+    const off = offlineByRemote();
+    const act = activatedRemotes();
+    return props.remotes().filter((r) => off.get(r.remote_id) !== true && act.has(r.remote_id));
+  });
+
+  // offline-aware lookups for WalkCanvas. nodes for offline remotes (and
+  // their entire subtree) get drawn dimmed so the user sees "this server is
+  // unreachable but it's still here."
+  const isOfflineNode = (id: string): boolean => {
+    try {
+      const parsed = parseNodeId(id);
+      if (parsed.kind === "root" || parsed.kind === "ghost_artist") return false;
+      return offlineByRemote().get(parsed.remoteId) === true;
+    } catch {
+      return false;
+    }
+  };
+
+  // click interceptor: tapping an offline remote hub re-checks health;
+  // tapping an online-but-not-yet-activated remote hub mounts its loader
+  // (and lets the click fall through so the canvas pivots there). active
+  // online remote hubs use the default pivot/expand behavior.
+  const interceptClick = (id: string): boolean => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(id);
+    } catch {
+      return false;
+    }
+    if (parsed.kind !== "remote") return false;
+    if (offlineByRemote().get(parsed.remoteId) === true) {
+      const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+      const name = remote?.name ?? parsed.remoteId;
+      toast.info(`checking ${name}...`);
+      void runHealthCheck(parsed.remoteId).then((online) => {
+        if (online === true) toast.success(`${name} is back online`);
+        else if (online === false) toast.warning(`${name} is still offline`);
+      });
+      return true;
+    }
+    if (!activatedRemotes().has(parsed.remoteId)) {
+      activateRemote(parsed.remoteId);
+      // don't consume — let the canvas pivot to the hub so the user lands
+      // there as albums stream in. the loading comet drawn on the hub via
+      // isLoadingNode signals that data is incoming.
+      return false;
+    }
+    return false;
+  };
+
+  // loading lookup for WalkCanvas: a node paints a comet arc while a
+  // fetch for its subtree is in flight. two sources:
+  //   - remote hub: the initial-page album loader (fetchingByRemote)
+  //   - relation hub / future expansions: the per-pivot lazy fetch map
+  //     (fetchingByNode) populated by maybeLoadTaxonsForPivot etc.
+  const isLoadingNode = (id: string): boolean => {
+    if (fetchingByNode().get(id) === true) return true;
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(id);
+    } catch {
+      return false;
+    }
+    if (parsed.kind !== "remote") return false;
+    return fetchingByRemote().get(parsed.remoteId) === true;
+  };
+
   return (
     <div class="h-full flex flex-col">
-      <For each={props.remotes()}>
+      <For each={onlineRemotes()}>
         {(r) => (
           <RemoteAlbumsLoader
             remote={r}
@@ -865,6 +1174,9 @@ function Inner(props: {
           onPivot={handlePivot}
           selectedId={selectedId()}
           getImage={getImage}
+          isOfflineNode={isOfflineNode}
+          isLoadingNode={isLoadingNode}
+          interceptClick={interceptClick}
         />
 
         {/* album detail popover */}
