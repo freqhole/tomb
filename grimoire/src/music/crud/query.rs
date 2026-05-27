@@ -101,6 +101,8 @@ enum ArtistView {
 enum CommonColumns {
     #[iden = "artist_id"]
     ArtistId,
+    #[iden = "artist_name"]
+    ArtistName,
     #[iden = "album_id"]
     AlbumId,
     #[iden = "album_genres"]
@@ -721,6 +723,25 @@ fn add_global_filters(
         }
     }
 
+    // Name-based batch filter for cross-remote lookups, where artist_ids
+    // are remote-local and not shared. matches on `artist_name` from the
+    // album view exactly (case-sensitive — clients should normalize
+    // beforehand if they want a slug match). silently ignores
+    // non-string entries; empty array is a no-op.
+    if let Some(artist_names) = params
+        .filters
+        .get("artist_names")
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = artist_names
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !names.is_empty() {
+            query.and_where(Expr::col(CommonColumns::ArtistName).is_in(names));
+        }
+    }
+
     if let Some(album_id) = params.filters.get("album_id").and_then(|v| v.as_str()) {
         query.and_where(Expr::col(CommonColumns::AlbumId).eq(album_id));
     }
@@ -1297,6 +1318,25 @@ pub async fn query_artists(
             .collect();
         if !ids.is_empty() {
             query.and_where(Expr::col(ArtistView::ArtistId).is_in(ids));
+        }
+    }
+
+    // Name-based batch filter for cross-remote lookups, where artist_ids
+    // are remote-local and not shared. matches on artist_name exactly
+    // (case-sensitive — clients should normalize beforehand if they
+    // want a slug match). silently ignores non-string entries; empty
+    // array is a no-op.
+    if let Some(artist_names) = params
+        .filters
+        .get("artist_names")
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = artist_names
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !names.is_empty() {
+            query.and_where(Expr::col(ArtistView::ArtistName).is_in(names));
         }
     }
 

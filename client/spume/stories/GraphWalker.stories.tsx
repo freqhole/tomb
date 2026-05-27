@@ -5,6 +5,7 @@
 //   Ambient    — pivot = ambient genre value, artists fan out with album chains
 
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { fn } from "storybook/test";
 import WalkCanvas from "../src/components/graph/WalkCanvas";
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 
@@ -14,6 +15,18 @@ const meta: Meta<typeof WalkCanvas> = {
   parameters: {
     layout: "fullscreen",
     backgrounds: { default: "dark", values: [{ name: "dark", value: "#111827" }] },
+  },
+  // explicit spies for every optional callback prop so storybook 8+ doesn't
+  // warn about "implicit action args during render". every story inherits
+  // these via args merging; override per-story if a callback needs real
+  // behavior.
+  args: {
+    onSelect: fn(),
+    onPivot: fn(),
+    onClientReady: fn(),
+    onReady: fn(),
+    onBreadcrumbChange: fn(),
+    interceptClick: fn(),
   },
 };
 

@@ -93,6 +93,14 @@ function valueKindStroke(kind: string): string {
   return `hsl(${hashKind(kind)} 75% 62%)`;
 }
 
+/** deterministic accent color for a remote id. used by the strategy A
+ *  contributor-dot ring drawn around clustered entity nodes so each
+ *  contributing remote is visually distinguishable. reuses hashKind so
+ *  any new remote gets a stable, well-separated hue. */
+function remoteAccentColor(remoteId: string): string {
+  return `hsl(${hashKind(remoteId)} 80% 60%)`;
+}
+
 /** pick black or white based on the perceived luminance of bg. accepts
  *  hex (#rrggbb or #rgb) or hsl(h s% l%) strings. returns #ffffff for
  *  dark fills, #000000 for light fills. */
@@ -571,7 +579,26 @@ function drawNode(
 
   ctx.stroke();
 
-  // count badge for hub nodes; remote count only shown on hover to reduce clutter
+  // strategy A — cross-remote cluster indicator. when this node is
+  // the visual representative for an artist/album that exists in
+  // multiple remotes, draw a dashed overlay stroke around the node
+  // silhouette using the first contributing remote's accent color.
+  // skipped for non-clusters or singletons.
+  if (
+    n.contributorRemotes &&
+    n.contributorRemotes.length > 1 &&
+    (n.role === "artist" || n.role === "album")
+  ) {
+    ctx.save();
+    ctx.lineWidth = Math.max(2, radius * 0.12);
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = remoteAccentColor(n.contributorRemotes[0]);
+    nodeShapePath(ctx, n.role, x, y, radius);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   if (
     (n.role === "relation" || n.role === "value" || (n.role === "remote" && isHovered)) &&
     n.childCount > 0
@@ -933,6 +960,56 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         }
       }
 
+      // pre-pass: pick which edges deserve a mid-edge label. labelling
+      // every related-artist / cross-remote wire gets noisy quickly, so
+      // cap to a handful per "distinct connection" (kind/remote-pair)
+      // and pick the longest wires — they have room for the pill and
+      // benefit most from being named. unlabelled edges still carry the
+      // colour/dash hint so the relationship reads visually.
+      const MAX_RELATED_ARTIST_LABELS = 3;
+      const MAX_CROSS_REMOTE_LABELS_PER_PAIR = 3;
+      const labelEdges = new Set<TopologyEdge>();
+      const relCands: { e: TopologyEdge; len2: number }[] = [];
+      const crossCands = new Map<string, { e: TopologyEdge; len2: number }[]>();
+      for (const e of edges) {
+        if (!e.isRelatedArtist && !e.isCrossRemote) continue;
+        const x0 = positions[e.sourceIdx * 2];
+        const y0 = positions[e.sourceIdx * 2 + 1];
+        const x1 = positions[e.targetIdx * 2];
+        const y1 = positions[e.targetIdx * 2 + 1];
+        if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
+        if (!Number.isFinite(x1) || !Number.isFinite(y1)) continue;
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const len2 = dx * dx + dy * dy;
+        if (e.isRelatedArtist) {
+          relCands.push({ e, len2 });
+        } else {
+          const sn = nodes[e.sourceIdx];
+          const tn = nodes[e.targetIdx];
+          const a = sn ? nodeRemoteId(sn.id) : undefined;
+          const b = tn ? nodeRemoteId(tn.id) : undefined;
+          if (!a || !b || a === b) continue;
+          const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+          let arr = crossCands.get(key);
+          if (!arr) {
+            arr = [];
+            crossCands.set(key, arr);
+          }
+          arr.push({ e, len2 });
+        }
+      }
+      relCands.sort((a, b) => b.len2 - a.len2);
+      for (let i = 0; i < Math.min(MAX_RELATED_ARTIST_LABELS, relCands.length); i++) {
+        labelEdges.add(relCands[i].e);
+      }
+      for (const arr of crossCands.values()) {
+        arr.sort((a, b) => b.len2 - a.len2);
+        for (let i = 0; i < Math.min(MAX_CROSS_REMOTE_LABELS_PER_PAIR, arr.length); i++) {
+          labelEdges.add(arr[i].e);
+        }
+      }
+
       // draw edges
       for (const e of edges) {
         const x0 = positions[e.sourceIdx * 2];
@@ -1006,7 +1083,9 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 
         // mid-edge label for related-artist edges so the relationship
         // is self-describing. drawn as a small pill at the midpoint.
-        if (e.isRelatedArtist) {
+        // capped via labelEdges to avoid pill-spam when many related-
+        // artist wires share the viewport.
+        if (e.isRelatedArtist && labelEdges.has(e)) {
           const mx = (x0 + x1) / 2;
           const my = (y0 + y1) / 2;
           const text = "related artist";
@@ -1034,8 +1113,9 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         // endpoint's remote id (single name — both endpoints carry the
         // same entity, so either side works; once 1.c lands and the
         // edge re-routes to the source-remote hub, this naturally
-        // reads as "lives also on $remote").
-        if (e.isCrossRemote) {
+        // reads as "lives also on $remote"). capped per remote-pair via
+        // labelEdges so a busy bridge shows only a few labels.
+        if (e.isCrossRemote && labelEdges.has(e)) {
           const srcR = sn ? nodeRemoteId(sn.id) : undefined;
           const tgtR = tn ? nodeRemoteId(tn.id) : undefined;
           if (srcR && tgtR && srcR !== tgtR) {

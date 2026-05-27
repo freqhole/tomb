@@ -75,8 +75,30 @@ const parentsOf  = new Map<string, string[]>(); // childId  -> [parentId]
 // indexGraph() from name-based matching across remotes.
 const crossRemoteEdges = new Set<string>();
 
+// strategy A — cluster aggregation:
+// when two or more entity nodes (artist or album) match across remotes via
+// slug(label), we collapse them visually into a single "cluster leader"
+// glyph. every member maps to the leader's id via clusterLeaderOf; the
+// leader's contributor remote list is in clusterRemotes (leader id ->
+// sorted list of contributing remoteIds). this enables:
+//   - getVisible() promoting any follower to its leader so we never
+//     show duplicates on screen
+//   - the renderer drawing per-contributor accent dots around the leader
+//   - the detail panel reading contributor list for the multi-remote
+//     edit/open dropdown (next pass)
+// id system stays per-remote; only the visual + selection layer aggregates.
+const clusterLeaderOf = new Map<string, string>(); // memberId -> leaderId
+const clusterMembers = new Map<string, string[]>(); // leaderId -> [memberIds]
+const clusterRemotes = new Map<string, string[]>(); // leaderId -> sorted remoteIds
+
 function crossKey(a: string, b: string): string {
   return a < b ? `${a}||${b}` : `${b}||${a}`;
+}
+
+/** mirror of nodeIds.remoteHubId — defined locally so the worker stays
+ *  free of main-thread imports. */
+function remoteHubId(remoteId: string): string {
+  return `remote::${remoteId}`;
 }
 
 /** case-insensitive, punctuation-collapsing slug — used for cross-remote
@@ -98,6 +120,34 @@ function remoteOfId(id: string): string | null {
 
 function pivot(): string {
   return breadcrumb[breadcrumb.length - 1] ?? "";
+}
+
+/** map a node id to its cluster leader (or itself if not in a cluster).
+ *  used to collapse cross-remote duplicates into a single visible glyph. */
+function leaderOf(id: string): string {
+  return clusterLeaderOf.get(id) ?? id;
+}
+
+/** strategy A phase 2 — return the union of children across every member
+ *  of `id`'s cluster (or just `childrenOf.get(id)` when `id` is not in a
+ *  cluster). this is the key to surfacing every contributor's children
+ *  when the user pivots on (or auto-expands) a cluster leader: e.g.
+ *  pivoting on a merged-artist glyph reveals albums from every remote
+ *  that hosts that artist, not just the leader's remote. duplicate
+ *  child entries are tolerated \u2014 the visible-set collapse loop runs
+ *  follower\u2192leader at the end of getVisible(), and Set semantics
+ *  dedupe naturally before that. */
+function clusterChildrenOf(id: string): string[] {
+  const lead = leaderOf(id);
+  const direct = childrenOf.get(lead) ?? [];
+  const members = clusterMembers.get(lead);
+  if (!members || members.length === 0) return direct;
+  const out: string[] = [...direct];
+  for (const m of members) {
+    if (m === lead) continue;
+    for (const c of childrenOf.get(m) ?? []) out.push(c);
+  }
+  return out;
 }
 
 // ---- node radius by role + childCount --------------------------------------
@@ -274,7 +324,7 @@ function getVisible(): Set<string> {
   const visible = new Set<string>(breadcrumb);
   const piv = pivot();
   const pivRole = nodeMap.get(piv)?.role;
-  for (const childId of childrenOf.get(piv) ?? []) {
+  for (const childId of clusterChildrenOf(piv)) {
     const wn = nodeMap.get(childId);
     if (!wn) continue;
     // skip hub nodes that ended up with no children (e.g. unmapped genre).
@@ -300,7 +350,7 @@ function getVisible(): Set<string> {
     const wn = nodeMap.get(id);
     if (wn?.role !== "artist") continue;
     if (id !== piv && !breadcrumbSet.has(id)) continue;
-    for (const childId of childrenOf.get(id) ?? []) {
+    for (const childId of clusterChildrenOf(id)) {
       const child = nodeMap.get(childId);
       if (child?.role === "album") visible.add(childId);
     }
@@ -328,6 +378,19 @@ function getVisible(): Set<string> {
       if (parent?.role === "relation") visible.add(parentId);
     }
   }
+  // strategy A — collapse cluster followers to their leader. iterating
+  // over a snapshot since we mutate the set. members are deleted; only
+  // the leader remains so the renderer draws a single aggregate glyph.
+  // breadcrumb membership is preserved by adding the leader when any
+  // member was on the breadcrumb (the original member id stays in
+  // breadcrumb[] — the worker uses leaderOf() at edge-emit + breadcrumb-
+  // set construction time so the leader still reads as "on path").
+  for (const id of [...visible]) {
+    const lead = leaderOf(id);
+    if (lead === id) continue;
+    visible.delete(id);
+    visible.add(lead);
+  }
   return visible;
 }
 
@@ -340,8 +403,11 @@ function buildSim() {
   const cx = width / 2;
   const cy = height / 2;
   const targets = computeTargets(pivot(), visible, cx, cy);
-  const piv = pivot();
-  const breadcrumbSet = new Set(breadcrumb);
+  const pivLeader = leaderOf(pivot());
+  // strategy A — breadcrumb may contain member ids; collapse to leader ids so
+  // the visible leader still reads as "on breadcrumb path" (drives stroke +
+  // label tints).
+  const breadcrumbSet = new Set(breadcrumb.map(leaderOf));
 
   // build sim nodes, preserving existing positions when available
   const prevPositions = new Map<string, { x: number; y: number }>();
@@ -377,17 +443,26 @@ function buildSim() {
     simNodes.push(sn);
   }
 
-  // build sim edges (between visible nodes only)
+  // build sim edges (between visible nodes only). source/target are mapped
+  // through leaderOf() so edges that originally connected cluster followers
+  // (related-artist, parent-child, etc) still emit between the surviving
+  // leader nodes after strategy A collapse. self-loops (both endpoints in
+  // the same cluster) are dropped silently.
   const simLinks: SimLink[] = [];
   const visibleEdges: TopologyEdge[] = [];
   const emittedEdgeKeys = new Set<string>(); // dedupe forward + cross-remote
 
   for (const e of fullGraph.edges) {
-    const src = typeof e.source === "string" ? e.source : (e.source as SimNode).id;
-    const tgt = typeof e.target === "string" ? e.target : (e.target as SimNode).id;
+    const rawSrc = typeof e.source === "string" ? e.source : (e.source as SimNode).id;
+    const rawTgt = typeof e.target === "string" ? e.target : (e.target as SimNode).id;
+    const src = leaderOf(rawSrc);
+    const tgt = leaderOf(rawTgt);
+    if (src === tgt) continue;
     const si = idToIdx.get(src);
     const ti = idToIdx.get(tgt);
     if (si === undefined || ti === undefined) continue;
+    const key = crossKey(src, tgt);
+    if (emittedEdgeKeys.has(key)) continue;
     const isBC = breadcrumbSet.has(src) && breadcrumbSet.has(tgt);
     simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC });
     visibleEdges.push({
@@ -396,22 +471,81 @@ function buildSim() {
       isBreadcrumb: isBC,
       isRelatedArtist: e.isRelatedArtist,
     });
-    emittedEdgeKeys.add(crossKey(src, tgt));
+    emittedEdgeKeys.add(key);
   }
 
-  // phase 3: emit synthesized cross-remote artist/album links for any pair
-  // whose both endpoints are currently visible. flagged so the renderer can
-  // style them distinctly (amber dashed). also added as sim links with a
-  // longer rest distance so counterparts don't crash into each other.
+  // phase 3: emit synthesized cross-remote artist/album links.
+  //
+  // re-routing: instead of drawing a dashed wire between two cluster
+  // leaders (which crowds the entity space in the middle of the canvas),
+  // route each cross-remote bridge to the *other* endpoint's remote hub.
+  // visually this reads as "this entity also lives on $remote", and the
+  // wires terminate at the periphery (remote hubs) rather than tangling
+  // through the cluster interior. when both endpoints already collapsed
+  // into the same cluster (strategy A already absorbed the bridge) the
+  // dashed edge is skipped entirely. when the remote hubs aren't visible
+  // we fall back to the legacy leader↔leader dashed edge so the bridge
+  // still surfaces.
   for (const key of crossRemoteEdges) {
-    if (emittedEdgeKeys.has(key)) continue;
     const [a, b] = key.split("||");
-    const si = idToIdx.get(a);
-    const ti = idToIdx.get(b);
-    if (si === undefined || ti === undefined) continue;
-    simLinks.push({ source: a, target: b, isBreadcrumb: false });
-    visibleEdges.push({ sourceIdx: si, targetIdx: ti, isBreadcrumb: false, isCrossRemote: true });
-    emittedEdgeKeys.add(key);
+    const lA = leaderOf(a);
+    const lB = leaderOf(b);
+    if (lA === lB) continue; // already merged by clustering
+    const remoteA = remoteOfId(a);
+    const remoteB = remoteOfId(b);
+    const hubA = remoteA ? remoteHubId(remoteA) : null;
+    const hubB = remoteB ? remoteHubId(remoteB) : null;
+    const lAIdx = idToIdx.get(lA);
+    const lBIdx = idToIdx.get(lB);
+    const hubAIdx = hubA ? idToIdx.get(hubA) : undefined;
+    const hubBIdx = hubB ? idToIdx.get(hubB) : undefined;
+
+    let emittedAny = false;
+    // lA → remote hub of b's remote
+    if (lAIdx !== undefined && hubBIdx !== undefined && lA !== hubB) {
+      const k = crossKey(lA, hubB!);
+      if (!emittedEdgeKeys.has(k)) {
+        simLinks.push({ source: lA, target: hubB!, isBreadcrumb: false });
+        visibleEdges.push({
+          sourceIdx: lAIdx,
+          targetIdx: hubBIdx,
+          isBreadcrumb: false,
+          isCrossRemote: true,
+        });
+        emittedEdgeKeys.add(k);
+        emittedAny = true;
+      }
+    }
+    // lB → remote hub of a's remote
+    if (lBIdx !== undefined && hubAIdx !== undefined && lB !== hubA) {
+      const k = crossKey(lB, hubA!);
+      if (!emittedEdgeKeys.has(k)) {
+        simLinks.push({ source: lB, target: hubA!, isBreadcrumb: false });
+        visibleEdges.push({
+          sourceIdx: lBIdx,
+          targetIdx: hubAIdx,
+          isBreadcrumb: false,
+          isCrossRemote: true,
+        });
+        emittedEdgeKeys.add(k);
+        emittedAny = true;
+      }
+    }
+    // fallback: neither remote hub is visible — keep the legacy direct
+    // leader↔leader dashed edge so the bridge doesn't vanish.
+    if (!emittedAny && lAIdx !== undefined && lBIdx !== undefined) {
+      const k = crossKey(lA, lB);
+      if (!emittedEdgeKeys.has(k)) {
+        simLinks.push({ source: lA, target: lB, isBreadcrumb: false });
+        visibleEdges.push({
+          sourceIdx: lAIdx,
+          targetIdx: lBIdx,
+          isBreadcrumb: false,
+          isCrossRemote: true,
+        });
+        emittedEdgeKeys.add(k);
+      }
+    }
   }
 
   // emit topology before starting sim so main thread can render immediately
@@ -420,9 +554,10 @@ function buildSim() {
     role: n.role as VisibleNode["role"],
     label: nodeMap.get(n.id)?.label ?? n.id,
     childCount: n.childCount,
-    isPivot: n.id === piv,
+    isPivot: n.id === pivLeader,
     isBreadcrumb: breadcrumbSet.has(n.id),
     tint: nodeMap.get(n.id)?.tint,
+    contributorRemotes: clusterRemotes.get(n.id),
   }));
   post({ type: "topology", nodes: topologyNodes, edges: visibleEdges });
   post({ type: "visibleIds", ids: simNodes.map((n) => n.id) });
@@ -561,6 +696,9 @@ function indexGraph() {
   // the human label. albums also key on their parent artist's slug since
   // two unrelated artists can share a title (e.g. "Untitled").
   crossRemoteEdges.clear();
+  clusterLeaderOf.clear();
+  clusterMembers.clear();
+  clusterRemotes.clear();
   const artistByKey = new Map<string, string[]>(); // slug(label) -> [artistId]
   const albumByKey  = new Map<string, string[]>(); // slug(artistLabel)::slug(albumLabel) -> [albumId]
 
@@ -587,9 +725,26 @@ function indexGraph() {
     albumByKey.get(k)!.push(n.id);
   }
 
-  // all-pairs cross-remote links per matched group (different remotes only)
+  // all-pairs cross-remote links per matched group (different remotes only).
+  // also designates a cluster leader (lexicographically lowest id with a
+  // resolvable remote) so the visual layer can collapse the group into one
+  // glyph (strategy A).
   function linkGroup(ids: string[]) {
     if (ids.length < 2) return;
+    // bucket by remote so we can both (a) skip same-remote pairs and (b)
+    // build the contributor remote list for the cluster.
+    const remotes = new Set<string>();
+    for (const id of ids) {
+      const r = remoteOfId(id);
+      if (r) remotes.add(r);
+    }
+    // need at least two distinct remotes to form a cross-remote cluster.
+    if (remotes.size < 2) return;
+    const sortedIds = [...ids].sort();
+    const leader = sortedIds[0];
+    clusterMembers.set(leader, sortedIds);
+    clusterRemotes.set(leader, [...remotes].sort());
+    for (const m of sortedIds) clusterLeaderOf.set(m, leader);
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         const a = ids[i];
@@ -597,7 +752,8 @@ function indexGraph() {
         if (remoteOfId(a) === remoteOfId(b)) continue; // same remote — skip
         crossRemoteEdges.add(crossKey(a, b));
         // augment adjacency so getVisible() surfaces counterparts as
-        // pseudo-children of the pivoted artist/album.
+        // pseudo-children of the pivoted artist/album (still useful as a
+        // fallback for any path that bypasses cluster promotion).
         if (!childrenOf.has(a)) childrenOf.set(a, []);
         if (!childrenOf.has(b)) childrenOf.set(b, []);
         childrenOf.get(a)!.push(b);

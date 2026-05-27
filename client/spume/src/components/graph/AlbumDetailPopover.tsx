@@ -9,6 +9,7 @@ import { AlbumNodeView } from "./AlbumNodeView";
 import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
+import { RemoteSplitButton, type ContributingRemote } from "./RemoteSplitButton";
 // long-press timing — kept in sync with RelationLegend so the gesture
 // feels identical across both surfaces.
 const LONG_PRESS_MS = 450;
@@ -46,8 +47,8 @@ export interface AlbumDetailPopoverProps {
   onPlay?: (album: AlbumNodeData) => void;
   onShuffle?: (album: AlbumNodeData) => void;
   onAddToQueue?: (album: AlbumNodeData) => void;
-  onViewAlbum?: (album: AlbumNodeData) => void;
-  onViewArtist?: (album: AlbumNodeData) => void;
+  onViewAlbum?: (album: AlbumNodeData, remoteId?: string) => void;
+  onViewArtist?: (album: AlbumNodeData, remoteId?: string) => void;
   /** when supplied, the artist name in the header becomes a clickable
    *  link that asks the parent to focus the matching artist node on
    *  the graph (which surfaces the artist detail popover). distinct
@@ -56,8 +57,16 @@ export interface AlbumDetailPopoverProps {
   onSelectArtistById?: (artistId: string) => void;
   onToggleFavorite?: (album: AlbumNodeData) => void;
   /** opens the album editor modal. parent is responsible for gating
-   *  on admin permission — if undefined, the edit button is hidden. */
-  onEdit?: (album: AlbumNodeData) => void;
+   *  on admin permission — if undefined, the edit button is hidden.
+   *  when `contributingRemotes` has more than one entry, the button
+   *  renders as a split-button; the picked remoteId is passed through. */
+  onEdit?: (album: AlbumNodeData, remoteId?: string) => void;
+  /** every remote that has an equivalent album (same artist + title
+   *  slug). parent owns the sort — first entry is the default. when
+   *  length > 1, the action buttons (open / artist / edit) render as
+   *  split-buttons with a dropdown so the user can route the action
+   *  to a specific remote. */
+  contributingRemotes?: ContributingRemote[];
   /** clicking the cover tile — parent typically opens an image
    *  carousel modal with the album's image(s). undefined leaves the
    *  cover non-interactive (default). */
@@ -224,24 +233,27 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
               />
             </Show>
             <Show when={props.onViewAlbum}>
-              <ActionButton
+              <RemoteSplitButton
                 icon={IconNames.album}
                 label="open"
-                onClick={() => props.onViewAlbum?.(album()!)}
+                remotes={props.contributingRemotes}
+                onPick={(remoteId) => props.onViewAlbum?.(album()!, remoteId)}
               />
             </Show>
             <Show when={props.onViewArtist}>
-              <ActionButton
+              <RemoteSplitButton
                 icon={IconNames.artist}
                 label="artist"
-                onClick={() => props.onViewArtist?.(album()!)}
+                remotes={props.contributingRemotes}
+                onPick={(remoteId) => props.onViewArtist?.(album()!, remoteId)}
               />
             </Show>
             <Show when={props.onEdit}>
-              <ActionButton
+              <RemoteSplitButton
                 icon={IconNames.edit}
                 label="edit"
-                onClick={() => props.onEdit?.(album()!)}
+                remotes={props.contributingRemotes}
+                onPick={(remoteId) => props.onEdit?.(album()!, remoteId)}
               />
             </Show>
           </div>

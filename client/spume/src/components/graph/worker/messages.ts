@@ -18,6 +18,14 @@ export interface VisibleNode {
   coSelected?: boolean;
   /** optional hex color override for node fill (e.g. taxon kind colors). */
   tint?: string;
+  /** strategy A — cross-remote cluster aggregation. when this node is the
+   *  visual representative ("leader") for a set of matched artists/albums
+   *  spread across N remotes, contributorRemotes holds the sorted list of
+   *  contributing remote ids. the renderer draws a per-contributor accent
+   *  dot ring around the node and the detail panel reads this list to
+   *  surface a multi-remote edit/open dropdown. absent or length<=1 means
+   *  the node is a normal single-remote entity. */
+  contributorRemotes?: string[];
 }
 
 export interface TopologyEdge {

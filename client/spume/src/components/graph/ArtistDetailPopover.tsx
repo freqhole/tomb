@@ -10,11 +10,12 @@
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { AlbumNodeData, ArtistNodeData, RelationKindLike } from "./types";
-import { Icon, IconNames } from "../icons/registry";
+import { IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { AlbumNodeView } from "./AlbumNodeView";
+import { RemoteSplitButton, type ContributingRemote } from "./RemoteSplitButton";
 
 export interface ArtistDetailPopoverProps {
   /** single artist shorthand. ignored when `artists` is supplied. */
@@ -33,10 +34,21 @@ export interface ArtistDetailPopoverProps {
   /** set of `"kind|label"` keys that should render in toggled-on state. */
   activeRelations?: Set<string>;
   // action handlers
-  onViewArtist?: (artist: ArtistNodeData) => void;
+  /** view-artist callback. when `contributingRemotes` is supplied and
+   *  has more than one entry, the popover's open button becomes a
+   *  split-button — the parent receives the picked `remoteId` so it
+   *  can route navigation to that remote. when omitted / single,
+   *  `remoteId` is the sole entry's id (or undefined). */
+  onViewArtist?: (artist: ArtistNodeData, remoteId?: string) => void;
   /** opens the artist editor modal. parent is responsible for gating
-   *  on admin permission — if undefined, the edit button is hidden. */
-  onEdit?: (artist: ArtistNodeData) => void;
+   *  on admin permission — if undefined, the edit button is hidden.
+   *  same multi-remote semantics as `onViewArtist`. */
+  onEdit?: (artist: ArtistNodeData, remoteId?: string) => void;
+  /** every remote that has an equivalent artist (same name slug).
+   *  parent owns the sort order — first entry is the default. when
+   *  length > 1, the edit + open buttons render as split-buttons with
+   *  a dropdown so the user can choose which remote to act against. */
+  contributingRemotes?: ContributingRemote[];
   /** notifies parent that the user picked a different artist in the
    *  carousel — e.g. so the canvas selection can follow. */
   onFocusArtist?: (artist: ArtistNodeData) => void;
@@ -62,6 +74,15 @@ export interface ArtistDetailPopoverProps {
    *  the matching album node on the graph (which surfaces the album
    *  detail popover). */
   onSelectAlbum?: (album: AlbumNodeData) => void;
+  /** related artists for the currently-shown artist (in-library only;
+   *  external/ghost rows belong in the enrichment panel). rendered as
+   *  a circular-avatar list beneath the album list. omit / empty hides
+   *  the section entirely. */
+  relatedArtists?: ArtistNodeData[];
+  /** click handler for a related-artist row — parent typically focuses
+   *  the matching artist node on the graph (which keeps this popover
+   *  open and swaps it to the picked artist). */
+  onSelectRelatedArtist?: (artist: ArtistNodeData) => void;
 }
 
 export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
@@ -180,17 +201,19 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
               />
             </Show>
             <Show when={props.onViewArtist}>
-              <ActionButton
+              <RemoteSplitButton
                 icon={IconNames.artist}
                 label="open"
-                onClick={() => props.onViewArtist?.(artist()!)}
+                remotes={props.contributingRemotes}
+                onPick={(remoteId) => props.onViewArtist?.(artist()!, remoteId)}
               />
             </Show>
             <Show when={props.onEdit}>
-              <ActionButton
+              <RemoteSplitButton
                 icon={IconNames.edit}
                 label="edit"
-                onClick={() => props.onEdit?.(artist()!)}
+                remotes={props.contributingRemotes}
+                onPick={(remoteId) => props.onEdit?.(artist()!, remoteId)}
               />
             </Show>
           </div>
@@ -252,6 +275,75 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
                         <Show when={alb.year}>
                           <div class="text-[10px] text-white/55 truncate leading-tight">
                             {alb.year}
+                          </div>
+                        </Show>
+                      </div>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={(props.relatedArtists ?? []).length > 0}>
+          <div class="px-3 pb-2">
+            <div class="text-[10px] uppercase tracking-wide text-white/55 mb-1">
+              related artists ({(props.relatedArtists ?? []).length})
+            </div>
+            <div class="flex flex-col gap-1 max-h-48 overflow-y-auto">
+              <For each={props.relatedArtists}>
+                {(rel) => {
+                  // stubs surfaced by the parent for external (not
+                  // in any loaded library) related artists carry an
+                  // empty artistId; they're shown dimmed and are not
+                  // clickable since there's no node to focus.
+                  const inLibrary = !!rel.artistId;
+                  const clickable = inLibrary && !!props.onSelectRelatedArtist;
+                  return (
+                    <button
+                      type="button"
+                      class="flex items-center gap-2 px-1.5 py-1 rounded border border-transparent text-left transition-colors"
+                      classList={{
+                        "hover:bg-white/5 hover:border-white/10 cursor-pointer": clickable,
+                        "cursor-default": !clickable,
+                        "opacity-60": !inLibrary,
+                      }}
+                      disabled={!clickable}
+                      title={inLibrary ? undefined : "not in any loaded library"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (clickable) props.onSelectRelatedArtist?.(rel);
+                      }}
+                    >
+                      <ArtistAvatar artist={rel} size={36} />
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5">
+                          <MarqueeText
+                            text={rel.name}
+                            class="text-[11px] text-white/90 leading-tight flex-1 min-w-0"
+                            hoverOnly={true}
+                          />
+                          <Show when={inLibrary}>
+                            <span
+                              class="shrink-0 w-1.5 h-1.5 rounded-full bg-[var(--color-accent-500,#ff1a9e)]"
+                              aria-label="in library"
+                              title="in library"
+                            />
+                          </Show>
+                        </div>
+                        <Show
+                          when={inLibrary && rel.albumCount > 0}
+                          fallback={
+                            <Show when={!inLibrary}>
+                              <div class="text-[10px] text-white/45 truncate leading-tight">
+                                external
+                              </div>
+                            </Show>
+                          }
+                        >
+                          <div class="text-[10px] text-white/55 truncate leading-tight">
+                            {rel.albumCount} {rel.albumCount === 1 ? "album" : "albums"}
                           </div>
                         </Show>
                       </div>
@@ -395,22 +487,6 @@ function ArtistAvatar(props: { artist: ArtistNodeData; size: number; onClick?: (
         </Show>
       </Show>
     </div>
-  );
-}
-
-function ActionButton(props: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      class="flex items-center gap-1 px-2 py-1 rounded border border-white/10 text-[11px] text-white/80 hover:text-white hover:bg-white/5 hover:border-white/20 transition-colors cursor-pointer"
-      onClick={(e) => {
-        e.stopPropagation();
-        props.onClick();
-      }}
-    >
-      <Icon name={props.icon as any} size={12} />
-      <span>{props.label}</span>
-    </button>
   );
 }
 

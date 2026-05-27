@@ -168,7 +168,10 @@ pub async fn list_related_for_artist(artist_id: &str) -> GrimoireResponse<Vec<Re
             deleted_at as "deleted_at?"
         FROM related_artistz
         WHERE source_artist_id = ? AND deleted_at IS NULL AND status = 'accepted'
-        ORDER BY match_score DESC NULLS LAST, related_name COLLATE NOCASE ASC
+        ORDER BY
+          (related_artist_id IS NOT NULL) DESC,
+          match_score DESC NULLS LAST,
+          related_name COLLATE NOCASE ASC
         "#,
         artist_id,
     )
@@ -224,7 +227,10 @@ pub async fn list_related_for_artists(
         WHERE source_artist_id IN (SELECT value FROM json_each(?))
           AND deleted_at IS NULL
           AND status = 'accepted'
-        ORDER BY match_score DESC NULLS LAST, related_name COLLATE NOCASE ASC
+        ORDER BY
+          (related_artist_id IS NOT NULL) DESC,
+          match_score DESC NULLS LAST,
+          related_name COLLATE NOCASE ASC
         "#,
         ids_json,
     )

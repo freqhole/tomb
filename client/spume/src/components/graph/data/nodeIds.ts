@@ -27,8 +27,9 @@ export type RelationKind =
 // ported verbatim from walker.worker.ts so main-side and worker-side slugs
 // agree byte-for-byte. cross-remote matching relies on this.
 
-export function slug(s: string): string {
-  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+export function slug(s: string | null | undefined): string {
+  if (!s) return "";
+  return String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 // ---- encoders --------------------------------------------------------------
