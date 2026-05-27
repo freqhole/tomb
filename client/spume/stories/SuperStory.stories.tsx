@@ -922,7 +922,11 @@ export const FullAppDemo: Story = {
     const mainContent = () => {
       switch (currentRoute()) {
         case "library":
-          return <div class="flex-1 flex items-center justify-center text-white/30 text-sm">graph view (use LibraryGraphSubview in production)</div>;
+          return (
+            <div class="flex-1 flex items-center justify-center text-white/30 text-sm">
+              graph view (use LibraryGraphSubview in production)
+            </div>
+          );
         case "songs":
           return songsView();
         case "albums":
