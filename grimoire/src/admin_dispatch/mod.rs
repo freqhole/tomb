@@ -52,7 +52,7 @@ pub async fn handle(
         // -- knocks --
         "knocks_list" => {
             let resp = knock::list_knocks(false).await;
-            tracing::info!(
+            tracing::debug!(
                 "[admin-dispatch] knocks_list success={} count={}",
                 resp.success,
                 resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
@@ -60,8 +60,8 @@ pub async fn handle(
             to_value(resp)
         }
         "knocks_list_all" => {
-            let resp = knock::list_knocks(true).await;
-            tracing::info!(
+            let resp: GrimoireResponse<Vec<knock::KnockRequest>> = knock::list_knocks(true).await;
+            tracing::debug!(
                 "[admin-dispatch] knocks_list_all success={} count={}",
                 resp.success,
                 resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
