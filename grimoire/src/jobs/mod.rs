@@ -32,15 +32,16 @@ pub use music::{
     AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
     AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
     BulkEnrichmentRequest, BulkEnrichmentResponse, CancelBulkEnrichmentRequest,
-    CancelBulkEnrichmentResponse, EnqueueAudioDbAlbumDetailRequest,
-    EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
-    EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
-    EnrichmentSourceStatus, GetEnrichmentProgressRequest, GetEnrichmentProgressResponse,
-    LastFmAlbumDetailParams, LastFmAlbumDetailResult, LastFmArtistDetailParams,
-    LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams,
-    MbAlbumSearchResult, ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
-    RequeryEnrichmentRequest, RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams,
-    ScanDirectoryResult, ScanJobCreatedResponse,
+    CancelBulkEnrichmentResponse, DirectoryFileEntry, DirectoryFileFailure,
+    EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
+    EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
+    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
+    GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
+    LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
+    MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
+    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
+    ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions
@@ -73,6 +74,6 @@ pub use service::{
 
 // re-export music job processors (used by runner module)
 pub use music::{
-    process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
-    process_scan_directory_job,
+    process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
+    process_import_music_job, process_scan_directory_job,
 };

@@ -54,6 +54,53 @@ pub struct ProcessFileResult {
     pub waveform_generated: bool,
 }
 
+/// one entry in a `ProcessDirectoryParams.files` list. carries the
+/// absolute path of an audio file plus an optional `existing_blob_id`
+/// when the scanner pre-flighted this file as a rescan-update
+/// candidate (changed mtime/size against a previously imported blob).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryFileEntry {
+    pub file_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_blob_id: Option<String>,
+}
+
+/// parameters for processing every audio file in a single directory
+/// inside one job. the scanner produces one of these per parent dir
+/// (no chunk cap — a dir with 1000s of files is still one job). the
+/// processor walks files sequentially so we avoid cross-dir i/o
+/// thrash and concurrent ffmpeg / art-extraction churn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessDirectoryParams {
+    /// absolute path of the directory containing the files. used as
+    /// the conflict key (two workers can't race on the same dir).
+    pub directory_path: String,
+    /// audio files inside `directory_path` that should be processed.
+    /// scanner already filtered out unchanged files (cheap dedup via
+    /// mtime + size against `media_blobz.metadata`).
+    pub files: Vec<DirectoryFileEntry>,
+}
+
+/// per-file failure inside a `ProcessDirectory` job. the job as a
+/// whole succeeds as long as at least one file was processed; the
+/// failures list captures everything that went wrong so retries or
+/// follow-up tools can see what to revisit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryFileFailure {
+    pub file_path: String,
+    pub error_message: String,
+}
+
+/// results from a `ProcessDirectory` job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessDirectoryResult {
+    pub directory_path: String,
+    pub files_total: u64,
+    pub files_succeeded: u64,
+    pub files_failed: u64,
+    pub failures: Vec<DirectoryFileFailure>,
+}
+
 // ============================================================================
 // CLI Response Types
 // ============================================================================

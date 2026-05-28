@@ -12,6 +12,7 @@ mod album_enrichment_pipeline_processor;
 mod audiodb_artist_detail_processor;
 mod audiodb_detail_processor;
 mod auto_apply_album_enrichment_processor;
+mod dir_processor;
 mod directory_tag_rules;
 mod fetch_processor;
 mod file_processor;
@@ -30,6 +31,7 @@ pub use album_enrichment_pipeline_processor::process_album_enrichment_pipeline_j
 pub use audiodb_artist_detail_processor::process_audiodb_artist_detail_job;
 pub use audiodb_detail_processor::process_audiodb_album_detail_job;
 pub use auto_apply_album_enrichment_processor::process_auto_apply_album_enrichment_job;
+pub use dir_processor::process_directory_job;
 pub use fetch_processor::process_fetch_media_job;
 pub use file_processor::process_file_job;
 pub use lastfm_artist_detail_processor::process_lastfm_artist_detail_job;
@@ -46,15 +48,16 @@ pub use models::{
     AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
     AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
     BulkEnrichmentRequest, BulkEnrichmentResponse, CancelBulkEnrichmentRequest,
-    CancelBulkEnrichmentResponse, EnqueueAudioDbAlbumDetailRequest,
-    EnqueueAudioDbAlbumDetailResponse, EnqueueLastFmAlbumDetailRequest,
-    EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest, EnqueueMbAlbumSearchResponse,
-    EnrichmentSourceStatus, GetEnrichmentProgressRequest, GetEnrichmentProgressResponse,
-    LastFmAlbumDetailParams, LastFmAlbumDetailResult, LastFmArtistDetailParams,
-    LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult, MbAlbumSearchParams,
-    MbAlbumSearchResult, ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse,
-    RequeryEnrichmentRequest, RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams,
-    ScanDirectoryResult, ScanJobCreatedResponse,
+    CancelBulkEnrichmentResponse, DirectoryFileEntry, DirectoryFileFailure,
+    EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
+    EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
+    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
+    GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
+    LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
+    MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
+    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
+    ScanJobCreatedResponse,
 };
 
 // re-export scanned directories

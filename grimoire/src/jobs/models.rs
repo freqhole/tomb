@@ -13,6 +13,12 @@ pub enum JobType {
     ScanDirectory,
     RescanDirectories,
     ProcessFile,
+    /// process every audio file in a single directory inside one job.
+    /// the scanner fans out by dir (not by file) so the worker pool
+    /// avoids cross-dir i/o thrash and redundant per-file ffmpeg /
+    /// art-extraction work. ProcessFile is still used for single-file
+    /// flows (uploads, url fetches).
+    ProcessDirectory,
 
     // media operations
     FetchMedia,

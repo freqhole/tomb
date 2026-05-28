@@ -8,10 +8,10 @@ use crate::database;
 use crate::error::GrimoireResult;
 use crate::jobs::{
     create_job, get_scanned_directory_paths, update_session_progress, CreateJobRequest,
-    JobProgress, JobType, ProcessFileParams,
+    DirectoryFileEntry, JobProgress, JobType, ProcessDirectoryParams,
 };
 use crate::users::get_root_user_id;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::debug;
 use walkdir::WalkDir;
@@ -136,9 +136,14 @@ pub async fn scan_directory_and_create_jobs(
     // get root user ID for job attribution (scanner runs as root user)
     let root_user_id = get_root_user_id().await;
 
-    // Create a processing job for each file (skip if unchanged)
-    let mut jobs_created = 0;
-    let mut files_skipped = 0;
+    // group discovered audio files by their immediate parent directory.
+    // each parent dir becomes one ProcessDirectory job (no chunking —
+    // a dir with 1000s of files is still one job). cheap dedup happens
+    // per-file here so we never even enqueue a dir job whose files are
+    // all unchanged.
+    let mut by_dir: BTreeMap<String, Vec<DirectoryFileEntry>> = BTreeMap::new();
+    let mut files_skipped = 0usize;
+    let mut files_to_process = 0usize;
 
     for file_path in audio_files {
         // get file modified time and size (cheap dedup signal, no hashing)
@@ -207,18 +212,35 @@ pub async fn scan_directory_and_create_jobs(
             None
         };
 
-        // file is new, or matches an existing record that needs updating
-        let params = ProcessFileParams {
-            file_path: file_path.clone(),
-            extract_metadata: true,
-            generate_thumbnail: true,
-            generate_waveform: true,
-            source_url: None,
-            existing_blob_id: existing_blob_id_for_update,
+        // bucket by immediate parent directory
+        let parent_dir = Path::new(&file_path)
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| ".".to_string());
+
+        by_dir
+            .entry(parent_dir)
+            .or_default()
+            .push(DirectoryFileEntry {
+                file_path: file_path.clone(),
+                existing_blob_id: existing_blob_id_for_update,
+            });
+        files_to_process += 1;
+    }
+
+    // emit one ProcessDirectory job per non-empty dir bucket
+    let mut jobs_created = 0usize;
+    for (directory_path, files) in by_dir {
+        if files.is_empty() {
+            continue;
+        }
+        let params = ProcessDirectoryParams {
+            directory_path: directory_path.clone(),
+            files,
         };
 
         let job_request = CreateJobRequest {
-            job_type: JobType::ProcessFile,
+            job_type: JobType::ProcessDirectory,
             session_id: Some(session_id.to_string()),
             parameters: serde_json::to_value(&params).unwrap_or_default(),
             max_retries: Some(3),
@@ -237,13 +259,16 @@ pub async fn scan_directory_and_create_jobs(
     }
 
     debug!(
-        "scan complete: {} files found, {} jobs created, {} files skipped (unchanged)",
-        file_count, jobs_created, files_skipped
+        "scan complete: {} files found, {} files queued across {} directory jobs, {} files skipped (unchanged)",
+        file_count, files_to_process, jobs_created, files_skipped
     );
 
-    // record the canonical job total on the session so progress reporting
-    // doesn't depend on jobz row counts (ProcessFile rows are deleted as
-    // jobs complete, which would otherwise make `total` shrink to zero).
+    // record the canonical job total on the session as the number of
+    // ProcessDirectory jobs so the runner's count-derived progress math
+    // (completed = total - in_flight - failed) lines up with reality.
+    // ProcessDirectory rows are deleted on completion so live counts
+    // shrink over time; this snapshot is what the runner reads as
+    // "total". per-file visibility is via dir-handler `info!` logs.
     let _ =
         update_session_progress(session_id, JobProgress::new(0, jobs_created as u64), None).await;
 

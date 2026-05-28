@@ -6,9 +6,10 @@ use super::models::{Job, JobResult, JobType};
 use super::music::{
     process_album_enrichment_pipeline_job, process_audiodb_album_detail_job,
     process_audiodb_artist_detail_job, process_auto_apply_album_enrichment_job,
-    process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
-    process_lastfm_album_detail_job, process_lastfm_artist_detail_job, process_mb_album_detail_job,
-    process_mb_album_search_job, process_rescan_directories_job, process_scan_directory_job,
+    process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
+    process_import_music_job, process_lastfm_album_detail_job, process_lastfm_artist_detail_job,
+    process_mb_album_detail_job, process_mb_album_search_job, process_rescan_directories_job,
+    process_scan_directory_job,
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
@@ -43,6 +44,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::ScanDirectory => process_scan_directory_job(&job).await,
         JobType::RescanDirectories => process_rescan_directories_job(&job).await,
         JobType::ProcessFile => process_file_job(&job).await,
+        JobType::ProcessDirectory => process_directory_job(&job).await,
         JobType::FetchMedia => process_fetch_media_job(&job).await,
         JobType::ConvertWebp => process_convert_webp_job(&job).await,
         JobType::ImportMusic => process_import_music_job(&job).await,
@@ -71,8 +73,9 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 }
             };
 
-            // clean up completed ProcessFile jobs to avoid bloating the jobz table
-            if job_type == JobType::ProcessFile {
+            // clean up completed ProcessFile / ProcessDirectory jobs to
+            // avoid bloating the jobz table (scans can produce 1000s)
+            if matches!(job_type, JobType::ProcessFile | JobType::ProcessDirectory) {
                 let _ = delete_job(&job.id).await;
             }
 
@@ -124,6 +127,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // completed = total - (pending + running + failed).
             if job_type == JobType::ImportMusic
                 || job_type == JobType::ProcessFile
+                || job_type == JobType::ProcessDirectory
                 || job_type == JobType::FetchMedia
             {
                 if let Some(session_id) = &job.session_id {
@@ -265,7 +269,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // applies to job types we already wired into the badge.
             if matches!(
                 job_type,
-                JobType::ImportMusic | JobType::ProcessFile | JobType::FetchMedia
+                JobType::ImportMusic
+                    | JobType::ProcessFile
+                    | JobType::ProcessDirectory
+                    | JobType::FetchMedia
             ) {
                 if let Some(session_id) = &job.session_id {
                     if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
@@ -525,6 +532,11 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
             let path = params.get("file_path")?.as_str()?.to_string();
             Some((JobType::ProcessFile, path))
+        }
+        JobType::ProcessDirectory => {
+            let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
+            let path = params.get("directory_path")?.as_str()?.to_string();
+            Some((JobType::ProcessDirectory, path))
         }
         // other job types (fetch, webp convert, import, mb/lastfm/audiodb
         // enrichment, pipeline orchestrators) have unique per-row keys
