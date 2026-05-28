@@ -20,7 +20,7 @@ import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
 import { FeedView } from "../../music/views/FeedView";
 import { AggregateFeedView } from "../../music/views/AggregateFeedView";
-import { LibraryView } from "../../library/views/LibraryView";
+import { ExploreView } from "../../library/views/LibraryView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
@@ -45,6 +45,12 @@ interface RoutesProps {
   onSongDoubleClick: (song: any) => void;
 }
 
+function LibraryRedirect() {
+  const navigate = useNavigate();
+  onMount(() => navigate("/explore", { replace: true }));
+  return null;
+}
+
 function RootRedirect() {
   const navigate = useNavigate();
 
@@ -58,8 +64,8 @@ function RootRedirect() {
         // browse surface) rather than the single-remote albums grid. the
         // graph view is the canonical multi-remote browse surface and
         // shows the user's full library at a glance on cold start.
-        debug("routes", "tauri mode: navigating to /library (graph view)");
-        navigate("/library", { replace: true });
+        debug("routes", "tauri mode: navigating to /explore (graph view)");
+        navigate("/explore", { replace: true });
         return;
       }
       // no tauri remote yet - stay on root (App.tsx will handle setup)
@@ -114,8 +120,10 @@ export function routes(props: RoutesProps) {
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />
 
-        {/* library - cross-remote albums browser (graph + table) */}
-        <Route path="/library" component={LibraryView} />
+        {/* explore - cross-remote albums browser (graph view) */}
+        <Route path="/explore" component={ExploreView} />
+        {/* legacy /library redirect to /explore */}
+        <Route path="/library" component={LibraryRedirect} />
 
         {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
         <Route path="/radio" component={RadioView} />

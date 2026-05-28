@@ -558,7 +558,9 @@ export function TopNav(props: TopNavProps) {
   // on the radio route — radio has its own list-and-detail layout.
   const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
   const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
-  const isLibraryRoute = () => (props.currentPath ?? "").startsWith("/library");
+  const isLibraryRoute = () =>
+    (props.currentPath ?? "").startsWith("/explore") ||
+    (props.currentPath ?? "").startsWith("/library");
   const isLocalSourceActive = () =>
     !isAggregateFeedRoute() &&
     !isRadioRoute() &&
@@ -1021,22 +1023,22 @@ export function TopNav(props: TopNavProps) {
                         <span class="text-sm">shared</span>
                       </button>
 
-                      {/* library route — cross-remote albums browser */}
+                      {/* explore route — cross-remote albums browser */}
                       <button
                         class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent cursor-pointer"
                         classList={{
                           "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10":
-                            props.currentPath?.startsWith("/library") ?? false,
+                            isLibraryRoute(),
                           "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]":
-                            !(props.currentPath?.startsWith("/library") ?? false),
+                            !isLibraryRoute(),
                         }}
                         onClick={() => {
                           closeTopNavMenu();
-                          props.onNavigate?.(routes.library());
+                          props.onNavigate?.(routes.explore());
                         }}
                       >
                         <Icon name="library" size={14} />
-                        <span class="text-sm">library</span>
+                        <span class="text-sm">explore</span>
                       </button>
 
                       {/* source selector */}

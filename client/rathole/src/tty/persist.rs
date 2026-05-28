@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::ratcore::app::PersistedState;
 
-fn statefile_path() -> PathBuf {
+pub fn statefile_path() -> PathBuf {
     let data_dir = grimoire::config::get_config().data_dir;
     data_dir.join("rathole").join("state.toml")
 }

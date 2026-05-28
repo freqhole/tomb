@@ -23,9 +23,10 @@ mod federation;
 mod jobs;
 mod maintenance;
 mod music;
-mod radio;
 #[cfg(feature = "rodio-playback")]
 mod player;
+mod radio;
+mod rathole_remote;
 mod sync;
 mod users;
 pub mod utils;
@@ -41,9 +42,10 @@ pub use federation::FederationAction;
 pub use jobs::JobAction;
 pub use maintenance::MaintenanceAction;
 pub use music::MusicAction;
-pub use radio::RadioAction;
 #[cfg(feature = "rodio-playback")]
 pub use player::PlayerAction;
+pub use radio::RadioAction;
+pub use rathole_remote::RatholeRemoteAction;
 pub use sync::SyncAction;
 pub use users::UserAction;
 pub use wordlist::WordlistAction;
@@ -241,6 +243,15 @@ pub async fn handle_sync(action: SyncAction, json_output: bool) -> anyhow::Resul
 pub async fn handle_radio(action: RadioAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = radio::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_rathole_remote(
+    action: RatholeRemoteAction,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = rathole_remote::handle_command(action);
     utils::print_and_exit(output, format);
 }
 
