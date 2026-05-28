@@ -47,7 +47,8 @@ pub use music::{
 // re-export scanned directories functions
 pub use music::{
     get_deduplicated_directories, get_scanned_directory_paths, list_scanned_directories,
-    record_scanned_directory, remove_scanned_directory, ScannedDirectory,
+    purge_missing_scanned_directories, record_scanned_directory, remove_scanned_directory,
+    repair_library_orphans, restore_reappeared_blobs_and_songs, ScannedDirectory,
 };
 
 // re-export directory tag rules

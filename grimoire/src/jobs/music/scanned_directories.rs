@@ -37,6 +37,12 @@ pub async fn record_scanned_directory(
         }
     };
 
+    // canonicalize before storing: scanned_directories.path is used as a prefix
+    // for matching media_blobz.local_path during rescan/move/orphan-detection.
+    // a non-canonical path here (tilde, symlink, flatpak portal) breaks all of that.
+    let path = crate::paths::canonical_path_string(path);
+    let path = path.as_str();
+
     let now = OffsetDateTime::now_utc().unix_timestamp();
 
     // insert or update if path already exists

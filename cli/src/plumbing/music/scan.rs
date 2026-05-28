@@ -3,8 +3,8 @@
 use clap::Parser;
 use grimoire::jobs::{
     add_directory_tags, create_job, create_job_session, list_scanned_directories,
-    record_scanned_directory, remove_scanned_directory, CreateJobRequest, CreateJobSessionRequest,
-    JobType, ScanDirectoryParams,
+    record_scanned_directory, remove_scanned_directory, repair_library_orphans, CreateJobRequest,
+    CreateJobSessionRequest, JobType, ScanDirectoryParams,
 };
 
 use crate::plumbing::utils::CommandOutput;
@@ -34,8 +34,30 @@ pub enum ScanAction {
         path: String,
     },
 
+    /// move/relocate a scanned directory on disk. matches files by name+size
+    /// (no re-hashing) and rewrites every matched blob's `local_path` to the
+    /// new location. unmatched old-prefix blobs are soft-deleted.
+    MoveDirectory {
+        /// existing tracked path (will be looked up + canonicalized)
+        old_path: String,
+        /// new on-disk path (must exist)
+        new_path: String,
+        /// preview only — count matches without writing anything
+        #[arg(long)]
+        dry_run: bool,
+        /// leave un-matched old-prefix blobs alone instead of soft-deleting them
+        #[arg(long)]
+        keep_unmatched: bool,
+    },
+
     /// validate that all blob files still exist on disk
     ValidateFiles,
+
+    /// repair library: purge scanned_directories rows whose path no longer
+    /// exists on disk, then undelete any soft-deleted blobs+songs whose
+    /// local_path now resolves to a real file. safe to run anytime; does NOT
+    /// walk directories looking for new files (use `scan` or `rescan` for that).
+    Repair,
 }
 
 pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Value> {
@@ -200,6 +222,53 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
 
             let message = format!("removed directory from tracking: {}", path);
             CommandOutput::success(message, ())
+        }
+
+        ScanAction::MoveDirectory {
+            old_path,
+            new_path,
+            dry_run,
+            keep_unmatched,
+        } => {
+            eprintln!(
+                "moving scan dir: {} -> {}{}",
+                old_path,
+                new_path,
+                if dry_run { " (dry run)" } else { "" }
+            );
+            let mut opts = grimoire::music::scanner::MoveScanDirectoryOptions::default();
+            opts.dry_run = dry_run;
+            opts.soft_delete_unmatched = !keep_unmatched;
+            opts.updated_by = Some("cli".to_string());
+
+            let response =
+                grimoire::music::scanner::move_scanned_directory(&old_path, &new_path, opts).await;
+
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let summary = response.data.unwrap();
+            let message = format!(
+                "move complete: {} relocated, {} unmatched-new, {} soft-deleted-old",
+                summary.relocated_exact_path
+                    + summary.relocated_parent
+                    + summary.relocated_filename,
+                summary.new_files_unmatched,
+                summary.unmatched_old_blobs_soft_deleted,
+            );
+            CommandOutput::success(message, serde_json::to_value(&summary).unwrap_or_default())
+        }
+
+        ScanAction::Repair => {
+            eprintln!(
+                "running library repair (purge missing scan dirs + restore reappeared blobs)..."
+            );
+            let response = repair_library_orphans().await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let data = response.data.unwrap_or(serde_json::json!({}));
+            CommandOutput::success(response.message, data)
         }
 
         ScanAction::ValidateFiles => {

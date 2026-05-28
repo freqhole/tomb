@@ -23,6 +23,7 @@ pub mod media_blobz;
 pub mod metadata;
 pub mod music;
 pub mod offal;
+pub mod paths;
 pub mod player;
 pub mod progress;
 pub mod radio;

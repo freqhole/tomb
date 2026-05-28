@@ -45,9 +45,12 @@ pub async fn scan_directory_and_create_jobs(
         HashSet::new()
     };
 
-    // canonicalize the root path we're scanning (for comparison)
-    let root_path =
-        std::fs::canonicalize(path.trim_end_matches('/')).unwrap_or_else(|_| PathBuf::from(path));
+    // canonicalize the root path we're scanning. this becomes the prefix of every
+    // per-file path we record in media_blobz.local_path, so a non-canonical root
+    // (tilde, symlink chain, flatpak portal path, etc.) would poison every blob
+    // path that we then hand to iroh-blobs FsStore. see `grimoire::paths` docs.
+    let root_path = crate::paths::canonical_path(Path::new(path.trim_end_matches('/')));
+    let walk_root = root_path.clone();
 
     let dirs_to_skip = if skip_tracked_subdirs && !tracked_dirs.is_empty() {
         let count = tracked_dirs.len();
@@ -58,7 +61,7 @@ pub async fn scan_directory_and_create_jobs(
     };
 
     // Build directory walker
-    let mut walker = WalkDir::new(path);
+    let mut walker = WalkDir::new(&walk_root);
 
     if !recursive {
         walker = walker.max_depth(1);

@@ -2592,6 +2592,50 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                                 ));
                             }
                             skip_repl_finalize = true;
+                        } else if name == "__scan_move_form__" {
+                            special_handled = true;
+                            if let Some(cmd) = app
+                                .commands
+                                .iter()
+                                .find(|c| c.name == "library_move_directory")
+                                .cloned()
+                            {
+                                app.state.ephemeral.form =
+                                    Some(crate::ratcore::app::CommandForm::new(&cmd));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::CommandForm;
+                                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                    "move scan directory form opened".to_string(),
+                                ));
+                                app.state.ephemeral.repl.clear_input();
+                                maybe_fetch_select_options(app, action_tx);
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "move directory command not found".to_string(),
+                                ));
+                            }
+                            skip_repl_finalize = true;
+                        } else if name == "__scan_remove_form__" {
+                            special_handled = true;
+                            if let Some(cmd) = app
+                                .commands
+                                .iter()
+                                .find(|c| c.name == "library_remove_directory")
+                                .cloned()
+                            {
+                                app.state.ephemeral.form =
+                                    Some(crate::ratcore::app::CommandForm::new(&cmd));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::CommandForm;
+                                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                    "remove scan directory form opened".to_string(),
+                                ));
+                                app.state.ephemeral.repl.clear_input();
+                                maybe_fetch_select_options(app, action_tx);
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "remove directory command not found".to_string(),
+                                ));
+                            }
+                            skip_repl_finalize = true;
                         }
 
                         if !special_handled {

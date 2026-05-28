@@ -112,7 +112,9 @@ pub async fn handle(
         "library_image_upload" => handlers::library::image_upload(args, caller).await,
         "library_list_directories" => handlers::library::list_directories().await,
         "library_remove_directory" => handlers::library::remove_directory(args).await,
+        "library_move_directory" => handlers::library::move_directory(args, caller).await,
         "library_rescan_all" => handlers::library::rescan_all(caller).await,
+        "library_repair_orphans" => handlers::library::repair_orphans().await,
         "library_fetch" => handlers::library::fetch(args, caller).await,
 
         // -- config / server --

@@ -39,6 +39,9 @@ pub use lastfm_detail_processor::process_lastfm_album_detail_job;
 pub use mb_album_search_processor::process_mb_album_search_job;
 pub use mb_detail_processor::process_mb_album_detail_job;
 pub use rescan_processor::process_rescan_directories_job;
+pub use rescan_processor::{
+    purge_missing_scanned_directories, repair_library_orphans, restore_reappeared_blobs_and_songs,
+};
 pub use scan_processor::process_scan_directory_job;
 pub use upload_processors::{process_convert_webp_job, process_import_music_job};
 

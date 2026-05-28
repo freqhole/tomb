@@ -219,6 +219,41 @@ pub(in crate::admin_dispatch) async fn remove_directory(
     }
 }
 
+/// edit / relocate a previously-scanned directory. used when the user moves
+/// their music library on disk; relocates matched blobs (filename+size cheap
+/// matching) instead of re-hashing every file. see
+/// `crate::music::scanner::move_scanned_directory` for matching tiers + behavior.
+///
+/// args: { old_path: string, new_path: string, dry_run?: bool,
+///         soft_delete_unmatched?: bool, refresh_blobs_store?: bool }
+pub(in crate::admin_dispatch) async fn move_directory(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let old_path = match require_str(&args, "old_path") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let new_path = match require_str(&args, "new_path") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let mut opts = crate::music::scanner::MoveScanDirectoryOptions::default();
+    if let Some(v) = opt_bool(&args, "dry_run") {
+        opts.dry_run = v;
+    }
+    if let Some(v) = opt_bool(&args, "soft_delete_unmatched") {
+        opts.soft_delete_unmatched = v;
+    }
+    if let Some(v) = opt_bool(&args, "refresh_blobs_store") {
+        opts.refresh_blobs_store = v;
+    }
+    opts.updated_by = Some(caller.user_id.clone());
+
+    let resp = crate::music::scanner::move_scanned_directory(&old_path, &new_path, opts).await;
+    to_value(resp)
+}
+
 /// kick off a `RescanDirectories` background job. mirrors the legacy
 /// `rescan_directories` tauri command shape (`{ success, jobs_created,
 /// message }`); `jobs_created` is always 1 here (the rescan job itself)
@@ -246,6 +281,14 @@ pub(in crate::admin_dispatch) async fn rescan_all(caller: &Caller) -> GrimoireRe
     } else {
         GrimoireResponse::failure(resp.message, resp.errors)
     }
+}
+
+/// one-shot library repair: purge `scanned_directories` rows whose path no
+/// longer exists on disk, then undelete any soft-deleted blobs (cascading to
+/// songs) whose `local_path` exists. use when a library got incorrectly
+/// soft-deleted by a prior rescan / move-dir iteration.
+pub(in crate::admin_dispatch) async fn repair_orphans() -> GrimoireResponse<JsonValue> {
+    crate::jobs::repair_library_orphans().await
 }
 
 /// kick off a `FetchMedia` background job for an external url.

@@ -91,7 +91,23 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             undeleted_with_metadata.metadata =
                 serde_json::from_str(&undeleted_with_metadata.metadata.as_str().unwrap_or("{}"))
                     .unwrap_or_default();
-            return Ok(undeleted_with_metadata);
+
+            // same path-relocation logic as the active-existing branch:
+            // when the resurrected blob is being re-ingested from a new
+            // on-disk path, point local_path / filename at the new home
+            // and refresh cheap-skip metadata.
+            let final_row = match (&req.local_path, &undeleted_with_metadata.local_path) {
+                (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
+                    let mut relocated =
+                        maybe_relocate_existing_blob(&pool, &undeleted_with_metadata, &req).await?;
+                    relocated.metadata =
+                        serde_json::from_str(&relocated.metadata.as_str().unwrap_or("{}"))
+                            .unwrap_or_default();
+                    relocated
+                }
+                _ => undeleted_with_metadata,
+            };
+            return Ok(final_row);
         }
 
         // blob already exists and is not deleted, return it with parsed metadata
@@ -101,7 +117,24 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             existing_blob.sha256,
             existing_blob.blob_type
         );
-        let mut existing_with_metadata = existing_blob;
+
+        // path-relocation: if the caller is bringing a different on-disk
+        // path for the same content (file was moved, or re-scanned from a
+        // new root), repoint local_path / filename to the new location
+        // and refresh the cheap-skip dedup metadata (file_size,
+        // file_modified_at) so the next scan can fast-skip this file at
+        // its new home instead of falling through to a rescan-update.
+        // upload-only callers (data only, no local_path) never trigger
+        // this branch, so existing on-disk paths aren't accidentally
+        // clobbered.
+        let relocated = match (&req.local_path, &existing_blob.local_path) {
+            (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
+                maybe_relocate_existing_blob(&pool, &existing_blob, &req).await?
+            }
+            _ => existing_blob,
+        };
+
+        let mut existing_with_metadata = relocated;
         existing_with_metadata.metadata =
             serde_json::from_str(&existing_with_metadata.metadata.as_str().unwrap_or("{}"))
                 .unwrap_or_default();
@@ -384,6 +417,119 @@ pub async fn update_blob_local_path(
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
+}
+
+/// update an existing media_blobz row's `local_path` (and `filename` when
+/// the caller supplied one) so it points at the new on-disk location of
+/// content we just rediscovered by sha256. also merges
+/// `file_size` / `file_modified_at` into the row's metadata json so the
+/// directory scanner's cheap-skip dedup recognizes this path as
+/// unchanged on the next pass.
+///
+/// returns the freshly-loaded MediaBlob row with the metadata column
+/// still as a json string (the caller re-parses it, matching the rest
+/// of this module's contract).
+async fn maybe_relocate_existing_blob(
+    pool: &sqlx::SqlitePool,
+    existing: &MediaBlob,
+    req: &CreateMediaBlobRequest,
+) -> GrimoireResult<MediaBlob> {
+    let new_path = match req.local_path.as_deref() {
+        Some(p) => p,
+        None => return Ok(existing.clone()),
+    };
+
+    // canonicalize the new path before writing to db / handing to iroh-blobs
+    // FsStore. callers are inconsistent about whether they've canonicalized
+    // already (scanner does, naive imports may not), and a non-canonical path
+    // here would silently poison the blob's reference.
+    let new_path_canon = crate::paths::canonical_path_string(new_path);
+    let new_path = new_path_canon.as_str();
+
+    tracing::info!(
+        "create_blob: relocating existing blob to new path: id={}, sha256={}, old_path={:?}, new_path={}",
+        existing.id,
+        existing.sha256,
+        existing.local_path,
+        new_path
+    );
+
+    // merge cheap-skip metadata into the existing metadata json. preserves
+    // any other keys (tags, extracted_*, etc.) the row may carry.
+    let mut metadata_json: serde_json::Value = existing
+        .metadata
+        .as_str()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    if let serde_json::Value::Object(ref mut map) = metadata_json {
+        // size and modified-at are best-effort: only refresh when we know
+        // them (the caller may not have probed disk yet).
+        if let Some(size) = req.size {
+            map.insert("file_size".to_string(), serde_json::Value::from(size));
+        }
+        if let Some(fname) = req.filename.as_deref() {
+            map.insert(
+                "file_name".to_string(),
+                serde_json::Value::from(fname.to_string()),
+            );
+        }
+        // file_modified_at: prefer caller-supplied value (in metadata),
+        // else best-effort probe of the new path.
+        let caller_mtime = req
+            .metadata
+            .get("file_modified_at")
+            .and_then(|v| v.as_i64());
+        let probed_mtime = std::fs::metadata(new_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        if let Some(mt) = caller_mtime.or(probed_mtime) {
+            map.insert("file_modified_at".to_string(), serde_json::Value::from(mt));
+        }
+    }
+    let metadata_str = serde_json::to_string(&metadata_json).unwrap_or_else(|_| "{}".to_string());
+    let new_filename = req.filename.clone().or_else(|| existing.filename.clone());
+
+    let updated = sqlx::query_as!(
+        MediaBlob,
+        "UPDATE media_blobz
+         SET local_path = ?,
+             filename = ?,
+             metadata = ?,
+             updated_at = unixepoch(),
+             updated_by = ?
+         WHERE id = ?
+         RETURNING
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            filename,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by,
+            width,
+            height,
+            blake3",
+        new_path,
+        new_filename,
+        metadata_str,
+        req.created_by,
+        existing.id
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(updated)
 }
 
 /// soft delete a media blob

@@ -3337,6 +3337,46 @@ fn execute_slash_with_player(
                     Some(ReplStatus::err("scan form command not found".to_string()));
                 return;
             }
+            // /scan move opens the library_move_directory form
+            if name == "__scan_move_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_move_directory")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("move scan directory form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err("move directory command not found".to_string()));
+                return;
+            }
+            // /scan remove opens the library_remove_directory form
+            if name == "__scan_remove_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_remove_directory")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("remove scan directory form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err("remove directory command not found".to_string()));
+                return;
+            }
             // generic admin-rpc dispatch from /knock /users /analytics
             // /radio subcommands. result lands in the result panel
             // like any other admin call.

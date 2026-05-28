@@ -100,6 +100,9 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::peers::allow(),
         // -- library --
         builders::library::scan(),
+        builders::library::list_directories(),
+        builders::library::remove_directory(),
+        builders::library::move_directory(),
         // -- radio --
         builders::radio::stations_get(),
         builders::radio::stations_create(),
@@ -261,14 +264,12 @@ pub fn result_actions_for_row(
             ("revoke", "invites_revoke"),
             ("update role", "invites_update_role"),
         ],
-        "peers_list_all" | "peers_list_for_user" => {
-            &[
-                ("reassign user", "peers_reassign_user"),
-                ("remove", "peers_remove"),
-                ("restore", "peers_restore"),
-                ("hard delete", "peers_hard_delete"),
-            ]
-        }
+        "peers_list_all" | "peers_list_for_user" => &[
+            ("reassign user", "peers_reassign_user"),
+            ("remove", "peers_remove"),
+            ("restore", "peers_restore"),
+            ("hard delete", "peers_hard_delete"),
+        ],
         "radio_stations_list" => &[
             ("get", "radio_stations_get"),
             ("update", "radio_stations_update"),

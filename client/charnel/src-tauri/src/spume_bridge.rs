@@ -39,6 +39,18 @@ pub enum SpumeEvent {
         songs_added: u32,
         albums_added: u32,
         artists_added: u32,
+        /// rescan-only: blobs whose file vanished and were soft-deleted
+        #[serde(skip_serializing_if = "Option::is_none")]
+        blobs_deleted: Option<u32>,
+        /// rescan-only: blobs whose file reappeared and were undeleted
+        #[serde(skip_serializing_if = "Option::is_none")]
+        restored_blobs: Option<u32>,
+        /// rescan-only: songs cascade-undeleted from restored blobs
+        #[serde(skip_serializing_if = "Option::is_none")]
+        restored_songs: Option<u32>,
+        /// rescan-only: scanned_directories rows dropped because the path is gone
+        #[serde(skip_serializing_if = "Option::is_none")]
+        purged_scan_dirs: Option<u32>,
     },
 
     /// a P2P peer connection failed - remote may be offline
@@ -101,12 +113,40 @@ pub fn notify_scan_complete(
     albums_added: u32,
     artists_added: u32,
 ) -> Result<(), String> {
+    notify_scan_complete_full(
+        app,
+        songs_added,
+        albums_added,
+        artists_added,
+        None,
+        None,
+        None,
+        None,
+    )
+}
+
+/// notify spume that scan jobs have completed, including rescan-specific stats
+#[allow(clippy::too_many_arguments)]
+pub fn notify_scan_complete_full(
+    app: &AppHandle<Wry>,
+    songs_added: u32,
+    albums_added: u32,
+    artists_added: u32,
+    blobs_deleted: Option<u32>,
+    restored_blobs: Option<u32>,
+    restored_songs: Option<u32>,
+    purged_scan_dirs: Option<u32>,
+) -> Result<(), String> {
     emit_event(
         app,
         SpumeEvent::ScanComplete {
             songs_added,
             albums_added,
             artists_added,
+            blobs_deleted,
+            restored_blobs,
+            restored_songs,
+            purged_scan_dirs,
         },
     )
 }

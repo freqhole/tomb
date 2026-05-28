@@ -34,6 +34,21 @@ interface ValidatePathResult {
   is_readable: boolean;
 }
 
+interface MoveScanDirectoryResult {
+  old_path: string;
+  new_path: string;
+  blobs_under_old: number;
+  relocated_exact_path: number;
+  relocated_parent: number;
+  relocated_filename: number;
+  ambiguous_skipped: number;
+  new_files_unmatched: number;
+  unmatched_old_blobs: number;
+  unmatched_old_blobs_soft_deleted: number;
+  fs_store_refresh_failures: number;
+  dry_run: boolean;
+}
+
 // progress payload mirrors GrimoireEvent::JobProgress emitted by the
 // runner and forwarded through charnel's grimoire-event subscription
 // (see client/charnel/src-tauri/src/lib.rs ~line 513).
@@ -77,6 +92,17 @@ export default function LibraryView() {
     createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] =
     createSignal<JobSessionCompletePayload | null>(null);
+  // move directory modal state
+  const [showMoveModal, setShowMoveModal] = createSignal(false);
+  const [moveOldPath, setMoveOldPath] = createSignal("");
+  const [moveNewPath, setMoveNewPath] = createSignal("");
+  const [moveNewPathValidation, setMoveNewPathValidation] =
+    createSignal<ValidatePathResult | null>(null);
+  const [moveNewPathValidating, setMoveNewPathValidating] = createSignal(false);
+  const [movePreviewResult, setMovePreviewResult] =
+    createSignal<MoveScanDirectoryResult | null>(null);
+  const [moveInProgress, setMoveInProgress] = createSignal(false);
+  const [moveError, setMoveError] = createSignal("");
 
   let unlistenScan: (() => void) | null = null;
 
@@ -264,6 +290,120 @@ export default function LibraryView() {
     setConfirmRemove(null);
   }
 
+  function openMoveModal(oldPath: string) {
+    setMoveOldPath(oldPath);
+    setMoveNewPath("");
+    setMoveNewPathValidation(null);
+    setMovePreviewResult(null);
+    setMoveError("");
+    setShowMoveModal(true);
+  }
+
+  function closeMoveModal() {
+    setShowMoveModal(false);
+    setMoveOldPath("");
+    setMoveNewPath("");
+    setMoveNewPathValidation(null);
+    setMovePreviewResult(null);
+    setMoveError("");
+  }
+
+  async function validateMoveNewPath() {
+    const path = moveNewPath().trim();
+    if (!path) {
+      setMoveNewPathValidation(null);
+      return;
+    }
+    setMoveNewPathValidating(true);
+    try {
+      const result = await admin.dispatchOrThrow<ValidatePathResult>(
+        "library_validate_path",
+        { path },
+      );
+      setMoveNewPathValidation(result);
+    } catch (e) {
+      setMoveNewPathValidation({
+        path,
+        exists: false,
+        is_dir: false,
+        is_readable: false,
+      });
+      console.error("path validation failed:", e);
+    } finally {
+      setMoveNewPathValidating(false);
+    }
+  }
+
+  async function previewMove() {
+    const oldPath = moveOldPath();
+    const newPath = moveNewPath().trim();
+    if (!oldPath || !newPath) return;
+
+    // validate new path first
+    let v = moveNewPathValidation();
+    if (!v || v.path !== newPath) {
+      await validateMoveNewPath();
+      v = moveNewPathValidation();
+    }
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      return;
+    }
+
+    setMoveInProgress(true);
+    setMoveError("");
+    setMovePreviewResult(null);
+    try {
+      const result = await admin.dispatchOrThrow<MoveScanDirectoryResult>(
+        "library_move_directory",
+        {
+          old_path: oldPath,
+          new_path: v.path || newPath,
+          dry_run: true,
+        },
+      );
+      setMovePreviewResult(result);
+    } catch (e) {
+      setMoveError(`preview failed: ${e}`);
+      console.error("move preview failed:", e);
+    } finally {
+      setMoveInProgress(false);
+    }
+  }
+
+  async function confirmMove() {
+    const oldPath = moveOldPath();
+    const newPath = moveNewPath().trim();
+    if (!oldPath || !newPath) return;
+
+    const v = moveNewPathValidation();
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      return;
+    }
+
+    setMoveInProgress(true);
+    setMoveError("");
+    try {
+      const result = await admin.dispatchOrThrow<MoveScanDirectoryResult>(
+        "library_move_directory",
+        {
+          old_path: oldPath,
+          new_path: v.path || newPath,
+          dry_run: false,
+        },
+      );
+      await loadDirectories();
+      closeMoveModal();
+      setLastResult(
+        `moved directory: ${result.relocated_exact_path + result.relocated_parent + result.relocated_filename} files relocated`,
+      );
+    } catch (e) {
+      setMoveError(`move failed: ${e}`);
+      console.error("move failed:", e);
+    } finally {
+      setMoveInProgress(false);
+    }
+  }
+
   async function scanDirectory(path: string, tags: string[]) {
     setScanning(path);
     setLastResult("");
@@ -385,6 +525,13 @@ export default function LibraryView() {
                     >
                       {scanning() === dir.path ? "scanning..." : "scan"}
                     </button>
+                    <button
+                      class="secondary small"
+                      onClick={() => openMoveModal(dir.path)}
+                      disabled={scanning() !== null}
+                    >
+                      edit path
+                    </button>
                     <Show when={confirmRemove() === dir.path}>
                       <button
                         class="danger small"
@@ -423,15 +570,19 @@ export default function LibraryView() {
               class="secondary"
               onClick={rescanAll}
               disabled={scanning() !== null}
+              title="re-scan every tracked directory: import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist"
             >
-              {scanning() === "__all__" ? "rescanning..." : "rescan all"}
+              {scanning() === "__all__" ? "repairing..." : "repair library"}
             </button>
           </Show>
         </div>
 
         <Show when={directories().length > 0}>
           <p class="hint">
-            "scan" finds new files. "rescan all" also finds deleted files.
+            "scan" finds new files in one directory. "repair library" walks
+            every tracked directory: imports new music, relocates moved files,
+            restores songs whose files came back, and soft-deletes songs whose
+            files are gone.
           </p>
         </Show>
 
@@ -601,6 +752,178 @@ export default function LibraryView() {
                 }
               >
                 add & scan
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* move directory modal */}
+      <Show when={showMoveModal()}>
+        <div class="modal-overlay" onClick={closeMoveModal}>
+          <div class="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>move scan directory</h2>
+            <p class="section-desc">
+              update the path for files that were moved on disk. matches files
+              by name and size (no rehashing required).
+            </p>
+
+            <div class="form-group">
+              <label>current path</label>
+              <input type="text" value={moveOldPath()} disabled />
+            </div>
+
+            <div class="form-group">
+              <label>new path</label>
+              <input
+                type="text"
+                value={moveNewPath()}
+                placeholder={
+                  admin.isRemote()
+                    ? "/new/absolute/path/on/remote"
+                    : "/new/absolute/path or ~/NewMusicFolder"
+                }
+                onInput={(e) => {
+                  setMoveNewPath(e.currentTarget.value);
+                  setMoveNewPathValidation(null);
+                  setMovePreviewResult(null);
+                }}
+                onBlur={validateMoveNewPath}
+                disabled={moveInProgress()}
+              />
+              <p class="hint">
+                enter the path where the music files are now located
+              </p>
+              <div class="button-row">
+                <button
+                  class="secondary small"
+                  onClick={validateMoveNewPath}
+                  disabled={moveNewPathValidating() || !moveNewPath().trim()}
+                >
+                  {moveNewPathValidating() ? "validating..." : "validate"}
+                </button>
+              </div>
+              <Show when={moveNewPathValidation()}>
+                {(v) => {
+                  const ok = () => v().exists && v().is_dir && v().is_readable;
+                  return (
+                    <p class={ok() ? "scan-progress" : "scan-progress error"}>
+                      {ok()
+                        ? `✓ readable directory (${v().path})`
+                        : !v().exists
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
+                    </p>
+                  );
+                }}
+              </Show>
+            </div>
+
+            <Show when={movePreviewResult()}>
+              {(result) => {
+                const totalRelocated = () =>
+                  result().relocated_exact_path +
+                  result().relocated_parent +
+                  result().relocated_filename;
+                return (
+                  <div class="scan-progress-card">
+                    <div class="scan-progress-header">
+                      <strong>preview results</strong>
+                    </div>
+                    <div class="scan-progress-stats">
+                      <p>
+                        <strong>{totalRelocated()}</strong> files will be
+                        relocated
+                      </p>
+                      <Show when={result().relocated_exact_path > 0}>
+                        <p>
+                          · {result().relocated_exact_path} exact path matches
+                        </p>
+                      </Show>
+                      <Show when={result().relocated_parent > 0}>
+                        <p>
+                          · {result().relocated_parent} parent+filename matches
+                        </p>
+                      </Show>
+                      <Show when={result().relocated_filename > 0}>
+                        <p>
+                          · {result().relocated_filename} filename-only matches
+                        </p>
+                      </Show>
+                      <Show when={result().ambiguous_skipped > 0}>
+                        <p class="scan-progress error">
+                          · {result().ambiguous_skipped} ambiguous files skipped
+                        </p>
+                      </Show>
+                      <Show when={result().new_files_unmatched > 0}>
+                        <p>
+                          · {result().new_files_unmatched} new files unmatched
+                        </p>
+                      </Show>
+                      <Show when={result().unmatched_old_blobs > 0}>
+                        <p>
+                          · {result().unmatched_old_blobs} old files unmatched
+                          <Show
+                            when={result().unmatched_old_blobs_soft_deleted > 0}
+                          >
+                            {" "}
+                            ({result().unmatched_old_blobs_soft_deleted} will be
+                            soft-deleted)
+                          </Show>
+                        </p>
+                      </Show>
+                      <Show when={result().fs_store_refresh_failures > 0}>
+                        <p class="scan-progress error">
+                          · {result().fs_store_refresh_failures} blob store
+                          refresh failures
+                        </p>
+                      </Show>
+                    </div>
+                  </div>
+                );
+              }}
+            </Show>
+
+            <Show when={moveError()}>
+              <p class="scan-progress error">{moveError()}</p>
+            </Show>
+
+            <div class="button-row">
+              <button
+                class="secondary"
+                onClick={closeMoveModal}
+                disabled={moveInProgress()}
+              >
+                cancel
+              </button>
+              <button
+                class="secondary"
+                onClick={previewMove}
+                disabled={
+                  moveInProgress() ||
+                  !moveNewPath().trim() ||
+                  !moveNewPathValidation() ||
+                  !moveNewPathValidation()!.exists ||
+                  !moveNewPathValidation()!.is_dir ||
+                  !moveNewPathValidation()!.is_readable
+                }
+              >
+                {moveInProgress() ? "previewing..." : "preview"}
+              </button>
+              <button
+                class="primary"
+                onClick={confirmMove}
+                disabled={
+                  moveInProgress() ||
+                  !moveNewPathValidation() ||
+                  !moveNewPathValidation()!.exists ||
+                  !moveNewPathValidation()!.is_dir ||
+                  !moveNewPathValidation()!.is_readable
+                }
+              >
+                {moveInProgress() ? "moving..." : "confirm move"}
               </button>
             </div>
           </div>

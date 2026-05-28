@@ -19,10 +19,9 @@ use crate::ShutdownToken;
 
 /// resolve a path to its canonical form, falling back to the original if resolution fails.
 /// useful for resolving symlinks (e.g. /home -> /var/home on Fedora Silverblue).
+/// delegates to `grimoire::paths::canonical_path_string` so all surfaces share one rule.
 fn canonicalize_or_original(path: &str) -> String {
-    std::fs::canonicalize(path)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| path.to_string())
+    grimoire::paths::canonical_path_string(path)
 }
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
@@ -777,10 +776,45 @@ async fn poll_rescan_job_until_complete(
                 }
 
                 if pending == 0 && !jobs.is_empty() {
+                    // fetch the rescan job's result to surface rescan-specific stats
+                    let (blobs_deleted, restored_blobs, restored_songs, purged_scan_dirs) =
+                        match grimoire::jobs::get_job(&job_id).await.data {
+                            Some(j) => match j.result {
+                                Some(s) => serde_json::from_str::<serde_json::Value>(&s)
+                                    .ok()
+                                    .map(|v| {
+                                        (
+                                            v.get("blobs_deleted")
+                                                .and_then(|n| n.as_u64())
+                                                .map(|n| n as u32),
+                                            v.get("restored_blobs")
+                                                .and_then(|n| n.as_u64())
+                                                .map(|n| n as u32),
+                                            v.get("restored_songs")
+                                                .and_then(|n| n.as_u64())
+                                                .map(|n| n as u32),
+                                            v.get("purged_scan_dirs")
+                                                .and_then(|n| n.as_u64())
+                                                .map(|n| n as u32),
+                                        )
+                                    })
+                                    .unwrap_or((None, None, None, None)),
+                                None => (None, None, None, None),
+                            },
+                            None => (None, None, None, None),
+                        };
+
                     // all jobs complete - send final notification
-                    if let Err(e) =
-                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)
-                    {
+                    if let Err(e) = crate::spume_bridge::notify_scan_complete_full(
+                        &app_handle,
+                        songs_added,
+                        albums_added,
+                        artists_added,
+                        blobs_deleted,
+                        restored_blobs,
+                        restored_songs,
+                        purged_scan_dirs,
+                    ) {
                         tracing::error!(error = %e, "rescan-poll: failed to notify spume");
                     }
 
@@ -788,6 +822,10 @@ async fn poll_rescan_job_until_complete(
                         songs = songs_added,
                         albums = albums_added,
                         artists = artists_added,
+                        blobs_deleted = ?blobs_deleted,
+                        restored_blobs = ?restored_blobs,
+                        restored_songs = ?restored_songs,
+                        purged_scan_dirs = ?purged_scan_dirs,
                         "rescan-poll: complete"
                     );
                     return;

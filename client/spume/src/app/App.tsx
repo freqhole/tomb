@@ -305,9 +305,24 @@ export function App() {
           },
         });
         // show toast notification
-        toast.success(
-          `scan complete: ${event.data.songs_added} songs, ${event.data.albums_added} albums, ${event.data.artists_added} artists added`
-        );
+        {
+          const d = event.data;
+          const parts = [
+            `${d.songs_added} songs`,
+            `${d.albums_added} albums`,
+            `${d.artists_added} artists added`,
+          ];
+          if (d.restored_songs && d.restored_songs > 0) {
+            parts.push(`${d.restored_songs} restored`);
+          }
+          if (d.blobs_deleted && d.blobs_deleted > 0) {
+            parts.push(`${d.blobs_deleted} missing`);
+          }
+          if (d.purged_scan_dirs && d.purged_scan_dirs > 0) {
+            parts.push(`${d.purged_scan_dirs} dirs purged`);
+          }
+          toast.success(`scan complete: ${parts.join(", ")}`);
+        }
         break;
 
       case "knock-created":

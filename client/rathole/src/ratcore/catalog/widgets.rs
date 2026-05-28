@@ -7,7 +7,7 @@ use crate::ratcore::app::{ArgKind, ArgSpec};
 
 /// shorthand for the most common SelectFrom shape: top-level array,
 /// no source body, no sibling deps.
-pub(super) fn select_from(source_command: &str, value_field: &str, label_field: &str) -> ArgKind {
+pub fn select_from(source_command: &str, value_field: &str, label_field: &str) -> ArgKind {
     ArgKind::SelectFrom {
         source_command: source_command.to_string(),
         source_body: serde_json::json!({}),

@@ -249,7 +249,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "scan",
-        "/scan [path] [tags]|add <path> [tags]|abort [confirm]",
+        "/scan [path] [tags]|dirs|move|remove|add <path> [tags]|abort [confirm]",
     ),
     (
         "genre",
@@ -390,6 +390,9 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
                 "add",
                 "add directory to active scan: /scan add <path> [tags]",
             ),
+            ("dirs", "list tracked scan directories"),
+            ("move", "move/relocate a scanned directory"),
+            ("remove", "remove a directory from tracking"),
             ("abort", "arm abort confirmation for active scan"),
         ],
     ),
@@ -918,6 +921,9 @@ fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
 /// - `/scan form` => force open interactive scan form
 /// - `/scan <path> [tag_csv]` => start a new scan session
 /// - `/scan add <path> [tag_csv]` => append jobs into active session
+/// - `/scan dirs` => list tracked scan directories
+/// - `/scan move` => open form to move/relocate a scanned directory
+/// - `/scan remove` => open form to remove a directory from tracking
 /// - `/scan abort` => arm confirmation
 /// - `/scan abort confirm` => cancel pending/running jobs for active session
 fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
@@ -937,6 +943,33 @@ fn parse_scan_sub(arg: Option<&str>) -> SlashAction {
     if raw.eq_ignore_ascii_case("status") {
         return SlashAction::AdminDispatch {
             name: "__scan_monitor__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("dirs")
+        || raw.eq_ignore_ascii_case("directories")
+        || raw.eq_ignore_ascii_case("list")
+    {
+        return SlashAction::AdminDispatch {
+            name: "library_list_directories",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("move")
+        || raw.eq_ignore_ascii_case("relocate")
+        || raw.eq_ignore_ascii_case("edit")
+    {
+        return SlashAction::AdminDispatch {
+            name: "__scan_move_form__",
+            body: serde_json::json!({}),
+        };
+    }
+    if raw.eq_ignore_ascii_case("remove")
+        || raw.eq_ignore_ascii_case("rm")
+        || raw.eq_ignore_ascii_case("delete")
+    {
+        return SlashAction::AdminDispatch {
+            name: "__scan_remove_form__",
             body: serde_json::json!({}),
         };
     }
