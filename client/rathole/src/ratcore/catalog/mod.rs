@@ -154,6 +154,8 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::analytics::counts(),
         // -- jobs (rich) --
         builders::jobs::list(),
+        // -- enrichment (rich) --
+        builders::enrichment::bulk_auto(),
         // -- blobz (rich) --
         builders::blobz::check_references(),
     ]

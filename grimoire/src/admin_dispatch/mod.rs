@@ -222,6 +222,15 @@ pub async fn handle(
         "jobs_stats" => handlers::jobs::stats().await,
         "jobs_cancel_session" => handlers::jobs::cancel_session(args).await,
 
+        // -- music enrichment --
+        "music_enrichment_tags" => handlers::enrichment::tags().await,
+        "music_enrichment_resolve" => handlers::enrichment::resolve(args).await,
+        "music_enrichment_bulk_start" => handlers::enrichment::bulk_start(args, caller).await,
+        "music_enrichment_bulk_auto_confirm" => {
+            handlers::enrichment::bulk_auto_confirm(args, caller).await
+        }
+        "music_enrichment_bulk_auto" => handlers::enrichment::bulk_auto(args, caller).await,
+
         // -- genres --
         "genres_list" => handlers::genres::list().await,
         "genres_list_with_stats" => handlers::genres::list_with_stats().await,

@@ -756,6 +756,69 @@ fn on_form_key(app: &mut App, code: KeyCode, _shift: bool, tx: &mpsc::UnboundedS
                         }
                     }
                 }
+                (
+                    FieldState::MultiSelect {
+                        options, cursor, ..
+                    },
+                    KeyCode::Up | KeyCode::Char('k'),
+                ) => {
+                    if options.is_some() {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, cursor, ..
+                    },
+                    KeyCode::Down | KeyCode::Char('j'),
+                ) => {
+                    if let Some(opts) = options {
+                        if !opts.is_empty() {
+                            *cursor = (*cursor + 1).min(opts.len() - 1);
+                        }
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options,
+                        cursor,
+                        checked,
+                        ..
+                    },
+                    KeyCode::Char(' '),
+                ) => {
+                    if let Some(opts) = options {
+                        if !opts.is_empty() {
+                            let idx = (*cursor).min(opts.len() - 1);
+                            if checked.len() != opts.len() {
+                                checked.resize(opts.len(), false);
+                            }
+                            if let Some(slot) = checked.get_mut(idx) {
+                                *slot = !*slot;
+                            }
+                        }
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, checked, ..
+                    },
+                    KeyCode::Char('a'),
+                ) => {
+                    if let Some(opts) = options {
+                        *checked = vec![true; opts.len()];
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, checked, ..
+                    },
+                    KeyCode::Char('n'),
+                ) => {
+                    if let Some(opts) = options {
+                        *checked = vec![false; opts.len()];
+                    }
+                }
                 _ => {}
             }
         }
@@ -801,6 +864,26 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
         | FieldState::HiddenLocalNodeId
         | FieldState::Mirror => Ok(()),
         FieldState::SelectFrom {
+            options,
+            loading,
+            error,
+            ..
+        } => {
+            if *loading {
+                return Err(format!("{} is still loading", label));
+            }
+            if let Some(e) = error {
+                return Err(format!("{}: {}", label, e));
+            }
+            match options {
+                Some(opts) if opts.is_empty() => {
+                    Err(format!("{} has no options to pick from", label))
+                }
+                Some(_) => Ok(()),
+                None => Err(format!("{} not loaded yet", label)),
+            }
+        }
+        FieldState::MultiSelect {
             options,
             loading,
             error,
@@ -1092,7 +1175,10 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     let Some(state) = form.fields.get(field_idx) else {
         return;
     };
-    if !matches!(state, FieldState::SelectFrom { .. }) {
+    if !matches!(
+        state,
+        FieldState::SelectFrom { .. } | FieldState::MultiSelect { .. }
+    ) {
         return;
     }
     let Some(cmd) = app.commands.iter().find(|c| c.name == cmd_name).cloned() else {
@@ -1101,33 +1187,61 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     let Some(spec) = cmd.args.get(field_idx).cloned() else {
         return;
     };
-    let ArgKind::SelectFrom {
-        source_command,
-        source_body,
-        body_from_fields,
-        data_path,
-        value_field,
-        label_field,
-    } = spec.kind
-    else {
-        return;
-    };
+    let (source_command, source_body, body_from_fields, data_path, value_field, label_field) =
+        match spec.kind {
+            ArgKind::SelectFrom {
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            }
+            | ArgKind::MultiSelectFrom {
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            } => (
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            ),
+            _ => return,
+        };
     let include_blank = !spec.required && spec.name == "user_id";
     let depends_on_siblings = !body_from_fields.is_empty();
-    let needs_fetch = if let Some(FieldState::SelectFrom {
-        options, loading, ..
-    }) = form.fields.get_mut(field_idx)
-    {
-        if *loading {
-            false
-        } else if depends_on_siblings {
-            *options = None;
-            true
-        } else {
-            options.is_none()
+    let needs_fetch = match form.fields.get_mut(field_idx) {
+        Some(FieldState::SelectFrom {
+            options, loading, ..
+        }) => {
+            if *loading {
+                false
+            } else if depends_on_siblings {
+                *options = None;
+                true
+            } else {
+                options.is_none()
+            }
         }
-    } else {
-        false
+        Some(FieldState::MultiSelect {
+            options, loading, ..
+        }) => {
+            if *loading {
+                false
+            } else if depends_on_siblings {
+                *options = None;
+                true
+            } else {
+                options.is_none()
+            }
+        }
+        _ => false,
     };
     if !needs_fetch {
         return;
@@ -1140,15 +1254,23 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     ) {
         Ok(b) => b,
         Err(msg) => {
-            if let Some(FieldState::SelectFrom { error, .. }) = form.fields.get_mut(field_idx) {
-                *error = Some(msg);
+            match form.fields.get_mut(field_idx) {
+                Some(FieldState::SelectFrom { error, .. })
+                | Some(FieldState::MultiSelect { error, .. }) => {
+                    *error = Some(msg);
+                }
+                _ => {}
             }
             return;
         }
     };
-    if let Some(FieldState::SelectFrom { loading, error, .. }) = form.fields.get_mut(field_idx) {
-        *loading = true;
-        *error = None;
+    match form.fields.get_mut(field_idx) {
+        Some(FieldState::SelectFrom { loading, error, .. })
+        | Some(FieldState::MultiSelect { loading, error, .. }) => {
+            *loading = true;
+            *error = None;
+        }
+        _ => {}
     }
     let transport = app.transport.clone();
     let tx = tx.clone();
@@ -1451,25 +1573,46 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let Some(field) = form.fields.get_mut(field_index) else {
                 return;
             };
-            let FieldState::SelectFrom {
-                options: opts,
-                loading,
-                error,
-                selected,
-            } = field
-            else {
-                return;
-            };
-            *loading = false;
-            match options {
-                Ok(list) => {
-                    *selected = 0;
-                    *error = None;
-                    *opts = Some(list);
+            match field {
+                FieldState::SelectFrom {
+                    options: opts,
+                    loading,
+                    error,
+                    selected,
+                } => {
+                    *loading = false;
+                    match options {
+                        Ok(list) => {
+                            *selected = 0;
+                            *error = None;
+                            *opts = Some(list);
+                        }
+                        Err(e) => {
+                            *error = Some(e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    *error = Some(e);
+                FieldState::MultiSelect {
+                    options: opts,
+                    loading,
+                    error,
+                    cursor,
+                    checked,
+                } => {
+                    *loading = false;
+                    match options {
+                        Ok(list) => {
+                            *cursor = 0;
+                            *error = None;
+                            *checked = vec![false; list.len()];
+                            *opts = Some(list);
+                        }
+                        Err(e) => {
+                            *error = Some(e);
+                        }
+                    }
                 }
+                _ => return,
             }
         }
         // music view is browse-only on web today (no rodio in wasm).
@@ -2514,6 +2657,28 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                             } else {
                                 app.state.ephemeral.repl.status = Some(ReplStatus::err(
                                     "no active scan session; start one with /scan <path> or /scan form".to_string(),
+                                ));
+                            }
+                            skip_repl_finalize = true;
+                        } else if name == "__enrich_tags_form__" {
+                            special_handled = true;
+                            if let Some(cmd) = app
+                                .commands
+                                .iter()
+                                .find(|c| c.name == "music_enrichment_bulk_auto")
+                                .cloned()
+                            {
+                                app.state.ephemeral.form =
+                                    Some(crate::ratcore::app::CommandForm::new(&cmd));
+                                app.state.ephemeral.focus = crate::ratcore::app::Focus::CommandForm;
+                                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                                    "enrichment tag picker opened".to_string(),
+                                ));
+                                app.state.ephemeral.repl.clear_input();
+                                maybe_fetch_select_options(app, action_tx);
+                            } else {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                                    "enrichment form command not found".to_string(),
                                 ));
                             }
                             skip_repl_finalize = true;

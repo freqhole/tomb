@@ -4,6 +4,7 @@
 //! this module provides CRUD operations for jobs and sessions.
 //! most job processors are in the music/ submodule.
 
+use rand::Rng;
 use serde_json::Value;
 
 use crate::database;
@@ -524,13 +525,18 @@ pub async fn mark_job_failed(
     }
 
     let (status, scheduled_at) = if should_retry {
-        // Schedule for retry with exponential backoff (base 2 minutes)
-        let backoff_seconds = 2_i64.pow(new_retry_count as u32) * 60;
-        let retry_at = std::time::SystemTime::now()
+        // exponential backoff: base=5s, cap=300s, jitter=0..5s
+        // formula: min(cap, base * 2^(retry_count-1)) + jitter
+        // (scheduled_at is integer seconds so jitter rounds to seconds)
+        const BASE_SECS: i64 = 5;
+        const CAP_SECS: i64 = 300;
+        let backoff = (BASE_SECS * 2_i64.pow(new_retry_count.saturating_sub(1) as u32)).min(CAP_SECS);
+        let jitter: i64 = rand::thread_rng().gen_range(0..5);
+        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64
-            + backoff_seconds;
+            .as_secs() as i64;
+        let retry_at = now + backoff + jitter;
         ("Pending".to_string(), retry_at)
     } else {
         ("Failed".to_string(), current_job.scheduled_at)

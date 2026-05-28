@@ -378,6 +378,12 @@ pub struct AlbumEnrichmentPipelineResult {
 /// the upstream mb/lastfm/audiodb detail jobs to settle and then
 /// auto-accepts every available proposal + ingests every available
 /// remote image. final step flips the album to `enriched`.
+///
+/// when `auto_confirm_top_match` is true the processor first attempts
+/// to auto-confirm the top mb candidate (if the album is still in
+/// `candidates` or `needs_review`) before running the apply flow.
+/// `min_confidence` and `min_gap` tune the threshold; both fall back
+/// to sensible defaults (0.85 / 0.10) when absent.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AutoApplyAlbumEnrichmentParams {
     pub album_id: String,
@@ -395,6 +401,21 @@ pub struct AutoApplyAlbumEnrichmentParams {
     /// (default rescheduled delay 30s == ~10min total wait).
     #[serde(default)]
     pub attempts: u32,
+    /// when true, attempt to auto-confirm the top mb candidate before
+    /// running the apply flow. only acts if the album is still in
+    /// `candidates` or `needs_review`; skipped otherwise. unset to
+    /// false after the first confirm attempt so rescheduled jobs don't
+    /// re-run the confirm step.
+    #[serde(default)]
+    pub auto_confirm_top_match: bool,
+    /// minimum local_confidence for the top candidate. falls back to
+    /// 0.85 when auto_confirm_top_match is true and this is None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_confidence: Option<f64>,
+    /// minimum gap (top - second) required. falls back to 0.10 when
+    /// auto_confirm_top_match is true and this is None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_gap: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]

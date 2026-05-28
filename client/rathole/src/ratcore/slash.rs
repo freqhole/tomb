@@ -260,6 +260,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "/tag [sub]         album tags (sub: list|search|add|remove|of <album_id>)",
     ),
     (
+        "enrich",
+        "/enrich [sub]      bulk enrichment (sub: tags|resolve|start|confirm|auto)",
+    ),
+    (
         "maintenance",
         "/maintenance [sub] maintenance (sub: cleanup-*|backfill-*|hard-delete|run-full|update-*)",
     ),
@@ -427,6 +431,28 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "enrich",
+        &[
+            ("tags", "open interactive tag picker for enrichment"),
+            (
+                "resolve",
+                "resolve albums by tag ids: /enrich resolve [id ...] [--mode any|all]",
+            ),
+            (
+                "start",
+                "start bulk enrichment pipeline: /enrich start [--tag <id>]... [flags]",
+            ),
+            (
+                "confirm",
+                "auto-confirm top mb matches: /enrich confirm [--tag <id>]... [flags]",
+            ),
+            (
+                "auto",
+                "run full auto enrichment: /enrich auto [--tag <id>]... [flags]",
+            ),
+        ],
+    ),
+    (
         "maintenance",
         &[
             ("cleanup-tags", "delete orphaned tags [dry-run]"),
@@ -545,6 +571,7 @@ pub fn parse(input: &str) -> SlashAction {
         "jobs" | "j" => parse_jobs_sub(arg.as_deref()),
         "genre" | "genres" | "g" => parse_genre_sub(arg.as_deref()),
         "tag" | "tags" | "t" => parse_tag_sub(arg.as_deref()),
+        "enrich" | "enr" => parse_enrich_sub(arg.as_deref()),
         "maintenance" | "maint" => parse_maintenance_sub(arg.as_deref()),
         "quit" | "exit" | "q" => SlashAction::Quit,
         "help" | "?" | "h" => SlashAction::Help,
@@ -918,10 +945,6 @@ fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
 ///
 /// forms:
 /// - `/scan` => open scan monitor for active session (or open form)
-/// - `/scan form` => force open interactive scan form
-/// - `/scan <path> [tag_csv]` => start a new scan session
-/// - `/scan add <path> [tag_csv]` => append jobs into active session
-/// - `/scan dirs` => list tracked scan directories
 /// - `/scan move` => open form to move/relocate a scanned directory
 /// - `/scan remove` => open form to remove a directory from tracking
 /// - `/scan abort` => arm confirmation
@@ -1139,6 +1162,245 @@ fn parse_tag_sub(arg: Option<&str>) -> SlashAction {
         _ => SlashAction::BadArgs {
             name: "tag",
             hint: "usage: /tag [list|search <q>|of <album_id>|add <album_id> <name>|remove <album_id> <tag_id>|create <name>|delete <id>]",
+        },
+    }
+}
+
+/// flags parsed by [`parse_enrich_flags`] — covers start/confirm/auto subs.
+struct EnrichFlags {
+    tag_ids: Vec<String>,
+    mode: Option<String>,
+    force: bool,
+    sources: Option<Vec<String>>,
+    confidence: Option<f64>,
+    gap: Option<f64>,
+    priority: Option<i64>,
+}
+
+/// walk `rest` tokens and extract enrichment flags used by start/confirm/auto.
+/// returns `Err` with a static hint string on a parse failure.
+fn parse_enrich_flags(rest: &str) -> Result<EnrichFlags, &'static str> {
+    let tokens: Vec<&str> = rest.split_whitespace().collect();
+    let mut tag_ids: Vec<String> = Vec::new();
+    let mut mode: Option<String> = None;
+    let mut force = false;
+    let mut sources: Option<Vec<String>> = None;
+    let mut confidence: Option<f64> = None;
+    let mut gap: Option<f64> = None;
+    let mut priority: Option<i64> = None;
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i] {
+            "--tag" => {
+                i += 1;
+                if let Some(t) = tokens.get(i) {
+                    tag_ids.push(t.to_string());
+                }
+            }
+            "--mode" => {
+                i += 1;
+                match tokens.get(i).copied() {
+                    Some("any") => mode = Some("any".to_string()),
+                    Some("all") => mode = Some("all".to_string()),
+                    _ => return Err("mode must be any or all"),
+                }
+            }
+            "--force" => force = true,
+            "--sources" => {
+                i += 1;
+                if let Some(t) = tokens.get(i) {
+                    sources = Some(
+                        t.split(',')
+                            .map(|s| s.trim().to_ascii_lowercase())
+                            .filter(|s| !s.is_empty())
+                            .collect(),
+                    );
+                }
+            }
+            "--confidence" => {
+                i += 1;
+                match tokens.get(i).and_then(|t| t.parse::<f64>().ok()) {
+                    Some(v) => confidence = Some(v),
+                    None => return Err("confidence must be a number"),
+                }
+            }
+            "--gap" => {
+                i += 1;
+                match tokens.get(i).and_then(|t| t.parse::<f64>().ok()) {
+                    Some(v) => gap = Some(v),
+                    None => return Err("gap must be a number"),
+                }
+            }
+            "--priority" => {
+                i += 1;
+                match tokens.get(i).and_then(|t| t.parse::<i64>().ok()) {
+                    Some(v) => priority = Some(v),
+                    None => return Err("priority must be a number"),
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(EnrichFlags {
+        tag_ids,
+        mode,
+        force,
+        sources,
+        confidence,
+        gap,
+        priority,
+    })
+}
+
+/// parse `/enrich [tags|resolve|start|confirm|auto] [flags]`.
+fn parse_enrich_sub(arg: Option<&str>) -> SlashAction {
+    let (sub, rest) = split_sub(arg);
+    match sub.as_str() {
+        "" => SlashAction::BadArgs {
+            name: "enrich",
+            hint: "usage: /enrich [tags|resolve|start|confirm|auto] - see /help for details",
+        },
+        "tags" => SlashAction::AdminDispatch {
+            name: "__enrich_tags_form__",
+            body: serde_json::json!({}),
+        },
+        "resolve" => {
+            // positional tokens are tag ids; --mode and --tag are optional.
+            let tokens: Vec<&str> = rest.split_whitespace().collect();
+            let mut tag_ids: Vec<String> = Vec::new();
+            let mut mode: Option<String> = None;
+            let mut i = 0;
+            while i < tokens.len() {
+                match tokens[i] {
+                    "--mode" => {
+                        i += 1;
+                        match tokens.get(i).copied() {
+                            Some("any") => mode = Some("any".to_string()),
+                            Some("all") => mode = Some("all".to_string()),
+                            _ => {
+                                return SlashAction::BadArgs {
+                                    name: "enrich",
+                                    hint: "mode must be any or all",
+                                }
+                            }
+                        }
+                    }
+                    "--tag" => {
+                        i += 1;
+                        if let Some(t) = tokens.get(i) {
+                            tag_ids.push(t.to_string());
+                        }
+                    }
+                    tok if !tok.starts_with('-') => {
+                        tag_ids.push(tok.to_string());
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let mut body = serde_json::json!({});
+            if !tag_ids.is_empty() {
+                body["tag_ids"] = serde_json::json!(tag_ids);
+            }
+            if let Some(m) = mode {
+                body["mode"] = serde_json::json!(m);
+            }
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_resolve",
+                body,
+            }
+        }
+        "start" => match parse_enrich_flags(&rest) {
+            Err(hint) => SlashAction::BadArgs {
+                name: "enrich",
+                hint,
+            },
+            Ok(f) => {
+                let mut body = serde_json::json!({});
+                if !f.tag_ids.is_empty() {
+                    body["tag_ids"] = serde_json::json!(f.tag_ids);
+                }
+                if let Some(m) = f.mode {
+                    body["mode"] = serde_json::json!(m);
+                }
+                if f.force {
+                    body["force"] = serde_json::json!(true);
+                }
+                if let Some(s) = f.sources {
+                    body["sources"] = serde_json::json!(s);
+                }
+                if let Some(p) = f.priority {
+                    body["priority"] = serde_json::json!(p);
+                }
+                SlashAction::AdminDispatch {
+                    name: "music_enrichment_bulk_start",
+                    body,
+                }
+            }
+        },
+        "confirm" => match parse_enrich_flags(&rest) {
+            Err(hint) => SlashAction::BadArgs {
+                name: "enrich",
+                hint,
+            },
+            Ok(f) => {
+                let mut body = serde_json::json!({});
+                if !f.tag_ids.is_empty() {
+                    body["tag_ids"] = serde_json::json!(f.tag_ids);
+                }
+                if let Some(m) = f.mode {
+                    body["mode"] = serde_json::json!(m);
+                }
+                if let Some(c) = f.confidence {
+                    body["min_confidence"] = serde_json::json!(c);
+                }
+                if let Some(g) = f.gap {
+                    body["min_gap"] = serde_json::json!(g);
+                }
+                SlashAction::AdminDispatch {
+                    name: "music_enrichment_bulk_auto_confirm",
+                    body,
+                }
+            }
+        },
+        "auto" => match parse_enrich_flags(&rest) {
+            Err(hint) => SlashAction::BadArgs {
+                name: "enrich",
+                hint,
+            },
+            Ok(f) => {
+                let mut body = serde_json::json!({});
+                if !f.tag_ids.is_empty() {
+                    body["tag_ids"] = serde_json::json!(f.tag_ids);
+                }
+                if let Some(m) = f.mode {
+                    body["mode"] = serde_json::json!(m);
+                }
+                if f.force {
+                    body["force"] = serde_json::json!(true);
+                }
+                if let Some(s) = f.sources {
+                    body["sources"] = serde_json::json!(s);
+                }
+                if let Some(c) = f.confidence {
+                    body["min_confidence"] = serde_json::json!(c);
+                }
+                if let Some(g) = f.gap {
+                    body["min_gap"] = serde_json::json!(g);
+                }
+                if let Some(p) = f.priority {
+                    body["priority"] = serde_json::json!(p);
+                }
+                SlashAction::AdminDispatch {
+                    name: "music_enrichment_bulk_auto",
+                    body,
+                }
+            }
+        },
+        _ => SlashAction::BadArgs {
+            name: "enrich",
+            hint: "usage: /enrich [tags|resolve|start|confirm|auto] - see /help for details",
         },
     }
 }
@@ -1840,6 +2102,130 @@ mod tests {
                 query: Some("mellow jams".into()),
             }
         );
+    }
+
+    #[test]
+    fn parses_enrich_tags() {
+        assert!(matches!(
+            parse("/enrich tags"),
+            SlashAction::AdminDispatch {
+                name: "__enrich_tags_form__",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_enrich_auto_no_args_dispatches() {
+        match parse("/enrich auto") {
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_bulk_auto",
+                body,
+            } => {
+                assert_eq!(body, serde_json::json!({}));
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enrich_resolve_positional() {
+        match parse("/enrich resolve tag1 tag2 --mode all") {
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_resolve",
+                body,
+            } => {
+                let ids = body["tag_ids"].as_array().unwrap();
+                assert_eq!(ids.len(), 2);
+                assert_eq!(ids[0].as_str(), Some("tag1"));
+                assert_eq!(ids[1].as_str(), Some("tag2"));
+                assert_eq!(body["mode"].as_str(), Some("all"));
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enrich_resolve_bad_mode() {
+        assert!(matches!(
+            parse("/enrich resolve --mode bogus"),
+            SlashAction::BadArgs { name: "enrich", .. }
+        ));
+    }
+
+    #[test]
+    fn parses_enrich_auto_flags() {
+        match parse("/enrich auto --tag abc --tag def --force --confidence 0.9") {
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_bulk_auto",
+                body,
+            } => {
+                let ids = body["tag_ids"].as_array().unwrap();
+                assert_eq!(ids.len(), 2);
+                assert_eq!(ids[0].as_str(), Some("abc"));
+                assert_eq!(ids[1].as_str(), Some("def"));
+                assert_eq!(body["force"].as_bool(), Some(true));
+                assert!((body["min_confidence"].as_f64().unwrap() - 0.9).abs() < 1e-9);
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enrich_start_sources_and_priority() {
+        match parse("/enrich start --tag t1 --sources mb,lastfm --priority 5 --mode any") {
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_bulk_start",
+                body,
+            } => {
+                let sources = body["sources"].as_array().unwrap();
+                assert!(sources.iter().any(|s| s.as_str() == Some("mb")));
+                assert!(sources.iter().any(|s| s.as_str() == Some("lastfm")));
+                assert_eq!(body["priority"].as_i64(), Some(5));
+                assert_eq!(body["mode"].as_str(), Some("any"));
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enrich_confirm_confidence_gap() {
+        match parse("/enrich confirm --confidence 0.85 --gap 0.1") {
+            SlashAction::AdminDispatch {
+                name: "music_enrichment_bulk_auto_confirm",
+                body,
+            } => {
+                assert!((body["min_confidence"].as_f64().unwrap() - 0.85).abs() < 1e-9);
+                assert!((body["min_gap"].as_f64().unwrap() - 0.1).abs() < 1e-9);
+            }
+            other => panic!("expected AdminDispatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enrich_bare_is_bad_args() {
+        assert!(matches!(
+            parse("/enrich"),
+            SlashAction::BadArgs { name: "enrich", .. }
+        ));
+    }
+
+    #[test]
+    fn parses_enrich_bad_priority() {
+        assert!(matches!(
+            parse("/enrich start --priority notanumber"),
+            SlashAction::BadArgs { name: "enrich", .. }
+        ));
+    }
+
+    #[test]
+    fn complete_sub_enrich() {
+        assert!(complete_sub("enrich", "").contains(&"tags"));
+        assert!(complete_sub("enrich", "").contains(&"resolve"));
+        assert!(complete_sub("enrich", "").contains(&"start"));
+        assert!(complete_sub("enrich", "").contains(&"confirm"));
+        assert!(complete_sub("enrich", "").contains(&"auto"));
+        assert!(complete_sub("enrich", "s").contains(&"start"));
     }
 
     #[test]

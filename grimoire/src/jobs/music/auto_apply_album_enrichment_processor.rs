@@ -76,12 +76,8 @@ pub async fn process_auto_apply_album_enrichment_job(
         album_id, params.attempts
     );
 
-    // step 1: are upstream snapshots ready?
-    let cfg = config::get_config();
-    let lastfm_enabled = cfg.lastfm.enabled
-        && crate::music::lastfm::lastfm_is_configured(&cfg.lastfm);
-    let audiodb_enabled = cfg.audiodb.enabled;
-
+    // read album metadata once — reused for both the optional
+    // auto-confirm step below and the snapshot freshness check.
     let meta = match albums_repo::read_album_metadata(&album_id).await.data {
         Some(m) => m,
         None => {
@@ -90,6 +86,91 @@ pub async fn process_auto_apply_album_enrichment_job(
             });
         }
     };
+
+    // optional: auto-confirm the top mb candidate when the album is
+    // still awaiting a decision and the caller requested it.
+    if params.auto_confirm_top_match {
+        let album_resp = albums_repo::get_album(&album_id).await;
+        let status = album_resp
+            .data
+            .as_ref()
+            .and_then(|a| MbLookupStatus::parse_opt(a.mb_lookup_status.as_deref()))
+            .unwrap_or(MbLookupStatus::NotAttempted);
+
+        match status {
+            MbLookupStatus::Candidates | MbLookupStatus::NeedsReview => {
+                let mut cands: Vec<_> = meta
+                    .musicbrainz
+                    .as_ref()
+                    .map(|mb| mb.candidates.iter().collect::<Vec<_>>())
+                    .unwrap_or_default();
+
+                if cands.is_empty() {
+                    return Ok(Some(json!({
+                        "album_id": album_id,
+                        "final_status": "skipped_no_candidates",
+                    })));
+                }
+
+                cands.sort_by(|a, b| {
+                    b.local_confidence
+                        .unwrap_or(0.0)
+                        .partial_cmp(&a.local_confidence.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                let mc = params.min_confidence.unwrap_or(0.85);
+                let mg = params.min_gap.unwrap_or(0.10);
+                let top = cands[0];
+                let top_conf = top.local_confidence.unwrap_or(0.0);
+                let second_conf = cands.get(1).and_then(|c| c.local_confidence).unwrap_or(0.0);
+
+                if top_conf < mc || (top_conf - second_conf) < mg {
+                    return Ok(Some(json!({
+                        "album_id": album_id,
+                        "final_status": "skipped_low_confidence",
+                    })));
+                }
+
+                let confirm_resp = albums_repo::confirm_mb_match(
+                    &album_id,
+                    &top.release_group_id,
+                    top.release_id.as_deref(),
+                    &user_id,
+                )
+                .await;
+                if confirm_resp.data.is_none() {
+                    return Err(JobError::ProcessingFailed {
+                        reason: format!(
+                            "confirm_mb_match failed for {}: {}",
+                            album_id, confirm_resp.message
+                        ),
+                    });
+                }
+
+                let _ = albums_repo::update_mb_lookup_status(
+                    &album_id,
+                    MbLookupStatus::AutoApplying,
+                    Some(&user_id),
+                )
+                .await;
+
+                // unset so rescheduled jobs don't re-run the confirm step.
+                params.auto_confirm_top_match = false;
+            }
+            _ => {
+                // status is already past candidates/needs_review;
+                // skip the confirm step and fall through to the apply flow.
+            }
+        }
+    }
+
+    // step 1: are upstream snapshots ready?
+    let cfg = config::get_config();
+    let lastfm_enabled = cfg.lastfm.enabled
+        && crate::music::lastfm::lastfm_is_configured(&cfg.lastfm);
+    let audiodb_enabled = cfg.audiodb.enabled;
+
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let mb_ready = meta
         .folksonomy

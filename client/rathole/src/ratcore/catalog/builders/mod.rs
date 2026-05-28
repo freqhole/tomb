@@ -4,6 +4,7 @@
 pub(super) mod analytics;
 pub(super) mod blobz;
 pub(super) mod dir_tags;
+pub(super) mod enrichment;
 pub(super) mod invites;
 pub(super) mod jobs;
 pub(super) mod knocks;

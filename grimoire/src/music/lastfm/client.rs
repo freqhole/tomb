@@ -4,16 +4,15 @@
 //! the api key from `LastFmConfig`. errors are returned as a structured
 //! `LastFmErrorEnvelope` per the api docs (e.g. error=6 == artist not found).
 //!
-//! rate limit: 1 req/sec (we share the same `RateLimiter` impl as
-//! musicbrainz to keep things simple and well under the documented cap).
+//! rate limiting is handled by the global gate in `crate::jobs::rate_limit`;
+//! the client retries 429/503 up to 3 times honoring `Retry-After`.
 
 use crate::config::LastFmConfig;
 use crate::error::GrimoireError;
-use crate::music::musicbrainz::rate_limiter::RateLimiter;
 use crate::response::GrimoireResponse;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -25,13 +24,33 @@ use super::models::{
 const USER_AGENT: &str = "freqhole/1.0 (https://github.com/freqhole/tomb)";
 const BASE_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 const TIMEOUT_SECONDS: u64 = 30;
-const RATE_LIMIT_MS: u64 = 1000;
+const MAX_RETRIES: u32 = 3;
+
+/// return the shared, long-lived http client for last.fm.
+fn shared_http_client() -> &'static Client {
+    static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
+            .user_agent(USER_AGENT)
+            .build()
+            .expect("failed to build last.fm http client")
+    })
+}
+
+/// parse a `Retry-After` response header into a sleep duration.
+/// handles delta-seconds; falls back to `None` for HTTP-date or unparseable
+/// values so the caller uses exponential backoff. capped at 5 minutes.
+fn parse_retry_after(resp: &reqwest::Response) -> Option<Duration> {
+    let val = resp.headers().get("retry-after")?.to_str().ok()?;
+    let secs: u64 = val.trim().parse().ok()?;
+    Some(Duration::from_secs(secs.min(300)))
+}
 
 #[derive(Debug, Clone)]
 pub struct LastFmClient {
     client: Client,
     config: Arc<LastFmConfig>,
-    rate_limiter: RateLimiter,
 }
 
 /// returns true when last.fm has a usable api key (either in config
@@ -63,15 +82,10 @@ impl LastFmClient {
                         .to_string(),
             });
         }
-        let client = Client::builder()
-            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+        let client = shared_http_client().clone();
         Ok(Self {
             client,
             config: Arc::new(config),
-            rate_limiter: RateLimiter::new(Duration::from_millis(RATE_LIMIT_MS)),
         })
     }
 
@@ -277,45 +291,58 @@ impl LastFmClient {
         &self,
         extra_params: &[(&str, &str)],
     ) -> Result<T, GrimoireError> {
-        self.rate_limiter.wait_if_needed().await;
-
         let api_key = self.config.api_key.clone();
         let mut params: Vec<(&str, &str)> = Vec::with_capacity(extra_params.len() + 2);
         params.extend_from_slice(extra_params);
         params.push(("api_key", api_key.as_str()));
         params.push(("format", "json"));
 
-        let resp = self
-            .client
-            .get(BASE_URL)
-            .query(&params)
-            .send()
-            .await
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+        let mut attempt = 0u32;
+        loop {
+            let resp = self
+                .client
+                .get(BASE_URL)
+                .query(&params)
+                .send()
+                .await
+                .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
 
-        let status = resp.status();
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+            let status = resp.status();
+            if (status.as_u16() == 429 || status.as_u16() == 503) && attempt < MAX_RETRIES {
+                let backoff = parse_retry_after(&resp)
+                    .unwrap_or_else(|| Duration::from_secs(2_u64.pow(attempt + 1)));
+                attempt += 1;
+                warn!(
+                    "lastfm http {} (attempt {}/{}), retrying in {:?}",
+                    status, attempt, MAX_RETRIES, backoff
+                );
+                tokio::time::sleep(backoff).await;
+                continue;
+            }
 
-        if !status.is_success() {
-            warn!("lastfm http {}: {}", status, body);
-            return Err(GrimoireError::ProcessingFailed {
-                message: format!("lastfm http {}", status),
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+
+            if !status.is_success() {
+                warn!("lastfm http {}: {}", status, body);
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!("lastfm http {}", status),
+                });
+            }
+
+            // last.fm returns 200 + an error envelope for typed failures
+            if let Ok(envelope) = serde_json::from_str::<LastFmErrorEnvelope>(&body) {
+                warn!("lastfm api error {}: {}", envelope.error, envelope.message);
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!("lastfm error {}: {}", envelope.error, envelope.message),
+                });
+            }
+
+            return serde_json::from_str::<T>(&body).map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("lastfm parse: {} body={}", e, body),
             });
         }
-
-        // last.fm returns 200 + an error envelope for typed failures
-        if let Ok(envelope) = serde_json::from_str::<LastFmErrorEnvelope>(&body) {
-            warn!("lastfm api error {}: {}", envelope.error, envelope.message);
-            return Err(GrimoireError::ProcessingFailed {
-                message: format!("lastfm error {}: {}", envelope.error, envelope.message),
-            });
-        }
-
-        serde_json::from_str::<T>(&body).map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("lastfm parse: {} body={}", e, body),
-        })
     }
 }

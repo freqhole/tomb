@@ -1,11 +1,9 @@
-//! global, process-wide rate limiters per external enrichment source
-//! (phase 14.4).
+//! global, process-wide rate limiters per external enrichment source.
 //!
-//! each external client (musicbrainz, last.fm, theaudiodb) is constructed
-//! fresh per job, which means a per-client-instance limiter is effectively
-//! a no-op across jobs. this module gives processors a single shared
-//! `RateLimiter` per source so back-to-back jobs still honor the
-//! upstream's request budget.
+//! each external client (musicbrainz, last.fm, theaudiodb) shares a single
+//! long-lived `reqwest::Client` instance and delegates all rate-limiting to
+//! this module. processors must call `acquire(Source::...)` before each http
+//! request; the clients themselves do not impose per-instance limits.
 //!
 //! conservative defaults:
 //! - mb     : 1 r/s (musicbrainz hard requirement)

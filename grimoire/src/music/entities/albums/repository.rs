@@ -632,6 +632,9 @@ pub async fn auto_confirm_mb_matches(
                 user_id: user_id.to_string(),
                 username: None,
                 attempts: 0,
+                auto_confirm_top_match: false,
+                min_confidence: None,
+                min_gap: None,
             };
             match serde_json::to_value(&params) {
                 Ok(parameters) => {
@@ -1073,4 +1076,110 @@ pub async fn set_mb_lookup_status(req: SetMbLookupStatusRequest) -> GrimoireResp
             vec![ErrorDetail::from(e)],
         ),
     }
+}
+
+// =============================================================================
+// tag-based album id resolution
+// =============================================================================
+
+/// controls how multiple tag_ids are combined when filtering albums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TagFilterMode {
+    /// return albums that have ANY of the given tags.
+    Any,
+    /// return albums that have ALL of the given tags.
+    All,
+}
+
+/// resolve album ids filtered by tag. when `tag_ids` is empty, returns
+/// all non-deleted album ids. otherwise applies `mode` logic:
+/// - `Any`: albums with at least one of the specified tags.
+/// - `All`: albums that have every one of the specified tags.
+pub async fn resolve_album_ids_by_tags(
+    tag_ids: &[String],
+    mode: TagFilterMode,
+) -> GrimoireResponse<Vec<String>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "database error",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if tag_ids.is_empty() {
+        let ids = match sqlx::query_scalar!(
+            r#"SELECT id as "id!" FROM albumz WHERE deleted_at IS NULL"#
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "query failed",
+                    vec![ErrorDetail::from(e)],
+                )
+            }
+        };
+        return GrimoireResponse::success(
+            format!("resolved {} album ids", ids.len()),
+            ids,
+        );
+    }
+
+    let ids: Vec<String> = match mode {
+        TagFilterMode::Any => {
+            let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+                "SELECT DISTINCT a.id FROM albumz a \
+                 JOIN album_tagz at ON at.album_id = a.id \
+                 WHERE at.tag_id IN (",
+            );
+            {
+                let mut sep = qb.separated(", ");
+                for id in tag_ids {
+                    sep.push_bind(id);
+                }
+            }
+            qb.push(") AND a.deleted_at IS NULL");
+            match qb.build_query_scalar::<String>().fetch_all(&pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "query failed",
+                        vec![ErrorDetail::from(e)],
+                    )
+                }
+            }
+        }
+        TagFilterMode::All => {
+            let n = tag_ids.len() as i64;
+            let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+                "SELECT a.id FROM albumz a \
+                 JOIN album_tagz at ON at.album_id = a.id \
+                 WHERE at.tag_id IN (",
+            );
+            {
+                let mut sep = qb.separated(", ");
+                for id in tag_ids {
+                    sep.push_bind(id);
+                }
+            }
+            qb.push(") AND a.deleted_at IS NULL GROUP BY a.id HAVING COUNT(DISTINCT at.tag_id) = ");
+            qb.push_bind(n);
+            match qb.build_query_scalar::<String>().fetch_all(&pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "query failed",
+                        vec![ErrorDetail::from(e)],
+                    )
+                }
+            }
+        }
+    };
+
+    GrimoireResponse::success(format!("resolved {} album ids", ids.len()), ids)
 }

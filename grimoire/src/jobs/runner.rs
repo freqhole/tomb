@@ -19,14 +19,94 @@ use crate::error::ErrorDetail;
 use crate::events::{emit, GrimoireEvent};
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+
+/// concurrency class for a job type.
+/// used to cap the number of concurrent enrichment workers per source
+/// so bulk enrichment queues don't starve filesystem jobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum JobClass {
+    EnrichmentMb,
+    EnrichmentLastFm,
+    EnrichmentAudiodb,
+    Other,
+}
+
+fn job_class(job_type: &JobType) -> JobClass {
+    match job_type {
+        JobType::MbAlbumSearch | JobType::MbAlbumDetail => JobClass::EnrichmentMb,
+        JobType::LastFmAlbumDetail | JobType::LastFmArtistDetail => JobClass::EnrichmentLastFm,
+        JobType::AudioDbAlbumDetail | JobType::AudioDbArtistDetail => JobClass::EnrichmentAudiodb,
+        _ => JobClass::Other,
+    }
+}
+
+/// max concurrent in-flight jobs for each capped class.
+/// returns `None` for `Other` (no cap).
+fn class_cap(class: JobClass) -> Option<usize> {
+    match class {
+        JobClass::EnrichmentMb => Some(2),
+        JobClass::EnrichmentLastFm => Some(3),
+        JobClass::EnrichmentAudiodb => Some(2),
+        JobClass::Other => None,
+    }
+}
+
+fn is_badge_progress_job(job_type: &JobType) -> bool {
+    matches!(
+        job_type,
+        JobType::ImportMusic
+            | JobType::ProcessFile
+            | JobType::ProcessDirectory
+            | JobType::FetchMedia
+            | JobType::AlbumEnrichmentPipeline
+            | JobType::AutoApplyAlbumEnrichment
+            | JobType::MbAlbumSearch
+            | JobType::MbAlbumDetail
+            | JobType::LastFmAlbumDetail
+            | JobType::LastFmArtistDetail
+            | JobType::AudioDbAlbumDetail
+            | JobType::AudioDbArtistDetail
+    )
+}
+
+fn is_enrichment_job(job_type: &JobType) -> bool {
+    matches!(
+        job_type,
+        JobType::AlbumEnrichmentPipeline
+            | JobType::AutoApplyAlbumEnrichment
+            | JobType::MbAlbumSearch
+            | JobType::MbAlbumDetail
+            | JobType::LastFmAlbumDetail
+            | JobType::LastFmArtistDetail
+            | JobType::AudioDbAlbumDetail
+            | JobType::AudioDbArtistDetail
+    )
+}
+
+/// RAII guard: decrements a per-class in-flight counter when dropped.
+/// ensures the slot is released even if the worker task panics.
+struct JobClassPermit {
+    class: JobClass,
+    counts: Arc<StdMutex<HashMap<JobClass, usize>>>,
+}
+
+impl Drop for JobClassPermit {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.counts.lock() {
+            if let Some(n) = guard.get_mut(&self.class) {
+                *n = n.saturating_sub(1);
+            }
+        }
+    }
+}
 
 /// process a single job by dispatching to the appropriate processor
 /// Note: job should already be marked as 'Running' by get_next_pending_job
@@ -125,11 +205,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // `total` from the session.progress field (set once by the
             // scanner / fetch-handler) and derive
             // completed = total - (pending + running + failed).
-            if job_type == JobType::ImportMusic
-                || job_type == JobType::ProcessFile
-                || job_type == JobType::ProcessDirectory
-                || job_type == JobType::FetchMedia
-            {
+            if is_badge_progress_job(&job_type) {
                 if let Some(session_id) = &job.session_id {
                     if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
                         // try to read the original total from session.progress;
@@ -151,7 +227,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         // for FetchMedia jobs there's no path on disk
                         // yet, so fall back to the source url so ui
                         // subscribers can classify it as a fetch.
-                        let directory = job
+                        let mut directory = job
                             .parameters()
                             .ok()
                             .and_then(|p: serde_json::Value| {
@@ -166,6 +242,9 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                                 }
                             })
                             .unwrap_or_default();
+                        if is_enrichment_job(&job_type) {
+                            directory = "enrich://".to_string();
+                        }
 
                         emit(GrimoireEvent::JobProgress {
                             session_id: session_id.clone(),
@@ -267,13 +346,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // ui badges don't get stuck when a session ends in
             // failure (e.g. yt-dlp 404, last ProcessFile bombs). only
             // applies to job types we already wired into the badge.
-            if matches!(
-                job_type,
-                JobType::ImportMusic
-                    | JobType::ProcessFile
-                    | JobType::ProcessDirectory
-                    | JobType::FetchMedia
-            ) {
+            if is_badge_progress_job(&job_type) {
                 if let Some(session_id) = &job.session_id {
                     if let Ok(counts) = get_session_job_counts(session_id).await.data.ok_or(()) {
                         let session_total = get_job_session(session_id)
@@ -287,7 +360,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         let completed_so_far = session_total
                             .saturating_sub(in_flight)
                             .saturating_sub(counts.failed);
-                        let directory = job
+                        let mut directory = job
                             .parameters()
                             .ok()
                             .and_then(|p: serde_json::Value| {
@@ -302,6 +375,9 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                                 }
                             })
                             .unwrap_or_default();
+                        if is_enrichment_job(&job_type) {
+                            directory = "enrich://".to_string();
+                        }
                         emit(GrimoireEvent::JobProgress {
                             session_id: session_id.clone(),
                             directory,
@@ -393,6 +469,8 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
 
     let semaphore = Arc::new(Semaphore::new(max_workers));
     let busy_keys: Arc<Mutex<HashSet<(JobType, String)>>> = Arc::new(Mutex::new(HashSet::new()));
+    let class_counts: Arc<StdMutex<HashMap<JobClass, usize>>> =
+        Arc::new(StdMutex::new(HashMap::new()));
     let mut workers: JoinSet<()> = JoinSet::new();
 
     loop {
@@ -417,24 +495,27 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
         // peek a batch of pending jobs, skip any whose conflict key is
         // currently busy in another worker, then atomically claim the
         // first claimable candidate.
-        let claimed = match claim_next_unblocked_job(busy_keys.clone(), max_workers).await {
-            Ok(j) => j,
-            Err(msg) => {
-                warn!("failed to peek/claim next job (will retry): {}", msg);
-                drop(permit);
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(10)) => {},
-                    _ = cancellation_token.cancelled() => {
-                        info!("shutdown requested during error backoff");
-                        break;
+        let claimed =
+            match claim_next_unblocked_job(busy_keys.clone(), class_counts.clone(), max_workers)
+                .await
+            {
+                Ok(j) => j,
+                Err(msg) => {
+                    warn!("failed to peek/claim next job (will retry): {}", msg);
+                    drop(permit);
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {},
+                        _ = cancellation_token.cancelled() => {
+                            info!("shutdown requested during error backoff");
+                            break;
+                        }
                     }
+                    continue;
                 }
-                continue;
-            }
-        };
+            };
 
         let job = match claimed {
-            Some(job) => job,
+            Some((job, class_permit)) => (job, class_permit),
             None => {
                 // nothing claimable right now (queue empty, or every
                 // pending job's key is busy). drop the permit and
@@ -451,6 +532,7 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
             }
         };
 
+        let (job, class_permit) = job;
         let key = conflict_key_for(&job);
         let busy_keys_clone = busy_keys.clone();
         info!("processing job: {} (type: {})", job.id, job.job_type);
@@ -463,6 +545,8 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
             } else {
                 warn!("job failed: {} - {}", job_id, result.message);
             }
+            // release per-class permit before releasing the semaphore slot
+            drop(class_permit);
             if let Some(k) = key {
                 busy_keys_clone.lock().await.remove(&k);
             }
@@ -539,9 +623,18 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
             Some((JobType::ProcessDirectory, path))
         }
         // other job types (fetch, webp convert, import, mb/lastfm/audiodb
-        // enrichment, pipeline orchestrators) have unique per-row keys
-        // and are safe to interleave; rate-limiting for external apis
-        // is enforced via the global gates in `jobs::rate_limit`.
+        // enrichment) have unique per-row keys and are safe to interleave;
+        // rate-limiting for external apis is enforced via the global gates
+        // in `jobs::rate_limit`.
+        //
+        // the two pipeline orchestrators serialize per album_id so two
+        // concurrent bulk-enrich requests for the same album don't
+        // double-fan-out child jobs.
+        jt @ (JobType::AlbumEnrichmentPipeline | JobType::AutoApplyAlbumEnrichment) => {
+            let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
+            let album_id = params.get("album_id")?.as_str()?.to_string();
+            Some((jt, album_id))
+        }
         _ => None,
     }
 }
@@ -553,8 +646,9 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
 /// blocked.
 async fn claim_next_unblocked_job(
     busy_keys: Arc<Mutex<HashSet<(JobType, String)>>>,
+    class_counts: Arc<StdMutex<HashMap<JobClass, usize>>>,
     pool_size: usize,
-) -> Result<Option<Job>, String> {
+) -> Result<Option<(Job, Option<JobClassPermit>)>, String> {
     // peek at least one job, and grab a few extras so we can skip
     // past blocked keys without re-querying every iteration.
     let limit = (pool_size as u32 + 4).max(8);
@@ -569,12 +663,41 @@ async fn claim_next_unblocked_job(
     }
 
     for candidate in candidates {
+        let candidate_type = match candidate.job_type() {
+            Ok(jt) => jt,
+            Err(_) => continue,
+        };
+
+        // check per-class concurrency cap before reserving the key.
+        // increment inside the lock to atomically reserve the slot.
+        let class = job_class(&candidate_type);
+        let class_permit: Option<JobClassPermit> = if let Some(cap) = class_cap(class) {
+            match class_counts.lock() {
+                Ok(mut guard) => {
+                    let current = guard.get(&class).copied().unwrap_or(0);
+                    if current >= cap {
+                        continue; // class is at cap, skip this candidate
+                    }
+                    *guard.entry(class).or_insert(0) += 1;
+                    Some(JobClassPermit {
+                        class,
+                        counts: class_counts.clone(),
+                    })
+                }
+                Err(_) => continue,
+            }
+        } else {
+            None
+        };
+
         let key = conflict_key_for(&candidate);
         // reserve the key (if any) before issuing the claim so a
         // second worker peeking the same row in parallel skips it.
         if let Some(ref k) = key {
             let mut guard = busy_keys.lock().await;
             if guard.contains(k) {
+                // release class slot we just reserved
+                drop(class_permit);
                 continue;
             }
             guard.insert(k.clone());
@@ -584,17 +707,19 @@ async fn claim_next_unblocked_job(
             if let Some(ref k) = key {
                 busy_keys.lock().await.remove(k);
             }
+            drop(class_permit);
             let msgs: Vec<String> = claim.errors.iter().map(|e| e.detail.clone()).collect();
             return Err(msgs.join(", "));
         }
         match claim.data.flatten() {
-            Some(job) => return Ok(Some(job)),
+            Some(job) => return Ok(Some((job, class_permit))),
             None => {
-                // another worker won the row race; release the key
-                // reservation and keep scanning the rest of the batch.
+                // another worker won the row race; release reservations
+                // and keep scanning the rest of the batch.
                 if let Some(ref k) = key {
                     busy_keys.lock().await.remove(k);
                 }
+                drop(class_permit);
                 continue;
             }
         }

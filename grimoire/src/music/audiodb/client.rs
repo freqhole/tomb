@@ -10,24 +10,43 @@ use crate::music::audiodb::models::{
     AudioDbAlbum, AudioDbAlbumLookupResponse, AudioDbArtist, AudioDbArtistLookupResponse,
     AudioDbSearchAlbumsResponse,
 };
-use crate::music::musicbrainz::rate_limiter::RateLimiter;
 use crate::response::GrimoireResponse;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing::{info, warn};
 
 const USER_AGENT: &str = "freqhole/1.0 (https://github.com/freqhole/tomb)";
 const BASE_URL: &str = "https://www.theaudiodb.com/api/v1/json";
 const TIMEOUT_SECONDS: u64 = 30;
-const RATE_LIMIT_MS: u64 = 1000;
+const MAX_RETRIES: u32 = 3;
+
+/// return the shared, long-lived http client for theaudiodb.com.
+fn shared_http_client() -> &'static Client {
+    static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
+            .user_agent(USER_AGENT)
+            .build()
+            .expect("failed to build audiodb http client")
+    })
+}
+
+/// parse a `Retry-After` response header into a sleep duration.
+/// handles delta-seconds; falls back to `None` for HTTP-date or unparseable
+/// values so the caller uses exponential backoff. capped at 5 minutes.
+fn parse_retry_after(resp: &reqwest::Response) -> Option<Duration> {
+    let val = resp.headers().get("retry-after")?.to_str().ok()?;
+    let secs: u64 = val.trim().parse().ok()?;
+    Some(Duration::from_secs(secs.min(300)))
+}
 
 #[derive(Debug, Clone)]
 pub struct AudioDbClient {
     client: Client,
     config: Arc<AudioDbConfig>,
-    rate_limiter: RateLimiter,
 }
 
 impl AudioDbClient {
@@ -45,15 +64,10 @@ impl AudioDbClient {
         if config.api_key.trim().is_empty() {
             config.api_key = "123".to_string();
         }
-        let client = Client::builder()
-            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+        let client = shared_http_client().clone();
         Ok(Self {
             client,
             config: Arc::new(config),
-            rate_limiter: RateLimiter::new(Duration::from_millis(RATE_LIMIT_MS)),
         })
     }
 
@@ -173,32 +187,45 @@ impl AudioDbClient {
         path: &str,
         params: &[(&str, &str)],
     ) -> Result<T, GrimoireError> {
-        self.rate_limiter.wait_if_needed().await;
-
         let url = format!("{}/{}/{}", BASE_URL, self.config.api_key, path);
-        let resp = self
-            .client
-            .get(&url)
-            .query(params)
-            .send()
-            .await
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+        let mut attempt = 0u32;
+        loop {
+            let resp = self
+                .client
+                .get(&url)
+                .query(params)
+                .send()
+                .await
+                .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
 
-        let status = resp.status();
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+            let status = resp.status();
+            if (status.as_u16() == 429 || status.as_u16() == 503) && attempt < MAX_RETRIES {
+                let backoff = parse_retry_after(&resp)
+                    .unwrap_or_else(|| Duration::from_secs(2_u64.pow(attempt + 1)));
+                attempt += 1;
+                warn!(
+                    "audiodb http {} (attempt {}/{}), retrying in {:?}",
+                    status, attempt, MAX_RETRIES, backoff
+                );
+                tokio::time::sleep(backoff).await;
+                continue;
+            }
 
-        if !status.is_success() {
-            warn!("audiodb http {}: {}", status, body);
-            return Err(GrimoireError::ProcessingFailed {
-                message: format!("audiodb http {}", status),
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
+
+            if !status.is_success() {
+                warn!("audiodb http {}: {}", status, body);
+                return Err(GrimoireError::ProcessingFailed {
+                    message: format!("audiodb http {}", status),
+                });
+            }
+
+            return serde_json::from_str::<T>(&body).map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("audiodb parse: {} body={}", e, body),
             });
         }
-
-        serde_json::from_str::<T>(&body).map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("audiodb parse: {} body={}", e, body),
-        })
     }
 }

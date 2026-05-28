@@ -152,6 +152,20 @@ pub enum ArgKind {
         value_field: String,
         label_field: String,
     },
+    /// pick zero or more values from another command's response.
+    /// uses the same source-loading behavior as `SelectFrom`, but
+    /// serializes to a JSON array of selected `value_field`s.
+    MultiSelectFrom {
+        source_command: String,
+        source_body: serde_json::Value,
+        /// (body_key, sibling_field_name) — at fetch time, look up
+        /// the sibling's currently-selected value and insert it into
+        /// the body under `body_key`.
+        body_from_fields: Vec<(String, String)>,
+        data_path: String,
+        value_field: String,
+        label_field: String,
+    },
     /// hidden field whose value is auto-derived from a sibling
     /// `SelectFrom` field's currently-selected row. used for things
     /// like `peers_remove` where picking a user row should also
@@ -206,6 +220,15 @@ pub enum FieldState {
         error: Option<String>,
         selected: usize,
     },
+    /// dynamic multi-select picker. `checked[i]` corresponds to
+    /// `options[i]`; both are reset when fresh options arrive.
+    MultiSelect {
+        options: Option<Vec<SelectOption>>,
+        loading: bool,
+        error: Option<String>,
+        cursor: usize,
+        checked: Vec<bool>,
+    },
     /// auto-derived from a sibling SelectFrom row at submit time.
     /// not focusable; doesn't participate in the wizard step list.
     Mirror,
@@ -250,6 +273,13 @@ impl FieldState {
                 loading: false,
                 error: None,
                 selected: 0,
+            },
+            ArgKind::MultiSelectFrom { .. } => Self::MultiSelect {
+                options: None,
+                loading: false,
+                error: None,
+                cursor: 0,
+                checked: Vec::new(),
             },
         }
     }
