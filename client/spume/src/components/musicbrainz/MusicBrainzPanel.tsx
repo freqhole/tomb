@@ -4,7 +4,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import type { Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import type { MbArtistCredit, MbReleaseListItem, MbReleaseDetail } from "../../music/data/types";
-import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
+import { getClientForRemote } from "../../app/api/client";
 import { TextInput } from "../forms/TextInput";
 import { Button } from "../buttons/Button";
 import { Icon, IconNames } from "../icons/registry";
@@ -218,7 +218,10 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
 
   const handleImportImage = async (imageUrl: string) => {
     const remote = getCurrentRemote();
-    if (!remote) return;
+    if (!remote) {
+      toast.error("no remote selected");
+      return;
+    }
     const fullUrl = imageUrl;
     setImportingImages((prev) => {
       const next = new Set(prev);
@@ -227,35 +230,16 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
     });
 
     try {
-      // fetch image from cover art archive URL
-      const resp = await fetch(fullUrl);
-      if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
-      const blob = await resp.blob();
-      const file = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
-
-      const dataSource = getDataSource();
-      if (!dataSource.uploadImage) {
-        toast.error("image upload not supported");
-        return;
-      }
-
-      const { job_id } = await dataSource.uploadImage({
-        file,
-        entityType: "album",
-        entityId: props.albumId,
-        isPrimary: false,
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.ingestRemoteImage({
+        remote_url: fullUrl,
+        target: { kind: "Album", id: props.albumId },
+        is_primary: false,
+        source: "musicbrainz",
       });
-
-      const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
-      if (pollResult === "failed") {
-        toast.error("image processing failed");
+      if (!resp.success) {
+        toast.error(resp.error.message || "failed to import image");
         return;
-      }
-      if (pollResult === "timeout") {
-        toast.info("image processing taking a long time — check back later", {
-          title: "processing queued",
-        });
-        // still mark as imported since the job was created and may complete later
       }
 
       // mark as imported
@@ -397,6 +381,66 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
 
   const [updatingField, setUpdatingField] = createSignal<string | null>(null);
 
+  const syncAlbumGenresFromMusicBrainz = async (detail: ReleaseDetail) => {
+    const remote = getCurrentRemote();
+    if (!remote) {
+      throw new Error("no remote selected");
+    }
+
+    const client = await getClientForRemote(remote);
+    const linksResp = await client.music.getAlbumTaxonLinks({ album_id: props.albumId });
+    if (!linksResp.success) {
+      throw new Error("failed to load album taxons");
+    }
+    if (!linksResp.data) {
+      throw new Error("failed to load album taxons");
+    }
+
+    const existingMbGenreLinks = linksResp.data.filter(
+      (link) => link.kind_slug === "genre" && link.origin === "musicbrainz"
+    );
+
+    for (const link of existingMbGenreLinks) {
+      const removeResp = await client.music.removeAlbumTaxon({
+        album_id: props.albumId,
+        taxon_id: link.taxon_id,
+        origin: "musicbrainz",
+      });
+      if (!removeResp.success) {
+        throw new Error(removeResp.error?.message || "failed to clear existing musicbrainz genres");
+      }
+    }
+
+    const normalized = new Set(
+      (detail.genres || []).map((g) => g.trim()).filter((g) => g.length > 0)
+    );
+
+    for (const label of normalized) {
+      const taxonResp = await client.music.createTaxon({
+        kind_slug: "genre",
+        label,
+        description: null,
+        parent_ids: null,
+      });
+      if (!taxonResp.success) {
+        throw new Error(`failed to resolve genre taxon: ${label}`);
+      }
+      if (!taxonResp.data) {
+        throw new Error(`failed to resolve genre taxon: ${label}`);
+      }
+
+      const addResp = await client.music.addAlbumTaxon({
+        album_id: props.albumId,
+        taxon_id: taxonResp.data.id,
+        origin: "musicbrainz",
+        confidence: null,
+      });
+      if (!addResp.success) {
+        throw new Error(addResp.error?.message || `failed to link genre: ${label}`);
+      }
+    }
+  };
+
   const handleUpdateAlbumField = async (field: MetadataField) => {
     const dataSource = getDataSource();
     setUpdatingField(field.key);
@@ -417,8 +461,19 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           toast.error("album update not available");
           return;
         }
-        // update album field
         const detail = selectedRelease();
+        if (!detail) {
+          toast.error("release details not loaded");
+          return;
+        }
+
+        if (field.key === "genres") {
+          await syncAlbumGenresFromMusicBrainz(detail);
+          props.onAlbumUpdated();
+          return;
+        }
+
+        // update album field
         await dataSource.updateAlbum({
           album_id: props.albumId,
           title: field.key === "title" ? field.mbValue : null,
@@ -427,8 +482,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
           album_type: field.key === "album_type" ? field.mbValue : null,
           release_date: field.key === "release_date" ? field.mbValue : null,
           label: field.key === "label" ? field.mbValue : null,
-          genre_ids: null,
-          genres: field.key === "genres" && detail ? detail.genres : null,
           entity_urls: null,
           updated_by: null,
         });
@@ -487,11 +540,13 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
             ? detail.date || null
             : null,
           label: albumFields.some((f) => f.key === "label") ? detail.label || null : null,
-          genre_ids: null,
-          genres: albumFields.some((f) => f.key === "genres") ? detail.genres : null,
           entity_urls: null,
           updated_by: null,
         });
+      }
+
+      if (albumFields.some((f) => f.key === "genres")) {
+        await syncAlbumGenresFromMusicBrainz(detail);
       }
 
       props.onAlbumUpdated();
