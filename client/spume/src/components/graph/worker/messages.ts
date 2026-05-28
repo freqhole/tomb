@@ -18,6 +18,10 @@ export interface VisibleNode {
   coSelected?: boolean;
   /** optional hex color override for node fill (e.g. taxon kind colors). */
   tint?: string;
+  /** true when this remote-hub node represents a charnel-managed remote.
+   *  the canvas renderer draws a home glyph next to its label. only
+   *  meaningful when `role === "remote"`. */
+  isCharnelManaged?: boolean;
   /** strategy A — cross-remote cluster aggregation. when this node is the
    *  visual representative ("leader") for a set of matched artists/albums
    *  spread across N remotes, contributorRemotes holds the sorted list of

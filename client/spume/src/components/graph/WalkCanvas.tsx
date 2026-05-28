@@ -758,6 +758,35 @@ function drawLabel(
   } else {
     ctx.fillText(label, lx, ly);
   }
+
+  // home-icon glyph for charnel-managed remote hubs. drawn just to the
+  // right of the label pill, vertically centered on the text baseline,
+  // so the local-sidecar remote is visually distinguishable from
+  // federated remotes (mirrors the home-icon shown in the top-nav
+  // remote source list).
+  if (n.role === "remote" && n.isCharnelManaged) {
+    drawHomeGlyph(ctx, bx + tw + pw + 4, ly, fontSize, color);
+  }
+}
+
+// 24x24 material-style "home" path (matches HomeIcon in
+// components/icons/navigation.tsx). drawn scaled around (cx,cy) at
+// the requested pixel size. fill only \u2014 no stroke.
+const HOME_PATH_2D = new Path2D("M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z");
+function drawHomeGlyph(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  color: string
+) {
+  const s = size / 24;
+  ctx.save();
+  ctx.translate(cx, cy - size / 2);
+  ctx.scale(s, s);
+  ctx.fillStyle = color;
+  ctx.fill(HOME_PATH_2D);
+  ctx.restore();
 }
 
 // ---- component -------------------------------------------------------------

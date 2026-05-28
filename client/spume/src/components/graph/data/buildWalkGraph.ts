@@ -21,6 +21,9 @@ export interface BuildWalkGraphInput {
   favoriteSongAlbumIds?: Map<string, Set<string>>;
   /** bare artist ids (from song favorites) per remote, unioned with artist.isFavorite */
   favoriteSongArtistIds?: Map<string, Set<string>>;
+  /** which remoteIds correspond to the local charnel-managed sidecar.
+   *  the renderer draws a home-icon glyph next to those remote-hub labels. */
+  charnelManagedRemoteIds?: Set<string>;
 }
 
 export interface BuildWalkGraphOutput {
@@ -86,6 +89,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
       label: remoteId,
       parentId: rId,
       childCount: artists.length, // direct artist children (not counting relation hubs for sizing)
+      isCharnelManaged: input.charnelManagedRemoteIds?.has(remoteId) || undefined,
     });
     edges.push({ source: rId, target: rhId });
 

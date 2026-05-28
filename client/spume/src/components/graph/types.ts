@@ -251,6 +251,11 @@ export interface WalkNode {
   lazy?: boolean;
   /** optional hex color override for node fill (e.g. taxon kind colors). */
   tint?: string;
+  /** true when this node represents a charnel-managed remote (the local
+   *  sidecar). drawn with a home-icon glyph next to its label so it's
+   *  visually distinguishable from federated remotes. only meaningful
+   *  when `role === "remote"`. */
+  isCharnelManaged?: boolean;
 }
 
 export interface WalkEdge {

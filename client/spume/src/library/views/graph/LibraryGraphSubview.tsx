@@ -657,6 +657,12 @@ function Inner(props: {
       artistsByRemote: artistsByRemote(),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
+      charnelManagedRemoteIds: new Set(
+        props
+          .remotes()
+          .filter((r) => !!r.is_charnel_managed)
+          .map((r) => r.remote_id)
+      ),
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -1807,6 +1813,12 @@ function Inner(props: {
         remoteIds: [otherRemoteId],
         albumsByRemote: new Map([[otherRemoteId, allMatches]]),
         artistsByRemote: new Map([[otherRemoteId, artistNodes]]),
+        charnelManagedRemoteIds: new Set(
+          props
+            .remotes()
+            .filter((r) => !!r.is_charnel_managed)
+            .map((r) => r.remote_id)
+        ),
       });
 
       // include only the artist + album nodes and the edges directly

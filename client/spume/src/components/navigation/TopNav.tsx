@@ -762,6 +762,19 @@ export function TopNav(props: TopNavProps) {
     return found;
   };
 
+  // sort remotes with charnel-managed (the local sidecar) first so it's
+  // always at the top of the remote source list.
+  const sortedRemotes = () => {
+    const list = props.remotes;
+    if (!list) return list;
+    return [...list].sort((a, b) => {
+      if (!!a.isCharnelManaged !== !!b.isCharnelManaged) {
+        return a.isCharnelManaged ? -1 : 1;
+      }
+      return 0;
+    });
+  };
+
   // handle remote click - recheck if offline, otherwise switch
   const handleRemoteClick = async (remote: NonNullable<typeof props.remotes>[number]) => {
     // if it's the current source and we're not on a global root route
@@ -1083,7 +1096,7 @@ export function TopNav(props: TopNavProps) {
                           {/* remote sources */}
                           <Show when={props.remotes && props.remotes.length > 0}>
                             <div class="pt-1 border-t border-[var(--color-border-subtle)] mt-2">
-                              <For each={props.remotes}>
+                              <For each={sortedRemotes()}>
                                 {(remote) => {
                                   const isRechecking = () => recheckingRemoteIds().has(remote.id);
                                   const isCurrentSource = () =>

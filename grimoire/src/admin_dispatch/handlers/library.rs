@@ -18,10 +18,11 @@ fn expand_tilde(path: &str) -> String {
 pub(in crate::admin_dispatch) async fn validate_path(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    let path = match require_str(&args, "path") {
+    let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let path = expand_tilde(raw_path.trim());
     let p = std::path::Path::new(&path);
     let (exists, is_dir, is_readable) = match std::fs::metadata(p) {
         Ok(m) => {

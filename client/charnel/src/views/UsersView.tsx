@@ -9,6 +9,29 @@ interface User {
   deleted_at?: number | null;
 }
 
+interface PeerNodeInfo {
+  user_id: string;
+  node_id: string;
+  instance_name: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  username: string;
+  role: string;
+  deleted_at?: number | null;
+  user_deleted_at?: number | null;
+}
+
+interface KnockInfo {
+  id: string;
+  node_id: string;
+  username: string;
+  message: string;
+  status: string;
+  created_at: number;
+  processed_at: number | null;
+  processed_by: string | null;
+}
+
 interface InviteCode {
   code: string;
   code_type: string;
@@ -61,19 +84,49 @@ export default function UsersView() {
     null,
   );
 
+  // peers and knocks (loaded across all users so we can aggregate counts
+  // and surface knock messages per peer node)
+  const [peers, setPeers] = createSignal<PeerNodeInfo[]>([]);
+  const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
+  const [expandedUserId, setExpandedUserId] = createSignal<string | null>(null);
+  const [removingNodeId, setRemovingNodeId] = createSignal<string | null>(null);
+  const [copiedPeerNodeId, setCopiedPeerNodeId] = createSignal<string | null>(
+    null,
+  );
+
   // reload whenever the active admin target or include-deleted flag changes
   createEffect(() => {
     admin.current();
     includeDeleted();
-    void Promise.all([loadUsers(), loadInvites()]);
+    void Promise.all([loadUsers(), loadInvites(), loadPeersAndKnocks()]);
   });
+
+  async function loadPeersAndKnocks() {
+    try {
+      const [peerList, knockList] = await Promise.all([
+        admin.dispatchOrThrow<PeerNodeInfo[]>("peers_list_all", {
+          include_deleted: true,
+        }),
+        admin
+          .dispatchOrThrow<KnockInfo[]>("knocks_list_all", {})
+          .catch(() => [] as KnockInfo[]),
+      ]);
+      setPeers(peerList);
+      setKnocks(knockList);
+    } catch (e) {
+      console.error("failed to load peers/knocks:", e);
+    }
+  }
 
   async function loadUsers() {
     setLoading(true);
     setError("");
     try {
+      // always fetch the full set; the deleted-only toggle filters
+      // client-side so we can show a badge with the count without a
+      // round-trip.
       const result = await admin.dispatchOrThrow<User[]>("users_list", {
-        include_deleted: includeDeleted(),
+        include_deleted: true,
       });
       setUsers(result);
     } catch (e) {
@@ -239,6 +292,114 @@ export default function UsersView() {
   const inactiveInviteCount = () =>
     invites().filter((i) => !i.is_active || i.used_by).length;
 
+  // most-recent knock per node_id (for surfacing original join message).
+  const knockByNodeId = (): Map<string, KnockInfo> => {
+    const map = new Map<string, KnockInfo>();
+    for (const k of knocks()) {
+      const existing = map.get(k.node_id);
+      if (!existing || k.created_at > existing.created_at) {
+        map.set(k.node_id, k);
+      }
+    }
+    return map;
+  };
+
+  // peers grouped by user_id (live + deleted peers all included).
+  const peersByUserId = (): Map<string, PeerNodeInfo[]> => {
+    const map = new Map<string, PeerNodeInfo[]>();
+    for (const p of peers()) {
+      const arr = map.get(p.user_id);
+      if (arr) arr.push(p);
+      else map.set(p.user_id, [p]);
+    }
+    return map;
+  };
+
+  // filter the user list based on the deleted-only toggle. when on,
+  // shows ONLY deleted users; when off, only live ones.
+  const visibleUsers = (): User[] => {
+    const wantDeleted = includeDeleted();
+    return users().filter((u) =>
+      wantDeleted ? !!u.deleted_at : !u.deleted_at,
+    );
+  };
+
+  const deletedUserCount = (): number =>
+    users().filter((u) => !!u.deleted_at).length;
+
+  function formatNodeId(nodeId: string): string {
+    if (nodeId.length <= 16) return nodeId;
+    return `${nodeId.slice(0, 8)}…${nodeId.slice(-8)}`;
+  }
+
+  async function copyNodeId(nodeId: string) {
+    try {
+      await navigator.clipboard.writeText(nodeId);
+      setCopiedPeerNodeId(nodeId);
+      setTimeout(() => setCopiedPeerNodeId(null), 3000);
+    } catch (e) {
+      console.error("copy failed:", e);
+    }
+  }
+
+  function toggleExpand(userId: string) {
+    setExpandedUserId(expandedUserId() === userId ? null : userId);
+  }
+
+  async function removePeerNode(userId: string, nodeId: string) {
+    if (
+      !confirm(
+        `remove peer node ${formatNodeId(nodeId)}?\n\nthis soft-deletes the peer; you can restore it from the federation view.`,
+      )
+    )
+      return;
+    setRemovingNodeId(nodeId);
+    try {
+      await admin.dispatchOrThrow("peers_remove", {
+        user_id: userId,
+        node_id: nodeId,
+      });
+      await loadPeersAndKnocks();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemovingNodeId(null);
+    }
+  }
+
+  async function restorePeerNode(userId: string, nodeId: string) {
+    setRemovingNodeId(nodeId);
+    try {
+      await admin.dispatchOrThrow("peers_restore", {
+        user_id: userId,
+        node_id: nodeId,
+      });
+      await loadPeersAndKnocks();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemovingNodeId(null);
+    }
+  }
+
+  async function hardDeletePeerNode(nodeId: string) {
+    if (
+      !confirm(
+        `permanently delete peer node ${formatNodeId(nodeId)}?\n\nthis cannot be undone. all knock requests + history for this peer will be gone.`,
+      )
+    )
+      return;
+    setRemovingNodeId(nodeId);
+    try {
+      await admin.dispatchOrThrow("peers_hard_delete", { node_id: nodeId });
+      await loadPeersAndKnocks();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemovingNodeId(null);
+    }
+  }
+
   return (
     <div class="view-content">
       <div class="view-header">
@@ -258,8 +419,11 @@ export default function UsersView() {
           <button
             class={`small ${includeDeleted() ? "active" : "secondary"}`}
             onClick={() => setIncludeDeleted(!includeDeleted())}
+            disabled={!includeDeleted() && deletedUserCount() === 0}
           >
-            {includeDeleted() ? "hide deleted" : "show deleted"}
+            {includeDeleted()
+              ? "show active"
+              : `show deleted (${deletedUserCount()})`}
           </button>
         </div>
         <Show when={loading()}>
@@ -272,94 +436,399 @@ export default function UsersView() {
         </Show>
 
         <Show when={!loading()}>
-          <Show when={users().length === 0}>
+          <Show when={visibleUsers().length === 0}>
             <p class="empty active">
-              no user<span class="pinky">z</span> yet.
+              <Show
+                when={includeDeleted()}
+                fallback={
+                  <>
+                    no user<span class="pinky">z</span> yet.
+                  </>
+                }
+              >
+                no deleted user<span class="pinky">z</span>.
+              </Show>
             </p>
           </Show>
-          <For each={users()}>
-            {(user) => (
-              <div
-                class="list-item user-item"
-                style={user.deleted_at ? { opacity: 0.6 } : {}}
-              >
-                <div class="user-row">
-                  <div class="item-info">
-                    <div class="item-name username-row">
-                      <span
-                        style={
-                          user.deleted_at
-                            ? { "text-decoration": "line-through" }
-                            : {}
-                        }
-                      >
-                        {user.username}
-                      </span>
-                      <Show when={user.deleted_at}>
-                        <span class="item-meta" style={{ color: "#ef4444" }}>
-                          (deleted)
+          <For each={visibleUsers()}>
+            {(user) => {
+              const userPeers = () => peersByUserId().get(user.id) ?? [];
+              const livePeerCount = () =>
+                userPeers().filter((p) => !p.deleted_at && !p.user_deleted_at)
+                  .length;
+              const isExpanded = () => expandedUserId() === user.id;
+              return (
+                <div
+                  class="list-item user-item"
+                  style={{
+                    ...(user.deleted_at ? { opacity: 0.6 } : {}),
+                    cursor: "pointer",
+                  }}
+                  onClick={(e) => {
+                    // don't toggle when clicking interactive controls
+                    // or anywhere inside the expanded peer panel
+                    const target = e.target as HTMLElement;
+                    if (target.closest("select,button,input,a,textarea"))
+                      return;
+                    if (target.closest(".user-peer-panel")) return;
+                    toggleExpand(user.id);
+                  }}
+                  title={isExpanded() ? "click to collapse" : "click to expand"}
+                >
+                  <div class="user-row">
+                    <div class="item-info">
+                      <div class="item-name username-row">
+                        <span
+                          style={
+                            user.deleted_at
+                              ? { "text-decoration": "line-through" }
+                              : {}
+                          }
+                        >
+                          {user.username}
                         </span>
-                      </Show>
-
-                      <Show when={user.role !== "root" && !user.deleted_at}>
-                        <span class="role-item-actions">
-                          <select
-                            value={user.role}
-                            onChange={(e) =>
-                              updateRole(user.id, e.currentTarget.value)
-                            }
+                        <Show when={userPeers().length > 0}>
+                          <span
+                            class="item-meta"
+                            title={`${livePeerCount()} active / ${userPeers().length} total peer node(s)`}
+                            style={{
+                              background: "var(--color-bg-tertiary, #2a2a2a)",
+                              "border-radius": "10px",
+                              padding: "0.125rem 0.5rem",
+                              "font-size": "0.75rem",
+                            }}
                           >
-                            <option value="admin">admin</option>
-                            <option value="member">member</option>
-                            <option value="viewer">viewer</option>
-                          </select>
+                            {livePeerCount() === userPeers().length
+                              ? `${userPeers().length} peer${userPeers().length === 1 ? "" : "s"}`
+                              : `${livePeerCount()}/${userPeers().length} peers`}
+                          </span>
+                        </Show>
+                        <Show when={user.deleted_at}>
+                          <span class="item-meta" style={{ color: "#ef4444" }}>
+                            (deleted)
+                          </span>
+                        </Show>
+
+                        <Show when={user.role !== "root" && !user.deleted_at}>
+                          <span class="role-item-actions">
+                            <select
+                              value={user.role}
+                              onChange={(e) =>
+                                updateRole(user.id, e.currentTarget.value)
+                              }
+                            >
+                              <option value="admin">admin</option>
+                              <option value="member">member</option>
+                              <option value="viewer">viewer</option>
+                            </select>
+                          </span>
+                        </Show>
+                        <span
+                          class="item-meta"
+                          style={{
+                            "margin-left": "auto",
+                            color: "var(--color-text-muted, #666)",
+                            "font-size": "0.75rem",
+                          }}
+                        >
+                          {isExpanded() ? "▾" : "▸"}
                         </span>
+                      </div>
+                      <span class="item-meta">
+                        {user.role} · joined {formatDate(user.created_at)}
+                      </span>
+                    </div>
+                  </div>
+                  <Show when={user.role !== "root"}>
+                    <div class="user-actions-row">
+                      <Show when={!user.deleted_at}>
+                        <button
+                          class="danger small"
+                          onClick={() => deleteUser(user.id, user.username)}
+                        >
+                          delete
+                        </button>
+
+                        <button
+                          class="secondary small"
+                          onClick={() => generateAccountLink(user.id)}
+                          title="generate account-link code"
+                        >
+                          {linkCopiedUserId() === user.id
+                            ? "created!"
+                            : "+ link"}
+                        </button>
+                      </Show>
+                      <Show when={user.deleted_at}>
+                        <button
+                          class="primary small"
+                          style={{ color: "#ffffff" }}
+                          onClick={() => restoreUser(user.id)}
+                        >
+                          restore
+                        </button>
+                        <button
+                          class="danger small"
+                          onClick={() => hardDeleteUser(user.id, user.username)}
+                          title="permanently delete forever"
+                        >
+                          delete forever
+                        </button>
                       </Show>
                     </div>
-                    <span class="item-meta">
-                      {user.role} · joined {formatDate(user.created_at)}
-                    </span>
-                    <span class="user-id">{user.id}</span>
-                  </div>
-                </div>
-                <Show when={user.role !== "root"}>
-                  <div class="user-actions-row">
-                    <Show when={!user.deleted_at}>
-                      <button
-                        class="danger small"
-                        onClick={() => deleteUser(user.id, user.username)}
+                  </Show>
+                  <Show when={isExpanded()}>
+                    <div
+                      class="user-peer-panel"
+                      style={{
+                        "margin-top": "0.75rem",
+                        "border-top": "1px solid var(--color-border, #333)",
+                        "padding-top": "0.75rem",
+                        display: "flex",
+                        "flex-direction": "column",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          "align-items": "center",
+                          gap: "0.5rem",
+                        }}
                       >
-                        delete
-                      </button>
+                        <span
+                          class="item-meta"
+                          style={{
+                            "font-size": "0.75rem",
+                            "text-transform": "uppercase",
+                            "letter-spacing": "0.05em",
+                            color: "var(--color-text-tertiary, #888)",
+                          }}
+                        >
+                          peer nodez ({userPeers().length})
+                        </span>
+                        <code
+                          class="user-id"
+                          title="click to copy user id"
+                          style={{
+                            "font-size": "0.7rem",
+                            cursor: "pointer",
+                            color: "var(--color-text-muted, #666)",
+                            "margin-left": "auto",
+                          }}
+                          onClick={() => copyNodeId(user.id)}
+                        >
+                          {copiedPeerNodeId() === user.id
+                            ? "copied!"
+                            : `id: ${user.id}`}
+                        </code>
+                        <button
+                          class="secondary small"
+                          onClick={() => setExpandedUserId(null)}
+                          title="close"
+                          style={{ "min-width": "2rem" }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <Show
+                        when={userPeers().length > 0}
+                        fallback={
+                          <div
+                            class="item-meta"
+                            style={{
+                              "font-style": "italic",
+                              color: "var(--color-text-muted, #666)",
+                            }}
+                          >
+                            no peer nodes registered for this user.
+                          </div>
+                        }
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            "flex-direction": "column",
+                            gap: "0.5rem",
+                          }}
+                        >
+                          <For each={userPeers()}>
+                            {(peer) => {
+                              const peerDeleted = () =>
+                                !!peer.deleted_at || !!peer.user_deleted_at;
+                              const knock = () =>
+                                knockByNodeId().get(peer.node_id);
+                              return (
+                                <div
+                                  class="peer-node-row"
+                                  style={{
+                                    display: "flex",
+                                    "flex-direction": "column",
+                                    gap: "0.5rem",
+                                    padding: "0.75rem",
+                                    background:
+                                      "var(--color-bg-secondary, #1a1a1a)",
+                                    border:
+                                      "1px solid var(--color-border, #333)",
+                                    "border-radius": "6px",
+                                    opacity: peerDeleted() ? 0.6 : 1,
+                                  }}
+                                >
+                                  {/* row 1: node id + status */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      "align-items": "center",
+                                      gap: "0.5rem",
+                                      "flex-wrap": "wrap",
+                                    }}
+                                  >
+                                    <code
+                                      style={{
+                                        "font-size": "0.8125rem",
+                                        cursor: "pointer",
+                                        "word-break": "break-all",
+                                      }}
+                                      title={`click to copy: ${peer.node_id}`}
+                                      onClick={() => copyNodeId(peer.node_id)}
+                                    >
+                                      {copiedPeerNodeId() === peer.node_id
+                                        ? "copied!"
+                                        : formatNodeId(peer.node_id)}
+                                    </code>
+                                    <Show when={peerDeleted()}>
+                                      <span
+                                        class="item-meta"
+                                        style={{
+                                          color: "#ef4444",
+                                          "font-size": "0.7rem",
+                                          background: "rgba(239,68,68,0.15)",
+                                          padding: "0.125rem 0.5rem",
+                                          "border-radius": "10px",
+                                        }}
+                                      >
+                                        {peer.user_deleted_at
+                                          ? "user deleted"
+                                          : "deleted"}
+                                      </span>
+                                    </Show>
+                                  </div>
 
-                      <button
-                        class="secondary small"
-                        onClick={() => generateAccountLink(user.id)}
-                        title="generate account-link code"
-                      >
-                        {linkCopiedUserId() === user.id ? "created!" : "+ link"}
-                      </button>
-                    </Show>
-                    <Show when={user.deleted_at}>
-                      <button
-                        class="primary small"
-                        style={{ color: "#ffffff" }}
-                        onClick={() => restoreUser(user.id)}
-                      >
-                        restore
-                      </button>
-                      <button
-                        class="danger small"
-                        onClick={() => hardDeleteUser(user.id, user.username)}
-                        title="permanently delete forever"
-                      >
-                        delete forever
-                      </button>
-                    </Show>
-                  </div>
-                </Show>
-              </div>
-            )}
+                                  {/* row 2: metadata */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      "flex-wrap": "wrap",
+                                      gap: "0.75rem",
+                                      "font-size": "0.75rem",
+                                      color:
+                                        "var(--color-text-secondary, #888)",
+                                    }}
+                                  >
+                                    <Show when={peer.instance_name}>
+                                      <span>
+                                        instance:{" "}
+                                        <strong>{peer.instance_name}</strong>
+                                      </span>
+                                    </Show>
+                                    <span>
+                                      added {formatDateTime(peer.created_at)}
+                                    </span>
+                                    <Show when={peer.last_seen_at}>
+                                      <span>
+                                        last seen{" "}
+                                        {formatDateTime(peer.last_seen_at!)}
+                                      </span>
+                                    </Show>
+                                  </div>
+
+                                  {/* row 3: knock message */}
+                                  <Show when={knock()?.message}>
+                                    <div
+                                      style={{
+                                        "font-size": "0.8125rem",
+                                        "font-style": "italic",
+                                        color:
+                                          "var(--color-text-secondary, #888)",
+                                        "border-left":
+                                          "2px solid var(--color-accent-500, #ff69b4)",
+                                        padding: "0.25rem 0.5rem",
+                                        background:
+                                          "var(--color-bg-tertiary, #2a2a2a)",
+                                        "border-radius": "0 4px 4px 0",
+                                      }}
+                                      title="original knock request message"
+                                    >
+                                      “{knock()!.message}”
+                                    </div>
+                                  </Show>
+
+                                  {/* row 4: actions */}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: "0.5rem",
+                                      "justify-content": "flex-end",
+                                      "flex-wrap": "wrap",
+                                    }}
+                                  >
+                                    <Show when={peer.deleted_at}>
+                                      <button
+                                        class="primary small"
+                                        style={{ color: "#ffffff" }}
+                                        onClick={() =>
+                                          restorePeerNode(user.id, peer.node_id)
+                                        }
+                                        disabled={
+                                          removingNodeId() === peer.node_id
+                                        }
+                                        title="restore this peer node"
+                                      >
+                                        {removingNodeId() === peer.node_id
+                                          ? "..."
+                                          : "restore"}
+                                      </button>
+                                      <button
+                                        class="danger small"
+                                        onClick={() =>
+                                          hardDeletePeerNode(peer.node_id)
+                                        }
+                                        disabled={
+                                          removingNodeId() === peer.node_id
+                                        }
+                                        title="permanently delete forever"
+                                      >
+                                        delete forever
+                                      </button>
+                                    </Show>
+                                    <Show when={!peer.deleted_at}>
+                                      <button
+                                        class="danger small"
+                                        onClick={() =>
+                                          removePeerNode(user.id, peer.node_id)
+                                        }
+                                        disabled={
+                                          removingNodeId() === peer.node_id
+                                        }
+                                        title="remove this peer node"
+                                      >
+                                        {removingNodeId() === peer.node_id
+                                          ? "..."
+                                          : "drop"}
+                                      </button>
+                                    </Show>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              );
+            }}
           </For>
         </Show>
       </div>

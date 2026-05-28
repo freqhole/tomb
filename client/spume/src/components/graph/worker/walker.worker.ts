@@ -616,6 +616,7 @@ function buildSim() {
     isPivot: n.id === pivLeader,
     isBreadcrumb: breadcrumbSet.has(n.id),
     tint: nodeMap.get(n.id)?.tint,
+    isCharnelManaged: nodeMap.get(n.id)?.isCharnelManaged,
     contributorRemotes: clusterRemotes.get(n.id),
   }));
   post({ type: "topology", nodes: topologyNodes, edges: visibleEdges });

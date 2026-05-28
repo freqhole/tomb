@@ -214,14 +214,24 @@ export default function LibraryView() {
     const path = pendingPath().trim();
     if (!path) return;
 
-    // for remote, require a successful validation pass first
-    if (admin.isRemote()) {
-      const v = pathValidation();
-      if (!v || !v.exists || !v.is_dir || !v.is_readable) {
-        setLastResult("path is not a readable directory on the remote");
-        return;
-      }
+    // always validate against the active transport (local or remote)
+    // before closing the modal so the user can fix typos in place.
+    // re-use any fresh validation result for the same path; otherwise
+    // perform a round-trip now.
+    let v = pathValidation();
+    if (!v || v.path !== path) {
+      await validatePendingPath();
+      v = pathValidation();
     }
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      // leave the modal open so the user can edit the path. inline
+      // status is already shown by the pathValidation() block.
+      return;
+    }
+
+    // use the resolved/expanded path returned by the validator
+    // (tilde expansion happens server-side).
+    const resolvedPath = v.path || path;
 
     const tags = pendingTags()
       .split(",")
@@ -234,7 +244,7 @@ export default function LibraryView() {
     setPathValidation(null);
 
     // scan the directory (which also records it in the database)
-    await scanDirectory(path, tags);
+    await scanDirectory(resolvedPath, tags);
   }
 
   function cancelAddDirectory() {
@@ -511,56 +521,55 @@ export default function LibraryView() {
                 placeholder={
                   admin.isRemote()
                     ? "/absolute/path/on/remote"
-                    : "/absolute/path/to/music"
+                    : "/absolute/path/to/music or ~/Music"
                 }
                 onInput={(e) => {
                   setPendingPath(e.currentTarget.value);
                   setPathValidation(null);
                 }}
-                onBlur={admin.isRemote() ? validatePendingPath : undefined}
+                onBlur={validatePendingPath}
               />
               <Show when={admin.isRemote()}>
                 <p class="hint">
                   enter a path that exists on the remote server. press tab or
                   click "validate" to check.
                 </p>
-                <div class="button-row">
-                  <button
-                    class="secondary small"
-                    onClick={validatePendingPath}
-                    disabled={pathValidating() || !pendingPath().trim()}
-                  >
-                    {pathValidating() ? "validating..." : "validate"}
-                  </button>
-                </div>
-                <Show when={pathValidation()}>
-                  {(v) => {
-                    const ok = () =>
-                      v().exists && v().is_dir && v().is_readable;
-                    return (
-                      <p class={ok() ? "scan-progress" : "scan-progress error"}>
-                        {ok()
-                          ? "✓ readable directory"
-                          : !v().exists
-                            ? "path does not exist on remote"
-                            : !v().is_dir
-                              ? "path is not a directory"
-                              : "path is not readable"}
-                      </p>
-                    );
-                  }}
-                </Show>
               </Show>
               <Show when={!admin.isRemote()}>
                 <p class="hint">
-                  type a path or click "browse..." to pick one. you must still
-                  press "confirm" to add it.
+                  type a path (supports `~/...`) or click "browse..." to pick
+                  one. press tab or "validate" to check.
                 </p>
-                <div class="button-row">
+              </Show>
+              <div class="button-row">
+                <button
+                  class="secondary small"
+                  onClick={validatePendingPath}
+                  disabled={pathValidating() || !pendingPath().trim()}
+                >
+                  {pathValidating() ? "validating..." : "validate"}
+                </button>
+                <Show when={!admin.isRemote()}>
                   <button class="secondary small" onClick={browseAndFillPath}>
                     browse...
                   </button>
-                </div>
+                </Show>
+              </div>
+              <Show when={pathValidation()}>
+                {(v) => {
+                  const ok = () => v().exists && v().is_dir && v().is_readable;
+                  return (
+                    <p class={ok() ? "scan-progress" : "scan-progress error"}>
+                      {ok()
+                        ? `✓ readable directory (${v().path})`
+                        : !v().exists
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
+                    </p>
+                  );
+                }}
               </Show>
             </div>
             <div class="form-group">
