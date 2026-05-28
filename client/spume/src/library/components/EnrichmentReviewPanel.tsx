@@ -29,6 +29,11 @@ interface EnrichmentReviewPanelProps {
   remote: Remote;
   /** when false, the fetch/refetch button is disabled (read-only). */
   isAdmin: boolean;
+  /** when true, suppresses this panel's own fetch/refetch button. used
+   *  when embedding inside another surface that already exposes a
+   *  refetch trigger (e.g. the per-source tab in the album editor),
+   *  so we don't render two buttons doing the same thing. */
+  hideFetchButton?: boolean;
 }
 
 type JobState =
@@ -267,37 +272,43 @@ export function EnrichmentReviewPanel(props: EnrichmentReviewPanelProps) {
         </div>
       </Show>
 
-      {/* fetch / refetch button */}
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="text-xs px-2 py-1 rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-400)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent"
-          disabled={isBusy() || !props.isAdmin}
-          title={!props.isAdmin ? "admin only" : undefined}
-          onClick={onEnqueue}
-        >
-          <Show when={hasSnapshot()} fallback={<>fetch from {label}</>}>
-            refetch from {label}
+      {/* fetch / refetch button — suppressed when embedded inside a
+          surface that already owns the refetch trigger. */}
+      <Show when={!props.hideFetchButton}>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="text-xs px-2 py-1 rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-400)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent"
+            disabled={isBusy() || !props.isAdmin}
+            title={!props.isAdmin ? "admin only" : undefined}
+            onClick={onEnqueue}
+          >
+            <Show when={hasSnapshot()} fallback={<>fetch from {label}</>}>
+              refetch from {label}
+            </Show>
+          </button>
+          <Show when={!props.isAdmin}>
+            <span class="text-xs text-[var(--color-text-muted)]">admin only</span>
           </Show>
-        </button>
-        <Show when={!props.isAdmin}>
-          <span class="text-xs text-[var(--color-text-muted)]">admin only</span>
-        </Show>
-        <Show when={props.isAdmin && !hasSnapshot() && state().kind === "idle"}>
-          <span class="text-xs text-[var(--color-text-muted)]">
-            no {label} snapshot stored yet for this album
-          </span>
-        </Show>
-      </div>
-
-      {/* stored snapshot */}
-      <Show when={hasSnapshot()}>
-        <div class="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">
-          stored snapshot
+          <Show when={props.isAdmin && !hasSnapshot() && state().kind === "idle"}>
+            <span class="text-xs text-[var(--color-text-muted)]">
+              no {label} snapshot stored yet for this album
+            </span>
+          </Show>
         </div>
-        <pre class="text-[11px] leading-snug bg-black/40 border border-[var(--color-border-subtle)] rounded p-3 overflow-auto max-h-[60dvh] whitespace-pre-wrap break-all text-[var(--color-text-secondary)]">
-          {prettyJson(rawSnapshot())}
-        </pre>
+      </Show>
+
+      {/* stored snapshot — collapsed by default; raw json is for
+          spot-checking, not the primary action surface. */}
+      <Show when={hasSnapshot()}>
+        <details class="group">
+          <summary class="cursor-pointer text-[11px] uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] select-none">
+            stored snapshot
+          </summary>
+          <pre class="mt-2 text-[11px] leading-snug bg-black/40 border border-[var(--color-border-subtle)] rounded p-3 overflow-auto max-h-[60dvh] whitespace-pre-wrap break-all text-[var(--color-text-secondary)]">
+            {prettyJson(rawSnapshot())}
+          </pre>
+        </details>
       </Show>
     </div>
   );

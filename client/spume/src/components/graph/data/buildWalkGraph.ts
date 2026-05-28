@@ -89,34 +89,16 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
     });
     edges.push({ source: rId, target: rhId });
 
-    // ---- synthesized hubs (always emitted, lazy-populated) ----------------
+    // ---- synthesized hubs (era, recently_added) --------------------------
     // these hubs aren't backed by stored taxonz: era is computed by the
     // backend's greedy decade binner (`list_era_bins`) and recently_added
     // is the top-N most-recently-added albums (`list_recently_added_albums`).
-    // children are merged in by LibraryGraphSubview when the user pivots
-    // into the hub. emit them unconditionally so they're always visible
-    // under each remote hub.
-    const eraHubId = relationHubId(remoteId, "era");
-    nodes.push({
-      id: eraHubId,
-      role: "relation",
-      label: "era",
-      parentId: rhId,
-      childCount: 0,
-      lazy: true,
-    });
-    edges.push({ source: rhId, target: eraHubId });
-
-    const recentHubId = relationHubId(remoteId, "recently_added");
-    nodes.push({
-      id: recentHubId,
-      role: "relation",
-      label: "recently added",
-      parentId: rhId,
-      childCount: 0,
-      lazy: true,
-    });
-    edges.push({ source: rhId, target: recentHubId });
+    // they are now seeded lazily by LibraryGraphSubview when the remote
+    // hub becomes the pivot (see maybeLoadEraBinsForPivot /
+    // maybeLoadRecentlyAddedForPivot). emitting them unconditionally
+    // here would surface zero-count hexagons on libraries with no
+    // year-dated or recently-added albums; deferring to the loaders
+    // means hubs only appear once a real count is known and is > 0.
 
     // ---- favorite hub (flat: hub -> artist/album, no value tier) -----------
     // sources: album.isFavorite, artist.isFavorite, plus song-derived ids

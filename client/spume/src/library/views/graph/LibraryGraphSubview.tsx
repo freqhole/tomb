@@ -2174,15 +2174,29 @@ function Inner(props: {
     } catch {
       return;
     }
-    if (parsed.kind !== "relation" || parsed.relationKind !== "era") return;
-    if (eraBinsLoadedByHub.has(nodeId)) return;
-    const inFlight = eraBinsFetchPromises.get(nodeId);
+    // accepted triggers:
+    //  - direct pivot on the era hub (`relation::{remoteId}::era`)
+    //  - pivot on the parent remote (`remote::{remoteId}`), used to
+    //    eager-seed the era hub with its real count before the user
+    //    has to click into it.
+    let remoteId: string;
+    if (parsed.kind === "relation" && parsed.relationKind === "era") {
+      remoteId = parsed.remoteId;
+    } else if (parsed.kind === "remote") {
+      remoteId = parsed.remoteId;
+    } else {
+      return;
+    }
+    const relHubId = relationHubId(remoteId, "era");
+    // dedup is keyed on the hub id so both trigger paths share state.
+    if (eraBinsLoadedByHub.has(relHubId)) return;
+    const inFlight = eraBinsFetchPromises.get(relHubId);
     if (inFlight) return inFlight;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (offlineByRemote().get(remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
     if (!remote) return;
     const promise = (async () => {
-      setFetchingNodeFlag(nodeId, true);
+      setFetchingNodeFlag(relHubId, true);
       try {
         const client = await getClientForRemote(remote);
         const result = await client.music.eraBins({
@@ -2190,13 +2204,36 @@ function Inner(props: {
           target_max: null,
         });
         if (!result.success || !result.data) return;
-        const remoteId = parsed.remoteId;
-        const relHubId = relationHubId(remoteId, "era");
         const bins: EraBinMeta[] = [];
         const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
-        for (const bin of result.data.bins) {
-          if (bin.count <= 0) continue;
+        // pre-filter to live bins so we can decide whether to emit the
+        // era hub at all (skip when every bin is empty — e.g. no albums
+        // have year metadata).
+        const liveBins = result.data.bins.filter((b) => b.count > 0);
+        if (liveBins.length === 0) {
+          // mark loaded so we don't refetch on every remote pivot, even
+          // though no hub was emitted. an albums-added later won't
+          // surface an era hub until the user reloads the view; that's
+          // acceptable for now.
+          eraBinsLoadedByHub.add(relHubId);
+          return;
+        }
+        // emit the era hub itself (not in buildWalkGraph anymore) with
+        // the live bin count baked in so the hexagon shows a real
+        // number on first paint.
+        const rhId = remoteHubId(remoteId);
+        const totalEraAlbums = liveBins.reduce((s, b) => s + b.count, 0);
+        addNodes.push({
+          id: relHubId,
+          role: "relation",
+          label: "era",
+          parentId: rhId,
+          childCount: totalEraAlbums,
+          lazy: true,
+        });
+        addEdges.push({ source: rhId, target: relHubId });
+        for (const bin of liveBins) {
           const valId = valueNodeId(remoteId, "era", bin.value_norm);
           addNodes.push({
             id: valId,
@@ -2249,15 +2286,15 @@ function Inner(props: {
         }
 
         walkerClient()?.merge(addNodes, addEdges);
-        eraBinsLoadedByHub.add(nodeId);
+        eraBinsLoadedByHub.add(relHubId);
       } catch (err) {
         console.warn("lazy era-bins fetch failed", { nodeId, err });
       } finally {
-        setFetchingNodeFlag(nodeId, false);
-        eraBinsFetchPromises.delete(nodeId);
+        setFetchingNodeFlag(relHubId, false);
+        eraBinsFetchPromises.delete(relHubId);
       }
     })();
-    eraBinsFetchPromises.set(nodeId, promise);
+    eraBinsFetchPromises.set(relHubId, promise);
     return promise;
   };
 
@@ -2354,21 +2391,36 @@ function Inner(props: {
     } catch {
       return;
     }
-    if (parsed.kind !== "relation" || parsed.relationKind !== "recently_added") return;
-    if (recentlyAddedLoadedByHub.has(nodeId)) return;
-    const inFlight = recentlyAddedFetchPromises.get(nodeId);
+    // accepted triggers: pivot on the recently_added hub OR on the
+    // parent remote (eager seed before the user clicks the hub).
+    let remoteId: string;
+    if (parsed.kind === "relation" && parsed.relationKind === "recently_added") {
+      remoteId = parsed.remoteId;
+    } else if (parsed.kind === "remote") {
+      remoteId = parsed.remoteId;
+    } else {
+      return;
+    }
+    const relHubId = relationHubId(remoteId, "recently_added");
+    if (recentlyAddedLoadedByHub.has(relHubId)) return;
+    const inFlight = recentlyAddedFetchPromises.get(relHubId);
     if (inFlight) return inFlight;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (offlineByRemote().get(remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
     if (!remote) return;
     const promise = (async () => {
-      setFetchingNodeFlag(nodeId, true);
+      setFetchingNodeFlag(relHubId, true);
       try {
         const client = await getClientForRemote(remote);
         const result = await client.music.recentlyAddedAlbums({ limit: null });
         if (!result.success || !result.data) return;
-        const remoteId = parsed.remoteId;
-        const relHubId = relationHubId(remoteId, "recently_added");
+        // skip emitting the hub entirely when the library has no
+        // recently-added albums (e.g. brand-new remote, all-empty
+        // catalogue). matches the era-hub behaviour: no count, no hub.
+        if (result.data.albums.length === 0) {
+          recentlyAddedLoadedByHub.add(relHubId);
+          return;
+        }
         const adapted: AlbumNodeData[] = result.data.albums.map((item) =>
           adaptQueryAlbumItem(item, remote)
         );
@@ -2376,12 +2428,24 @@ function Inner(props: {
         // incremental client.merge picks up the album nodes (and any
         // new artist nodes derived from them).
         appendAlbumsToRemote(remoteId, adapted);
-        // then merge the hub->album and hub->artist edges directly.
-        // the album/artist nodes themselves arrive via the rAF-batched
-        // buildResult merge; the worker dedupes edges by
-        // `${source}::${target}` so this is safe to issue before/after
-        // the node merge.
-        const addEdges: WalkEdge[] = [];
+        // emit the recently_added hub itself (not in buildWalkGraph
+        // anymore) with the true count baked in, plus the hub->album
+        // and hub->artist edges. the album/artist nodes themselves
+        // arrive via the rAF-batched buildResult merge; the worker
+        // dedupes edges by `${source}::${target}` so this is safe to
+        // issue before/after the node merge.
+        const rhId = remoteHubId(remoteId);
+        const addNodes: WalkNode[] = [
+          {
+            id: relHubId,
+            role: "relation",
+            label: "recently added",
+            parentId: rhId,
+            childCount: adapted.length,
+            lazy: true,
+          },
+        ];
+        const addEdges: WalkEdge[] = [{ source: rhId, target: relHubId }];
         const prefix = `${remoteId}::`;
         const seenArtists = new Set<string>();
         for (const album of adapted) {
@@ -2400,16 +2464,16 @@ function Inner(props: {
             });
           }
         }
-        walkerClient()?.merge([], addEdges);
-        recentlyAddedLoadedByHub.add(nodeId);
+        walkerClient()?.merge(addNodes, addEdges);
+        recentlyAddedLoadedByHub.add(relHubId);
       } catch (err) {
         console.warn("lazy recently-added fetch failed", { nodeId, err });
       } finally {
-        setFetchingNodeFlag(nodeId, false);
-        recentlyAddedFetchPromises.delete(nodeId);
+        setFetchingNodeFlag(relHubId, false);
+        recentlyAddedFetchPromises.delete(relHubId);
       }
     })();
-    recentlyAddedFetchPromises.set(nodeId, promise);
+    recentlyAddedFetchPromises.set(relHubId, promise);
     return promise;
   };
 

@@ -294,6 +294,11 @@ pub async fn list_era_bins(
     // strings which we filter out via the outer HAVING. wrap in a
     // subquery so the GROUP BY / HAVING can reference the aliased
     // column (sqlite doesn't allow alias refs in HAVING otherwise).
+    //
+    // year floor (1860) is the dawn of recorded sound; ceiling (2100)
+    // catches obvious data-entry corruption. without the floor a row
+    // with release_date like "4-12-31" or "0004" sneaks through and
+    // pollutes the greedy binner with a label like "4-1991".
     let rows = match sqlx::query!(
         r#"
         SELECT year as "year!: i64", COUNT(*) as "count!: i64"
@@ -304,7 +309,7 @@ pub async fn list_era_bins(
               AND album_release_date != ''
               AND album_deleted_at IS NULL
         )
-        WHERE year > 0
+        WHERE year BETWEEN 1860 AND 2100
         GROUP BY year
         ORDER BY year ASC
         "#,

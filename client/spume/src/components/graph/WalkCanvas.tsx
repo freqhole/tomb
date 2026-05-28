@@ -165,6 +165,13 @@ function nodeRemoteId(id: string): string | undefined {
 // per-kind color only shows up on the stroke + outgoing edge lines.
 function nodeFillColor(n: VisibleNode): string {
   if (n.tint) return n.tint;
+  // special-case the favorites hub so it pops red instead of blending
+  // in with the rest of the cyan relation hexagons.
+  if (n.role === "relation") {
+    const parts = n.id.split("::");
+    // relation::{remoteId}::favorites
+    if (parts[0] === "relation" && parts[2] === "favorites") return "#dc2626";
+  }
   if (n.role === "value") {
     const kind = valueKind(n.id);
     if (kind) return valueKindStroke(kind);

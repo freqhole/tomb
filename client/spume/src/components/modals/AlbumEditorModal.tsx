@@ -23,11 +23,13 @@ import {
   AlbumEnrichmentSourceTab,
   type SourceProgress,
 } from "../enrichment/AlbumEnrichmentSourceTab";
-import { AlbumArtistTab } from "../enrichment/AlbumArtistTab";
+import { SingleAlbumTaxonApplyPanel } from "../enrichment/SingleAlbumTaxonApplyPanel";
 import { parseAlbumMetadata } from "../../library/data/albumMetadata";
 import { getClientForRemote } from "../../app/api/client";
 import { EnrichmentReviewPanel } from "../../library/components/EnrichmentReviewPanel";
 import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
+import { useEnrichmentEnabledQuery } from "../../music/hooks/useEnrichmentEnabled";
+import { showArtistEditor } from "../../music/hooks/modals";
 import { Modal } from "./Modal";
 import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -189,7 +191,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedAlbumId, setLoadedAlbumId] = createSignal<string | null>(null);
   const [activeTab, setActiveTab] = createSignal<
-    "info" | "images" | "metadata" | "musicbrainz" | "lastfm" | "audiodb" | "artist"
+    "info" | "images" | "metadata" | "musicbrainz" | "lastfm" | "audiodb"
   >("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
 
@@ -222,13 +224,21 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // when an album has no songs (or the songs query hasn't resolved yet
   // for a review-mode album), we still initialize so the modal renders
   // instead of staying stuck on "loading...".
+  //
+  // artist info: prefer the album record's own artist_id/artist_name
+  // (always populated by the server's album_query_view join), then fall
+  // back to the first song. previously this read firstSong only, which
+  // left the artist field blank whenever songs hadn't loaded yet —
+  // commonly hit when opening the modal from the graph viz where the
+  // songs query for that (remote, albumId) hasn't been warmed by a
+  // prior detail/grid render.
   const syncFormFromData = (album: NonNullable<typeof albumQuery.data>, songs: Song[]) => {
     const firstSong = songs[0];
 
     const data: FormData = {
       title: album.title || "",
-      artist_id: firstSong?.artist_id,
-      artist_name: firstSong?.artist_name || "",
+      artist_id: album.artist_id || firstSong?.artist_id,
+      artist_name: album.artist_name || firstSong?.artist_name || "",
       album_type: album.album_type || "album",
       uploaded_blob_id: null,
     };
@@ -473,6 +483,22 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // here — we just need the type to line up.
   const reviewRemote = () => (currentRemote() ?? undefined) as Remote | undefined;
   const isRemoteAdmin = useRemoteIsAdmin(reviewRemote);
+
+  // which external enrichment sources the operator has enabled in
+  // freqhole-config.toml on this remote. tabs for disabled sources are
+  // hidden entirely (also gates auto-switching the active tab when the
+  // current selection becomes invalid).
+  const enrichmentEnabledQuery = useEnrichmentEnabledQuery(reviewRemote);
+  const enrichmentEnabled = () =>
+    enrichmentEnabledQuery.data ?? { mb: true, lastfm: true, audiodb: true };
+
+  createEffect(() => {
+    const en = enrichmentEnabled();
+    const tab = activeTab();
+    if (tab === "musicbrainz" && !en.mb) setActiveTab("info");
+    else if (tab === "lastfm" && !en.lastfm) setActiveTab("info");
+    else if (tab === "audiodb" && !en.audiodb) setActiveTab("info");
+  });
 
   // poll per-source enrichment progress while the modal is open. polled
   // every 5s; bumped to 2s briefly after a manual refetch/requery.
@@ -823,10 +849,15 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <Tab id="info" label="info" />
             <Tab id="images" label="images" badge={images().length || undefined} />
             <Tab id="metadata" label="metadata" />
-            <Tab id="musicbrainz" label="musicbrainz" />
-            <Tab id="lastfm" label="last.fm" />
-            <Tab id="audiodb" label="theaudiodb" />
-            <Tab id="artist" label="artist" />
+            <Show when={enrichmentEnabled().mb}>
+              <Tab id="musicbrainz" label="musicbrainz" />
+            </Show>
+            <Show when={enrichmentEnabled().lastfm}>
+              <Tab id="lastfm" label="last.fm" />
+            </Show>
+            <Show when={enrichmentEnabled().audiodb}>
+              <Tab id="audiodb" label="theaudiodb" />
+            </Show>
           </TabList>
 
           <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
@@ -879,6 +910,20 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   artist
                 </label>
                 <div class="flex items-center gap-2">
+                  <Show when={!props.disableNestedModals && formData().artist_id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = formData().artist_id;
+                        if (!id) return;
+                        showArtistEditor({ artistId: id, remote: props.remote });
+                      }}
+                      title="open artist editor"
+                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] underline-offset-2 hover:underline"
+                    >
+                      edit artist
+                    </button>
+                  </Show>
                   <Show
                     when={
                       formData().artist_name !== initialData()?.artist_name ||
@@ -1073,93 +1118,113 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             </Show>
           </TabPanel>
 
-          <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
-            <MusicBrainzPanel
-              albumId={props.albumId}
-              albumTitle={formData().title}
-              artistId={formData().artist_id || ""}
-              artistName={formData().artist_name}
-              albumType={formData().album_type}
-              releaseDate={albumQuery.data?.release_date || undefined}
-              label={albumQuery.data?.label || undefined}
-              genres={albumQuery.data?.genres?.map((g) => g.name) || []}
-              songs={songs()}
-              onAlbumUpdated={async () => {
-                // invalidate broad query families so all views update
-                queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
-                queryClient.invalidateQueries({
-                  queryKey: queryKeys.albums.songs(props.albumId),
-                });
-                queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+          <Show when={enrichmentEnabled().mb}>
+            <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
+              <MusicBrainzPanel
+                albumId={props.albumId}
+                albumTitle={formData().title}
+                artistId={formData().artist_id || ""}
+                artistName={formData().artist_name}
+                albumType={formData().album_type}
+                releaseDate={albumQuery.data?.release_date || undefined}
+                label={albumQuery.data?.label || undefined}
+                genres={albumQuery.data?.genres?.map((g) => g.name) || []}
+                songs={songs()}
+                onAlbumUpdated={async () => {
+                  // invalidate broad query families so all views update
+                  queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
+                  queryClient.invalidateQueries({
+                    queryKey: queryKeys.albums.songs(props.albumId),
+                  });
+                  queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
 
-                // refetch this modal's data and re-sync form when done
-                const [albumResult, songsResult] = await Promise.all([
-                  albumQuery.refetch(),
-                  songsQuery.refetch(),
-                ]);
-                if (albumResult.data && songsResult.data?.items?.length) {
-                  syncFormFromData(albumResult.data, songsResult.data.items);
-                }
-              }}
-            />
-          </TabPanel>
+                  // refetch this modal's data and re-sync form when done
+                  const [albumResult, songsResult] = await Promise.all([
+                    albumQuery.refetch(),
+                    songsQuery.refetch(),
+                  ]);
+                  if (albumResult.data && songsResult.data?.items?.length) {
+                    syncFormFromData(albumResult.data, songsResult.data.items);
+                  }
+                }}
+              />
+            </TabPanel>
+          </Show>
 
-          <TabPanel id="lastfm" class="flex-1 overflow-y-auto p-6">
-            <AlbumEnrichmentSourceTab
-              albumId={props.albumId}
-              source="lastfm"
-              initialArtist={formData().artist_name}
-              initialTitle={formData().title}
-              snapshot={albumMetadata().lastfm}
-              progress={enrichmentProgress().lastfm}
-              onRequeried={refreshEnrichmentProgress}
-            />
-            <Show when={reviewRemote()}>
-              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
-                <EnrichmentReviewPanel
+          <Show when={enrichmentEnabled().lastfm}>
+            <TabPanel id="lastfm" class="flex-1 overflow-y-auto p-6 space-y-6">
+              <AlbumEnrichmentSourceTab
+                albumId={props.albumId}
+                source="lastfm"
+                initialArtist={formData().artist_name}
+                initialTitle={formData().title}
+                snapshot={albumMetadata().lastfm}
+                progress={enrichmentProgress().lastfm}
+                onRequeried={refreshEnrichmentProgress}
+              />
+              <Show when={reviewRemote()}>
+                <SingleAlbumTaxonApplyPanel
+                  albumId={props.albumId}
+                  remote={reviewRemote()}
                   source="lastfm"
-                  albumId={props.albumId}
-                  metadataRaw={albumQuery.data?.metadata ?? null}
-                  remote={reviewRemote()!}
                   isAdmin={isRemoteAdmin()}
+                  onApplied={async () => {
+                    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                    await albumQuery.refetch();
+                  }}
                 />
-              </div>
-            </Show>
-          </TabPanel>
+                <div class="pt-2 border-t border-[var(--color-border-default)]">
+                  <EnrichmentReviewPanel
+                    source="lastfm"
+                    albumId={props.albumId}
+                    metadataRaw={albumQuery.data?.metadata ?? null}
+                    remote={reviewRemote()!}
+                    isAdmin={isRemoteAdmin()}
+                    hideFetchButton
+                  />
+                </div>
+              </Show>
+            </TabPanel>
+          </Show>
 
-          <TabPanel id="audiodb" class="flex-1 overflow-y-auto p-6">
-            <AlbumEnrichmentSourceTab
-              albumId={props.albumId}
-              source="audiodb"
-              initialArtist={formData().artist_name}
-              initialTitle={formData().title}
-              snapshot={albumMetadata().audiodb}
-              progress={enrichmentProgress().audiodb}
-              onRequeried={refreshEnrichmentProgress}
-            />
-            <Show when={reviewRemote()}>
-              <div class="mt-6 pt-6 border-t border-[var(--color-border-default)]">
-                <EnrichmentReviewPanel
+          <Show when={enrichmentEnabled().audiodb}>
+            <TabPanel id="audiodb" class="flex-1 overflow-y-auto p-6 space-y-6">
+              <AlbumEnrichmentSourceTab
+                albumId={props.albumId}
+                source="audiodb"
+                initialArtist={formData().artist_name}
+                initialTitle={formData().title}
+                snapshot={albumMetadata().audiodb}
+                progress={enrichmentProgress().audiodb}
+                onRequeried={refreshEnrichmentProgress}
+              />
+              <Show when={reviewRemote()}>
+                <SingleAlbumTaxonApplyPanel
+                  albumId={props.albumId}
+                  remote={reviewRemote()}
                   source="audiodb"
-                  albumId={props.albumId}
-                  metadataRaw={albumQuery.data?.metadata ?? null}
-                  remote={reviewRemote()!}
                   isAdmin={isRemoteAdmin()}
+                  onApplied={async () => {
+                    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                    await albumQuery.refetch();
+                  }}
                 />
-              </div>
-            </Show>
-          </TabPanel>
-
-          <TabPanel id="artist" class="flex-1 overflow-y-auto p-6">
-            <AlbumArtistTab
-              artistId={formData().artist_id}
-              artistName={formData().artist_name}
-              onSaved={refreshEnrichmentProgress}
-            />
-          </TabPanel>
+                <div class="pt-2 border-t border-[var(--color-border-default)]">
+                  <EnrichmentReviewPanel
+                    source="audiodb"
+                    albumId={props.albumId}
+                    metadataRaw={albumQuery.data?.metadata ?? null}
+                    remote={reviewRemote()!}
+                    isAdmin={isRemoteAdmin()}
+                    hideFetchButton
+                  />
+                </div>
+              </Show>
+            </TabPanel>
+          </Show>
         </Tabs>
       </Show>
 

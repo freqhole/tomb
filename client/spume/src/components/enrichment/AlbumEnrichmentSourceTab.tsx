@@ -89,6 +89,7 @@ function statusTone(status: string): string {
 
 export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
   const [editing, setEditing] = createSignal(false);
+  const [showRawData, setShowRawData] = createSignal(false);
   const [overrideArtist, setOverrideArtist] = createSignal(props.initialArtist);
   const [overrideTitle, setOverrideTitle] = createSignal(props.initialTitle);
   const [overrideMbid, setOverrideMbid] = createSignal(props.initialMbid ?? "");
@@ -182,8 +183,21 @@ export function AlbumEnrichmentSourceTab(props: AlbumEnrichmentSourceTabProps) {
         </div>
       </Show>
 
-      {/* snapshot summary */}
-      <SnapshotSummary source={props.source} snapshot={props.snapshot} />
+      {/* snapshot summary — hidden behind a toggle since this is raw
+          data captured from the api response / stored metadata, useful
+          for spot-checking but noisy by default. */}
+      <div class="space-y-2">
+        <button
+          type="button"
+          onClick={() => setShowRawData((v) => !v)}
+          class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] underline-offset-2 hover:underline"
+        >
+          {showRawData() ? "hide raw data" : "show raw data"}
+        </button>
+        <Show when={showRawData()}>
+          <SnapshotSummary source={props.source} snapshot={props.snapshot} />
+        </Show>
+      </div>
 
       {/* actions */}
       <div class="flex items-center gap-2 pt-2">
