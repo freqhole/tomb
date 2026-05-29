@@ -57,8 +57,8 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       {/* back arrow — only shown when onBack is provided (breadcrumb depth > 1) */}
       <Show when={props.onBack}>
         <IconBtn
-          icon="chevronLeft"
-          label="go back"
+          icon="graphBack"
+          label="go back to parent node"
           onClick={props.onBack}
           sizeClass={btnSize()}
           iconPx={iconPx()}

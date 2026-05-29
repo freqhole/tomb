@@ -231,6 +231,29 @@ export const ChevronRightIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// graph-specific "go to parent" affordance.
+// shape: two-segment guide line from upper-right with an arrow pointing down-left.
+export const GraphBackIcon = (props: IconProps) => (
+  <BaseIcon {...props} defaultSize={16} aria-label={props["aria-label"] ?? "Graph back"}>
+    <path
+      d="M19 5L13 10L8 15"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M8 15V11M8 15H12"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </BaseIcon>
+);
+
 export const ExpandIcon = (props: IconProps) => (
   <BaseIcon {...props} defaultSize={16} aria-label={props["aria-label"] ?? "Expand"}>
     <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
