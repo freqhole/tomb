@@ -664,6 +664,20 @@ impl UserRepository {
 
         // null out nullable FKs to preserve history rows
         sqlx::query!(
+            "UPDATE media_eventz SET user_id = NULL WHERE user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE music_play_eventz SET user_id = NULL WHERE user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
             "UPDATE knock_requestz SET processed_by = NULL WHERE processed_by = ?",
             user_id
         )

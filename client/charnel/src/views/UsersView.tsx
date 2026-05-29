@@ -46,6 +46,14 @@ interface InviteCode {
   is_active: boolean;
 }
 
+interface ConfirmDialogState {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  resolve: ((value: boolean) => void) | null;
+}
+
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   return date.toLocaleDateString(undefined, {
@@ -83,6 +91,13 @@ export default function UsersView() {
   const [copiedInviteCode, setCopiedInviteCode] = createSignal<string | null>(
     null,
   );
+  const [confirmDialog, setConfirmDialog] = createSignal<ConfirmDialogState>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmLabel: "confirm",
+    resolve: null,
+  });
 
   // peers and knocks (loaded across all users so we can aggregate counts
   // and surface knock messages per peer node)
@@ -163,7 +178,12 @@ export default function UsersView() {
   }
 
   async function deleteUser(userId: string, username: string) {
-    if (!confirm(`delete user "${username}"? this cannot be undone.`)) return;
+    const confirmed = await openConfirm({
+      title: "delete user?",
+      message: `delete user "${username}"? this cannot be undone.`,
+      confirmLabel: "delete",
+    });
+    if (!confirmed) return;
     try {
       await admin.dispatchOrThrow("users_delete", { user_id: userId });
       await loadUsers();
@@ -173,12 +193,12 @@ export default function UsersView() {
   }
 
   async function hardDeleteUser(userId: string, username: string) {
-    if (
-      !confirm(
-        `permanently delete user "${username}" forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`,
-      )
-    )
-      return;
+    const confirmed = await openConfirm({
+      title: "delete user forever?",
+      message: `permanently delete user "${username}" forever?\n\nthis removes the account and all FK references that don't cascade. this cannot be undone.`,
+      confirmLabel: "delete forever",
+    });
+    if (!confirmed) return;
     try {
       await admin.dispatchOrThrow("users_hard_delete", { user_id: userId });
       await loadUsers();
@@ -346,13 +366,41 @@ export default function UsersView() {
     setExpandedUserId(expandedUserId() === userId ? null : userId);
   }
 
+  function openConfirm(options: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+  }): Promise<boolean> {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        isOpen: true,
+        title: options.title,
+        message: options.message,
+        confirmLabel: options.confirmLabel ?? "confirm",
+        resolve,
+      });
+    });
+  }
+
+  function resolveConfirm(result: boolean): void {
+    const dialog = confirmDialog();
+    dialog.resolve?.(result);
+    setConfirmDialog({
+      isOpen: false,
+      title: "",
+      message: "",
+      confirmLabel: "confirm",
+      resolve: null,
+    });
+  }
+
   async function removePeerNode(userId: string, nodeId: string) {
-    if (
-      !confirm(
-        `remove peer node ${formatNodeId(nodeId)}?\n\nthis soft-deletes the peer; you can restore it from the federation view.`,
-      )
-    )
-      return;
+    const confirmed = await openConfirm({
+      title: "remove peer node?",
+      message: `remove peer node ${formatNodeId(nodeId)}?\n\nthis soft-deletes the peer; you can restore it from the federation view.`,
+      confirmLabel: "remove",
+    });
+    if (!confirmed) return;
     setRemovingNodeId(nodeId);
     try {
       await admin.dispatchOrThrow("peers_remove", {
@@ -383,12 +431,12 @@ export default function UsersView() {
   }
 
   async function hardDeletePeerNode(nodeId: string) {
-    if (
-      !confirm(
-        `permanently delete peer node ${formatNodeId(nodeId)}?\n\nthis cannot be undone. all knock requests + history for this peer will be gone.`,
-      )
-    )
-      return;
+    const confirmed = await openConfirm({
+      title: "delete peer forever?",
+      message: `permanently delete peer node ${formatNodeId(nodeId)}?\n\nthis cannot be undone. all knock requests + history for this peer will be gone.`,
+      confirmLabel: "delete forever",
+    });
+    if (!confirmed) return;
     setRemovingNodeId(nodeId);
     try {
       await admin.dispatchOrThrow("peers_hard_delete", { node_id: nodeId });
@@ -832,6 +880,65 @@ export default function UsersView() {
           </For>
         </Show>
       </div>
+
+      <Show when={confirmDialog().isOpen}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            "z-index": 80,
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            padding: "1rem",
+            background: "rgba(0, 0, 0, 0.65)",
+          }}
+          onClick={() => resolveConfirm(false)}
+        >
+          <div
+            style={{
+              width: "min(100%, 32rem)",
+              padding: "1rem",
+              background: "var(--color-bg-secondary, #1a1a1a)",
+              border: "1px solid var(--color-border, #333)",
+              "border-radius": "12px",
+              "box-shadow": "0 24px 80px rgba(0, 0, 0, 0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              class="active"
+              style={{ "margin-top": "0", "margin-bottom": "0.5rem" }}
+            >
+              {confirmDialog().title}
+            </h2>
+            <p
+              class="item-meta"
+              style={{ margin: 0, "white-space": "pre-wrap" }}
+            >
+              {confirmDialog().message}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                "justify-content": "flex-end",
+                "margin-top": "1rem",
+              }}
+            >
+              <button
+                class="secondary small"
+                onClick={() => resolveConfirm(false)}
+              >
+                cancel
+              </button>
+              <button class="danger small" onClick={() => resolveConfirm(true)}>
+                {confirmDialog().confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
 
       {/* invites section */}
       <div class="section">
