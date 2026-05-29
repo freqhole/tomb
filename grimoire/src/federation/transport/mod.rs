@@ -34,8 +34,9 @@ pub use iroh::PublicKey as IrohPublicKey;
 
 use crate::config::get_config;
 use crate::error::GrimoireResult;
+use crate::radio::{self, RadioProtocol, RADIO_ALPN};
 use crate::users::UserService;
-use tracing::info;
+use tracing::{info, warn};
 
 /// check to allow incoming P2P connections
 ///
@@ -75,12 +76,35 @@ async fn should_accept_incoming() -> bool {
 pub async fn start_federation_endpoint() -> GrimoireResult<FederationEndpoint> {
     let mut endpoint = FederationEndpoint::new().await?;
 
+    // radio is independent of federation auth/knock logic: if enabled, spin up
+    // broadcasters at startup and always attach RADIO_ALPN so future runtime
+    // enable/disable toggles don't require a process restart.
+    let radio_enabled = radio::config::effective().enabled;
+    if radio_enabled {
+        if let Err(e) = radio::init_broadcaster().await {
+            warn!(
+                "failed to init radio broadcasters at federation startup: {}; radio listeners may fail until supervisor restart",
+                e
+            );
+        } else {
+            info!("[radio] broadcaster registry initialized");
+        }
+    }
+
     // check if should accept incoming connections
     if should_accept_incoming().await {
         info!("starting P2P router (knocking enabled or peers registered)");
-        endpoint.start_router().await?;
+        endpoint
+            .start_router_with(|builder| builder.accept(RADIO_ALPN, RadioProtocol::new()))
+            .await?;
     } else {
-        info!("skipping P2P router (no knocking, no peers - outbound only)");
+        // even when federation accept loop is disabled (no knocks + no peers),
+        // keep RADIO_ALPN attached so listeners can connect to this node's
+        // broadcaster over iroh.
+        info!("starting P2P router in radio/outbound mode (no knocking, no peers)");
+        endpoint
+            .start_router_with(|builder| builder.accept(RADIO_ALPN, RadioProtocol::new()))
+            .await?;
     }
 
     Ok(endpoint)
