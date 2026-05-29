@@ -626,7 +626,8 @@ async fn serve_p2p() -> CommandOutput<serde_json::Value> {
     // graceful shutdown
     endpoint.close().await;
     job_cancellation_token.cancel();
-    if let Err(e) = tokio::time::timeout(std::time::Duration::from_secs(12), job_runner_handle).await
+    if let Err(e) =
+        tokio::time::timeout(std::time::Duration::from_secs(12), job_runner_handle).await
     {
         info!("timed out waiting for job runner shutdown: {}", e);
     }

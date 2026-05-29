@@ -476,6 +476,37 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // use it; otherwise fall back to whatever the active data source is.
   const currentRemote = () => props.remote ?? getCurrentRemote();
 
+  // image mutations affect album detail, album lists/grids, and any song/artist
+  // views that render embedded album thumbnails. invalidate broad query families
+  // (not just current-source scoped keys) so whichever view opened this modal
+  // re-renders with fresh image state.
+  const invalidateAlbumImageQueries = async (albumId: string, artistId?: string) => {
+    const tasks: Promise<unknown>[] = [
+      queryClient.invalidateQueries({ queryKey: ["albums"] }),
+      queryClient.invalidateQueries({ queryKey: ["album", "songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["artists"] }),
+      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["library-albums"] }),
+    ];
+
+    if (albumId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(albumId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(albumId) })
+      );
+    }
+
+    if (artistId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.songs(artistId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.albums(artistId) })
+      );
+    }
+
+    await Promise.all(tasks);
+  };
+
   // admin gating for the per-source raw-data review surfaces — non-admins
   // can read stored snapshots but can't trigger fetch/refetch jobs. the
   // hook + panel only consume `remote_id`, so the runtime shape of
@@ -676,12 +707,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       setProcessingJob(null);
       albumQuery.refetch();
-      // invalidate album and song queries to update all views
-      // songs have album_images embedded, so they need refresh too
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-      // also invalidate artist song queries (used by artist detail view)
-      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to upload image:", err);
       toast.error("failed to upload image");
@@ -716,8 +742,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       }));
       setImages(updatedImages);
       albumQuery.refetch();
-      // invalidate album queries to update all views
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");
@@ -758,6 +783,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       setImages(updatedImages);
       albumQuery.refetch();
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to remove image:", err);
       toast.error("failed to remove image");
