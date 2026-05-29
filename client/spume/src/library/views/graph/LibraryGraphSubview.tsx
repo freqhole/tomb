@@ -1886,7 +1886,7 @@ function Inner(props: {
 
   // ---- viewport + keyboard shortcuts ---------------------------------
 
-  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  const [, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const onResize = () => setIsNarrow(isNarrowViewport());
@@ -1936,7 +1936,6 @@ function Inner(props: {
   };
 
   createEffect(() => {
-    const narrow = isNarrow();
     const depth = breadcrumbDepth();
     const topNavTools = (
       <GraphTopNavTools
@@ -1949,23 +1948,31 @@ function Inner(props: {
         extra={props.extraTools}
       />
     );
-    const chips = (
-      <div class="flex flex-col gap-1.5">
-        <div class="flex items-center gap-2 flex-wrap">
-          <Show when={narrow}>{topNavTools}</Show>
-          <Show when={props.bulkTagMode?.()}>
+
+    // keep graph tools on the primary top-nav row for both narrow and wide
+    // viewports. previously narrow mode rendered these in secondaryRowContent,
+    // which made them appear on row 2 at initial load.
+    slots.setRightContent(topNavTools);
+
+    // only allocate the secondary row when there is actual chip content.
+    // this also prevents duplicate graph controls after wide -> narrow resize.
+    if (props.bulkTagMode?.()) {
+      slots.setSecondaryRowContent(
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center gap-2 flex-wrap">
             <span
               class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] leading-none whitespace-nowrap border border-[var(--color-accent-500,#ff1a9e)]/50 bg-[var(--color-accent-500,#ff1a9e)]/15 text-[var(--color-accent-500,#ff1a9e)]"
               title="bulk-tag mode not available in this view"
             >
               bulk-tag mode (not available)
             </span>
-          </Show>
+          </div>
         </div>
-      </div>
-    );
-    slots.setSecondaryRowContent(chips);
-    if (!narrow) slots.setRightContent(topNavTools);
+      );
+    } else {
+      slots.setSecondaryRowContent(undefined);
+    }
+
     // search input has no meaning in the graph viz for now; hide it.
     slots.setHideSearch(true);
   });
