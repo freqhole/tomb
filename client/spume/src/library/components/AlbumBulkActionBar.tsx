@@ -4,9 +4,10 @@
 // metadata sources (musicbrainz, last.fm, theaudiodb) in parallel.
 // rate limiting and retry/backoff are enforced server-side per source.
 
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { Icon } from "../../components/icons/registry";
 import { clearAlbumSelection, useAlbumSelectionCount } from "../hooks/albumSelection";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 interface AlbumBulkActionBarProps {
   /** invoked when the user clicks "enrich". fans out to all
@@ -41,12 +42,20 @@ interface AlbumBulkActionBarProps {
 }
 
 export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
+  const [isNarrow] = createSignal(isNarrowViewport());
   const count = useAlbumSelectionCount();
 
   return (
     <Show when={count() > 0}>
       <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-lg shadow-lg bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]">
-        <span class="text-xs text-[var(--color-text-secondary)] mr-2">{count()} selected</span>
+        <Show when={count() > 1}>
+          <span class="text-xs text-[var(--color-text-secondary)] mr-2">
+            {count()}
+            <Show when={!isNarrow()} fallback="">
+              selected
+            </Show>
+          </span>
+        </Show>
 
         <button
           type="button"
@@ -60,7 +69,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           }
         >
           <Icon name="search" size={11} />
-          enrich
+          <Show when={!isNarrow()} fallback="">
+            enrich
+          </Show>
         </button>
 
         <Show when={props.onReview}>
@@ -76,7 +87,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="edit" size={11} />
-            review
+            <Show when={!isNarrow()} fallback="">
+              review
+            </Show>
           </button>
         </Show>
 
@@ -93,7 +106,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="check" size={11} />
-            mark done
+            <Show when={!isNarrow()} fallback="">
+              mark done
+            </Show>
           </button>
         </Show>
 
@@ -110,7 +125,10 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="edit" size={11} />
-            edit
+
+            <Show when={!isNarrow()} fallback="">
+              edit
+            </Show>
           </button>
         </Show>
 
@@ -127,7 +145,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="album" size={11} />
-            set disc #
+            <Show when={!isNarrow()} fallback="#">
+              set disc #
+            </Show>
           </button>
         </Show>
 
@@ -144,7 +164,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="tag" size={11} />
-            tags
+            <Show when={!isNarrow()} fallback="">
+              tags
+            </Show>
           </button>
         </Show>
 
@@ -160,8 +182,10 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
                 : "skip musicbrainz lookup for selected albums (won't appear in future bulk lookups)"
             }
           >
-            <Icon name="close" size={11} />
-            skip lookup
+            <Show when={!isNarrow()} fallback="skip">
+              <Icon name="close" size={11} />
+              skip lookup
+            </Show>
           </button>
         </Show>
 
@@ -177,8 +201,10 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
                 : "re-enable lookup for selected albums (resets status to not attempted)"
             }
           >
-            <Icon name="add" size={11} />
-            un-skip
+            <Show when={!isNarrow()} fallback="unskip">
+              <Icon name="add" size={11} />
+              un-skip
+            </Show>
           </button>
         </Show>
 
@@ -189,7 +215,9 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
           title="clear selection (esc)"
         >
           <Icon name="close" size={11} />
-          clear
+          <Show when={!isNarrow()} fallback="">
+            clear
+          </Show>
         </button>
       </div>
     </Show>

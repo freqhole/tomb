@@ -821,20 +821,11 @@ export function TopNav(props: TopNavProps) {
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
           // narrow: full-width fixed strip at top
-          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-2 border-b border-white/10":
+          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
             isNarrow(),
           // wide: fixed top-left floating element, doesn't push content
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
-        }}
-        style={{
-          // narrow uses min-height so the strip can grow when extra
-          // rows (secondary chips, selected tag badges, feed badges)
-          // are present. actual rendered height is published to
-          // `--nav-height` via the ResizeObserver below so AppLayout's
-          // content padding tracks it.
-          "min-height": isNarrow() ? "var(--nav-height, 56px)" : undefined,
-          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
         }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}

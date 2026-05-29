@@ -475,7 +475,7 @@ export function AlbumsView(props: AlbumsViewProps) {
       <div class="flex-1 min-h-0 overflow-hidden relative">
         {/* floating switcher overlay — grid mode only, top-right */}
         <Show when={!!currentRemote() && viewMode() === "grid"}>
-          <div class="absolute top-2 right-2 z-20">{viewModeSwitcher()}</div>
+          <div class="absolute top-2 right-4 z-20">{viewModeSwitcher()}</div>
         </Show>
         <Show
           when={viewMode() === "table" && !!currentRemote()}
