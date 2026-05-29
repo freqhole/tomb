@@ -187,7 +187,7 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
   return (
     <Show when={artist()}>
       <div
-        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-var(--nav-height,56px)-5rem)] overflow-y-auto flex flex-col"
+        class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-var(--nav-height,56px)-var(--player-bar-height,0px)-3.5rem)] overflow-y-auto flex flex-col"
         style={
           positioned()
             ? {

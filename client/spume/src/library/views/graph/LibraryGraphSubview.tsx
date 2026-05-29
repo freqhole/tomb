@@ -85,7 +85,6 @@ import type { AlbumSummary } from "../../../music/data/types";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import type { ContributingRemote } from "../../../components/graph/RemoteSplitButton";
-import { useDetailPanelHide } from "../../../components/graph/useDetailPanelHide";
 import { Icon } from "../../../components/icons/registry";
 
 // ---- public props -----------------------------------------------------------
@@ -851,8 +850,20 @@ function Inner(props: {
     return node as ArtistNodeData;
   });
 
-  const albumPanel = useDetailPanelHide(selectedAlbum);
-  const artistPanel = useDetailPanelHide(selectedArtist);
+  // keep album + artist popovers in a shared minimized state so once
+  // the user collapses details, all subsequent detail popovers stay
+  // collapsed until explicitly expanded again.
+  const [detailPanelsHidden, setDetailPanelsHidden] = createSignal(false);
+  const albumPanel = {
+    hidden: detailPanelsHidden,
+    hide: () => setDetailPanelsHidden(true),
+    restore: () => setDetailPanelsHidden(false),
+  };
+  const artistPanel = {
+    hidden: detailPanelsHidden,
+    hide: () => setDetailPanelsHidden(true),
+    restore: () => setDetailPanelsHidden(false),
+  };
 
   const selectedArtistAlbums = createMemo<AlbumNodeData[]>(() => {
     const artist = selectedArtist();
@@ -1629,8 +1640,6 @@ function Inner(props: {
    *  related-artist row) to keep ui in sync with the visual focus. */
   const selectAndPanTo = (nodeId: string) => {
     setSelectedId(nodeId);
-    albumPanel.restore();
-    artistPanel.restore();
     walkerClient()?.repivot(nodeId, false);
   };
 
@@ -1981,8 +1990,6 @@ function Inner(props: {
 
   const handleSelect = (nodeId: string, _role: string) => {
     setSelectedId(nodeId);
-    albumPanel.restore();
-    artistPanel.restore();
   };
 
   // fan out every lazy-load hook that should fire when a node becomes
