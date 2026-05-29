@@ -145,7 +145,7 @@ export function AlbumBulkActionBar(props: AlbumBulkActionBarProps) {
             }
           >
             <Icon name="album" size={11} />
-            <Show when={!isNarrow()} fallback="#">
+            <Show when={!isNarrow()} fallback="">
               set disc #
             </Show>
           </button>

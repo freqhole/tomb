@@ -648,6 +648,12 @@ export function ArtistsView(props: ArtistsViewProps) {
   // handle back navigation on narrow
   const handleBack = () => {
     setShowingDetailOnNarrow(false);
+    // the artists list query is disabled while detail is showing on narrow
+    // (to avoid a heavy fetch on initial deep-link load). flipping
+    // showingDetailOnNarrow above re-enables it, but tanstack query won't
+    // fire until the next scheduler tick. eagerly refetch now so the list
+    // is already loading by the time the list column becomes visible.
+    void artistsQuery.refetch();
   };
 
   // left column - artist list
