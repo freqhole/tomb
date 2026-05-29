@@ -271,7 +271,7 @@ export class RodioBackend implements PlayerBackend {
           metadata: song.metadata,
           images: song.images,
           urls: song.urls,
-          album_genres: song.album_genres,
+          album_taxons: song.album_taxons,
           album_images: song.album_images,
           album_tags: song.album_tags,
           artist_images: song.artist_images,
@@ -458,7 +458,7 @@ export class RodioBackend implements PlayerBackend {
     this.dispatch(event);
   }
 
-  /// shared dispatch path \u2014 used by both the tauri listener and the
+  /// shared dispatch path - used by both the tauri listener and the
   /// internal `emit` helper. updates the cached snapshot then
   /// notifies every subscriber, isolating listener errors so one
   /// bad subscriber doesn't break the chain.

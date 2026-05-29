@@ -126,6 +126,12 @@ pub struct SyncSongByBlake3Request {
     /// sha256). missing referenced blobs are skipped, not fatal.
     #[serde(default)]
     pub song_images: Vec<SyncImageRef>,
+    /// optional album images. linked to the song's album row on import.
+    /// same inline-or-reference shape as `song_images`. used when syncing
+    /// individual songs from a remote so the album row gets cover art on
+    /// the destination without a separate `/api/sync/album` round-trip.
+    #[serde(default)]
+    pub album_images: Vec<SyncImageRef>,
     /// is this song part of a compilation
     #[serde(default)]
     pub is_compilation: bool,
@@ -443,23 +449,28 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     let mut images_linked: i64 = 0;
     let mut missing_image_sha256s: Vec<String> = Vec::new();
     for (idx, img) in req.song_images.iter().enumerate() {
-        let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("song-{}-{}", song_id, idx)).await {
-                Ok(Some(id)) => Some(id),
-                Ok(None) => {
-                    missing_image_sha256s.push(img.content_sha256.clone());
-                    None
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "sync_song_by_blake3: failed to import image {} for song {}: {}",
-                        img.content_sha256,
-                        song_id,
-                        e
-                    );
-                    None
-                }
-            };
+        let blob_id_opt = match resolve_sync_image_ref(
+            img,
+            &format!("song-{}-{}", song_id, idx),
+            Some(&pulled.blob.id),
+        )
+        .await
+        {
+            Ok(Some(id)) => Some(id),
+            Ok(None) => {
+                missing_image_sha256s.push(img.content_sha256.clone());
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "sync_song_by_blake3: failed to import image {} for song {}: {}",
+                    img.content_sha256,
+                    song_id,
+                    e
+                );
+                None
+            }
+        };
         if let Some(blob_id) = blob_id_opt {
             let is_primary = img.is_primary || idx == 0;
             let add_result =
@@ -467,6 +478,64 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                     .await;
             if add_result.success {
                 images_linked += 1;
+            }
+        }
+    }
+
+    // 5b. link album images. look up the album_id that was just associated
+    // with the imported song and attach each album image. inline-base64 refs
+    // are deduped via sha256, so an album cover that's byte-identical to a
+    // song cover already linked above will resolve to the same blob_id and
+    // simply create the album_imagez row.
+    if !req.album_images.is_empty() {
+        let album_id_opt: Option<String> = match crate::database::connect().await {
+            Ok(pool) => sqlx::query_scalar!(
+                "SELECT album_id FROM album_songz WHERE song_id = ? LIMIT 1",
+                song_id
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten(),
+            Err(_) => None,
+        };
+        if let Some(album_id) = album_id_opt {
+            for (idx, img) in req.album_images.iter().enumerate() {
+                // album-level images are almost always Original cover art, but
+                // pass the song's audio blob as a fallback parent in case a
+                // derived blob_type slips through (better than a CHECK panic).
+                let blob_id_opt = match resolve_sync_image_ref(
+                    img,
+                    &format!("album-{}-{}", album_id, idx),
+                    Some(&pulled.blob.id),
+                )
+                .await
+                {
+                    Ok(Some(id)) => Some(id),
+                    Ok(None) => {
+                        missing_image_sha256s.push(img.content_sha256.clone());
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "sync_song_by_blake3: failed to import album image {} for album {}: {}",
+                            img.content_sha256,
+                            album_id,
+                            e
+                        );
+                        None
+                    }
+                };
+                if let Some(blob_id) = blob_id_opt {
+                    let is_primary = img.is_primary || idx == 0;
+                    let add_result = crate::music::entities::albums::add_album_image(
+                        &album_id, &blob_id, is_primary, None,
+                    )
+                    .await;
+                    if add_result.success {
+                        images_linked += 1;
+                    }
+                }
             }
         }
     }
@@ -512,9 +581,10 @@ async fn reconcile_existing_song_links(
     caller: &Caller,
 ) -> Result<(), String> {
     use crate::music::crud::create_or_update::{
-        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+        find_or_create_album_for_artist, find_or_create_artist,
     };
     use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+    use crate::music::entities::taxonomy::find_or_create_taxon;
 
     let pool = crate::database::connect()
         .await
@@ -531,16 +601,16 @@ async fn reconcile_existing_song_links(
         None => return Err(format!("artist resolve failed: {}", artist_resp.message)),
     };
 
-    // 2. resolve genre names -> genre_ids (best-effort; matches sync_album).
+    // 2. resolve genre names -> taxon ids (best-effort; matches sync_album).
     //    genre_name on the request is a comma-separated list; matches the
     //    behavior of import_song_with_metadata.
     let genre_ids: Vec<String> = match &req.genre_name {
         Some(g) => {
             let mut ids = Vec::new();
             for name in g.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                let resp = find_or_create_genre(name.to_string()).await;
-                if let Some((genre, _)) = resp.data {
-                    ids.push(genre.id);
+                let resp = find_or_create_taxon("genre", name).await;
+                if let Some(taxon) = resp.data {
+                    ids.push(taxon.id);
                 }
             }
             ids
@@ -596,10 +666,10 @@ async fn reconcile_existing_song_links(
     .await
     .map_err(|e| format!("artist_albumz insert failed: {}", e))?;
 
-    // 5. attach genres to album (junction is album_genrez, not song-level).
+    // 5. attach genres to album (junction is album_taxonz with kind=genre).
     for gid in &genre_ids {
         let _ = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
             album.id,
             gid,
         )
@@ -804,7 +874,9 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
     let mut missing_image_sha256s: Vec<String> = Vec::new();
     for (idx, img) in req.images.iter().enumerate() {
         let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("playlist-{}-{}", playlist.id, idx)).await {
+            match resolve_sync_image_ref(img, &format!("playlist-{}-{}", playlist.id, idx), None)
+                .await
+            {
                 Ok(Some(id)) => Some(id),
                 Ok(None) => {
                     missing_image_sha256s.push(img.content_sha256.clone());
@@ -981,9 +1053,10 @@ pub struct SyncAlbumResponse {
 /// path: POST /api/sync/album
 pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     use crate::music::crud::create_or_update::{
-        find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
+        find_or_create_album_for_artist, find_or_create_artist,
     };
     use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
+    use crate::music::entities::taxonomy::find_or_create_taxon;
 
     let req: SyncAlbumRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -1033,16 +1106,16 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         }
     };
 
-    // 2. resolve genre names → genre_ids (best-effort; skip any that fail)
+    // 2. resolve genre names → taxon ids (best-effort; skip any that fail)
     let mut genre_ids: Vec<String> = Vec::new();
     for name in &req.genres {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             continue;
         }
-        let resp = find_or_create_genre(trimmed.to_string()).await;
-        if let Some((genre, _)) = resp.data {
-            genre_ids.push(genre.id);
+        let resp = find_or_create_taxon("genre", trimmed).await;
+        if let Some(taxon) = resp.data {
+            genre_ids.push(taxon.id);
         } else {
             tracing::warn!(
                 "sync_album: failed to resolve genre {}: {}",
@@ -1088,7 +1161,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     let mut missing_image_sha256s: Vec<String> = Vec::new();
     for (idx, img) in req.images_base64.iter().enumerate() {
         let blob_id_opt =
-            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx)).await {
+            match resolve_sync_image_ref(img, &format!("album-{}-{}", album.id, idx), None).await {
                 Ok(Some(id)) => Some(id),
                 Ok(None) => {
                     missing_image_sha256s.push(img.content_sha256.clone());
@@ -1186,9 +1259,15 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
 ///     - found → `Ok(Some(id))`.
 ///     - missing → `Ok(None)` (caller treats as "skipped, not fatal").
 /// - decode/hash mismatch → `Err`.
+///
+/// `parent_blob_id` is required for non-`Original` blob types (e.g. waveforms,
+/// thumbnails, previews) — the schema CHECK constraint enforces that derived
+/// blobs carry a pointer to their source. for song-image sync, this should be
+/// the just-pulled audio blob's id. ignored for `Original` blobs.
 async fn resolve_sync_image_ref(
     img: &SyncImageRef,
     name_prefix: &str,
+    parent_blob_id: Option<&str>,
 ) -> GrimoireResult<Option<String>> {
     if let Some(data_b64) = &img.data_base64 {
         // inline path: decode, verify, create-or-dedupe
@@ -1210,19 +1289,41 @@ async fn resolve_sync_image_ref(
             });
         }
 
+        let resolved_blob_type = match img.blob_type.as_deref() {
+            Some("thumbnail") => BlobType::Thumbnail,
+            Some("waveform") => BlobType::Waveform,
+            Some("preview") => BlobType::Preview,
+            _ => BlobType::Original,
+        };
+        // non-original blobs must carry parent_blob_id (db CHECK constraint).
+        // original blobs must NOT carry one. callers without a parent for a
+        // derived blob get a clear error rather than a CHECK constraint panic
+        // surfaced as opaque sqlite text.
+        let parent_for_create = match resolved_blob_type {
+            BlobType::Original => None,
+            _ => match parent_blob_id {
+                Some(p) => Some(p.to_string()),
+                None => {
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "non-original image (blob_type={:?}) for {} requires a parent_blob_id",
+                            resolved_blob_type, name_prefix
+                        ),
+                    });
+                }
+            },
+        };
         // dedupe via create_media_blob (sha256 unique constraint)
+        let ext = crate::offal::upload::detect_extension(&img.mime_type, "");
         let blob = create_media_blob(CreateMediaBlobRequest {
             sha256: img.content_sha256.clone(),
             size: Some(bytes.len() as i64),
             mime: Some(img.mime_type.clone()),
             source_client_id: None,
             local_path: None,
-            filename: Some(format!("{}.bin", name_prefix)),
-            parent_blob_id: None,
-            blob_type: Some(match img.blob_type.as_deref() {
-                Some("thumbnail") => BlobType::Thumbnail,
-                _ => BlobType::Original,
-            }),
+            filename: Some(format!("{}.{}", name_prefix, ext)),
+            parent_blob_id: parent_for_create,
+            blob_type: Some(resolved_blob_type),
             metadata: serde_json::json!({}),
             created_by: None,
             data: Some(crate::Bytes(bytes)),

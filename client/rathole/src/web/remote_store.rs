@@ -69,14 +69,6 @@ pub async fn upsert_remote(
         .map_err(|e| format!("upsert remote: {e:?}"))
 }
 
-/// mark a remote as active by `peer_addr` (clears is_active on others).
-pub async fn set_active(peer_addr: &str) -> Result<(), String> {
-    upsert_inner(peer_addr, None, true)
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("set_active remote: {e:?}"))
-}
-
 /// delete a remote by peer_addr.
 pub async fn delete_remote(peer_addr: &str) -> Result<(), String> {
     delete_inner(peer_addr)

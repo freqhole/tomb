@@ -5,10 +5,10 @@ export { FreqholeClient, createClient, createHttpClient, isAuthError, isNetworkE
 export type { SafeParseResult } from "./FreqholeClient.js";
 
 // transport abstraction
-export { HttpTransport } from "./transport.js";
+export { HttpTransport, pollingJobEvents, snapshotJobEventsViaRequest, POLL_INTERVAL_FALLBACK_MS } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
 export { CharnelTransport, createCharnelTransport, getCharnelTransport, getCharnelNodeId, isCharnelAvailable, isCharnelP2PAvailable } from "./CharnelTransport.js";
-export { CharnelLocalTransport, createCharnelLocalTransport } from "./CharnelLocalTransport.js";
+export { CharnelLocalTransport, createCharnelLocalTransport, JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 export type { MiddenNodeLike, BlobResultLike, BlobProgressCallback, RadioHandleLike } from "./WasmTransport.js";
 export type { Transport, TransportResponse, BlobData } from "./transport.js";
 

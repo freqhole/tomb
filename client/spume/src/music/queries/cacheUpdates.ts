@@ -260,6 +260,37 @@ export function updateAlbumInCache(
     });
   }
 
+  // 3b. update per-remote library-albums infinite queries. these power
+  // the library table + graph view and use their own query key
+  // (`["library-albums", remote_id, search, sort_by, sort_dir]`) so
+  // they're not covered by step 2's `queryKeys.albums.all()` walk. items
+  // are `AlbumSummary` keyed by `album_id`, matching `updateAlbumInArray`.
+  const libraryAlbumsQueries = queryClient.getQueriesData<{
+    pages: Array<{
+      items: unknown[];
+      total: number;
+      offset: number;
+      limit: number;
+      has_more: boolean;
+    }>;
+    pageParams: unknown[];
+  }>({
+    queryKey: ["library-albums"],
+    exact: false,
+  });
+
+  for (const [queryKey, data] of libraryAlbumsQueries) {
+    if (!data?.pages) continue;
+
+    queryClient.setQueryData(queryKey, {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        items: updateAlbumInArray(page.items as Album[]),
+      })),
+    });
+  }
+
   // 4. update songs with album_is_favorite when album favorite changes
   if (updates.is_favorite !== undefined) {
     // update artist songs queries (where the album favorite heart appears)

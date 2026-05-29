@@ -514,7 +514,7 @@ mod tests {
             FavoriteTarget::Song,
             FavoriteTarget::Artist,
             FavoriteTarget::Album,
-            FavoriteTarget::Genre,
+            FavoriteTarget::Taxon,
             FavoriteTarget::Playlist,
         ];
 

@@ -152,6 +152,20 @@ pub enum ArgKind {
         value_field: String,
         label_field: String,
     },
+    /// pick zero or more values from another command's response.
+    /// uses the same source-loading behavior as `SelectFrom`, but
+    /// serializes to a JSON array of selected `value_field`s.
+    MultiSelectFrom {
+        source_command: String,
+        source_body: serde_json::Value,
+        /// (body_key, sibling_field_name) — at fetch time, look up
+        /// the sibling's currently-selected value and insert it into
+        /// the body under `body_key`.
+        body_from_fields: Vec<(String, String)>,
+        data_path: String,
+        value_field: String,
+        label_field: String,
+    },
     /// hidden field whose value is auto-derived from a sibling
     /// `SelectFrom` field's currently-selected row. used for things
     /// like `peers_remove` where picking a user row should also
@@ -206,6 +220,15 @@ pub enum FieldState {
         error: Option<String>,
         selected: usize,
     },
+    /// dynamic multi-select picker. `checked[i]` corresponds to
+    /// `options[i]`; both are reset when fresh options arrive.
+    MultiSelect {
+        options: Option<Vec<SelectOption>>,
+        loading: bool,
+        error: Option<String>,
+        cursor: usize,
+        checked: Vec<bool>,
+    },
     /// auto-derived from a sibling SelectFrom row at submit time.
     /// not focusable; doesn't participate in the wizard step list.
     Mirror,
@@ -251,6 +274,13 @@ impl FieldState {
                 error: None,
                 selected: 0,
             },
+            ArgKind::MultiSelectFrom { .. } => Self::MultiSelect {
+                options: None,
+                loading: false,
+                error: None,
+                cursor: 0,
+                checked: Vec::new(),
+            },
         }
     }
 
@@ -286,6 +316,20 @@ pub struct CommandForm {
     /// viewport. PgUp/PgDn drive this from the form key handler;
     /// it's clamped at render time so it never overflows.
     pub scroll: u16,
+    /// transient path-tab completion state for Text/LongText fields.
+    /// when set, repeated Tab can cycle through all candidates for
+    /// the same seed token (shell-like menu completion).
+    pub path_tab_cycle: Option<PathTabCycle>,
+}
+
+/// remembers the candidate set produced by the most recent path-tab
+/// completion so subsequent Tab presses can rotate through it.
+#[derive(Debug, Clone)]
+pub struct PathTabCycle {
+    pub field_index: usize,
+    pub seed_token: String,
+    pub candidates: Vec<String>,
+    pub selected: usize,
 }
 
 impl CommandForm {
@@ -300,6 +344,7 @@ impl CommandForm {
             inflight: false,
             error: None,
             scroll: 0,
+            path_tab_cycle: None,
         }
     }
 
@@ -419,6 +464,7 @@ impl CommandForm {
             inflight: false,
             error: None,
             scroll: 0,
+            path_tab_cycle: None,
         }
     }
 
@@ -512,6 +558,11 @@ pub enum AppAction {
         command: String,
         response: DispatchResponse,
     },
+    /// streaming progress line emitted by an in-flight admin dispatch
+    /// (via `grimoire::progress::report`). appended to the current
+    /// `last_dispatch.progress` so long-running maintenance ops show
+    /// activity in the result panel instead of a frozen placeholder.
+    AdminDispatchProgress { command: String, line: String },
     /// result of a peer-connect attempt fired from the peer-input
     /// modal. on success the shell has already swapped the app's
     /// transport; on failure the error message is surfaced in the ui.
@@ -579,6 +630,13 @@ pub enum AppAction {
     /// grimoire emitted a `KnockProcessed` event (accepted/rejected/
     /// deleted). the ui loop decrements the pending knocks counter.
     KnockProcessed { id: String },
+    /// snapshot refresh of pending knocks (usually from
+    /// `knocks_list`), used to hydrate on startup and keep the
+    /// header indicator correct across reconnects or missed events.
+    PendingKnocksSynced {
+        count: u32,
+        username: Option<String>,
+    },
     /// a playlist/album/etc. was fetched in the background and the
     /// ui loop should now populate the queue + start progressive
     /// blob resolution. used by the web shell to avoid holding a
@@ -628,6 +686,14 @@ pub struct LastDispatch {
     pub rows: Vec<serde_json::Value>,
     /// current row cursor when `rows` is non-empty.
     pub cursor: usize,
+    /// true while an async admin dispatch is still in flight. result
+    /// panel renders a "running" badge instead of ✓/✗ so the user
+    /// has visible feedback during long-running maintenance ops.
+    pub pending: bool,
+    /// streaming progress lines (newest last) emitted by the running
+    /// dispatch via `grimoire::progress::report`. rendered below the
+    /// header in the result panel.
+    pub progress: Vec<String>,
 }
 
 /// pop-up overlay listing per-row actions available against the

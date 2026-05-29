@@ -82,5 +82,9 @@ fn test_wordlist_generate_code() {
     let codes = data["codes"].as_array().unwrap();
     assert!(!codes.is_empty(), "Should have at least one code");
     let code = codes[0].as_str().unwrap();
-    assert_eq!(code.split('-').count(), 3, "Code should have 3 words");
+    assert_eq!(
+        code.split('-').count(),
+        4,
+        "Code should have 3 words plus a digit segment"
+    );
 }

@@ -6,6 +6,7 @@ pub(super) mod analytics;
 pub(super) mod blobz;
 pub(super) mod database;
 pub(super) mod dir_tags;
+pub(super) mod enrichment;
 pub(super) mod federation;
 pub(super) mod genres;
 pub(super) mod invites;

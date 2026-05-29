@@ -1,7 +1,7 @@
 //! maintenance handlers (cleanup, backfill, server image, spume update).
 
 use crate::admin_dispatch::helpers::{
-    bad_request, internal, opt_bool, resolve_config_path, to_value,
+    bad_request, internal, opt_bool, opt_i64, resolve_config_path, to_value,
 };
 use crate::offal::Caller;
 use crate::response::GrimoireResponse;
@@ -11,14 +11,78 @@ pub(in crate::admin_dispatch) async fn cleanup_orphaned_tags(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
     let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
-    to_value(crate::maintenance::cleanup_orphaned_tags(dry_run).await)
+    let resp = crate::maintenance::cleanup_orphaned_tags(dry_run).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = resp
+        .data
+        .unwrap_or(crate::maintenance::OrphanedTagsSummary {
+            tags_found: 0,
+            tags_deleted: 0,
+            tag_names: vec![],
+        });
+    let msg = if dry_run {
+        format!(
+            "dry run: {} orphaned tag(s) found, none deleted",
+            data.tags_found
+        )
+    } else if data.tags_found == 0 {
+        "no orphaned tags found".to_string()
+    } else {
+        format!(
+            "deleted {} of {} orphaned tag(s)",
+            data.tags_deleted, data.tags_found
+        )
+    };
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "dry_run": dry_run,
+            "tags_found": data.tags_found,
+            "tags_deleted": data.tags_deleted,
+            "tag_names": data.tag_names,
+        }),
+    )
 }
 
 pub(in crate::admin_dispatch) async fn cleanup_orphaned_genres(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
     let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
-    to_value(crate::maintenance::cleanup_orphaned_genres(dry_run).await)
+    let resp = crate::maintenance::cleanup_orphaned_genres(dry_run).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = resp
+        .data
+        .unwrap_or(crate::maintenance::OrphanedGenresSummary {
+            genres_found: 0,
+            genres_deleted: 0,
+            genre_names: vec![],
+        });
+    let msg = if dry_run {
+        format!(
+            "dry run: {} orphaned genre(s) found, none deleted",
+            data.genres_found
+        )
+    } else if data.genres_found == 0 {
+        "no orphaned genres found".to_string()
+    } else {
+        format!(
+            "deleted {} of {} orphaned genre(s)",
+            data.genres_deleted, data.genres_found
+        )
+    };
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "dry_run": dry_run,
+            "genres_found": data.genres_found,
+            "genres_deleted": data.genres_deleted,
+            "genre_names": data.genre_names,
+        }),
+    )
 }
 
 pub(in crate::admin_dispatch) async fn cleanup_all(args: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -67,6 +131,45 @@ pub(in crate::admin_dispatch) async fn cleanup_all(args: JsonValue) -> GrimoireR
 
 pub(in crate::admin_dispatch) async fn backfill_thumbnails_count() -> GrimoireResponse<JsonValue> {
     to_value(crate::blob_data::count_blobs_needing_thumbnails().await)
+}
+
+/// backfill blake3 hashes for media_blobz rows that don't have one.
+/// covers both file-backed audio (local_path set) and db-stored blobs
+/// (images, thumbnails, waveforms in blob_data).
+/// args: `{ batch_size?: i64 (default 100), concurrency?: i64 (default 16) }`
+/// returns `{ scanned, hashed }` totals.
+pub(in crate::admin_dispatch) async fn backfill_blake3(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let batch_size = opt_i64(&args, "batch_size", 100);
+    if batch_size <= 0 {
+        return bad_request("batch_size must be > 0");
+    }
+    let concurrency = opt_i64(&args, "concurrency", 16).max(1) as usize;
+    match crate::blobz::backfill_blake3_hashes(batch_size, concurrency).await {
+        Ok((processed, remaining)) => {
+            let msg = if processed == 0 && remaining == 0 {
+                "all media blobs already have blake3 hashes".to_string()
+            } else if remaining == 0 {
+                format!("hashed {processed} blob(s); none remaining (batch_size={batch_size}, concurrency={concurrency})")
+            } else {
+                format!(
+                    "hashed {processed} blob(s); {remaining} still need hashing (re-run /maintenance backfill-blake3 to continue; batch_size={batch_size}, concurrency={concurrency})"
+                )
+            };
+            GrimoireResponse::success(
+                &msg,
+                json!({
+                    "batch_size": batch_size,
+                    "concurrency": concurrency,
+                    "processed": processed,
+                    "remaining": remaining,
+                    "done": remaining == 0,
+                }),
+            )
+        }
+        Err(e) => GrimoireResponse::failure("backfill failed", vec![e.into()]),
+    }
 }
 
 pub(in crate::admin_dispatch) async fn backfill_thumbnails(
@@ -167,7 +270,44 @@ pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
     if min_age_days < 0.0 {
         return bad_request("min_age_days must be >= 0");
     }
-    to_value(crate::maintenance::cleanup_orphaned_media_blobs_older_than(min_age_days).await)
+    let resp = crate::maintenance::cleanup_orphaned_media_blobs_older_than(min_age_days).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = match resp.data {
+        Some(d) => d,
+        None => return to_value(resp),
+    };
+    let bytes_mb = data.bytes_freed as f64 / (1024.0 * 1024.0);
+    let msg = if data.orphaned_blobs_found == 0 {
+        format!(
+            "no orphaned blobs older than {min_age_days} day(s) (checked {})",
+            data.total_blobs_checked
+        )
+    } else {
+        format!(
+            "deleted {}/{} orphaned blob(s) older than {min_age_days} day(s); freed {:.2} MiB ({} failure(s); checked {} total in {} ms)",
+            data.orphaned_blobs_deleted,
+            data.orphaned_blobs_found,
+            bytes_mb,
+            data.deletion_failures,
+            data.total_blobs_checked,
+            data.duration_ms,
+        )
+    };
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "min_age_days": min_age_days,
+            "total_blobs_checked": data.total_blobs_checked,
+            "orphaned_blobs_found": data.orphaned_blobs_found,
+            "orphaned_blobs_deleted": data.orphaned_blobs_deleted,
+            "deletion_failures": data.deletion_failures,
+            "bytes_freed": data.bytes_freed,
+            "bytes_freed_mib": format!("{bytes_mb:.2}"),
+            "duration_ms": data.duration_ms,
+        }),
+    )
 }
 
 /// hard-delete songs/albums/artists/playlists/tags/genres that have
@@ -188,14 +328,44 @@ pub(in crate::admin_dispatch) async fn hard_delete_old_records(
         delete_blob_data,
         dry_run,
     };
-    to_value(crate::maintenance::hard_delete_old_records(opts).await)
+    let resp = crate::maintenance::hard_delete_old_records(opts).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = match resp.data {
+        Some(d) => d,
+        None => return to_value(resp),
+    };
+    let prefix = if dry_run { "dry run: " } else { "" };
+    let msg = format!(
+        "{prefix}hard-delete pass: {} record(s) across songs={} albums={} artists={} playlists={} tags={} genres={} media_blobs={} blob_data={} (retention={}d, delete_blob_data={}, {} ms)",
+        data.total_records_deleted,
+        data.songs_deleted,
+        data.albums_deleted,
+        data.artists_deleted,
+        data.playlists_deleted,
+        data.tags_deleted,
+        data.genres_deleted,
+        data.media_blobs_deleted,
+        data.blob_data_deleted,
+        retention_days,
+        delete_blob_data,
+        data.duration_ms,
+    );
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "dry_run": dry_run,
+            "retention_days": retention_days,
+            "delete_blob_data": delete_blob_data,
+            "summary": data,
+        }),
+    )
 }
 
 /// run the full maintenance pipeline (orphaned tags + genres cleanup
 /// + hard-delete pass). args: same as `hard_delete_old_records`.
-pub(in crate::admin_dispatch) async fn run_full(
-    args: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+pub(in crate::admin_dispatch) async fn run_full(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let retention_days = args
         .get("retention_days")
         .and_then(|v| v.as_u64())
@@ -208,5 +378,37 @@ pub(in crate::admin_dispatch) async fn run_full(
         delete_blob_data,
         dry_run,
     };
-    to_value(crate::maintenance::run_full_maintenance_with_options(opts).await)
+    let resp = crate::maintenance::run_full_maintenance_with_options(opts).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = match resp.data {
+        Some(d) => d,
+        None => return to_value(resp),
+    };
+    let prefix = if dry_run { "dry run: " } else { "" };
+    let blobs = &data.orphaned_blobs_cleaned;
+    let hd = &data.hard_delete_summary;
+    let bytes_mb = blobs.bytes_freed as f64 / (1024.0 * 1024.0);
+    let msg = format!(
+        "{prefix}full maintenance: {} orphaned blob(s) deleted ({:.2} MiB freed), {} record(s) hard-deleted (retention={}d, delete_blob_data={}, {} ms total)",
+        blobs.orphaned_blobs_deleted,
+        bytes_mb,
+        hd.total_records_deleted,
+        retention_days,
+        delete_blob_data,
+        data.total_duration_ms,
+    );
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "dry_run": dry_run,
+            "retention_days": retention_days,
+            "delete_blob_data": delete_blob_data,
+            "orphaned_blobs_cleaned": blobs,
+            "hard_delete_summary": hd,
+            "total_duration_ms": data.total_duration_ms,
+            "bytes_freed_mib": format!("{bytes_mb:.2}"),
+        }),
+    )
 }

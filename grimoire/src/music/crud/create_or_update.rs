@@ -12,9 +12,10 @@ use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::jobs::apply_directory_tags_for_file;
 use crate::media_blobz::get_media_blob;
 use crate::music::analytics::feed_events::upsert_album_feed_event;
+use crate::music::entities::taxonomy;
 use crate::music::entities::{
-    albums, artists, genres, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
-    CreateGenreRequest, CreateSongRequest, Genre, Playlist,
+    albums, artists, songs, Album, Artist, CreateAlbumRequest, CreateArtistRequest,
+    CreateSongRequest, Playlist,
 };
 use crate::music::EntityUrl;
 use crate::GrimoireResponse;
@@ -649,20 +650,22 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
     if let Some(album_id) = album_id {
         let album = sqlx::query!(
             r#"SELECT
-                id as "id!",
-                title as "title!",
-                album_type as "album_type!",
-                release_date,
-                label,
-                song_count as "song_count!",
-                total_duration as "total_duration!",
-                created_at as "created_at!",
-                updated_at as "updated_at!",
-                deleted_at,
-                deleted_by,
-                created_by,
-                updated_by
-            FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+                a.id as "id!",
+                a.title as "title!",
+                a.album_type as "album_type!",
+                v.album_release_date as "release_date?",
+                v.album_label as "label?",
+                a.song_count as "song_count!",
+                a.total_duration as "total_duration!",
+                a.created_at as "created_at!",
+                a.updated_at as "updated_at!",
+                a.deleted_at,
+                a.deleted_by,
+                a.created_by,
+                a.updated_by
+            FROM albumz a
+            LEFT JOIN album_query_view v ON v.album_id = a.id
+            WHERE a.id = ? AND a.deleted_at IS NULL"#,
             album_id
         )
         .fetch_optional(&pool)
@@ -675,6 +678,7 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             release_date: row.release_date,
             label: row.label,
             genres: None,
+            taxons: None,
             images: None,
             urls: None,
             song_count: row.song_count,
@@ -687,54 +691,61 @@ pub async fn get_current_album_for_song(song_id: &str) -> GrimoireResult<Option<
             updated_by: row.updated_by,
             created_by_username: None,
             updated_by_username: None,
+            metadata: None,
+            mb_lookup_status: None,
+            mb_lookup_at: None,
+            mb_lookup_by: None,
         }))
     } else {
         Ok(None)
     }
 }
 
-/// find existing genre by name or create new one
+/// minimal `(id, name, created_at)` shape returned by
+/// `find_or_create_genre`. kept for backwards compat with
+/// `ImportSongResult.genres` and friends; under the hood the row
+/// lives in `taxonz` (kind = `genre`).
+#[derive(
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    sqlx::FromRow,
+    zod_gen_derive::ZodSchema,
+)]
+pub struct Genre {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+/// find existing genre by name or create new one. delegates to
+/// `taxonomy::find_or_create_taxon` and converts the resulting
+/// `Taxon` to the legacy `Genre` shape; the `bool` return flag is
+/// true iff the row was inserted on this call.
 pub async fn find_or_create_genre(name: String) -> GrimoireResponse<(Genre, bool)> {
-    let pool = match database::connect().await {
-        Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
-        }
-    };
-
-    // Try to find existing genre by name (case-insensitive)
-    let existing = match sqlx::query_as!(
-        Genre,
-        r#"SELECT
-            id as "id!",
-            name as "name!",
-            created_at as "created_at!"
-           FROM genrez
-           WHERE LOWER(name) = LOWER(?)
-           LIMIT 1"#,
-        name
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(e) => e,
-        Err(e) => return GrimoireResponse::failure("Failed to query genre", vec![e.into()]),
-    };
-
-    if let Some(genre) = existing {
-        GrimoireResponse::success("Genre found", (genre, false))
-    } else {
-        let create_req = CreateGenreRequest { name };
-        let genre_response = genres::create_genre(create_req).await;
-        if !genre_response.success {
-            return GrimoireResponse::failure("Failed to create genre", genre_response.errors);
-        }
-        let genre = match genre_response.data {
-            Some(g) => g,
-            None => return GrimoireResponse::failure("No genre returned after creation", vec![]),
-        };
-        GrimoireResponse::success("Genre created successfully", (genre, true))
+    let resp = taxonomy::find_or_create_taxon("genre", &name).await;
+    if !resp.success {
+        return GrimoireResponse::failure(&resp.message, resp.errors);
     }
+    let was_created = resp.message == "taxon created";
+    let Some(taxon) = resp.data else {
+        return GrimoireResponse::failure("no taxon returned after find_or_create", vec![]);
+    };
+    let genre = Genre {
+        id: taxon.id,
+        name: taxon.label,
+        created_at: taxon.created_at,
+    };
+    GrimoireResponse::success(
+        if was_created {
+            "genre created"
+        } else {
+            "genre found"
+        },
+        (genre, was_created),
+    )
 }
 
 /// create relationship between artist and song
@@ -795,8 +806,8 @@ pub async fn find_or_create_album_for_artist(
             al.id as "id!",
             al.title as "title!",
             al.album_type as "album_type!",
-            al.release_date,
-            al.label,
+            v.album_release_date as "release_date?",
+            v.album_label as "label?",
             al.song_count as "song_count!",
             al.total_duration as "total_duration!",
             al.created_at as "created_at!",
@@ -807,6 +818,7 @@ pub async fn find_or_create_album_for_artist(
             al.updated_by
            FROM albumz al
            JOIN artist_albumz aa ON al.id = aa.album_id
+           LEFT JOIN album_query_view v ON v.album_id = al.id
            WHERE LOWER(al.title) = LOWER(?) AND aa.artist_id = ? AND al.deleted_at IS NULL
            LIMIT 1"#,
         req.title,
@@ -842,6 +854,7 @@ pub async fn find_or_create_album_for_artist(
                 release_date: row.release_date,
                 label: row.label,
                 genres: None,
+                taxons: None,
                 images: None,
                 urls: None,
                 song_count: row.song_count,
@@ -854,6 +867,10 @@ pub async fn find_or_create_album_for_artist(
                 updated_by: row.updated_by,
                 created_by_username: None,
                 updated_by_username: None,
+                metadata: None,
+                mb_lookup_status: None,
+                mb_lookup_at: None,
+                mb_lookup_by: None,
             },
             false,
         ))
@@ -889,7 +906,7 @@ pub async fn find_or_create_album_for_artist(
         if let Some(genre_ids) = req.genre_ids {
             for genre_id in &genre_ids {
                 let _ = sqlx::query!(
-                    "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) VALUES (?, ?, 'user')",
                     album.id,
                     genre_id
                 )
@@ -1169,72 +1186,101 @@ pub fn extract_urls_from_text(text: &str) -> Vec<String> {
     urls
 }
 
-/// extract the domain name from a URL for use as a label
-/// e.g. "https://some-artist.bandcamp.com/album/test" -> "bandcamp"
+/// extract a domain label suitable for the `name` column of
+/// `entity_urlz`. uses real url parsing (no hardcoded service list)
+/// and returns the registrable domain (eTLD+1-ish), e.g.:
+///
+///   `https://artist.bandcamp.com/album/foo` -> `Some("bandcamp.com")`
+///   `https://music.apple.com/...`           -> `Some("apple.com")`
+///   `https://www.spotify.com/...`           -> `Some("spotify.com")`
+///   `https://example.co.uk/...`             -> `Some("example.co.uk")`
+///
+/// returns `None` for malformed input or hosts without at least one
+/// dot (e.g. `https://`, `https://1`, `localhost`).
 pub fn extract_url_domain_label(url: &str) -> Option<String> {
-    // parse the URL and extract the host
-    let url_lower = url.to_lowercase();
+    parse_external_url(url).map(|(_, label)| label)
+}
 
-    // strip protocol
-    let without_protocol = url_lower
-        .strip_prefix("https://")
-        .or_else(|| url_lower.strip_prefix("http://"))?;
+/// short list of two-part public suffixes we care about. avoids
+/// pulling in the full `publicsuffix` crate just for prettifying
+/// link names. anything not listed falls through to a simple
+/// "last two dot parts" rule which is correct for the vast majority
+/// of music-related links.
+const MULTIPART_TLDS: &[&str] = &[
+    "co.uk", "co.jp", "co.nz", "co.kr", "co.za", "co.in", "com.au", "com.br", "com.mx", "com.ar",
+    "com.tr", "com.cn", "com.hk", "com.tw", "com.sg", "com.my",
+];
 
-    // get the host part (before the first /)
-    let host = without_protocol.split('/').next()?;
-
-    // remove www. prefix if present
-    let host = host.strip_prefix("www.").unwrap_or(host);
-
-    // extract meaningful domain label
-    // for subdomains like "artist.bandcamp.com", we want "bandcamp"
-    // for regular domains like "discogs.com", we want "discogs"
-    let parts: Vec<&str> = host.split('.').collect();
-
-    if parts.len() >= 2 {
-        // check for known services with subdomains
-        let known_services = [
-            "bandcamp",
-            "soundcloud",
-            "spotify",
-            "youtube",
-            "youtu",
-            "discogs",
-            "musicbrainz",
-            "lastfm",
-            "beatport",
-            "apple",
-            "amazon",
-            "deezer",
-            "tidal",
-            "facebook",
-            "instagram",
-            "twitter",
-            "wikipedia",
-        ];
-
-        // look if any of the parts match a known service
-        for part in &parts {
-            if known_services.contains(part) {
-                return Some(part.to_string());
-            }
-        }
-
-        // fallback: use the second-to-last part (main domain name)
-        // e.g., "example.com" -> "example", "sub.example.co.uk" -> "example"
-        let idx = if parts.len() >= 3
-            && (parts[parts.len() - 1] == "uk"
-                || parts[parts.len() - 1] == "au"
-                || parts[parts.len() - 1] == "jp")
-        {
-            parts.len().saturating_sub(3)
-        } else {
-            parts.len().saturating_sub(2)
-        };
-
-        Some(parts[idx].to_string())
-    } else {
-        // just one part? return it
-        Some(host.to_string())
+/// parse and validate an external url. returns `(normalized_url,
+/// domain_label)` on success or `None` for anything that looks like
+/// junk (audiodb sometimes returns bare `"1"` or empty strings, which
+/// the old `format!("https://{}", s)` path would happily turn into
+/// `"https://1"` — rejected here).
+///
+/// the normalized url has its scheme defaulted to `https://` if
+/// missing and lower-cased host. the domain label is the registrable
+/// domain (eTLD+1-ish — see [`MULTIPART_TLDS`]) with any leading
+/// `www.` stripped.
+pub fn parse_external_url(raw: &str) -> Option<(String, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
     }
+
+    // bare twitter handles -> twitter.com/<handle>
+    let with_scheme = if let Some(handle) = trimmed.strip_prefix('@') {
+        if handle.is_empty() {
+            return None;
+        }
+        format!("https://twitter.com/{}", handle)
+    } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        // only attempt to prefix `https://` if it at least looks like
+        // a hostname (has a dot, no whitespace). bare numbers or
+        // single tokens are rejected.
+        if !trimmed.contains('.') || trimmed.contains(char::is_whitespace) {
+            return None;
+        }
+        format!("https://{}", trimmed)
+    };
+
+    let parsed = url::Url::parse(&with_scheme).ok()?;
+    let host = parsed.host_str()?.to_lowercase();
+    if host.is_empty() || !host.contains('.') {
+        return None;
+    }
+    // host must have at least one alphabetic character — guards
+    // against ip-only or numeric-only "domains".
+    if !host.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let host_no_www = host.strip_prefix("www.").unwrap_or(&host).to_string();
+
+    let parts: Vec<&str> = host_no_www.split('.').collect();
+    let label = if parts.len() <= 2 {
+        host_no_www.clone()
+    } else {
+        let last_two = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+        if MULTIPART_TLDS.contains(&last_two.as_str()) && parts.len() >= 3 {
+            format!(
+                "{}.{}.{}",
+                parts[parts.len() - 3],
+                parts[parts.len() - 2],
+                parts[parts.len() - 1]
+            )
+        } else {
+            last_two
+        }
+    };
+
+    // rebuild the normalized url with the lower-cased host.
+    let normalized = {
+        let mut out = parsed.clone();
+        // url::Url::set_host can fail for non-network schemes; ignore.
+        let _ = out.set_host(Some(&host));
+        out.to_string()
+    };
+
+    Some((normalized, label))
 }

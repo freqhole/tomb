@@ -163,9 +163,9 @@ mod tests {
     fn test_generate_highlight() {
         assert_eq!(
             generate_highlight("hello world", "world"),
-            "hello **world**"
+            "hello <mark>world</mark>"
         );
-        assert_eq!(generate_highlight("testing", "test"), "**test**ing");
+        assert_eq!(generate_highlight("testing", "test"), "<mark>test</mark>ing");
         assert_eq!(generate_highlight("no match", "xyz"), "no match");
     }
 

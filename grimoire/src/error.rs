@@ -77,9 +77,6 @@ pub enum GrimoireError {
     #[error("genre not found: {id}")]
     GenreNotFound { id: String },
 
-    #[error("sub-genre not found: {id}")]
-    SubGenreNotFound { id: String },
-
     #[error("tag not found: {id}")]
     TagNotFound { id: String },
 
@@ -217,7 +214,6 @@ impl GrimoireError {
             GrimoireError::PlaylistNotFound { .. } => false,
             GrimoireError::SongNotInPlaylist { .. } => false,
             GrimoireError::GenreNotFound { .. } => false,
-            GrimoireError::SubGenreNotFound { .. } => false,
             GrimoireError::TagNotFound { .. } => false,
             GrimoireError::DatabaseNotFound(_) => false,
             GrimoireError::Validation { .. } => false,
@@ -277,7 +273,6 @@ impl GrimoireError {
             | GrimoireError::ArtistNotFound { .. }
             | GrimoireError::PlaylistNotFound { .. }
             | GrimoireError::GenreNotFound { .. }
-            | GrimoireError::SubGenreNotFound { .. }
             | GrimoireError::TagNotFound { .. }
             | GrimoireError::MediaBlobNotFound { .. }
             | GrimoireError::KnockNotFound { .. }

@@ -16,6 +16,7 @@
 import { createSignal, type Accessor } from "solid-js";
 import { whoami, whoamiForRemote } from "./authService";
 import { isHttpRemote, type Remote } from "../storage/types";
+import { getRemoteById, onRemoteStatusChange } from "./remoteManager";
 
 export interface AuthInfo {
   loggedIn: boolean;
@@ -37,10 +38,14 @@ function patch(remoteId: string, entry: AuthEntry): void {
 }
 
 async function resolveOne(remote: Remote): Promise<AuthInfo> {
-  // p2p remotes: query whoami over the p2p client to learn the role.
-  // needed for admin-button gating; falls back to loggedIn:false on any
-  // failure.
-  if (!isHttpRemote(remote)) {
+  // charnel-managed remotes (the tauri sidecar's own owner): query
+  // whoami through the charnel local IPC transport. `getClientForRemote`
+  // already routes is_charnel_managed remotes to that transport, so
+  // `whoamiForRemote` returns the embedded owner caller (always admin
+  // per `get_caller_from_app_config`). this MUST run before the p2p /
+  // http branches below since charnel-managed remotes also typically
+  // satisfy `isHttpRemote`.
+  if (remote.is_charnel_managed) {
     try {
       const result = await whoamiForRemote(remote);
       return {
@@ -52,9 +57,43 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
       return { loggedIn: false };
     }
   }
-  // skip charnel-managed remotes — they use embedded auth and don't have
-  // a queryable session.
-  if (remote.is_charnel_managed || !remote.base_url) {
+  // p2p remotes: query whoami over the p2p client to learn the role.
+  // needed for admin-button gating. cold-start "No addressing information"
+  // races are now handled in grimoire's `transport::peer_lock` (it
+  // serializes the first connect per peer so iroh discovery warms once),
+  // so a single call here is sufficient.
+  if (!isHttpRemote(remote)) {
+    try {
+      const result = await whoamiForRemote(remote);
+      if (result.success) {
+        console.log(
+          "[auth-status] p2p whoami succeeded for",
+          remote.remote_id,
+          "role=",
+          result.role,
+        );
+        return {
+          loggedIn: true,
+          username: result.username,
+          role: result.role,
+        };
+      }
+      console.log(
+        "[auth-status] p2p whoami returned not-logged-in for",
+        remote.remote_id,
+      );
+      return { loggedIn: false };
+    } catch (err) {
+      console.warn(
+        "[auth-status] p2p whoami threw for",
+        remote.remote_id,
+        err,
+      );
+      return { loggedIn: false };
+    }
+  }
+  // http remotes without a base_url can't be queried; treat as logged-out.
+  if (!remote.base_url) {
     return { loggedIn: false };
   }
   try {
@@ -113,3 +152,17 @@ export function clearRemote(remoteId: string): void {
     return next;
   });
 }
+
+// ---- event-driven refresh on remote-online transitions ----
+//
+// when a remote transitions from offline -> online (e.g. midden finishing
+// init triggers a deferred health check, or the user reconnects), the
+// p2p transport is now verifiably warm — re-resolve auth so we don't
+// hold a stale `loggedIn:false` from a cold-boot attempt that fired
+// before the transport was ready.
+onRemoteStatusChange(async (remoteId, isOffline) => {
+  if (isOffline) return;
+  const remote = await getRemoteById(remoteId);
+  if (!remote) return;
+  await refreshOne(remote);
+});

@@ -18,7 +18,7 @@ import { Icon } from "../icons/registry";
 // flip to true to trace MediaImage url resolution. very chatty;
 // off by default. set to true when investigating missing artwork /
 // waveform display issues.
-const DEBUG_MEDIA_IMAGE = true;
+const DEBUG_MEDIA_IMAGE = false;
 function logMI(...args: unknown[]) {
   if (DEBUG_MEDIA_IMAGE) console.debug("[MediaImage]", ...args);
 }
@@ -148,9 +148,12 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
       void preCacheRemoteTransport(initialSource.remoteServerId);
       return null;
     }
-    // priority 3: just remote URL (no server ID) - use directly
+    // priority 3: just remote URL (no server ID) - use directly.
+    // /thumb/:size is a charnel-server convention; never apply it to a
+    // bare http url with no server context (storybook mocks, externally
+    // hosted art, etc.).
     if (initialSource.remoteUrl) {
-      return withThumb(initialSource.remoteUrl, thumbSize);
+      return initialSource.remoteUrl;
     }
     return null;
   };
@@ -292,9 +295,11 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           return;
         }
 
-        // priority 3: just remote URL (no server ID) - use directly
+        // priority 3: just remote URL (no server ID) - use directly.
+        // see getInitialUrl: bare urls have no server context so we
+        // can't assume a /thumb/:size route exists.
         if (source.remoteUrl) {
-          setResolvedUrl(withThumb(source.remoteUrl, thumbSize));
+          setResolvedUrl(source.remoteUrl);
           setIsLoading(false);
           return;
         }

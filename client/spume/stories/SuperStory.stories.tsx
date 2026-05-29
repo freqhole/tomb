@@ -17,6 +17,8 @@ import { TopNav } from "../src/components/navigation/TopNav";
 import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
+import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
 import type { Song as DomainSong } from "../src/music/data/types";
@@ -49,7 +51,7 @@ type Story = StoryObj<typeof meta>;
 // generate reusable mock songs
 const generatedSongs = generateBulkSongs(100);
 
-type Route = "songs" | "albums" | "artists" | "genres" | "playlists" | "favorites";
+type Route = "library" | "songs" | "albums" | "artists" | "genres" | "playlists" | "favorites";
 
 const artistSortFields = [
   { value: "name", label: "name", description: "sort by artist name" },
@@ -79,7 +81,7 @@ const genreSortFields = [
 export const FullAppDemo: Story = {
   render: () => {
     // navigation state
-    const [currentRoute, setCurrentRoute] = createSignal<Route>("songs");
+    const [currentRoute, setCurrentRoute] = createSignal<Route>("library");
     const [_topNavOpen, setTopNavOpen] = createSignal(false);
 
     // player state
@@ -105,6 +107,11 @@ export const FullAppDemo: Story = {
     // compute page title and count based on current route
     const pageInfo = () => {
       switch (currentRoute()) {
+        case "library":
+          // count intentionally undefined here — the graph pane renders
+          // its own bottom-right status chip with the node + selection
+          // counts, so duplicating it in the topnav just adds noise.
+          return { title: "library graph", count: undefined };
         case "songs":
           return { title: "songs", count: generatedSongs.length };
         case "albums":
@@ -122,6 +129,15 @@ export const FullAppDemo: Story = {
           return { title: undefined, count: undefined };
       }
     };
+
+    // library route renders the force-directed album graph. its state
+    // (selection, relation toggles, wire tension, etc.) is owned by the
+    // helper; the topnav's search input drives its node-highlight
+    // filter via the searchValue accessor.
+    //
+    // searchValue is declared here (out of order with the other
+    // view-state signals below) so the factory can capture it.
+    const [searchValue, setSearchValue] = createSignal("");
 
     // artists view state
     const [_selectedArtist, _setSelectedArtist] = createSignal<Artist | null>(mockArtists[0]);
@@ -141,8 +157,8 @@ export const FullAppDemo: Story = {
     // playlists view state
     const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(mockPlaylists[0]);
 
-    // search state
-    const [searchValue, setSearchValue] = createSignal("");
+    // (search state is declared above, alongside the library graph
+    // factory that captures it.)
     const mockSearchSuggestions = () => {
       const query = searchValue().toLowerCase();
       if (!query || query.length < 2) return [];
@@ -906,6 +922,16 @@ export const FullAppDemo: Story = {
     // determine which view to show
     const mainContent = () => {
       switch (currentRoute()) {
+        case "library":
+          // mount the same graph2 WalkCanvas used in the dedicated
+          // GraphWalker story, against the same MOCK_GRAPH fixture. the
+          // real app uses LibraryGraphSubview which wires this up to
+          // live data; here we just want a representative visual.
+          return (
+            <div class="flex-1 relative bg-black overflow-hidden">
+              <WalkCanvas graph={MOCK_GRAPH} initialPivot="root" />
+            </div>
+          );
         case "songs":
           return songsView();
         case "albums":
@@ -923,13 +949,14 @@ export const FullAppDemo: Story = {
       }
     };
 
-    const playerBarHeight = () => "var(--player-height)";
-
     return (
-      <div
-        class="h-screen flex flex-col bg-[var(--color-bg-primary)]"
-        style={{ "--player-bar-height": playerBarHeight() }}
-      >
+      // 100dvh (dynamic viewport) instead of h-screen / 100vh so mobile
+      // browsers don't extend past the visible area when the url bar is
+      // showing. the inner flex column then reserves --player-height at
+      // the bottom — that variable is responsive (72px on wide,
+      // 80px + safe-area-bottom on narrow) so it accounts for the mobile
+      // 2-row playerbar and home-indicator automatically (see theme.css).
+      <div class="h-[100dvh] flex flex-col bg-[var(--color-bg-primary)]">
         {/* top navigation */}
         <TopNav
           brandName="freqhole"
@@ -946,9 +973,34 @@ export const FullAppDemo: Story = {
           }
           onSearchChange={(query) => console.log("search:", query)}
           onSearchSubmit={(query) => console.log("search submit:", query)}
+          currentPath={`/${currentRoute()}`}
+          rightContent={undefined}
+          secondaryRowContent={undefined}
+          onNavigate={(path) => {
+            // map topnav's built-in route buttons onto the demo's Route
+            // set so they actually change the visible view. only
+            // "library" has a real destination today (the album graph);
+            // the other routes from the topnav panel (shared / feed)
+            // fall through to the closest sensible existing route until
+            // their own views are built.
+            if (path.startsWith("/library")) navigateTo("library");
+            else if (path.startsWith("/shared")) navigateTo("playlists");
+            else if (path.startsWith("/feed")) navigateTo("songs");
+            else if (path.startsWith("/favorites")) navigateTo("favorites");
+            else if (path.startsWith("/songs")) navigateTo("songs");
+            else if (path.startsWith("/albums")) navigateTo("albums");
+            else if (path.startsWith("/artists")) navigateTo("artists");
+            else if (path.startsWith("/genres")) navigateTo("genres");
+            else if (path.startsWith("/playlists")) navigateTo("playlists");
+            else console.log("navigate (unhandled):", path);
+          }}
           mainNavSections={[
             {
               items: [
+                {
+                  label: "library",
+                  onClick: () => navigateTo("library"),
+                },
                 {
                   label: "songs",
                   onClick: () => navigateTo("songs"),
@@ -991,21 +1043,27 @@ export const FullAppDemo: Story = {
           pageCount={pageInfo().count}
         />
 
-        {/* main content area + queue */}
+        {/* main content area + queue
+            padding-bottom reserves room for the position:fixed player
+            bar so content isn't hidden behind it — but only when a
+            song is actually playing (PlayerBar is mounted via Show).
+            without this gate the canvas wastes player-height pixels
+            whenever nothing is playing. */}
         <div
           class="flex-1 overflow-hidden flex"
           style={{
             "padding-top": isNarrow() ? "var(--nav-height)" : undefined,
-            "padding-bottom": "var(--player-bar-height)",
+            "padding-bottom": currentSong() ? "var(--player-height, 72px)" : undefined,
           }}
         >
-          {/* main content */}
-          <div class="flex-1 overflow-hidden">{mainContent()}</div>
+          {/* main content — `flex flex-col` so children with `flex-1`
+              fill the available vertical space. */}
+          <div class="flex-1 overflow-hidden flex flex-col">{mainContent()}</div>
 
-          {/* queue sidebar - responsive: bottom sheet on narrow, sidebar on wide */}
+          {/* queue sidebar — inline so opening it shrinks the content area */}
           <QueueSidebar
             isOpen={queueOpen()}
-            variant="overlay"
+            variant="inline"
             songs={queueSongs()}
             currentIndex={currentQueueIndex()}
             onClose={() => setQueueOpen(false)}

@@ -9,6 +9,8 @@ import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
 import { getDataSource } from "../data";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { FavoriteTarget, ListFavoritesParams } from "../data/types";
 import {
   updateAlbumInCache,
@@ -84,8 +86,15 @@ export function useToggleFavoriteMutation() {
       targetId: string;
       sha256?: string; // for songs
       isFavorite: boolean;
+      /** when set, scope the mutation to this remote instead of the
+       *  globally-active data source. needed by views that browse one
+       *  source while another is current (library multi-remote, graph
+       *  popover, federated search). */
+      remote?: Remote;
     }) => {
-      const dataSource = getDataSource();
+      const dataSource = params.remote
+        ? new RemoteMusicDataSource(params.remote)
+        : getDataSource();
 
       // check if datasource supports favorites
       if (!dataSource.setFavorite) {

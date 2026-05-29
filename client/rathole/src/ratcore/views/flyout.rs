@@ -56,7 +56,7 @@ pub fn draw(frame: &mut Frame, repl_area: Rect, app: &App) {
         .map(|(_, d)| d.chars().count())
         .max()
         .unwrap_or(0);
-    // " /label  \u2014 desc " plus 2-cell border padding on each side.
+    // " /label  - desc " plus 2-cell border padding on each side.
     let want_w = (max_label + max_desc + 8).clamp(20, repl_area.width as usize) as u16;
 
     let area = Rect {

@@ -100,7 +100,7 @@ export function getViewportHeight(): number {
   return window.visualViewport?.height ?? window.innerHeight;
 }
 
-const NAV_HEIGHT = 56;
+const NAV_HEIGHT = 42;
 
 /**
  * get the nav height to subtract from viewport for content areas.

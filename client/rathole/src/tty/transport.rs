@@ -592,7 +592,7 @@ fn parse_favorite_target(s: &str) -> Result<grimoire::music::users::FavoriteTarg
         "album" => Ok(FavoriteTarget::Album),
         "artist" => Ok(FavoriteTarget::Artist),
         "playlist" => Ok(FavoriteTarget::Playlist),
-        "genre" => Ok(FavoriteTarget::Genre),
+        "taxon" | "genre" => Ok(FavoriteTarget::Taxon),
         other => Err(format!("unknown favorite target type: {other}")),
     }
 }

@@ -7,6 +7,8 @@
 //! - `users_delete` -> `EmptyResponse`
 //! - `users_hard_delete` -> `EmptyResponse`
 //! - `users_generate_account_link` -> `AdminAccountLinkResponse`
+//! - `users_add_peer_node` -> `AdminPeerNodeSummary`
+//! - `users_remove_peer_node` -> `EmptyResponse`
 //!
 //! role fields are serialized as lowercase strings ("root" | "admin" |
 //! "member" | "viewer") to match the existing `UserRole` serde output,
@@ -111,4 +113,19 @@ pub struct AdminUsersGenerateAccountLinkRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct AdminAccountLinkResponse {
     pub code: String,
+}
+
+/// request for `users_add_peer_node`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminUsersAddPeerNodeRequest {
+    pub user_id: String,
+    pub node_id: String,
+    pub instance_name: Option<String>,
+}
+
+/// request for `users_remove_peer_node`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminUsersRemovePeerNodeRequest {
+    pub user_id: String,
+    pub node_id: String,
 }

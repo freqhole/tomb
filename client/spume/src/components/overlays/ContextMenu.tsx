@@ -1,5 +1,5 @@
 import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
-import { For, JSX, Show, splitProps } from "solid-js";
+import { For, JSX, Show, splitProps, type ValidComponent } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
 
 export type MenuAction =
@@ -29,12 +29,25 @@ export interface ContextMenuProps {
   header?: JSX.Element;
   /** callback when menu opens */
   onOpen?: () => void;
+  /** polymorphic element for the trigger (defaults to kobalte's default).
+   *  use e.g. `as="tr"` when the trigger needs to be a specific element
+   *  for layout reasons (e.g. table rows). */
+  as?: ValidComponent;
+  /** extra classes merged onto the trigger element */
+  triggerClass?: string;
 }
 
 // context menu component using kobalte primitives
 // automatically handles right-click, positioning, and viewport constraints
 export function ContextMenu(props: ContextMenuProps) {
-  const [local, rest] = splitProps(props, ["children", "actions", "header", "onOpen"]);
+  const [local, rest] = splitProps(props, [
+    "children",
+    "actions",
+    "header",
+    "onOpen",
+    "as",
+    "triggerClass",
+  ]);
 
   const handleOpenChange = (open: boolean) => {
     if (open && local.onOpen) {
@@ -44,7 +57,12 @@ export function ContextMenu(props: ContextMenuProps) {
 
   return (
     <KobalteContextMenu onOpenChange={handleOpenChange} {...rest}>
-      <KobalteContextMenu.Trigger class="outline-none">{local.children}</KobalteContextMenu.Trigger>
+      <KobalteContextMenu.Trigger
+        as={local.as as ValidComponent}
+        class={`outline-none ${local.triggerClass ?? ""}`}
+      >
+        {local.children}
+      </KobalteContextMenu.Trigger>
 
       <KobalteContextMenu.Portal>
         <KobalteContextMenu.Content

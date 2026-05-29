@@ -11,29 +11,44 @@
 //! - fetch_processor: downloading from external sources (YouTube, etc.)
 //! - upload_processors: user upload handling (WebP conversion, music import)
 
+pub mod job_events;
 mod models;
 mod music;
+pub mod rate_limit;
 mod runner;
 mod service;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, GetJobRequest, GetJobsStatusRequest,
-    GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress, JobResponse, JobResult,
-    JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest, ProcessorResponse,
-    QueueStats, SessionStatus,
+    CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
+    GetJobsStatusRequest, GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress,
+    JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
+    ProcessorResponse, QueueStats, SessionStatus,
 };
 
 // re-export music job types for backward compatibility
 pub use music::{
-    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, ScanDirectoryParams,
-    ScanDirectoryResult, ScanJobCreatedResponse,
+    AlbumEnrichmentPipelineParams, AlbumEnrichmentPipelineResult, AlbumEnrichmentProgress,
+    AudioDbAlbumDetailParams, AudioDbAlbumDetailResult, AudioDbArtistDetailParams,
+    AudioDbArtistDetailResult, AutoApplyAlbumEnrichmentParams, AutoApplyAlbumEnrichmentResult,
+    BulkEnrichmentRequest, BulkEnrichmentResponse, CancelBulkEnrichmentRequest,
+    CancelBulkEnrichmentResponse, DirectoryFileEntry, DirectoryFileFailure,
+    EnqueueAudioDbAlbumDetailRequest, EnqueueAudioDbAlbumDetailResponse,
+    EnqueueLastFmAlbumDetailRequest, EnqueueLastFmAlbumDetailResponse, EnqueueMbAlbumSearchRequest,
+    EnqueueMbAlbumSearchResponse, EnrichmentSourceStatus, GetEnrichmentProgressRequest,
+    GetEnrichmentProgressResponse, LastFmAlbumDetailParams, LastFmAlbumDetailResult,
+    LastFmArtistDetailParams, LastFmArtistDetailResult, MbAlbumDetailParams, MbAlbumDetailResult,
+    MbAlbumSearchParams, MbAlbumSearchResult, ProcessDirectoryParams, ProcessDirectoryResult,
+    ProcessFileParams, ProcessFileResult, ProcessJobCreatedResponse, RequeryEnrichmentRequest,
+    RequeryEnrichmentResponse, RequeryOverride, ScanDirectoryParams, ScanDirectoryResult,
+    ScanJobCreatedResponse,
 };
 
 // re-export scanned directories functions
 pub use music::{
     get_deduplicated_directories, get_scanned_directory_paths, list_scanned_directories,
-    record_scanned_directory, remove_scanned_directory, ScannedDirectory,
+    purge_missing_scanned_directories, record_scanned_directory, remove_scanned_directory,
+    repair_library_orphans, restore_reappeared_blobs_and_songs, ScannedDirectory,
 };
 
 // re-export directory tag rules
@@ -55,11 +70,11 @@ pub use service::{
     cancel_job, complete_session, create_job, create_job_session, delete_job, fail_session,
     get_job, get_job_session, get_jobs_status, get_next_pending_job, get_queue_stats,
     get_session_job_counts, list_jobs, mark_job_completed, mark_job_failed, mark_job_started,
-    update_session_progress, SessionJobCounts,
+    peek_pending_jobs, try_claim_pending_job, update_session_progress, SessionJobCounts,
 };
 
 // re-export music job processors (used by runner module)
 pub use music::{
-    process_convert_webp_job, process_fetch_media_job, process_file_job, process_import_music_job,
-    process_scan_directory_job,
+    process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
+    process_import_music_job, process_scan_directory_job,
 };

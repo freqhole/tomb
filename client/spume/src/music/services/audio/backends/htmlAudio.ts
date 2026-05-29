@@ -348,6 +348,23 @@ export class HtmlAudioBackend implements PlayerBackend {
 
       audio.src = audioURL;
 
+      // resume from a saved position when requested (page-reload "play"
+      // path passes the persisted appState position, radio adapter
+      // passes the timeline elapsed). seek must happen after metadata
+      // is loaded — assigning currentTime before that is a no-op on
+      // most browsers.
+      const initialPositionSec = options?.initialPosition ?? 0;
+      if (initialPositionSec > 0) {
+        const seekOnMetadata = () => {
+          try {
+            audio.currentTime = initialPositionSec;
+          } catch {
+            // ignore — invalid duration / browser quirk
+          }
+        };
+        audio.addEventListener("loadedmetadata", seekOnMetadata, { once: true });
+      }
+
       // honor the autoPlay flag (default true). the facade clears its
       // pause gate on user-initiated loads and passes autoPlay=true; on
       // programmatic loads (e.g. queue advance) the facade may pass
@@ -588,6 +605,10 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // playback started
     audio.addEventListener("play", () => {
+      const state = appState();
+      if (this.currentSongId && state?.current_sha256 !== this.currentSongId) {
+        void setCurrentSong(this.currentSongId);
+      }
       this.emit({ kind: "state", state: "playing" });
     });
 

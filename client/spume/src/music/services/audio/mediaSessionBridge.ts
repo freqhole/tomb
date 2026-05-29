@@ -24,6 +24,7 @@
 
 import { createEffect, createRoot, on } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
+import { currentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { debug } from "../../../utils/logger";
 import {
   currentTime,
@@ -305,8 +306,12 @@ async function refreshMetadata(): Promise<void> {
 
   // defensive: if the active song id changed, music playback has
   // advanced — reclaim the media session from any stale external owner.
+  // radio keeps its own long-lived external session across per-track
+  // transitions, so don't clear it while a station is tuned.
   if (current_sha256 && current_sha256 !== lastSeenCurrentSha256) {
-    externalActive = false;
+    if (!currentRadioStation()) {
+      externalActive = false;
+    }
   }
   lastSeenCurrentSha256 = current_sha256 ?? null;
 

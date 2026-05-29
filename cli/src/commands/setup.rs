@@ -339,6 +339,9 @@ pub async fn run(args: SetupArgs) -> Result<()> {
         server_enabled: Some(true),      // CLI mode always runs server
         federation_enabled: Some(false), // disabled by default for CLI
         knocking_enabled: Some(false),
+        remote_admin_enabled: Some(false),
+        radio_enabled: Some(false),
+        fetch_music_enabled: Some(deps.has_ytdlp()),
     };
 
     let service = SetupService::new();

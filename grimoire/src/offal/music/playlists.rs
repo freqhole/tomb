@@ -152,7 +152,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &caller.user_id => {
             // requesting data for a different user - must be admin
-            if caller.role != UserRole::Admin {
+            if !caller.is_admin() {
                 return GrimoireResponse::failure(
                     "forbidden",
                     vec![ErrorDetail::new(

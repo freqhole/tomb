@@ -664,6 +664,20 @@ impl UserRepository {
 
         // null out nullable FKs to preserve history rows
         sqlx::query!(
+            "UPDATE media_eventz SET user_id = NULL WHERE user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE music_play_eventz SET user_id = NULL WHERE user_id = ?",
+            user_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
             "UPDATE knock_requestz SET processed_by = NULL WHERE processed_by = ?",
             user_id
         )
@@ -842,7 +856,8 @@ impl UserRepository {
             VALUES (?1, ?2, ?3, ?4, ?4)
             ON CONFLICT (user_id, node_id) DO UPDATE SET
                 instance_name = COALESCE(?3, instance_name),
-                last_seen_at = ?4
+                last_seen_at = ?4,
+                deleted_at = NULL
             RETURNING user_id as "user_id!", node_id as "node_id!", instance_name, metadata, created_at as "created_at!", last_seen_at, deleted_at
             "#,
             user_id,
@@ -948,6 +963,48 @@ impl UserRepository {
         )
         .execute(&pool)
         .await?;
+
+        Ok(())
+    }
+
+    /// Permanently delete every peer-node row for the given node id,
+    /// regardless of user ownership. returns rows deleted.
+    pub async fn hard_delete_peer_node_by_node_id(&self, node_id: &str) -> AuthResult<u64> {
+        let pool = database::connect().await?;
+
+        let result = sqlx::query(
+            r#"
+            DELETE FROM user_peer_nodez
+            WHERE node_id = ?1
+            "#,
+        )
+        .bind(node_id)
+        .execute(&pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Move a peer-node mapping to a different user and clear any
+    /// soft-delete marker on that peer row.
+    pub async fn reassign_peer_node_user(&self, node_id: &str, user_id: &str) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        let result = sqlx::query(
+            r#"
+            UPDATE user_peer_nodez
+            SET user_id = ?1, deleted_at = NULL
+            WHERE node_id = ?2
+            "#,
+        )
+        .bind(user_id)
+        .bind(node_id)
+        .execute(&pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AuthError::UserNotFound);
+        }
 
         Ok(())
     }

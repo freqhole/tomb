@@ -4,6 +4,7 @@
 //! this module provides CRUD operations for jobs and sessions.
 //! most job processors are in the music/ submodule.
 
+use rand::Rng;
 use serde_json::Value;
 
 use crate::database;
@@ -89,12 +90,13 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
             .unwrap()
             .as_secs() as i64
     });
+    let priority = request.priority.unwrap_or(0);
 
     let job = match sqlx::query_as!(
         Job,
         r#"
-        INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by)
-        VALUES (?, ?, 'Pending', ?, ?, ?, ?)
+        INSERT INTO jobz (session_id, job_type, status, parameters, max_retries, scheduled_at, created_by, priority)
+        VALUES (?, ?, 'Pending', ?, ?, ?, ?, ?)
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
                   parameters as "parameters!", result, retry_count as "retry_count!: i32",
                   max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
@@ -105,7 +107,8 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
         parameters_json,
         max_retries,
         scheduled_at,
-        request.created_by
+        request.created_by,
+        priority
     )
     .fetch_one(&pool)
     .await
@@ -277,7 +280,7 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
         WHERE id = (
             SELECT id FROM jobz
             WHERE status = 'Pending' AND scheduled_at <= unixepoch()
-            ORDER BY scheduled_at ASC
+            ORDER BY priority DESC, scheduled_at ASC
             LIMIT 1
         )
         RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
@@ -296,6 +299,76 @@ pub async fn get_next_pending_job() -> GrimoireResponse<Option<Job>> {
     };
 
     GrimoireResponse::success("Retrieved and claimed next pending job", job)
+}
+
+/// peek the top `limit` pending jobs (priority desc, scheduled_at asc)
+/// without claiming any of them. used by the parallel worker pool to
+/// scan for a job whose conflict key isn't busy in another worker; the
+/// actual claim happens via `try_claim_pending_job`.
+pub async fn peek_pending_jobs(limit: u32) -> GrimoireResponse<Vec<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let jobs = match sqlx::query_as!(
+        Job,
+        r#"
+        SELECT id as "id!", session_id, job_type as "job_type!", status as "status!",
+               parameters as "parameters!", result, retry_count as "retry_count!: i32",
+               max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
+               started_at, completed_at, error_message, created_by
+        FROM jobz
+        WHERE status = 'Pending' AND scheduled_at <= unixepoch()
+        ORDER BY priority DESC, scheduled_at ASC
+        LIMIT ?
+        "#,
+        limit
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("failed to peek pending jobs", vec![e.into()]),
+    };
+
+    GrimoireResponse::success("peeked pending jobs", jobs)
+}
+
+/// attempt to atomically claim a specific pending job by id. returns
+/// `Ok(None)` if the row is no longer Pending (another worker won the
+/// race). returns the claimed (Running) Job on success.
+pub async fn try_claim_pending_job(job_id: &str) -> GrimoireResponse<Option<Job>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let job = match sqlx::query_as!(
+        Job,
+        r#"
+        UPDATE jobz
+        SET status = 'Running', started_at = unixepoch()
+        WHERE id = ? AND status = 'Pending'
+        RETURNING id as "id!", session_id, job_type as "job_type!", status as "status!",
+                  parameters as "parameters!", result, retry_count as "retry_count!: i32",
+                  max_retries as "max_retries!: i32", scheduled_at as "scheduled_at!",
+                  started_at, completed_at, error_message, created_by
+        "#,
+        job_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(j) => j,
+        Err(e) => return GrimoireResponse::failure("failed to claim pending job", vec![e.into()]),
+    };
+
+    GrimoireResponse::success("attempted to claim pending job", job)
 }
 
 /// Mark a job as started
@@ -452,13 +525,18 @@ pub async fn mark_job_failed(
     }
 
     let (status, scheduled_at) = if should_retry {
-        // Schedule for retry with exponential backoff (base 2 minutes)
-        let backoff_seconds = 2_i64.pow(new_retry_count as u32) * 60;
-        let retry_at = std::time::SystemTime::now()
+        // exponential backoff: base=5s, cap=300s, jitter=0..5s
+        // formula: min(cap, base * 2^(retry_count-1)) + jitter
+        // (scheduled_at is integer seconds so jitter rounds to seconds)
+        const BASE_SECS: i64 = 5;
+        const CAP_SECS: i64 = 300;
+        let backoff = (BASE_SECS * 2_i64.pow(new_retry_count.saturating_sub(1) as u32)).min(CAP_SECS);
+        let jitter: i64 = rand::thread_rng().gen_range(0..5);
+        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64
-            + backoff_seconds;
+            .as_secs() as i64;
+        let retry_at = now + backoff + jitter;
         ("Pending".to_string(), retry_at)
     } else {
         ("Failed".to_string(), current_job.scheduled_at)
@@ -584,6 +662,23 @@ pub async fn update_session_progress(
             return GrimoireResponse::failure("failed to update session progress", vec![e.into()])
         }
     };
+
+    // phase 9.0 - broadcast a typed progress event so live
+    // subscribers (jobz alpn / tauri bridge) get an immediate signal
+    // without polling. silent no-op when there are no subscribers.
+    // p1: also tag with topic + created_by from the session row so
+    // per-user filtering works; entity_ref is None (session aggregate).
+    let topic = session
+        .job_type()
+        .unwrap_or(crate::jobs::models::JobType::ProcessFile);
+    crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
+        session_id: session_id.to_string(),
+        complete: progress.current as i64,
+        total: progress.total as i64,
+        topic,
+        entity_ref: None,
+        created_by: session.created_by.clone(),
+    });
 
     GrimoireResponse::success("Session progress updated", session)
 }

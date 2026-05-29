@@ -44,6 +44,18 @@ pub async fn create_artist(req: CreateArtistRequest) -> GrimoireResponse<Artist>
         }
     };
 
+    // phase 13h — best-effort cross-ref: any related_artistz rows that
+    // mention this new artist (by name_key, since we have no mbid yet)
+    // get stamped with the new local id. silent on failure — the row
+    // will resurface as "external" and a future enrichment can resolve
+    // it.
+    let _ = crate::music::entities::related_artists::backfill_related_artist_for_local(
+        &artist.id,
+        None,
+        &artist.name,
+    )
+    .await;
+
     GrimoireResponse::success("Artist created successfully", artist)
 }
 
@@ -717,6 +729,223 @@ pub async fn clear_artist_images(artist_id: &str) -> GrimoireResponse<()> {
         Ok(_) => GrimoireResponse::success("All images removed from artist", ()),
         Err(e) => {
             GrimoireResponse::failure("Failed to clear artist images", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// update an artist's enrichment metadata blob (phase 14.10).
+///
+/// merges the typed `ArtistMetadata` patch into the existing JSON blob
+/// (per-source bucket replacement: `Some(_)` overwrites that bucket,
+/// `None` keeps the existing value), optionally overwrites `bio`, and
+/// honours the skip-if-complete heuristic when `force == false`.
+pub async fn update_artist_metadata(
+    req: super::models::UpdateArtistMetadataRequest,
+) -> GrimoireResponse<super::models::UpdateArtistMetadataResponse> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // load existing row + metadata blob.
+    let row = match sqlx::query!(
+        r#"SELECT bio, metadata FROM artistz WHERE id = ? AND deleted_at IS NULL"#,
+        req.artist_id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return GrimoireResponse::failure(
+                "artist not found",
+                vec![ErrorDetail::new(
+                    "not_found",
+                    "not found",
+                    "artist not found",
+                )],
+            )
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("failed to load artist", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    // skip-if-complete: bail unless force is set.
+    if !req.force {
+        let has_bio = row
+            .bio
+            .as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let image_count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM artist_imagez WHERE artist_id = ?",
+            req.artist_id
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        if has_bio && image_count > 0 {
+            return GrimoireResponse::success(
+                "artist already enriched; skipped",
+                super::models::UpdateArtistMetadataResponse {
+                    artist_id: req.artist_id.clone(),
+                    skipped: true,
+                    reason: Some("already has bio and image".to_string()),
+                },
+            );
+        }
+    }
+
+    // merge metadata buckets.
+    let mut existing_meta = super::ArtistMetadata::parse(row.metadata.as_deref());
+    if let Some(patch) = req.metadata_patch {
+        if patch.version.is_some() {
+            existing_meta.version = patch.version;
+        }
+        if patch.lastfm.is_some() {
+            existing_meta.lastfm = patch.lastfm;
+        }
+        if patch.audiodb.is_some() {
+            existing_meta.audiodb = patch.audiodb;
+        }
+        // log entries are append-only; cap to last 50 to keep blob bounded.
+        if !patch.log.is_empty() {
+            existing_meta.log.extend(patch.log);
+            let len = existing_meta.log.len();
+            if len > 50 {
+                existing_meta.log.drain(0..(len - 50));
+            }
+        }
+    }
+    let new_metadata_str = existing_meta.to_storage();
+
+    // write back. bio uses COALESCE so passing None preserves existing value.
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE artistz
+            SET bio = COALESCE(?, bio),
+                metadata = ?,
+                updated_by = COALESCE(?, updated_by),
+                updated_at = unixepoch()
+            WHERE id = ?"#,
+        req.bio,
+        new_metadata_str,
+        req.updated_by,
+        req.artist_id,
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to update artist metadata",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success(
+        "artist metadata updated",
+        super::models::UpdateArtistMetadataResponse {
+            artist_id: req.artist_id,
+            skipped: false,
+            reason: None,
+        },
+    )
+}
+
+/// merge a json patch into an artist's `metadata` blob (phase 13h).
+///
+/// processor-facing helper that mirrors the album side
+/// (`albums::repository::merge_album_metadata`): reads the current blob,
+/// deep-merges objects (arrays in the patch REPLACE arrays in the base),
+/// and writes back. unlike `update_artist_metadata` this does NOT touch
+/// `artistz.bio`, does NOT honor a skip-if-complete check, and does NOT
+/// run the typed `metadata_patch` bucket-replacement semantics — it's a
+/// raw deep-merge over the json blob, intended for background jobs that
+/// supply minimal sub-tree patches (e.g. just `{"lastfm": {...}}`).
+pub async fn merge_artist_metadata(
+    id: &str,
+    patch: &serde_json::Value,
+) -> GrimoireResponse<super::ArtistMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let raw = match sqlx::query_scalar!(
+        r#"SELECT metadata FROM artistz WHERE id = ? AND deleted_at IS NULL"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            let err = GrimoireError::ArtistNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("artist not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to read artist metadata for merge",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // deep-merge the patch into the existing blob.
+    let mut base_value: serde_json::Value = match raw.as_deref() {
+        None => serde_json::Value::Object(serde_json::Map::new()),
+        Some(s) if s.trim().is_empty() => serde_json::Value::Object(serde_json::Map::new()),
+        Some(s) => serde_json::from_str(s)
+            .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new())),
+    };
+    deep_merge_json(&mut base_value, patch);
+
+    // re-parse through the typed model to drop unknown fields and stamp
+    // a stable shape (mirrors album side's `merge_patch`).
+    let merged: super::ArtistMetadata = serde_json::from_value(base_value).unwrap_or_default();
+
+    let serialized = match merged.to_storage() {
+        Some(s) => s,
+        None => String::from("{}"),
+    };
+
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE artistz SET metadata = ?, updated_at = unixepoch() WHERE id = ?"#,
+        serialized,
+        id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to write merged artist metadata",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success("artist metadata merged", merged)
+}
+
+fn deep_merge_json(dst: &mut serde_json::Value, src: &serde_json::Value) {
+    use serde_json::Value;
+    match (dst, src) {
+        (Value::Object(dst_map), Value::Object(src_map)) => {
+            for (k, v) in src_map {
+                deep_merge_json(dst_map.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (dst, src) => {
+            *dst = src.clone();
         }
     }
 }

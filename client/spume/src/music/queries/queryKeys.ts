@@ -45,8 +45,14 @@ export const queryKeys = {
     lists: () => [...queryKeys.albums.all(), "list"] as const,
     list: (search?: string, tagFilters?: any, sortField?: string, sortDirection?: string) =>
       [...queryKeys.albums.lists(), search, tagFilters, sortField, sortDirection] as const,
-    detail: (id: string) => [...queryKeys.albums.all(), id] as const,
-    songs: (albumId: string) => ["album", "songs", getDataSourceKey(), albumId] as const,
+    detail: (id: string, remoteId?: string) =>
+      remoteId
+        ? ([...queryKeys.albums.all(), "remote", remoteId, id] as const)
+        : ([...queryKeys.albums.all(), id] as const),
+    songs: (albumId: string, remoteId?: string) =>
+      remoteId
+        ? (["album", "songs", "remote", remoteId, albumId] as const)
+        : (["album", "songs", getDataSourceKey(), albumId] as const),
     autocomplete: (search?: string, artistId?: string) =>
       [...queryKeys.albums.all(), "autocomplete", search, artistId] as const,
   },
@@ -56,7 +62,10 @@ export const queryKeys = {
     all: () => ["artists", getDataSourceKey()] as const,
     lists: () => [...queryKeys.artists.all(), "list"] as const,
     list: (search?: string) => [...queryKeys.artists.lists(), search] as const,
-    detail: (id: string) => [...queryKeys.artists.all(), id] as const,
+    detail: (id: string, remoteId?: string) =>
+      remoteId
+        ? ([...queryKeys.artists.all(), "remote", remoteId, id] as const)
+        : ([...queryKeys.artists.all(), id] as const),
     songs: (artistId: string) => ["artist", "songs", artistId] as const,
     albums: (artistId: string) => ["artist", "albums", artistId] as const,
     autocomplete: (search?: string) =>

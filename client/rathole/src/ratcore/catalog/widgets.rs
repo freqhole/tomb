@@ -7,7 +7,7 @@ use crate::ratcore::app::{ArgKind, ArgSpec};
 
 /// shorthand for the most common SelectFrom shape: top-level array,
 /// no source body, no sibling deps.
-pub(super) fn select_from(source_command: &str, value_field: &str, label_field: &str) -> ArgKind {
+pub fn select_from(source_command: &str, value_field: &str, label_field: &str) -> ArgKind {
     ArgKind::SelectFrom {
         source_command: source_command.to_string(),
         source_body: serde_json::json!({}),
@@ -38,7 +38,23 @@ pub(super) fn pick_pending_knock(name: &str) -> ArgSpec {
 pub(super) fn pick_user(name: &str, help: &str) -> ArgSpec {
     ArgSpec {
         name: name.to_string(),
-        kind: select_from("users_list", "id", "username"),
+        kind: select_from("users_list_assignable", "id", "username"),
+        required: true,
+        help: Some(help.to_string()),
+    }
+}
+
+pub(super) fn pick_user_peer_node(name: &str, user_field_name: &str, help: &str) -> ArgSpec {
+    ArgSpec {
+        name: name.to_string(),
+        kind: ArgKind::SelectFrom {
+            source_command: "peers_list_for_user".to_string(),
+            source_body: serde_json::json!({}),
+            body_from_fields: vec![("user_id".to_string(), user_field_name.to_string())],
+            data_path: String::new(),
+            value_field: "node_id".to_string(),
+            label_field: "node_id".to_string(),
+        },
         required: true,
         help: Some(help.to_string()),
     }

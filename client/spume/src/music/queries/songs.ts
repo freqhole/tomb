@@ -2,9 +2,24 @@
 import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import type { TagFilter } from "../../components/forms/TagFilterPicker";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { debug } from "../../utils/logger";
 import { getDataSource } from "../data";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import type { MusicDataSource } from "../data/types";
 import { queryKeys } from "./queryKeys";
+
+// pick a data source: a remote-scoped one when an explicit remote is
+// supplied (e.g. the library view's selected remote), otherwise the
+// globally-active source. used by the album editor modal so it works
+// for both context-menu edits (active source) and bulk-enrichment review
+// (per-remote source).
+function pickAlbumSource(remote: Remote | undefined): MusicDataSource {
+  if (remote && remote.remote_id) {
+    return new RemoteMusicDataSource(remote) as unknown as MusicDataSource;
+  }
+  return getDataSource();
+}
 
 export type SongSortField =
   | "added_at"
@@ -100,14 +115,17 @@ export function useSongsInfiniteQuery(options?: UseSongsInfiniteQueryOptions) {
 }
 
 // simple query hook for fetching a single song by id
-export function useSongQuery(songId: Accessor<string | undefined>) {
+export function useSongQuery(
+  songId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>,
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.songs.detail(songId() || ""),
+    queryKey: [...queryKeys.songs.detail(songId() || ""), remote?.()?.remote_id ?? null] as const,
     queryFn: async () => {
       const id = songId();
       if (!id) return null;
 
-      const dataSource = getDataSource();
+      const dataSource = pickAlbumSource(remote?.());
       return dataSource.getSongById(id);
     },
     enabled: !!songId(),
@@ -183,46 +201,48 @@ export function useAlbumsQuery(options?: UseAlbumsQueryOptions) {
   }));
 }
 
-export function useAlbumQuery(albumId: Accessor<string | undefined>) {
+export function useAlbumQuery(
+  albumId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.albums.detail(albumId() || ""),
+    queryKey: queryKeys.albums.detail(albumId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = albumId();
       if (!id) return null;
-
-      const dataSource = getDataSource();
-      if (!dataSource.getAlbums) {
-        return null;
-      }
+      const dataSource = pickAlbumSource(remote?.());
+      if (!dataSource.getAlbums) return null;
 
       // query for specific album by id
       const result = await dataSource.getAlbums({
         album_id: id,
         limit: 1,
       });
-
       return result.items[0] || null;
     },
     enabled: () => !!albumId(),
   }));
 }
 
-export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
+export function useAlbumSongsQuery(
+  albumId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.albums.songs(albumId() || ""),
+    queryKey: queryKeys.albums.songs(albumId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = albumId();
       if (!id)
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
 
-      const dataSource = getDataSource();
+      const dataSource = pickAlbumSource(remote?.());
       if (!dataSource.getAlbumSongs) {
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
       }
 
       return dataSource.getAlbumSongs(id, { limit: 1000 });
     },
-    enabled: !!albumId(),
+    enabled: () => !!albumId(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   }));
@@ -233,11 +253,16 @@ export function useAlbumSongsQuery(albumId: Accessor<string | undefined>) {
 interface UseArtistsQueryOptions {
   query?: Accessor<string | undefined>;
   pageSize?: number;
+  /** reactive enabled flag — defaults to always enabled. used to skip
+   *  fetching the full artist list on narrow viewports when only the
+   *  detail view is showing. */
+  enabled?: Accessor<boolean>;
 }
 
 export function useArtistsQuery(options?: UseArtistsQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const query = options?.query;
+  const enabled = options?.enabled;
 
   return createInfiniteQuery(() => ({
     queryKey: queryKeys.artists.list(query?.()),
@@ -270,17 +295,28 @@ export function useArtistsQuery(options?: UseArtistsQueryOptions) {
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
+    enabled: () => (enabled ? enabled() : true),
   }));
 }
 
-export function useArtistQuery(artistId: Accessor<string | undefined>) {
+export function useArtistQuery(
+  artistId: Accessor<string | undefined>,
+  remote?: Accessor<Remote | undefined>
+) {
   return createQuery(() => ({
-    queryKey: queryKeys.artists.detail(artistId() || ""),
+    queryKey: queryKeys.artists.detail(artistId() || "", remote?.()?.remote_id),
     queryFn: async () => {
       const id = artistId();
       if (!id) return null;
 
-      const dataSource = getDataSource();
+      const r = remote?.();
+      const dataSource = pickAlbumSource(r);
+      console.info("[artistQuery] fetch", {
+        artistId: id,
+        requestedRemoteId: r?.remote_id ?? null,
+        requestedRemoteName: r?.name ?? null,
+        usingGlobalSource: !r,
+      });
       if (!dataSource.getArtists) {
         return null;
       }
@@ -291,8 +327,17 @@ export function useArtistQuery(artistId: Accessor<string | undefined>) {
         limit: 1,
       });
 
+      const got = result.items[0] || null;
+      console.info("[artistQuery] result", {
+        artistId: id,
+        requestedRemoteId: r?.remote_id ?? null,
+        gotItem: !!got,
+        gotName: got?.name ?? null,
+        hasBio: !!got?.bio,
+        imagesCount: got?.images?.length ?? 0,
+      });
       // artist already has thumbnail_url from data source
-      return result.items[0] || null;
+      return got;
     },
     enabled: () => !!artistId(),
   }));
@@ -325,69 +370,9 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
   }));
 }
 
-// genres query hooks
-
-interface UseGenresQueryOptions {
-  query?: Accessor<string | undefined>;
-  pageSize?: number;
-}
-
-export function useGenresQuery(options?: UseGenresQueryOptions) {
-  const pageSize = options?.pageSize || 100;
-  const query = options?.query;
-
-  return createInfiniteQuery(() => ({
-    queryKey: queryKeys.genres.list(query?.()),
-    queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const dataSource = getDataSource();
-      if (!dataSource.getGenres) {
-        return {
-          items: [],
-          total: 0,
-          offset: 0,
-          limit: pageSize,
-          has_more: false,
-        };
-      }
-      return dataSource.getGenres({
-        offset: pageParam,
-        limit: pageSize,
-        search: query?.(),
-      });
-    },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.has_more) return undefined;
-      return lastPage.offset + lastPage.items.length;
-    },
-    initialPageParam: 0,
-    placeholderData: (previousData) => previousData,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  }));
-}
-
-export function useGenreSongsQuery(genreId: Accessor<string | undefined>) {
-  return createQuery(() => ({
-    queryKey: queryKeys.genres.songs(genreId() || ""),
-    queryFn: async () => {
-      const id = genreId();
-      if (!id)
-        return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
-
-      const dataSource = getDataSource();
-      if (!dataSource.getGenreSongs) {
-        return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
-      }
-
-      return dataSource.getGenreSongs(id, { limit: 1000 });
-    },
-    enabled: () => !!genreId(),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  }));
-}
+// genres query hooks were removed during the taxonomy refactor — genres are
+// now a kind under the unified taxon system. fetch them via the taxonomy
+// queries (or the AlbumTaxonsEditor) instead of a dedicated genres list.
 
 // mutation hooks
 
@@ -422,13 +407,16 @@ export function useUpdateSongsMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (params: UpdateSongsMutationParams) => {
-      const dataSource = getDataSource();
+    mutationFn: async (
+      params: UpdateSongsMutationParams & { remote?: Remote },
+    ) => {
+      const { remote, ...updateParams } = params;
+      const dataSource = pickAlbumSource(remote);
       if (!dataSource.updateSong) {
         throw new Error("current data source does not support updating songs");
       }
 
-      await dataSource.updateSong(params);
+      await dataSource.updateSong(updateParams);
     },
     onSuccess: () => {
       // invalidate all music queries to refresh data

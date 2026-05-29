@@ -59,11 +59,6 @@
   background: black;
 }
 
-/* override html5-qrcode styles */
-.qr-scanner-reader video {
-  object-fit: cover;
-}
-
 .qr-scanner-reader #qr-shaded-region {
   border-width: 2px !important;
   border-color: var(--color-primary, #6366f1) !important;

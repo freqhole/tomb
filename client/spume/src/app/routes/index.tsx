@@ -1,13 +1,12 @@
 import { Route, useNavigate, useParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { whoami } from "../../app/services/remotes/authService";
 import { useLocalSource, getCurrentRemote } from "../../music/data";
 import {
   getActiveRemote,
   getRemoteById,
   getTauriManagedRemote,
-  isP2PTransport,
 } from "../../app/services/remotes/remoteManager";
 import { connectToRemote } from "../../app/services/remotes/connectionProgress";
 import { isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
@@ -21,7 +20,7 @@ import { ArtistsView } from "../../music/views/ArtistsView";
 import { FavoritesView } from "../../music/views/FavoritesView";
 import { FeedView } from "../../music/views/FeedView";
 import { AggregateFeedView } from "../../music/views/AggregateFeedView";
-import { GenresView } from "../../music/views/GenresView";
+import { ExploreView } from "../../library/views/LibraryView";
 import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
@@ -46,6 +45,12 @@ interface RoutesProps {
   onSongDoubleClick: (song: any) => void;
 }
 
+function LibraryRedirect() {
+  const navigate = useNavigate();
+  onMount(() => navigate("/explore", { replace: true }));
+  return null;
+}
+
 function RootRedirect() {
   const navigate = useNavigate();
 
@@ -55,8 +60,12 @@ function RootRedirect() {
     if (isCharnelMode()) {
       const tauriRemote = await getTauriManagedRemote();
       if (tauriRemote) {
-        debug("routes", "tauri mode: navigating to tauri-managed remote");
-        navigate(getDefaultRoute(tauriRemote.remote_id), { replace: true });
+        // tauri desktop app — land on the library graph view (cross-remote
+        // browse surface) rather than the single-remote albums grid. the
+        // graph view is the canonical multi-remote browse surface and
+        // shows the user's full library at a glance on cold start.
+        debug("routes", "tauri mode: navigating to /explore (graph view)");
+        navigate("/explore", { replace: true });
         return;
       }
       // no tauri remote yet - stay on root (App.tsx will handle setup)
@@ -111,6 +120,11 @@ export function routes(props: RoutesProps) {
         {/* aggregate feed - combines all remotes */}
         <Route path="/feed" component={AggregateFeedView} />
 
+        {/* explore - cross-remote albums browser (graph view) */}
+        <Route path="/explore" component={ExploreView} />
+        {/* legacy /library redirect to /explore */}
+        <Route path="/library" component={LibraryRedirect} />
+
         {/* radio - works with zero remotes; ?node_id=… can deep-link a peer */}
         <Route path="/radio" component={RadioView} />
 
@@ -141,7 +155,6 @@ export function routes(props: RoutesProps) {
                 />
               )}
             />
-            <Route path="/genres" component={() => <GenresView onAddMusic={props.onAddMusic} />} />
             <Route
               path="/playlists/:id?"
               component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
@@ -180,10 +193,6 @@ export function routes(props: RoutesProps) {
                 onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
-          />
-          <Route
-            path="/genres/:genreId?"
-            component={() => <GenresView onAddMusic={props.onAddMusic} />}
           />
           <Route
             path="/playlists/:id?"
@@ -263,52 +272,92 @@ function RemoteContextHandler(props: { children?: any }) {
     }
   };
 
-  onMount(async () => {
+  // react to `params.remoteId` changes — solid reuses this component
+  // instance across `/:remoteId` route param changes, so `onMount`
+  // would only fire on first entry. without re-running on param
+  // change, navigating from `/remoteA/...` to `/remoteB/...` would
+  // leave the global active data source pointing at remoteA, and the
+  // detail view would query the wrong remote.
+  createEffect(() => {
     const remoteId = params.remoteId;
     if (!remoteId) return;
 
-    const remote = await getRemoteById(remoteId);
-    if (!remote) {
-      console.warn(`remote not found: ${remoteId}`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    // for HTTP remotes that are offline, redirect immediately
-    if (!isP2PTransport(remote) && remote.is_offline) {
-      debug("routes", `remote ${remote.name} is offline, redirecting to fallback`);
-      toast.error(`${remote.name} is offline`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    // attempt connection with progress modal support
-    // this handles health check, data source switching, and cancellation
-    const result = await connectToRemote(remoteId);
-
-    if (result.cancelled) {
-      debug("routes", `connection to ${remote.name} cancelled by user`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    if (!result.success) {
-      debug("routes", `failed to connect to ${remote.name}`);
-      toast.error(`cannot reach ${remote.name}`);
-      await goToFallback(remoteId);
-      return;
-    }
-
-    // connection successful - set remote info for auth flow
-    setRemoteInfo({
-      remote_id: remote.remote_id,
-      name: remote.name,
-      base_url: isHttpRemote(remote) ? remote.base_url : undefined,
-      peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
-      is_charnel_managed: remote.is_charnel_managed,
+    // track whether this effect run is still the latest — if the
+    // param changes again mid-flight, the older async chain should
+    // bail out so it doesn't clobber state for the new remote.
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
     });
-    setIsConnected(true);
-    queryClient.invalidateQueries();
+
+    void (async () => {
+      const remote = await getRemoteById(remoteId);
+      if (cancelled) return;
+      if (!remote) {
+        console.warn(`remote not found: ${remoteId}`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      // fast path: this remote is already the active data source. just
+      // populate the auth-flow remoteInfo and render children immediately
+      // — no need to re-run the health check + source switch, which
+      // would briefly hide content (Show gates on isConnected) and could
+      // bounce if a transient health check fails.
+      const current = getCurrentRemote();
+      if (current && current.remote_id === remote.remote_id) {
+        setRemoteInfo({
+          remote_id: remote.remote_id,
+          name: remote.name,
+          base_url: isHttpRemote(remote) ? remote.base_url : undefined,
+          peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
+          is_charnel_managed: remote.is_charnel_managed,
+        });
+        setIsConnected(true);
+        return;
+      }
+
+      // param changed to a different remote than the active one — hide
+      // children while we reconnect so stale data from the previous
+      // remote doesn't briefly render under the new URL.
+      setIsConnected(false);
+
+      // note: we deliberately do NOT short-circuit on `remote.is_offline`
+      // here. that flag can be stale (library multi-remote views talk to
+      // remotes via `getClientForRemote` without ever clearing it). let
+      // `connectToRemote` re-run the health check below — if the remote
+      // really is offline, the check fails and the fallback path runs as
+      // it would have anyway.
+
+      // attempt connection with progress modal support
+      // this handles health check, data source switching, and cancellation
+      const result = await connectToRemote(remoteId);
+      if (cancelled) return;
+
+      if (result.cancelled) {
+        debug("routes", `connection to ${remote.name} cancelled by user`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      if (!result.success) {
+        debug("routes", `failed to connect to ${remote.name}`);
+        toast.error(`cannot reach ${remote.name}`);
+        await goToFallback(remoteId);
+        return;
+      }
+
+      // connection successful - set remote info for auth flow
+      setRemoteInfo({
+        remote_id: remote.remote_id,
+        name: remote.name,
+        base_url: isHttpRemote(remote) ? remote.base_url : undefined,
+        peer_addr: isP2PRemote(remote) ? remote.peer_addr : undefined,
+        is_charnel_managed: remote.is_charnel_managed,
+      });
+      setIsConnected(true);
+      queryClient.invalidateQueries();
+    })();
   });
 
   // watch for auth expiry on this remote

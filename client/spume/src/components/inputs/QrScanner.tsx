@@ -48,6 +48,7 @@ export function QrScanner(props: QrScannerProps) {
   const [error, setError] = createSignal<string | null>(null);
   let scanner: Html5Qrcode | null = null;
   let containerRef: HTMLDivElement | undefined;
+  const hasBarcodeDetector = typeof window !== "undefined" && "BarcodeDetector" in window;
 
   const startScanner = async () => {
     if (!containerRef) return;
@@ -68,7 +69,9 @@ export function QrScanner(props: QrScannerProps) {
       await scanner.start(
         { facingMode: "environment" },
         {
-          fps: 10,
+          // keep decode cadence modest when using zxing fallback
+          // instead of native BarcodeDetector.
+          fps: hasBarcodeDetector ? 12 : 8,
           // size the scan region as a fraction of the live
           // viewfinder rather than a fixed 250x250 box. on
           // iphone the rear camera streams at >=1280x720, so a
@@ -81,7 +84,6 @@ export function QrScanner(props: QrScannerProps) {
             const size = Math.max(180, Math.min(320, Math.floor(min * 0.7)));
             return { width: size, height: size };
           },
-          aspectRatio: 1.0,
         },
         (decodedText) => {
           debug("QrScanner", `scanned: ${decodedText.slice(0, 50)}...`);
@@ -90,7 +92,7 @@ export function QrScanner(props: QrScannerProps) {
           props.onResult(peerValue);
         },
         () => {
-          // scan error (no QR found) - ignore
+          // scan error (no QR found in frame) - ignore
         }
       );
 

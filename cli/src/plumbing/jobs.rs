@@ -159,6 +159,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 max_retries: Some(3),
                 scheduled_at: None, // Immediate
                 created_by: Some("cli".to_string()),
+                priority: None,
             };
 
             let job_response = create_job(job_request).await;
@@ -196,6 +197,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 max_retries: Some(3),
                 scheduled_at: None,
                 created_by: Some("cli".to_string()),
+                priority: None,
             };
 
             let job_response = create_job(job_request).await;

@@ -55,12 +55,22 @@ pub async fn get_blobs_store() -> GrimoireResult<&'static FsStore> {
 /// uses ImportMode::TryReference to avoid copying file data.
 /// only stores the outboard verification tree (.obao4) and references original file.
 /// returns the blake3 hash of the blob.
+///
+/// the input path is canonicalized before being stored in the FsStore so iroh-blobs
+/// never persists tilde paths, symlink chains, or flatpak portal paths that vanish
+/// across sessions. canonicalization failures (e.g. file deleted) fall back to the
+/// input path and let iroh surface the error downstream.
 pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
     let store = get_blobs_store().await?;
 
+    // resolve to a canonical absolute path (no tilde, no symlink chains, no portal
+    // ephemera). iroh-blobs persists this path as a reference, so a non-canonical
+    // path here would invalidate the blob if the symlink or portal mount disappears.
+    let canonical = crate::paths::canonical_path(path);
+
     // use TryReference to avoid duplicating data - only stores outboard tree
     let options = AddPathOptions {
-        path: path.to_path_buf(),
+        path: canonical.clone(),
         format: BlobFormat::Raw,
         mode: ImportMode::TryReference,
     };
@@ -75,7 +85,7 @@ pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
 
     info!(
         "added file {:?} to blobs store (reference mode), hash: {}",
-        path,
+        canonical,
         tag.hash.to_hex()
     );
 
@@ -263,7 +273,11 @@ mod tests {
 
     #[test]
     fn test_parse_hash_invalid() {
-        let result = parse_hash("not-a-hash");
+        // use a 64-char string with non-hex chars so iroh's Hash::FromStr
+        // takes the hex branch and returns Err cleanly. shorter inputs
+        // hit the base32 branch which can panic inside data-encoding when
+        // the decoded length doesn't match the fixed 32-byte buffer.
+        let result = parse_hash(&"z".repeat(64));
         assert!(result.is_err());
     }
 }

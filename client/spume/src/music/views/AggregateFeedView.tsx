@@ -5,14 +5,13 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
   on,
   onCleanup,
   onMount,
   Show,
 } from "solid-js";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
-import { Icon, IconNames } from "../../components/icons/registry";
+import { IconNames } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
@@ -28,8 +27,8 @@ import { ALL_FEED_TYPES, FEED_TYPE_LABELS } from "../queries/analytics";
 import { toast } from "../../components/feedback/Toast";
 import { showImageCarousel } from "../hooks/modals";
 import { setHighlightedSongId } from "../state/highlightedSong";
-import { type Remote, isP2PRemote } from "../../app/services/storage/schemas/remote";
-import { resolveBlobUrl } from "../services/storage/blobResolver";
+import { type Remote } from "../../app/services/storage/schemas/remote";
+import { RemotePicker } from "../../components/forms/RemotePicker";
 
 // adapt raw API images to app-level ImageMetadata (same as analytics.ts)
 function adaptFeedImages(
@@ -166,52 +165,6 @@ export function AggregateFeedView() {
       setActiveRemoteIds(new Set(r.map((rem) => rem.remote_id)));
     }
   });
-
-  const toggleRemote = (remoteId: string) => {
-    setActiveRemoteIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(remoteId)) {
-        if (next.size <= 1) return prev; // don't toggle off last one
-        next.delete(remoteId);
-      } else {
-        next.add(remoteId);
-      }
-      return next;
-    });
-  };
-
-  // long press to solo a remote (toggle all others off)
-  const createLongPressHandlers = (remoteId: string) => {
-    let pressTimer: ReturnType<typeof setTimeout> | undefined;
-    let didLongPress = false;
-    const startPress = (e: Event) => {
-      e.stopPropagation();
-      didLongPress = false;
-      pressTimer = setTimeout(() => {
-        didLongPress = true;
-        setActiveRemoteIds(new Set([remoteId]));
-      }, 500);
-    };
-    const endPress = (e: Event) => {
-      e.stopPropagation();
-      clearTimeout(pressTimer);
-    };
-    const handleClick = (e: Event) => {
-      e.stopPropagation();
-      if (!didLongPress) {
-        toggleRemote(remoteId);
-      }
-    };
-    return {
-      onMouseDown: startPress,
-      onMouseUp: endPress,
-      onMouseLeave: endPress,
-      onTouchStart: startPress,
-      onTouchEnd: endPress,
-      onClick: handleClick,
-      onContextMenu: (e: Event) => e.preventDefault(),
-    };
-  };
 
   // ---- loading state ----
   // isLoading: only true on very first load (no cache). false once we have anything to show
@@ -728,101 +681,14 @@ export function AggregateFeedView() {
       </Show>
       {/* remote toggle strip — floats above feed */}
       <Show when={(remotes() ?? []).length > 1}>
-        <div
-          class={`flex gap-2 overflow-x-auto scrollbar-hide py-2 px-4 absolute top-0 right-0 z-50 flex-nowrap bg-transparent pointer-events-none ${showBackToTop() ? "wide:ml-[180px]" : "wide:ml-[140px]"}`}
-          style={{ left: "0" }}
-        >
-          <div class="flex-1 shrink-0" />
-          <For each={sortedRemotes()}>
-            {(remote) => {
-              const isActive = () => activeRemoteIds().has(remote.remote_id);
-              const isP2P = () => isP2PRemote(remote);
-              const remoteImageUrl = () => {
-                if (!remote.image_url) return null;
-                if (
-                  remote.image_url.startsWith("http://") ||
-                  remote.image_url.startsWith("https://") ||
-                  remote.image_url.startsWith("asset://")
-                ) {
-                  return remote.image_url;
-                }
-                // relative url — prepend base_url for HTTP remotes
-                if (!isP2P() && remote.base_url) {
-                  return `${remote.base_url}${remote.image_url}`;
-                }
-                return null;
-              };
-              // for P2P remotes with blob_id, resolve async
-              const [resolvedBlobUrl] = createResource(
-                () =>
-                  isP2P() && remote.image_blob_id
-                    ? { blobId: remote.image_blob_id, remoteId: remote.remote_id }
-                    : null,
-                async (params) => {
-                  if (!params) return null;
-                  try {
-                    return await resolveBlobUrl(params.blobId, params.remoteId);
-                  } catch {
-                    return null;
-                  }
-                }
-              );
-              const imageUrl = () => (isP2P() ? resolvedBlobUrl() : remoteImageUrl());
-              const [imgError, setImgError] = createSignal(false);
-              const longPress = createLongPressHandlers(remote.remote_id);
-              return (
-                <button
-                  class={`text-sm rounded-lg transition-all whitespace-nowrap flex items-center justify-center gap-1.5 cursor-pointer shrink-0 pointer-events-auto overflow-hidden ${imageUrl() && !imgError() ? "pl-0 pr-3 py-0" : "px-3 py-1.5"} ${
-                    isActive()
-                      ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
-                      : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
-                  }`}
-                  onMouseDown={longPress.onMouseDown}
-                  onMouseUp={longPress.onMouseUp}
-                  onMouseLeave={longPress.onMouseLeave}
-                  onTouchStart={longPress.onTouchStart}
-                  onTouchEnd={longPress.onTouchEnd}
-                  onClick={longPress.onClick}
-                  onContextMenu={longPress.onContextMenu}
-                  title={`${remote.name}${remote.is_charnel_managed ? "" : isP2P() ? "" : " (http)"}\nlong press to solo`}
-                  style={{ height: "32px" }}
-                >
-                  <Show
-                    when={imageUrl() && !imgError()}
-                    fallback={<Icon name={IconNames.recent} size={14} />}
-                  >
-                    <img
-                      src={imageUrl()!}
-                      alt=""
-                      class="h-full rounded-l-lg object-cover flex-shrink-0"
-                      style={{ width: "auto" }}
-                      onError={() => setImgError(true)}
-                    />
-                  </Show>
-                  <span>{remote.name}</span>
-                  <Show when={remote.is_charnel_managed}>
-                    <Icon
-                      name="home"
-                      size={12}
-                      color={isActive() ? "var(--color-text-on-accent)" : "var(--color-text-muted)"}
-                    />
-                  </Show>
-                  <Show when={!isP2P() && !remote.is_charnel_managed}>
-                    <span
-                      class={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                        isActive()
-                          ? "bg-[var(--color-text-on-accent)]/20"
-                          : "bg-blue-600/20 text-blue-400"
-                      }`}
-                    >
-                      http
-                    </span>
-                  </Show>
-                </button>
-              );
-            }}
-          </For>
-        </div>
+        <RemotePicker
+          layout="floating"
+          remotes={sortedRemotes()}
+          value={activeRemoteIds()}
+          onChange={setActiveRemoteIds}
+          mode="multi"
+          class={showBackToTop() ? "wide:ml-[180px]" : "wide:ml-[140px]"}
+        />
       </Show>
 
       {/* feed list */}

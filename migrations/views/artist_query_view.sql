@@ -13,13 +13,17 @@ SELECT
     ar.deleted_by as artist_deleted_by,
     ar.created_by as artist_created_by,
     ar.updated_by as artist_updated_by,
+    ar.metadata as artist_metadata,
+    ar.lastfm_lookup_status as artist_lastfm_lookup_status,
+    ar.audiodb_lookup_status as artist_audiodb_lookup_status,
 
-    -- images as JSON array
+    -- images as JSON array (waveforms excluded — they're audio peak
+    -- data and should never surface as artist art)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM artist_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.artist_id = ar.id),
+         WHERE ai.artist_id = ar.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as artist_images,
 
@@ -52,5 +56,6 @@ LEFT JOIN artist_songz ars ON ar.id = ars.artist_id
 LEFT JOIN songz s ON ars.song_id = s.id AND s.deleted_at IS NULL
 WHERE ar.deleted_at IS NULL
 GROUP BY ar.id, ar.name, ar.bio, ar.created_at, ar.updated_at, ar.deleted_at,
-         ar.deleted_by, ar.created_by, ar.updated_by
+         ar.deleted_by, ar.created_by, ar.updated_by,
+         ar.metadata, ar.lastfm_lookup_status, ar.audiodb_lookup_status
 HAVING COUNT(DISTINCT ars.song_id) > 0;

@@ -46,7 +46,7 @@ pub async fn test_database() -> GrimoireResult<DatabaseTestResponse> {
         "songz",
         "artistz",
         "albumz",
-        "genrez",
+        "taxonz",
         "jobz",
         "job_sessionz",
     ];

@@ -24,10 +24,13 @@ impl Caller {
     }
 
     pub fn is_admin(&self) -> bool {
-        self.role == UserRole::Admin
+        matches!(self.role, UserRole::Root | UserRole::Admin)
     }
 
     pub fn is_member(&self) -> bool {
-        matches!(self.role, UserRole::Admin | UserRole::Member)
+        matches!(
+            self.role,
+            UserRole::Root | UserRole::Admin | UserRole::Member
+        )
     }
 }

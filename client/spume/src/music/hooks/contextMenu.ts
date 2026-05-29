@@ -13,6 +13,9 @@ import { showTagSelector, showShareModal } from "./modals";
 import { getDataSource, getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import { isP2PRemote } from "../../app/services/storage/schemas/remote";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -43,6 +46,7 @@ export function createFavoriteMenuAction(
   targetId: string,
   isFavorite: boolean,
   sha256?: string, // only needed for songs (for queue updates)
+  remote?: Remote, // when set, scope the mutation to this remote
 ): MenuAction {
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -55,6 +59,7 @@ export function createFavoriteMenuAction(
         targetId,
         sha256,
         isFavorite: !isFavorite,
+        remote,
       });
     },
   };
@@ -95,30 +100,41 @@ export interface ContextMenuOptions {
   onShuffle?: () => void | Promise<void>;
   /** callback when add to queue is clicked (for artists/genres) */
   onAddToQueue?: () => void | Promise<void>;
+  /** explicit remote to scope navigation, data fetches, and editor
+   *  modals to — overrides the globally-active data source. needed
+   *  for views (library multi-remote table/graph, federated search)
+   *  that browse one source while another is `getCurrentRemote()`. */
+  remote?: Remote;
 }
 
 /**
  * shared helper that opens the global share modal for a given target.
- * snapshots the current remote at click time and passes it as the source.
- * for kinds without a send-to scope (song / artist) `buildSendPayload` is
- * omitted and the modal will hide its send-to section automatically.
+ * by default snapshots the current remote at click time. when
+ * `sourceRemoteId` is supplied, uses that remote instead — needed for
+ * queue / non-active-remote share actions so the resulting permalink
+ * targets the song's origin server.
  */
 export function createShareMenuAction(
   target: ShareTarget,
   buildSendPayload?: () => SendPayload | Promise<SendPayload>,
+  sourceRemoteId?: string,
 ): MenuAction {
   return {
     label: "share...",
     icon: IconNames.share,
     onClick: async () => {
-      const info = getCurrentRemote();
-      if (!info) {
-        toast.error("share is only available on a remote");
-        return;
+      let remoteId = sourceRemoteId;
+      if (!remoteId || remoteId === "local") {
+        const info = getCurrentRemote();
+        if (!info) {
+          toast.error("share is only available on a remote");
+          return;
+        }
+        remoteId = info.remote_id;
       }
-      const remote = await getRemoteById(info.remote_id);
+      const remote = await getRemoteById(remoteId);
       if (!remote) {
-        toast.error("could not find current remote");
+        toast.error("could not find remote");
         return;
       }
       showShareModal({
@@ -136,7 +152,20 @@ export function useSongContextMenu(
   options: ContextMenuOptions = {},
 ): MenuAction[] {
   const navigate = useNavigate();
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
+
+  // resolve the song's origin remote so every action below routes
+  // against the same source. `options.remote` (when the caller knows
+  // it eagerly) wins; otherwise we lazily look up by
+  // `song.remote_server_id` at click time.
+  const effectiveRemoteId =
+    options.remote?.remote_id ?? song.remote_server_id ?? undefined;
+  const resolveSongRemote = async (): Promise<Remote | undefined> => {
+    if (options.remote) return options.remote;
+    if (!song.remote_server_id) return undefined;
+    return (await getRemoteById(song.remote_server_id)) ?? undefined;
+  };
 
   // queue management actions FIRST (when in queue context)
   if (options.showRemoveFromQueue && options.queueIndex !== undefined) {
@@ -201,13 +230,18 @@ export function useSongContextMenu(
     actions.push({ type: "separator" });
   }
 
-  // navigation actions
+  // navigation actions — scope to the song's own source remote, not
+  // the globally-active one. queue items can come from any remote
+  // (or local), and routes.album/artist build prefixes from
+  // getCurrentRemote() which yields the wrong URL when the active
+  // remote differs from the song's origin.
+  const songRemoteId = effectiveRemoteId ?? "local";
   if (song.album_id) {
     actions.push({
       label: "view album",
       icon: IconNames.album,
       onClick: () => {
-        navigate(routes.album(song.album_id));
+        navigate(routes.albumOn(songRemoteId, song.album_id));
       },
     });
   }
@@ -217,7 +251,7 @@ export function useSongContextMenu(
       label: "view artist",
       icon: IconNames.artist,
       onClick: () => {
-        navigate(routes.artist(song.artist_id));
+        navigate(routes.artistOn(songRemoteId, song.artist_id));
       },
     });
   }
@@ -232,7 +266,10 @@ export function useSongContextMenu(
       label: "remove from playlist",
       icon: IconNames.close,
       onClick: async () => {
-        const dataSource = getDataSource();
+        // route to the song's origin remote, not the active source —
+        // the queue can contain songs from multiple remotes.
+        const remote = await resolveSongRemote();
+        const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
         if (dataSource.removeSongsFromPlaylist) {
           await dataSource.removeSongsFromPlaylist(options.playlistId!, [
             song.id,
@@ -247,21 +284,28 @@ export function useSongContextMenu(
   }
 
   // favorites
-  actions.push(
-    createFavoriteMenuAction(
-      "song",
-      song.id,
-      options.isFavorite ?? false,
-      song.sha256,
-    ),
-  );
+  actions.push({
+    label: options.isFavorite ? "remove from favorites" : "add to favorites",
+    icon: options.isFavorite ? IconNames.favorite : IconNames.favoriteOutline,
+    onClick: async () => {
+      const remote = await resolveSongRemote();
+      toggleFavoriteMutation.mutate({
+        targetType: "song",
+        targetId: song.id,
+        sha256: song.sha256,
+        isFavorite: !(options.isFavorite ?? false),
+        remote,
+      });
+    },
+  });
 
   // playlists
   actions.push({
     label: "add to playlist...",
     icon: IconNames.playlist,
-    onClick: () => {
-      showPlaylistSelector([song.id]);
+    onClick: async () => {
+      const remote = await resolveSongRemote();
+      void showPlaylistSelector([song.id], remote);
     },
   });
 
@@ -297,6 +341,7 @@ export function useSongContextMenu(
         // touches blake3/sha256/title/album fields, all present here.
         song: song as unknown as RemoteSong,
       }),
+      effectiveRemoteId,
     ),
   );
 
@@ -305,8 +350,9 @@ export function useSongContextMenu(
     actions.push({
       label: "tags",
       icon: IconNames.tag,
-      onClick: () => {
-        showTagSelector([song.album_id!], song.album_title);
+      onClick: async () => {
+        const remote = await resolveSongRemote();
+        showTagSelector([song.album_id!], song.album_title, remote);
       },
     });
   }
@@ -318,8 +364,9 @@ export function useSongContextMenu(
     actions.push({
       label: "edit info...",
       icon: IconNames.edit,
-      onClick: () => {
-        showSongEditor({ songId: song.id });
+      onClick: async () => {
+        const remote = await resolveSongRemote();
+        showSongEditor({ songId: song.id, remote });
       },
     });
   }
@@ -340,7 +387,8 @@ export function useSongContextMenu(
 
         if (confirmed) {
           try {
-            const dataSource = getDataSource();
+            const remote = await resolveSongRemote();
+            const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
             if (dataSource.deleteSong) {
               await dataSource.deleteSong(song.id);
               toast.success(`deleted "${song.title}"`);
@@ -526,6 +574,18 @@ export function useAlbumContextMenu(
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
 
+  // when an explicit remote is supplied, scope navigation, song fetches,
+  // and editor modals to that remote rather than the globally-active
+  // data source. otherwise fall back to the legacy implicit behavior.
+  const remote = options.remote;
+  const remoteId = remote?.remote_id ?? null;
+  const dataSourceFor = (): { getAlbumSongs?: (id: string) => Promise<{ items: Song[] }> } =>
+    remote ? new RemoteMusicDataSource(remote) : getDataSource();
+  const routeAlbum = (id: string): string =>
+    remote ? routes.albumOn(remoteId, id) : routes.album(id);
+  const routeArtist = (id: string): string =>
+    remote ? routes.artistOn(remoteId, id) : routes.artist(id);
+
   // play actions
   if (options.showPlayActions !== false) {
     actions.push({
@@ -533,7 +593,7 @@ export function useAlbumContextMenu(
       icon: IconNames.play,
       onClick: async () => {
         // fetch album songs and play
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           await playQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
@@ -545,7 +605,7 @@ export function useAlbumContextMenu(
       label: "shuffle album",
       icon: IconNames.shuffle,
       onClick: async () => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
@@ -558,7 +618,7 @@ export function useAlbumContextMenu(
       label: "add to queue",
       icon: IconNames.queue,
       onClick: async () => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           await addToQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
@@ -574,7 +634,7 @@ export function useAlbumContextMenu(
     label: "view album",
     icon: IconNames.album,
     onClick: () => {
-      navigate(routes.album(album.id));
+      navigate(routeAlbum(album.id));
     },
   });
 
@@ -583,7 +643,7 @@ export function useAlbumContextMenu(
       label: "view artist",
       icon: IconNames.artist,
       onClick: () => {
-        navigate(routes.artist(album.artist_id!));
+        navigate(routeArtist(album.artist_id!));
       },
     });
   }
@@ -592,7 +652,13 @@ export function useAlbumContextMenu(
 
   // favorites
   actions.push(
-    createFavoriteMenuAction("album", album.id, options.isFavorite ?? false),
+    createFavoriteMenuAction(
+      "album",
+      album.id,
+      options.isFavorite ?? false,
+      undefined,
+      remote,
+    ),
   );
 
   // add all to playlist
@@ -600,22 +666,28 @@ export function useAlbumContextMenu(
     label: "add to playlist...",
     icon: IconNames.playlist,
     onClick: async () => {
-      const dataSource = getDataSource();
+      const dataSource = dataSourceFor();
       if (!dataSource.getAlbumSongs) return;
       const response = await dataSource.getAlbumSongs(album.id);
       showPlaylistSelector(response.items.map((s) => s.id));
     },
   });
 
-  // radio station: local (charnel) or remote (if browsing a remote)
-  if (isCharnelMode() || !!getCurrentRemote()) {
+  // radio station: requires a P2P-capable backend (tauri-managed local
+  // or a P2P remote). HTTP-only remotes don't expose the radio admin
+  // surface, so the action is hidden rather than failing at click time.
+  const currentRemote = getCurrentRemote();
+  const stationCapable = remote
+    ? isP2PRemote(remote)
+    : isCharnelMode() || (!!currentRemote && isP2PRemote(currentRemote as Remote));
+  if (stationCapable) {
     actions.push({
       label: "add to station...",
       icon: IconNames.headphones,
       onClick: () => {
         void showStationSelector(
           { kind: "album", albumId: album.id, albumTitle: album.title },
-          getCurrentRemote()?.remote_id,
+          remoteId ?? currentRemote?.remote_id,
         );
       },
     });
@@ -632,7 +704,7 @@ export function useAlbumContextMenu(
         displayTitle: album.title,
       },
       async (): Promise<SendPayload> => {
-        const dataSource = getDataSource();
+        const dataSource = dataSourceFor();
         if (!dataSource.getAlbumSongs) throw new Error("album fetch not supported");
         const response = await dataSource.getAlbumSongs(album.id);
         const songList = response.items;
@@ -644,7 +716,7 @@ export function useAlbumContextMenu(
           albumType: songList[0]?.album_type ?? null,
           releaseDate: null,
           label: null,
-          genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+          genres: songList[0]?.album_taxons?.filter((t) => t.kind_slug === "genre").map((t) => t.label).filter(Boolean) ?? [],
           // album-level images live on each song (denormalized). use the first
           // song's copy so dest gets cover art alongside the album row.
           images: songList[0]?.album_images ?? [],
@@ -673,7 +745,7 @@ export function useAlbumContextMenu(
       label: "edit info...",
       icon: IconNames.edit,
       onClick: () => {
-        showAlbumEditor({ albumId: album.id });
+        showAlbumEditor({ albumId: album.id, remote });
       },
     });
   }
@@ -962,7 +1034,6 @@ export function useGenreContextMenu(
   genre: GenreContextMenuData,
   options: ContextMenuOptions = {},
 ): MenuAction[] {
-  const navigate = useNavigate();
   const actions: MenuAction[] = [];
 
   // play actions (if callbacks provided)
@@ -1000,14 +1071,8 @@ export function useGenreContextMenu(
     actions.push({ type: "separator" });
   }
 
-  // navigation
-  actions.push({
-    label: "view genre",
-    icon: IconNames.genre,
-    onClick: () => {
-      navigate(routes.genre(genre.id));
-    },
-  });
+  // navigation: genre detail view was removed in the taxonomy refactor;
+  // the "view genre" entry is suppressed pending a taxon browser.
 
   // radio station: local (charnel) or remote (if browsing a remote)
   if (isCharnelMode() || !!getCurrentRemote()) {

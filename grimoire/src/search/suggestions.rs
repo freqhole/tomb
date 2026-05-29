@@ -296,24 +296,31 @@ pub async fn get_genre_suggestions(
     pool: &SqlitePool,
     partial: &str,
 ) -> GrimoireResult<Vec<Suggestion>> {
-    // query genrez_fts with prefix match: `name:partial*`
-    // join to genrez for full details and count associated albums/songs
-    // calculate confidence (no user prefs for genres)
+    // query taxonz_fts (filtered to kind='genre') with prefix match: `label:partial*`
+    // join to taxonz for full details and count associated albums.
+    // post-taxonomy refactor: genres are taxons under kind='genre',
+    // and the dedicated `genrez_fts` was replaced by the cross-kind
+    // `taxonz_fts(taxon_id, kind_slug, label)`.
 
     let match_query = sanitize_fts_query(partial);
 
     let rows = sqlx::query!(
         r#"
         SELECT
-            genre.id as "genre_id!: String",
-            genre.name as "genre_name!: String",
+            taxon.id as "genre_id!: String",
+            taxon.label as "genre_name!: String",
             fts.rank as "fts_rank!: f64",
-            (SELECT COUNT(DISTINCT ag.album_id) FROM album_genrez ag JOIN albumz a ON ag.album_id = a.id WHERE ag.genre_id = genre.id AND a.deleted_at IS NULL) as "song_count!: i64"
-        FROM genrez_fts fts
-        JOIN genrez genre ON fts.genre_id = genre.id
-        WHERE genrez_fts MATCH ?
-            AND genre.deleted_at IS NULL
-        GROUP BY genre.id, genre.name, fts.rank
+            (SELECT COUNT(DISTINCT at.album_id)
+                FROM album_taxonz at
+                JOIN albumz a ON at.album_id = a.id
+                WHERE at.taxon_id = taxon.id AND a.deleted_at IS NULL) as "song_count!: i64"
+        FROM taxonz_fts fts
+        JOIN taxonz taxon ON fts.taxon_id = taxon.id
+        JOIN taxon_kindz kind ON kind.id = taxon.kind_id
+        WHERE taxonz_fts MATCH ?
+            AND kind.slug = 'genre'
+            AND taxon.deleted_at IS NULL
+        GROUP BY taxon.id, taxon.label, fts.rank
         ORDER BY fts.rank DESC
         LIMIT 100
         "#,

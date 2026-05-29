@@ -132,25 +132,49 @@ pub mod type_registry {
     use crate::health::{EmptyResponse, HealthResponse, ServerInfoResponse};
 
     // music types
-    use crate::media_blobz::{BlobMetadataResponse, MediaBlob};
+    use crate::media_blobz::{
+        AtlasEntry, AtlasManifest, BlobMetadataResponse, BuildAtlasRequest, MediaBlob,
+    };
     use crate::music::crud::{
-        AlbumQueryResult, AlbumsQueryResult, ArtistQueryResult, ArtistsQueryResult,
-        BulkClearSongArtworkRequest, BulkClearSongArtworkResponse, BulkDeleteSongsRequest,
-        BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse, DeleteArtistRequest,
-        DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse, FavoriteAlbumResult,
-        FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult, FavoriteSongResult,
-        GenreQueryResult, GenresQueryResult, GetAlbumRequest, GetArtistRequest, GetGenreRequest,
-        GetRatingStatsRequest, ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult,
-        PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams,
-        QueryPlaylistSongsRequest, RatingStats, RecentSongsRequest, RemoveRatingRequest,
-        RemoveRatingResponse, SetFavoriteResponse, SetRatingResponse, SongQueryResult,
-        SongUpdateError, SongsQueryResult, UpdateSongsRequest, UpdateSongsResult,
+        AlbumQueryResult, AlbumStatusCounts, AlbumsQueryResult, ArtistQueryResult,
+        ArtistsQueryResult, BulkClearSongArtworkRequest, BulkClearSongArtworkResponse,
+        BulkDeleteSongsRequest, BulkDeleteSongsResponse, DeleteAlbumRequest, DeleteAlbumResponse,
+        DeleteArtistRequest, DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse,
+        FavoriteAlbumResult, FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult,
+        FavoriteSongResult, GetAlbumRequest, GetArtistRequest, GetRatingStatsRequest,
+        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
+        PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
+        RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
+        SetFavoriteResponse, SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult,
+        UpdateSongsRequest, UpdateSongsResult,
     };
 
     // upload types
-    use crate::music::entities::albums::{Album, GenreRef, UpdateAlbumRequest};
-    use crate::music::entities::artists::{Artist, CreateArtistRequest, UpdateArtistRequest};
-    use crate::music::entities::genres::Genre;
+    use crate::music::entities::albums::external_url_proposals::{
+        AcceptedExternalUrl, ApplyExternalUrlsRequest, ApplyExternalUrlsResult,
+        ExternalUrlProposal, ProposeExternalUrlsRequest, ProposeExternalUrlsResponse,
+    };
+    use crate::music::entities::albums::metadata::{
+        AlbumMetadata, AutoConfirmMbMatchesRequest, AutoConfirmMbMatchesResult, AutoConfirmSkip,
+        ConfirmMbMatchRequest, EnrichmentLogEntry, FolksonomyMetadata, FolksonomyTag, MbCandidate,
+        MbFolksonomy, MbLastQuery, MbLookupStatus, MbMatchActionResponse, MbMetadata, MbUrl,
+        RejectMbMatchRequest,
+    };
+    use crate::music::entities::albums::taxon_proposals::{
+        AcceptedProposal, ApplyTaxonProposalsRequest, ApplyTaxonProposalsResult, ProposalSource,
+        ProposeTaxonsRequest, TaxonProposal,
+    };
+    use crate::music::entities::albums::{
+        Album, GenreRef, SetMbLookupStatusRequest, UpdateAlbumRequest,
+    };
+    use crate::music::entities::artists::{
+        ApplyArtistBioRequest, ApplyArtistBioResult, ApplyRelatedArtistsRequest,
+        ApplyRelatedArtistsResult, Artist, ArtistAudioDbMetadata, ArtistLastFmMetadata,
+        ArtistMbMetadata, ArtistMetadata, BioProposal, BioSource, CreateArtistRequest,
+        ProposeArtistBiosRequest, ProposeArtistBiosResponse, ProposeRelatedArtistsRequest,
+        ProposeRelatedArtistsResponse, RelatedArtistProposal, UpdateArtistMetadataRequest,
+        UpdateArtistMetadataResponse, UpdateArtistRequest,
+    };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -160,6 +184,13 @@ pub mod type_registry {
     use crate::music::entities::tags::{
         AddAlbumsTagsRequest, CreateTagRequest, DeleteTagRequest, GetAlbumsTagsRequest,
         GetTagRequest, QueryTagsRequest, RemoveAlbumsTagsRequest, ReplaceAlbumsTagsRequest, Tag,
+    };
+    use crate::music::entities::taxonomy::{
+        AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
+        CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
+        ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
+        RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
+        SetScalarAttributeRequest, Taxon, TaxonKind, TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
@@ -228,7 +259,8 @@ pub mod type_registry {
     };
     use crate::admin_dispatch::types::peers::{
         AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-        AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+        AdminPeersHardDeleteRequest, AdminPeersHardDeleteResponse, AdminPeersListAllRequest,
+        AdminPeersListForUserRequest, AdminPeersReassignUserRequest, AdminPeersRemoveRequest,
         AdminPeersRestoreRequest,
     };
     use crate::admin_dispatch::types::radio::{
@@ -239,9 +271,10 @@ pub mod type_registry {
         RadioSupervisorStationRequest, RadioSupervisorStatusResponse,
     };
     use crate::admin_dispatch::types::users::{
-        AdminAccountLinkResponse, AdminUserSummary, AdminUsersDeleteRequest,
-        AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest, AdminUsersHardDeleteRequest,
-        AdminUsersListRequest, AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
+        AdminAccountLinkResponse, AdminUserSummary, AdminUsersAddPeerNodeRequest,
+        AdminUsersDeleteRequest, AdminUsersGenerateAccountLinkRequest, AdminUsersGetRequest,
+        AdminUsersHardDeleteRequest, AdminUsersListRequest, AdminUsersRemovePeerNodeRequest,
+        AdminUsersRestoreRequest, AdminUsersUpdateRoleRequest,
     };
 
     // blob metadata request types
@@ -256,6 +289,23 @@ pub mod type_registry {
     use crate::offal::sync::{
         SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
+    };
+
+    // related artists (phase 13h)
+    use crate::music::entities::related_artists::{BandcampAlbumLink, ExternalUrl};
+    use crate::offal::music::related_artists::{
+        ListRelatedArtistsBatchRequest, ListRelatedArtistsBatchResponse, ListRelatedArtistsRequest,
+        ListRelatedArtistsResponse, RelatedArtistApi, RelatedArtistsBatchEntry,
+        SetRelatedArtistBandcampRequest,
+    };
+
+    // cross-remote relations / walk (phase 11)
+    use crate::music::entities::relations::EraBin;
+    use crate::offal::music::relations::{
+        AlbumsByValueRequest, AlbumsByValueResponse, EntityTaxonsBatchRequest,
+        EntityTaxonsBatchResponse, EntityTaxonsEntry, EraAlbumsRequest, EraAlbumsResponse,
+        EraBinsRequest, EraBinsResponse, FindByMergedKeyRequest, FindByMergedKeyResponse,
+        MergedKeyMatch, RecentlyAddedAlbumsRequest, RecentlyAddedAlbumsResponse,
     };
 
     // radio public types
@@ -393,8 +443,70 @@ pub mod type_registry {
         gen.add_schema::<UpdateArtistRequest>("UpdateArtistRequest");
         registered.insert("UpdateArtistRequest".to_string());
 
+        gen.add_schema::<UpdateArtistMetadataRequest>("UpdateArtistMetadataRequest");
+        registered.insert("UpdateArtistMetadataRequest".to_string());
+
+        gen.add_schema::<UpdateArtistMetadataResponse>("UpdateArtistMetadataResponse");
+        registered.insert("UpdateArtistMetadataResponse".to_string());
+
+        // related artists (phase 13h) — leaf types first
+        gen.add_schema::<ExternalUrl>("ExternalUrl");
+        registered.insert("ExternalUrl".to_string());
+        gen.add_schema::<BandcampAlbumLink>("BandcampAlbumLink");
+        registered.insert("BandcampAlbumLink".to_string());
+        gen.add_schema::<RelatedArtistApi>("RelatedArtistApi");
+        registered.insert("RelatedArtistApi".to_string());
+        gen.add_schema::<ListRelatedArtistsRequest>("ListRelatedArtistsRequest");
+        registered.insert("ListRelatedArtistsRequest".to_string());
+        gen.add_schema::<ListRelatedArtistsResponse>("ListRelatedArtistsResponse");
+        registered.insert("ListRelatedArtistsResponse".to_string());
+        gen.add_schema::<RelatedArtistsBatchEntry>("RelatedArtistsBatchEntry");
+        registered.insert("RelatedArtistsBatchEntry".to_string());
+        gen.add_schema::<ListRelatedArtistsBatchRequest>("ListRelatedArtistsBatchRequest");
+        registered.insert("ListRelatedArtistsBatchRequest".to_string());
+        gen.add_schema::<ListRelatedArtistsBatchResponse>("ListRelatedArtistsBatchResponse");
+        registered.insert("ListRelatedArtistsBatchResponse".to_string());
+        gen.add_schema::<SetRelatedArtistBandcampRequest>("SetRelatedArtistBandcampRequest");
+        registered.insert("SetRelatedArtistBandcampRequest".to_string());
+
+        // cross-remote relations / walk (phase 11)
+        gen.add_schema::<AlbumsByValueRequest>("AlbumsByValueRequest");
+        registered.insert("AlbumsByValueRequest".to_string());
+        gen.add_schema::<AlbumsByValueResponse>("AlbumsByValueResponse");
+        registered.insert("AlbumsByValueResponse".to_string());
+        gen.add_schema::<EntityTaxonsEntry>("EntityTaxonsEntry");
+        registered.insert("EntityTaxonsEntry".to_string());
+        gen.add_schema::<EntityTaxonsBatchRequest>("EntityTaxonsBatchRequest");
+        registered.insert("EntityTaxonsBatchRequest".to_string());
+        gen.add_schema::<EntityTaxonsBatchResponse>("EntityTaxonsBatchResponse");
+        registered.insert("EntityTaxonsBatchResponse".to_string());
+        gen.add_schema::<MergedKeyMatch>("MergedKeyMatch");
+        registered.insert("MergedKeyMatch".to_string());
+        gen.add_schema::<FindByMergedKeyRequest>("FindByMergedKeyRequest");
+        registered.insert("FindByMergedKeyRequest".to_string());
+        gen.add_schema::<FindByMergedKeyResponse>("FindByMergedKeyResponse");
+        registered.insert("FindByMergedKeyResponse".to_string());
+
+        // phase 22: synthesized first-order hubs (era bins, recently added)
+        gen.add_schema::<EraBin>("EraBin");
+        registered.insert("EraBin".to_string());
+        gen.add_schema::<EraBinsRequest>("EraBinsRequest");
+        registered.insert("EraBinsRequest".to_string());
+        gen.add_schema::<EraBinsResponse>("EraBinsResponse");
+        registered.insert("EraBinsResponse".to_string());
+        gen.add_schema::<RecentlyAddedAlbumsRequest>("RecentlyAddedAlbumsRequest");
+        registered.insert("RecentlyAddedAlbumsRequest".to_string());
+        gen.add_schema::<RecentlyAddedAlbumsResponse>("RecentlyAddedAlbumsResponse");
+        registered.insert("RecentlyAddedAlbumsResponse".to_string());
+        gen.add_schema::<EraAlbumsRequest>("EraAlbumsRequest");
+        registered.insert("EraAlbumsRequest".to_string());
+        gen.add_schema::<EraAlbumsResponse>("EraAlbumsResponse");
+        registered.insert("EraAlbumsResponse".to_string());
+
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
+        gen.add_schema::<SetMbLookupStatusRequest>("SetMbLookupStatusRequest");
+        registered.insert("SetMbLookupStatusRequest".to_string());
 
         gen.add_schema::<JobResponse>("JobResponse");
         registered.insert("JobResponse".to_string());
@@ -585,11 +697,301 @@ pub mod type_registry {
         gen.add_schema::<Album>("Album");
         registered.insert("Album".to_string());
 
+        // album metadata blob types — single source of truth.
+        gen.add_schema::<MbLookupStatus>("MbLookupStatus");
+        registered.insert("MbLookupStatus".to_string());
+        gen.add_schema::<FolksonomyTag>("FolksonomyTag");
+        registered.insert("FolksonomyTag".to_string());
+        gen.add_schema::<MbCandidate>("MbCandidate");
+        registered.insert("MbCandidate".to_string());
+        gen.add_schema::<MbLastQuery>("MbLastQuery");
+        registered.insert("MbLastQuery".to_string());
+        gen.add_schema::<MbFolksonomy>("MbFolksonomy");
+        registered.insert("MbFolksonomy".to_string());
+        gen.add_schema::<MbMetadata>("MbMetadata");
+        registered.insert("MbMetadata".to_string());
+        gen.add_schema::<FolksonomyMetadata>("FolksonomyMetadata");
+        registered.insert("FolksonomyMetadata".to_string());
+        gen.add_schema::<EnrichmentLogEntry>("EnrichmentLogEntry");
+        registered.insert("EnrichmentLogEntry".to_string());
+        gen.add_schema::<AlbumMetadata>("AlbumMetadata");
+        registered.insert("AlbumMetadata".to_string());
+
+        // artist metadata blob types (phase 14 / 15) — single source of truth.
+        gen.add_schema::<ArtistLastFmMetadata>("ArtistLastFmMetadata");
+        registered.insert("ArtistLastFmMetadata".to_string());
+        gen.add_schema::<ArtistAudioDbMetadata>("ArtistAudioDbMetadata");
+        registered.insert("ArtistAudioDbMetadata".to_string());
+        gen.add_schema::<ArtistMbMetadata>("ArtistMbMetadata");
+        registered.insert("ArtistMbMetadata".to_string());
+        gen.add_schema::<ArtistMetadata>("ArtistMetadata");
+        registered.insert("ArtistMetadata".to_string());
+
+        // mb album-search job request/response (phase 5)
+        gen.add_schema::<crate::jobs::MbAlbumSearchParams>("MbAlbumSearchParams");
+        registered.insert("MbAlbumSearchParams".to_string());
+        gen.add_schema::<crate::jobs::MbAlbumSearchResult>("MbAlbumSearchResult");
+        registered.insert("MbAlbumSearchResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchRequest>("EnqueueMbAlbumSearchRequest");
+        registered.insert("EnqueueMbAlbumSearchRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueMbAlbumSearchResponse>("EnqueueMbAlbumSearchResponse");
+        registered.insert("EnqueueMbAlbumSearchResponse".to_string());
+
+        // mb album-detail job request/response (phase 8)
+        gen.add_schema::<crate::jobs::MbAlbumDetailParams>("MbAlbumDetailParams");
+        registered.insert("MbAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::MbAlbumDetailResult>("MbAlbumDetailResult");
+        registered.insert("MbAlbumDetailResult".to_string());
+
+        // last.fm album-detail job request/response (phase 13)
+        gen.add_schema::<crate::jobs::LastFmAlbumDetailParams>("LastFmAlbumDetailParams");
+        registered.insert("LastFmAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::LastFmAlbumDetailResult>("LastFmAlbumDetailResult");
+        registered.insert("LastFmAlbumDetailResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueLastFmAlbumDetailRequest>(
+            "EnqueueLastFmAlbumDetailRequest",
+        );
+        registered.insert("EnqueueLastFmAlbumDetailRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueLastFmAlbumDetailResponse>(
+            "EnqueueLastFmAlbumDetailResponse",
+        );
+        registered.insert("EnqueueLastFmAlbumDetailResponse".to_string());
+
+        // theaudiodb album-detail job request/response (phase 13)
+        gen.add_schema::<crate::jobs::AudioDbAlbumDetailParams>("AudioDbAlbumDetailParams");
+        registered.insert("AudioDbAlbumDetailParams".to_string());
+        gen.add_schema::<crate::jobs::AudioDbAlbumDetailResult>("AudioDbAlbumDetailResult");
+        registered.insert("AudioDbAlbumDetailResult".to_string());
+        gen.add_schema::<crate::jobs::EnqueueAudioDbAlbumDetailRequest>(
+            "EnqueueAudioDbAlbumDetailRequest",
+        );
+        registered.insert("EnqueueAudioDbAlbumDetailRequest".to_string());
+        gen.add_schema::<crate::jobs::EnqueueAudioDbAlbumDetailResponse>(
+            "EnqueueAudioDbAlbumDetailResponse",
+        );
+        registered.insert("EnqueueAudioDbAlbumDetailResponse".to_string());
+
+        // album enrichment pipeline + bulk orchestration (phase 14.4)
+        gen.add_schema::<crate::jobs::EnrichmentSource>("EnrichmentSource");
+        registered.insert("EnrichmentSource".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentPipelineParams>(
+            "AlbumEnrichmentPipelineParams",
+        );
+        registered.insert("AlbumEnrichmentPipelineParams".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentPipelineResult>(
+            "AlbumEnrichmentPipelineResult",
+        );
+        registered.insert("AlbumEnrichmentPipelineResult".to_string());
+        gen.add_schema::<crate::jobs::BulkEnrichmentRequest>("BulkEnrichmentRequest");
+        registered.insert("BulkEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::BulkEnrichmentResponse>("BulkEnrichmentResponse");
+        registered.insert("BulkEnrichmentResponse".to_string());
+        gen.add_schema::<crate::jobs::CancelBulkEnrichmentRequest>("CancelBulkEnrichmentRequest");
+        registered.insert("CancelBulkEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::CancelBulkEnrichmentResponse>("CancelBulkEnrichmentResponse");
+        registered.insert("CancelBulkEnrichmentResponse".to_string());
+        gen.add_schema::<crate::jobs::GetEnrichmentProgressRequest>("GetEnrichmentProgressRequest");
+        registered.insert("GetEnrichmentProgressRequest".to_string());
+        gen.add_schema::<crate::jobs::GetEnrichmentProgressResponse>(
+            "GetEnrichmentProgressResponse",
+        );
+        registered.insert("GetEnrichmentProgressResponse".to_string());
+        gen.add_schema::<crate::jobs::EnrichmentSourceStatus>("EnrichmentSourceStatus");
+        registered.insert("EnrichmentSourceStatus".to_string());
+        gen.add_schema::<crate::jobs::AlbumEnrichmentProgress>("AlbumEnrichmentProgress");
+        registered.insert("AlbumEnrichmentProgress".to_string());
+
+        // phase 9.1 — typed job-lifecycle event payload (broadcast over
+        // jobz alpn / tauri bridge / http poll wrapper). registered now
+        // so codegen sees it; streaming routes that consume it land in
+        // phase 9.2 (RouteKind::Streaming).
+        gen.add_schema::<crate::jobs::job_events::JobEvent>("JobEvent");
+        registered.insert("JobEvent".to_string());
+        gen.add_schema::<crate::jobs::job_events::JobStatusWire>("JobStatusWire");
+        registered.insert("JobStatusWire".to_string());
+
+        // phase 11 / p1 — entity ref, subscription filter, snapshot,
+        // close reason. consumed by the offal streaming routes (p3+)
+        // and the tauri bridge (p5).
+        gen.add_schema::<crate::jobs::job_events::EntityRef>("EntityRef");
+        registered.insert("EntityRef".to_string());
+        gen.add_schema::<crate::jobs::job_events::EventFilter>("EventFilter");
+        registered.insert("EventFilter".to_string());
+        gen.add_schema::<crate::jobs::job_events::JobStateSnapshot>("JobStateSnapshot");
+        registered.insert("JobStateSnapshot".to_string());
+        gen.add_schema::<crate::jobs::job_events::CloseReason>("CloseReason");
+        registered.insert("CloseReason".to_string());
+
+        // phase 13h — related-artists cross-ref store. processors that
+        // populate this and offal routes that read it land in 13h.next;
+        // models registered now so the codegen + ts client see them
+        // alongside the rest of the music domain.
+        gen.add_schema::<crate::music::entities::related_artists::RelatedArtist>("RelatedArtist");
+        registered.insert("RelatedArtist".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::RelatedArtistSource>(
+            "RelatedArtistSource",
+        );
+        registered.insert("RelatedArtistSource".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::BandcampAlbumLink>(
+            "BandcampAlbumLink",
+        );
+        registered.insert("BandcampAlbumLink".to_string());
+        gen.add_schema::<crate::music::entities::related_artists::ExternalUrl>("ExternalUrl");
+        registered.insert("ExternalUrl".to_string());
+
+        // requery (phase 14.5)
+        gen.add_schema::<crate::jobs::RequeryOverride>("RequeryOverride");
+        registered.insert("RequeryOverride".to_string());
+        gen.add_schema::<crate::jobs::RequeryEnrichmentRequest>("RequeryEnrichmentRequest");
+        registered.insert("RequeryEnrichmentRequest".to_string());
+        gen.add_schema::<crate::jobs::RequeryEnrichmentResponse>("RequeryEnrichmentResponse");
+        registered.insert("RequeryEnrichmentResponse".to_string());
+
+        // remote image ingestion (phase 14.6)
+        gen.add_schema::<crate::offal::music::albums::ImageIngestTarget>("ImageIngestTarget");
+        registered.insert("ImageIngestTarget".to_string());
+        gen.add_schema::<crate::offal::music::albums::IngestRemoteImageRequest>(
+            "IngestRemoteImageRequest",
+        );
+        registered.insert("IngestRemoteImageRequest".to_string());
+        gen.add_schema::<crate::offal::music::albums::IngestRemoteImageResponse>(
+            "IngestRemoteImageResponse",
+        );
+        registered.insert("IngestRemoteImageResponse".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidatesRequest>(
+            "AlbumImageCandidatesRequest",
+        );
+        registered.insert("AlbumImageCandidatesRequest".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidate>("AlbumImageCandidate");
+        registered.insert("AlbumImageCandidate".to_string());
+        gen.add_schema::<crate::offal::music::albums::AlbumImageCandidatesResponse>(
+            "AlbumImageCandidatesResponse",
+        );
+        registered.insert("AlbumImageCandidatesResponse".to_string());
+        gen.add_schema::<crate::offal::music::artists::ArtistImageCandidatesRequest>(
+            "ArtistImageCandidatesRequest",
+        );
+        registered.insert("ArtistImageCandidatesRequest".to_string());
+        gen.add_schema::<crate::offal::music::artists::ArtistImageCandidatesResponse>(
+            "ArtistImageCandidatesResponse",
+        );
+        registered.insert("ArtistImageCandidatesResponse".to_string());
+
+        // mb candidate review request/response (phase 7)
+        gen.add_schema::<ConfirmMbMatchRequest>("ConfirmMbMatchRequest");
+        registered.insert("ConfirmMbMatchRequest".to_string());
+        gen.add_schema::<RejectMbMatchRequest>("RejectMbMatchRequest");
+        registered.insert("RejectMbMatchRequest".to_string());
+        gen.add_schema::<MbMatchActionResponse>("MbMatchActionResponse");
+        registered.insert("MbMatchActionResponse".to_string());
+        gen.add_schema::<AutoConfirmMbMatchesRequest>("AutoConfirmMbMatchesRequest");
+        registered.insert("AutoConfirmMbMatchesRequest".to_string());
+        gen.add_schema::<AutoConfirmSkip>("AutoConfirmSkip");
+        registered.insert("AutoConfirmSkip".to_string());
+        gen.add_schema::<AutoConfirmMbMatchesResult>("AutoConfirmMbMatchesResult");
+        registered.insert("AutoConfirmMbMatchesResult".to_string());
+
+        gen.add_schema::<ProposalSource>("ProposalSource");
+        registered.insert("ProposalSource".to_string());
+        gen.add_schema::<TaxonProposal>("TaxonProposal");
+        registered.insert("TaxonProposal".to_string());
+        gen.add_schema::<ProposeTaxonsRequest>("ProposeTaxonsRequest");
+        registered.insert("ProposeTaxonsRequest".to_string());
+        gen.add_schema::<AcceptedProposal>("AcceptedProposal");
+        registered.insert("AcceptedProposal".to_string());
+        gen.add_schema::<ApplyTaxonProposalsRequest>("ApplyTaxonProposalsRequest");
+        registered.insert("ApplyTaxonProposalsRequest".to_string());
+        gen.add_schema::<ApplyTaxonProposalsResult>("ApplyTaxonProposalsResult");
+        registered.insert("ApplyTaxonProposalsResult".to_string());
+
+        // ---- artist bio proposals (slice 4a) ----
+        gen.add_schema::<BioSource>("BioSource");
+        registered.insert("BioSource".to_string());
+        gen.add_schema::<BioProposal>("BioProposal");
+        registered.insert("BioProposal".to_string());
+        gen.add_schema::<ProposeArtistBiosRequest>("ProposeArtistBiosRequest");
+        registered.insert("ProposeArtistBiosRequest".to_string());
+        gen.add_schema::<ProposeArtistBiosResponse>("ProposeArtistBiosResponse");
+        registered.insert("ProposeArtistBiosResponse".to_string());
+        gen.add_schema::<ApplyArtistBioRequest>("ApplyArtistBioRequest");
+        registered.insert("ApplyArtistBioRequest".to_string());
+        gen.add_schema::<ApplyArtistBioResult>("ApplyArtistBioResult");
+        registered.insert("ApplyArtistBioResult".to_string());
+
+        // ---- related-artist proposals (slice 4c) ----
+        gen.add_schema::<RelatedArtistProposal>("RelatedArtistProposal");
+        registered.insert("RelatedArtistProposal".to_string());
+        gen.add_schema::<ProposeRelatedArtistsRequest>("ProposeRelatedArtistsRequest");
+        registered.insert("ProposeRelatedArtistsRequest".to_string());
+        gen.add_schema::<ProposeRelatedArtistsResponse>("ProposeRelatedArtistsResponse");
+        registered.insert("ProposeRelatedArtistsResponse".to_string());
+        gen.add_schema::<ApplyRelatedArtistsRequest>("ApplyRelatedArtistsRequest");
+        registered.insert("ApplyRelatedArtistsRequest".to_string());
+        gen.add_schema::<ApplyRelatedArtistsResult>("ApplyRelatedArtistsResult");
+        registered.insert("ApplyRelatedArtistsResult".to_string());
+
+        // ---- external-url proposals (phase 11.x) ----
+        gen.add_schema::<MbUrl>("MbUrl");
+        registered.insert("MbUrl".to_string());
+        gen.add_schema::<ExternalUrlProposal>("ExternalUrlProposal");
+        registered.insert("ExternalUrlProposal".to_string());
+        gen.add_schema::<ProposeExternalUrlsRequest>("ProposeExternalUrlsRequest");
+        registered.insert("ProposeExternalUrlsRequest".to_string());
+        gen.add_schema::<ProposeExternalUrlsResponse>("ProposeExternalUrlsResponse");
+        registered.insert("ProposeExternalUrlsResponse".to_string());
+        gen.add_schema::<AcceptedExternalUrl>("AcceptedExternalUrl");
+        registered.insert("AcceptedExternalUrl".to_string());
+        gen.add_schema::<ApplyExternalUrlsRequest>("ApplyExternalUrlsRequest");
+        registered.insert("ApplyExternalUrlsRequest".to_string());
+        gen.add_schema::<ApplyExternalUrlsResult>("ApplyExternalUrlsResult");
+        registered.insert("ApplyExternalUrlsResult".to_string());
+
         gen.add_schema::<GenreRef>("GenreRef");
         registered.insert("GenreRef".to_string());
 
-        gen.add_schema::<Genre>("Genre");
-        registered.insert("Genre".to_string());
+        // ---- taxonomy ----
+        gen.add_schema::<TaxonKind>("TaxonKind");
+        registered.insert("TaxonKind".to_string());
+        gen.add_schema::<Taxon>("Taxon");
+        registered.insert("Taxon".to_string());
+        gen.add_schema::<TaxonRef>("TaxonRef");
+        registered.insert("TaxonRef".to_string());
+        gen.add_schema::<TaxonWithStats>("TaxonWithStats");
+        registered.insert("TaxonWithStats".to_string());
+        gen.add_schema::<TaxonsQueryResult>("TaxonsQueryResult");
+        registered.insert("TaxonsQueryResult".to_string());
+        gen.add_schema::<AlbumTaxonLink>("AlbumTaxonLink");
+        registered.insert("AlbumTaxonLink".to_string());
+        gen.add_schema::<AlbumTaxonLinkInput>("AlbumTaxonLinkInput");
+        registered.insert("AlbumTaxonLinkInput".to_string());
+        gen.add_schema::<ScalarAttribute>("ScalarAttribute");
+        registered.insert("ScalarAttribute".to_string());
+        gen.add_schema::<CreateTaxonKindRequest>("CreateTaxonKindRequest");
+        registered.insert("CreateTaxonKindRequest".to_string());
+        gen.add_schema::<CreateTaxonRequest>("CreateTaxonRequest");
+        registered.insert("CreateTaxonRequest".to_string());
+        gen.add_schema::<GetTaxonRequest>("GetTaxonRequest");
+        registered.insert("GetTaxonRequest".to_string());
+        gen.add_schema::<ListTaxonsByKindRequest>("ListTaxonsByKindRequest");
+        registered.insert("ListTaxonsByKindRequest".to_string());
+        gen.add_schema::<GetAlbumTaxonLinksRequest>("GetAlbumTaxonLinksRequest");
+        registered.insert("GetAlbumTaxonLinksRequest".to_string());
+        gen.add_schema::<QueryTaxonsRequest>("QueryTaxonsRequest");
+        registered.insert("QueryTaxonsRequest".to_string());
+        gen.add_schema::<AddTaxonParentRequest>("AddTaxonParentRequest");
+        registered.insert("AddTaxonParentRequest".to_string());
+        gen.add_schema::<RemoveTaxonParentRequest>("RemoveTaxonParentRequest");
+        registered.insert("RemoveTaxonParentRequest".to_string());
+        gen.add_schema::<AddAlbumTaxonRequest>("AddAlbumTaxonRequest");
+        registered.insert("AddAlbumTaxonRequest".to_string());
+        gen.add_schema::<RemoveAlbumTaxonRequest>("RemoveAlbumTaxonRequest");
+        registered.insert("RemoveAlbumTaxonRequest".to_string());
+        gen.add_schema::<SetAlbumTaxonsRequest>("SetAlbumTaxonsRequest");
+        registered.insert("SetAlbumTaxonsRequest".to_string());
+        gen.add_schema::<SetScalarAttributeRequest>("SetScalarAttributeRequest");
+        registered.insert("SetScalarAttributeRequest".to_string());
+        gen.add_schema::<QueryScalarRangeRequest>("QueryScalarRangeRequest");
+        registered.insert("QueryScalarRangeRequest".to_string());
 
         gen.add_schema::<MediaBlob>("MediaBlob");
         registered.insert("MediaBlob".to_string());
@@ -650,6 +1052,8 @@ pub mod type_registry {
 
         gen.add_schema::<AlbumsQueryResult>("AlbumsQueryResult");
         registered.insert("AlbumsQueryResult".to_string());
+        gen.add_schema::<AlbumStatusCounts>("AlbumStatusCounts");
+        registered.insert("AlbumStatusCounts".to_string());
 
         gen.add_schema::<GetAlbumRequest>("GetAlbumRequest");
         registered.insert("GetAlbumRequest".to_string());
@@ -700,16 +1104,6 @@ pub mod type_registry {
 
         gen.add_schema::<RatingStats>("RatingStats");
         registered.insert("RatingStats".to_string());
-
-        // genres types
-        gen.add_schema::<GenreQueryResult>("GenreQueryResult");
-        registered.insert("GenreQueryResult".to_string());
-
-        gen.add_schema::<GenresQueryResult>("GenresQueryResult");
-        registered.insert("GenresQueryResult".to_string());
-
-        gen.add_schema::<GetGenreRequest>("GetGenreRequest");
-        registered.insert("GetGenreRequest".to_string());
 
         // upload types
         gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");
@@ -849,6 +1243,10 @@ pub mod type_registry {
         registered.insert("AdminUsersGenerateAccountLinkRequest".to_string());
         gen.add_schema::<AdminAccountLinkResponse>("AdminAccountLinkResponse");
         registered.insert("AdminAccountLinkResponse".to_string());
+        gen.add_schema::<AdminUsersAddPeerNodeRequest>("AdminUsersAddPeerNodeRequest");
+        registered.insert("AdminUsersAddPeerNodeRequest".to_string());
+        gen.add_schema::<AdminUsersRemovePeerNodeRequest>("AdminUsersRemovePeerNodeRequest");
+        registered.insert("AdminUsersRemovePeerNodeRequest".to_string());
 
         // admin dispatch: invites
         gen.add_schema::<AdminInviteInfo>("AdminInviteInfo");
@@ -885,6 +1283,12 @@ pub mod type_registry {
         registered.insert("AdminPeersAllowRequest".to_string());
         gen.add_schema::<AdminPeersAllowResponse>("AdminPeersAllowResponse");
         registered.insert("AdminPeersAllowResponse".to_string());
+        gen.add_schema::<AdminPeersHardDeleteRequest>("AdminPeersHardDeleteRequest");
+        registered.insert("AdminPeersHardDeleteRequest".to_string());
+        gen.add_schema::<AdminPeersHardDeleteResponse>("AdminPeersHardDeleteResponse");
+        registered.insert("AdminPeersHardDeleteResponse".to_string());
+        gen.add_schema::<AdminPeersReassignUserRequest>("AdminPeersReassignUserRequest");
+        registered.insert("AdminPeersReassignUserRequest".to_string());
 
         // radio admin types
         gen.add_schema::<RadioStation>("RadioStation");
@@ -950,6 +1354,15 @@ pub mod type_registry {
         registered.insert("HasBlobsRequest".to_string());
         gen.add_schema::<HasBlobsResponse>("HasBlobsResponse");
         registered.insert("HasBlobsResponse".to_string());
+
+        // atlas: AtlasEntry must register before AtlasManifest since
+        // AtlasManifest's HashMap value references it.
+        gen.add_schema::<AtlasEntry>("AtlasEntry");
+        registered.insert("AtlasEntry".to_string());
+        gen.add_schema::<AtlasManifest>("AtlasManifest");
+        registered.insert("AtlasManifest".to_string());
+        gen.add_schema::<BuildAtlasRequest>("BuildAtlasRequest");
+        registered.insert("BuildAtlasRequest".to_string());
 
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");

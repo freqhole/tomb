@@ -64,6 +64,48 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
             Style::new().fg(ACCENT).bold(),
         ));
         lines.push(Line::from(""));
+        for (spec, state) in cmd.args.iter().zip(form.fields.iter()) {
+            if let FieldState::MultiSelect {
+                options: Some(opts),
+                checked,
+                ..
+            } = state
+            {
+                let selected_labels: Vec<String> = opts
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, opt)| {
+                        checked
+                            .get(idx)
+                            .copied()
+                            .unwrap_or(false)
+                            .then(|| opt.label.clone())
+                    })
+                    .collect();
+                let preview = if selected_labels.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    let mut joined = selected_labels.join(", ");
+                    if joined.chars().count() > 72 {
+                        joined = joined.chars().take(69).collect::<String>() + "...";
+                    }
+                    joined
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{}:", spec.name), Style::new().bold()),
+                    Span::raw(format!(" {} selected", selected_labels.len())),
+                    Span::styled(format!("  {}", preview), Style::new().dim()),
+                ]));
+            }
+        }
+        if cmd
+            .args
+            .iter()
+            .zip(form.fields.iter())
+            .any(|(_, state)| matches!(state, FieldState::MultiSelect { .. }))
+        {
+            lines.push(Line::from(""));
+        }
         match build_body(cmd, form, app.state.ephemeral.local_node_id.as_deref()) {
             Ok(body) => {
                 let pretty = serde_json::to_string_pretty(&body).unwrap_or_default();
@@ -116,8 +158,15 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
             .get(form.focused)
             .map(|f| matches!(f, FieldState::LongText { .. }))
             .unwrap_or(false);
+        let is_multi = form
+            .fields
+            .get(form.focused)
+            .map(|f| matches!(f, FieldState::MultiSelect { .. }))
+            .unwrap_or(false);
         if is_long {
             "enter: newline   tab: next step   esc: cancel".to_string()
+        } else if is_multi {
+            "space: toggle   a/n: all/none   ↑↓: move   enter: next".to_string()
         } else {
             "\u{2190}/\u{2192}: pick   enter: next step   esc: cancel".to_string()
         }
@@ -340,6 +389,104 @@ fn render_field(spec: &ArgSpec, state: &FieldState, focused: bool) -> Vec<Line<'
                 ])
             }
         }
+        (
+            FieldState::MultiSelect {
+                options,
+                loading,
+                error,
+                cursor,
+                checked,
+            },
+            ArgKind::MultiSelectFrom { source_command, .. },
+        ) => {
+            let prefix = if focused { "> " } else { "  " };
+            if *loading {
+                out.push(Line::from(vec![
+                    Span::styled(prefix, Style::new().fg(ACCENT).bold()),
+                    Span::styled(format!("loading {}…", source_command), Style::new().dim()),
+                ]));
+                if let Some(help) = &spec.help {
+                    out.push(Line::from(Span::styled(
+                        format!("  {}", help),
+                        Style::new().dim(),
+                    )));
+                }
+                return out;
+            }
+            if let Some(err) = error {
+                out.push(Line::from(vec![
+                    Span::styled(prefix, Style::new().fg(ACCENT).bold()),
+                    Span::styled(format!("error: {}", err), Style::new().red()),
+                ]));
+                if let Some(help) = &spec.help {
+                    out.push(Line::from(Span::styled(
+                        format!("  {}", help),
+                        Style::new().dim(),
+                    )));
+                }
+                return out;
+            }
+            let Some(opts) = options else {
+                out.push(Line::from(vec![
+                    Span::styled(prefix, Style::new().fg(ACCENT).bold()),
+                    Span::styled("(focus to load)", Style::new().dim()),
+                ]));
+                if let Some(help) = &spec.help {
+                    out.push(Line::from(Span::styled(
+                        format!("  {}", help),
+                        Style::new().dim(),
+                    )));
+                }
+                return out;
+            };
+            if opts.is_empty() {
+                out.push(Line::from(vec![
+                    Span::styled(prefix, Style::new().fg(ACCENT).bold()),
+                    Span::styled(format!("(no {} found)", source_command), Style::new().dim()),
+                ]));
+                if let Some(help) = &spec.help {
+                    out.push(Line::from(Span::styled(
+                        format!("  {}", help),
+                        Style::new().dim(),
+                    )));
+                }
+                return out;
+            }
+
+            let cur = (*cursor).min(opts.len().saturating_sub(1));
+            for (idx, opt) in opts.iter().enumerate() {
+                let mark = if checked.get(idx).copied().unwrap_or(false) {
+                    "[x]"
+                } else {
+                    "[ ]"
+                };
+                let row_style = if idx == cur {
+                    if focused {
+                        Style::new().fg(ACCENT).bold().reversed()
+                    } else {
+                        Style::new().fg(ACCENT)
+                    }
+                } else {
+                    Style::new()
+                };
+                let row_prefix = if idx == 0 { prefix } else { "  " };
+                out.push(Line::from(vec![
+                    Span::styled(row_prefix, Style::new().fg(ACCENT).bold()),
+                    Span::styled(format!("{} {}", mark, opt.label), row_style),
+                ]));
+            }
+            out.push(Line::from(Span::styled(
+                "  space toggle  a all  n none  ↑↓ move  enter next",
+                Style::new().dim(),
+            )));
+            if let Some(help) = &spec.help {
+                out.push(Line::from(Span::styled(
+                    format!("  {}", help),
+                    Style::new().dim(),
+                )));
+            }
+            return out;
+        }
         _ => Line::from(""),
     };
     out.push(body);
@@ -452,13 +599,59 @@ pub fn build_body(
                     .as_ref()
                     .ok_or_else(|| format!("`{}` not loaded yet", spec.name))?;
                 if opts.is_empty() {
-                    return Err(format!("`{}` has no options to pick from", spec.name));
+                    if spec.required {
+                        return Err(format!("`{}` has no options to pick from", spec.name));
+                    }
+                    continue;
                 }
                 let sel = (*selected).min(opts.len() - 1);
+                let picked = opts[sel].value.trim();
+                if picked.is_empty() {
+                    if spec.required {
+                        return Err(format!("`{}` is required", spec.name));
+                    }
+                    continue;
+                }
                 map.insert(
                     spec.name.clone(),
-                    serde_json::Value::String(opts[sel].value.clone()),
+                    serde_json::Value::String(picked.to_string()),
                 );
+            }
+            (
+                ArgKind::MultiSelectFrom { .. },
+                FieldState::MultiSelect {
+                    options,
+                    loading,
+                    error,
+                    checked,
+                    ..
+                },
+            ) => {
+                if *loading {
+                    return Err(format!("`{}` is still loading", spec.name));
+                }
+                if let Some(e) = error {
+                    return Err(format!("`{}`: {}", spec.name, e));
+                }
+                let opts = options
+                    .as_ref()
+                    .ok_or_else(|| format!("`{}` not loaded yet", spec.name))?;
+                if opts.is_empty() {
+                    if spec.required {
+                        return Err(format!("`{}` has no options to pick from", spec.name));
+                    }
+                    continue;
+                }
+                let mut picked: Vec<serde_json::Value> = Vec::new();
+                for (idx, opt) in opts.iter().enumerate() {
+                    if checked.get(idx).copied().unwrap_or(false) {
+                        picked.push(serde_json::Value::String(opt.value.clone()));
+                    }
+                }
+                if picked.is_empty() && spec.required {
+                    return Err(format!("`{}` is required", spec.name));
+                }
+                map.insert(spec.name.clone(), serde_json::Value::Array(picked));
             }
             (
                 ArgKind::Mirror {
@@ -565,6 +758,25 @@ pub fn build_select_source_body(
                 }
                 let s = (*selected).min(opts.len() - 1);
                 serde_json::Value::String(opts[s].value.clone())
+            }
+            FieldState::MultiSelect {
+                options,
+                cursor,
+                checked,
+                ..
+            } => {
+                let opts = options
+                    .as_ref()
+                    .ok_or_else(|| format!("`{}` not loaded yet — pick it first", sibling_name))?;
+                if opts.is_empty() {
+                    return Err(format!("`{}` has no options", sibling_name));
+                }
+                if let Some(idx) = checked.iter().position(|v| *v) {
+                    serde_json::Value::String(opts[idx].value.clone())
+                } else {
+                    let idx = (*cursor).min(opts.len() - 1);
+                    serde_json::Value::String(opts[idx].value.clone())
+                }
             }
             FieldState::OneOf { selected } => {
                 if let Some(ArgKind::OneOf { choices }) = cmd.args.get(sib_idx).map(|a| &a.kind) {

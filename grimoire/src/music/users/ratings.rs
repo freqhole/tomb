@@ -614,7 +614,9 @@ mod tests {
         assert!(RatingsService::validate_rating(1).is_ok());
         assert!(RatingsService::validate_rating(3).is_ok());
         assert!(RatingsService::validate_rating(5).is_ok());
-        assert!(RatingsService::validate_rating(0).is_err());
+        // 0 is now a valid rating (means "remove rating");
+        // UserRating::is_valid_rating allows the range 0..=5.
+        assert!(RatingsService::validate_rating(0).is_ok());
         assert!(RatingsService::validate_rating(6).is_err());
     }
 

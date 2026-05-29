@@ -17,7 +17,7 @@ pub(in crate::admin_dispatch) async fn blake3_status() -> GrimoireResponse<JsonV
 }
 
 /// backfill blake3 hashes for media_blobz rows that don't have one.
-/// args: `{ batch_size?: i64 (default 100) }`
+/// args: `{ batch_size?: i64 (default 100), concurrency?: i64 (default 16) }`
 /// returns `{ scanned, hashed }` totals.
 pub(in crate::admin_dispatch) async fn backfill_blake3(
     args: JsonValue,
@@ -26,7 +26,8 @@ pub(in crate::admin_dispatch) async fn backfill_blake3(
     if batch_size <= 0 {
         return bad_request("batch_size must be > 0");
     }
-    match crate::blobz::backfill_blake3_hashes(batch_size).await {
+    let concurrency = opt_i64(&args, "concurrency", 16).max(1) as usize;
+    match crate::blobz::backfill_blake3_hashes(batch_size, concurrency).await {
         Ok((scanned, hashed)) => GrimoireResponse::success(
             &format!("scanned {scanned} blobs, hashed {hashed}"),
             json!({ "scanned": scanned, "hashed": hashed }),

@@ -15,7 +15,7 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { canUpdateAlbum } from "../data/permissions";
-import { showAlbumEditor, showImageCarousel } from "../hooks/modals";
+import { showAlbumEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -26,6 +26,7 @@ import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
 import { EntityLinks } from "../../components/media/EntityLinks";
+import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
@@ -123,7 +124,11 @@ export function AlbumDetailView() {
       albumType: songList[0]?.album_type ?? null,
       releaseDate: null,
       label: null,
-      genres: songList[0]?.album_genres?.map((g) => g.name).filter(Boolean) ?? [],
+      genres:
+        songList[0]?.album_taxons
+          ?.filter((t) => t.kind_slug === "genre")
+          .map((t) => t.label)
+          .filter(Boolean) ?? [],
       songs: songList as unknown as RemoteSong[],
     };
   };
@@ -286,7 +291,7 @@ export function AlbumDetailView() {
 
     showImageCarousel({
       images: imageUrls,
-      title: `${albumInfo()?.title || "album"} images`,
+      title: formatImageCarouselTitle(albumInfo()?.title, imageUrls.length),
     });
   };
 
@@ -339,12 +344,14 @@ export function AlbumDetailView() {
                     </div>
                   </div>
 
-                  {/* genres, tags, and links — collapsed to 2 lines on narrow screens */}
+                  {/* genres, tags, and links — collapsed to ~2 lines on
+                      all breakpoints with a see-more toggle. entity urls
+                      get their own collapsible row below so the two can
+                      expand/collapse independently. */}
                   <Show
                     when={
-                      (songs()[0]?.album_genres?.length ?? 0) > 0 ||
-                      (songs()[0]?.album_tags?.length ?? 0) > 0 ||
-                      (albumQuery.data?.urls?.length ?? 0) > 0
+                      (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
+                      (songs()[0]?.album_tags?.length ?? 0) > 0
                     }
                   >
                     <div class="mt-1">
@@ -360,19 +367,22 @@ export function AlbumDetailView() {
                           obs.observe(el);
                         }}
                         class={`flex flex-wrap gap-1.5 wide:justify-start ${
-                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden wide:max-h-none" : ""
+                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
                         }`}
                       >
-                        <For each={songs()[0]?.album_genres ?? []}>
+                        <For
+                          each={
+                            songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ?? []
+                          }
+                        >
                           {(genre) => (
-                            <button
-                              class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
-                              onClick={() => navigate(buildRoute(`/genres/${genre.id}`))}
-                            >
-                              {genre.name}
-                            </button>
+                            <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
+                              {genre.label}
+                            </span>
                           )}
                         </For>
+                        {/* non-genre taxons (label, mood, era, region, ...) */}
+                        <TaxonChipList taxons={songs()[0]?.album_taxons} excludeKinds={["genre"]} />
                         <For each={songs()[0]?.album_tags ?? []}>
                           {(tag) => (
                             <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
@@ -380,16 +390,22 @@ export function AlbumDetailView() {
                             </span>
                           )}
                         </For>
-                        <EntityLinks urls={albumQuery.data?.urls} />
                       </div>
                       <Show when={tagsOverflowing() || tagsExpanded()}>
                         <button
                           onClick={() => setTagsExpanded((v) => !v)}
-                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] wide:hidden"
+                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
                         >
                           {tagsExpanded() ? "see less" : "see more"}
                         </button>
                       </Show>
+                    </div>
+                  </Show>
+
+                  {/* entity links — independently collapsible row */}
+                  <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
+                    <div class="mt-1">
+                      <EntityLinks urls={albumQuery.data?.urls} collapsible />
                     </div>
                   </Show>
 

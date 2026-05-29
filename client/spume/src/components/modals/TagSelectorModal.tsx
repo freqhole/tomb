@@ -2,6 +2,8 @@
 // supports single or multiple albums with aggregated tag state
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { getDataSource } from "../../music/data";
+import { getClientForRemote } from "../../app/api/client";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -18,6 +20,11 @@ interface TagSelectorModalProps {
   albumIds: string[];
   /** optional album title to display (if single album) */
   albumTitle?: string;
+  /** when set, all reads + writes are routed through this remote's
+   *  api client rather than the active datasource. needed by views
+   *  (e.g. library) that browse a remote which isn't the global
+   *  active source. */
+  remote?: Remote;
   /** callback when modal should close */
   onClose: () => void;
   /** callback after successful save to invalidate queries */
@@ -41,33 +48,61 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
 
   // load tags on mount
   (async () => {
-    const datasource = await getDataSource();
-
     setIsLoading(true);
     try {
-      // load all available tags
-      const tags = await datasource.getTags?.();
-      if (tags) {
-        setAllTags(tags);
-      }
+      let tags: Tag[] | undefined;
+      const counts = new Map<string, number>();
 
-      // load tags for ALL albums and count occurrences
-      if (props.albumIds.length > 0 && datasource.getAlbumTags) {
-        const counts = new Map<string, number>();
-
-        for (const albumId of props.albumIds) {
-          const tagNames = await datasource.getAlbumTags(albumId);
-          if (tagNames) {
-            for (const name of tagNames) {
-              const tag = tags?.find((t) => t.name === name);
-              if (tag) {
-                counts.set(tag.tag_id, (counts.get(tag.tag_id) || 0) + 1);
-              }
+      if (props.remote) {
+        // remote-scoped path: route through the picked remote's client
+        // so library bulk actions can target a remote that isn't the
+        // active datasource.
+        const client = await getClientForRemote(props.remote);
+        const tagsResp = await client.music.listTags();
+        if (tagsResp.success) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tags = tagsResp.data.map((t: any) => ({
+            tag_id: t.id,
+            name: t.name,
+            created_at: t.created_at,
+          }));
+          setAllTags(tags);
+        }
+        if (tags && props.albumIds.length > 0) {
+          const resp = await client.music.getAlbumsTags({ album_ids: props.albumIds });
+          if (resp.success) {
+            // each row is one (album_id, tag) pair; count tag_id
+            // occurrences across all rows.
+            for (const row of resp.data) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const r: any = row;
+              const tagId = r.tag?.id ?? r.tag_id;
+              if (tagId) counts.set(tagId, (counts.get(tagId) || 0) + 1);
             }
           }
         }
-
         setTagCounts(counts);
+      } else {
+        const datasource = await getDataSource();
+        const dsTags = await datasource.getTags?.();
+        if (dsTags) {
+          tags = dsTags;
+          setAllTags(dsTags);
+        }
+        if (props.albumIds.length > 0 && datasource.getAlbumTags) {
+          for (const albumId of props.albumIds) {
+            const tagNames = await datasource.getAlbumTags(albumId);
+            if (tagNames) {
+              for (const name of tagNames) {
+                const tag = tags?.find((t) => t.name === name);
+                if (tag) {
+                  counts.set(tag.tag_id, (counts.get(tag.tag_id) || 0) + 1);
+                }
+              }
+            }
+          }
+          setTagCounts(counts);
+        }
       }
     } catch (err) {
       console.error("failed to load tags:", err);
@@ -164,8 +199,6 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       return;
     }
 
-    const datasource = await getDataSource();
-
     setIsLoading(true);
     try {
       // collect tag names for tags to add
@@ -177,17 +210,34 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       // collect tag IDs for tags to remove (filter out temp tags)
       const tagIdsToRemove = Array.from(changes.remove).filter((id) => !id.startsWith("temp_"));
 
-      // add tags (datasource will find or create)
-      if (tagNamesToAdd.length > 0) {
-        for (const albumId of props.albumIds) {
-          await datasource.addTagsToAlbum?.(albumId, tagNamesToAdd);
+      if (props.remote) {
+        const client = await getClientForRemote(props.remote);
+        if (tagNamesToAdd.length > 0) {
+          await client.music.addAlbumsTags({
+            album_ids: props.albumIds,
+            tag_ids: [],
+            tag_names: tagNamesToAdd,
+          });
         }
-      }
-
-      // remove tags
-      if (tagIdsToRemove.length > 0) {
-        for (const albumId of props.albumIds) {
-          await datasource.removeTagsFromAlbum?.(albumId, tagIdsToRemove);
+        if (tagIdsToRemove.length > 0) {
+          await client.music.removeAlbumsTags({
+            album_ids: props.albumIds,
+            tag_ids: tagIdsToRemove,
+          });
+        }
+      } else {
+        const datasource = await getDataSource();
+        // add tags (datasource will find or create)
+        if (tagNamesToAdd.length > 0) {
+          for (const albumId of props.albumIds) {
+            await datasource.addTagsToAlbum?.(albumId, tagNamesToAdd);
+          }
+        }
+        // remove tags
+        if (tagIdsToRemove.length > 0) {
+          for (const albumId of props.albumIds) {
+            await datasource.removeTagsFromAlbum?.(albumId, tagIdsToRemove);
+          }
         }
       }
 

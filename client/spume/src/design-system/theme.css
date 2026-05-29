@@ -193,6 +193,16 @@ body {
   -webkit-user-select: text;
 }
 
+/* prevent ios safari from zooming into inputs on focus.
+   safari zooms whenever a focused input has font-size < 16px.
+   setting 1rem here ensures all inputs meet the threshold without
+   disabling user pinch-zoom (which maximum-scale=1 would do). */
+input,
+textarea,
+select {
+  font-size: max(1rem, 1em);
+}
+
 /* disable backdrop-filter blur (for linux/webkitgtk compatibility)
    set via freqhole-app-config.toml: disable_backdrop_blur = true
    also adds solid background fallbacks since transparent + no blur looks broken */

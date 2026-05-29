@@ -63,6 +63,12 @@ pub struct SetupConfig {
     pub federation_enabled: Option<bool>,
     /// enable P2P knocking (allow unknown peers to request access, default: false)
     pub knocking_enabled: Option<bool>,
+    /// enable remote admin ALPN over federation (default: false)
+    pub remote_admin_enabled: Option<bool>,
+    /// enable radio subsystem (default: false)
+    pub radio_enabled: Option<bool>,
+    /// enable server.fetch_music routes (default: false)
+    pub fetch_music_enabled: Option<bool>,
 }
 
 /// a directory to scan with optional tags
@@ -282,6 +288,9 @@ impl SetupService {
             config.server_enabled,
             config.federation_enabled,
             config.knocking_enabled,
+            config.remote_admin_enabled,
+            config.radio_enabled,
+            config.fetch_music_enabled,
         )
     }
 

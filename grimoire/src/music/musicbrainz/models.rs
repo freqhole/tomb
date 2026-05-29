@@ -87,6 +87,14 @@ pub struct Release {
 
     /// Official genres on the release itself (via inc=genres)
     pub genres: Option<Vec<Genre>>,
+
+    /// Folksonomy tags on the release (via inc=tags)
+    pub tags: Option<Vec<Tag>>,
+
+    /// External relations (via inc=url-rels). includes urls to bandcamp,
+    /// discogs, allmusic, spotify/deezer ("free streaming"), apple music
+    /// / tidal ("streaming"), wikidata, etc.
+    pub relations: Option<Vec<Relation>>,
 }
 
 /// MusicBrainz release group
@@ -116,6 +124,12 @@ pub struct ReleaseGroup {
 
     /// Official genres from musicbrainz (via inc=genres)
     pub genres: Option<Vec<Genre>>,
+
+    /// Folksonomy tags on the release group (via inc=tags)
+    pub tags: Option<Vec<Tag>>,
+
+    /// External relations (via inc=url-rels).
+    pub relations: Option<Vec<Relation>>,
 
     /// MusicBrainz score (relevance in search results)
     pub score: Option<u32>,
@@ -153,6 +167,13 @@ pub struct Artist {
     /// Artist type (person, group, etc.)
     #[serde(rename = "type")]
     pub artist_type: Option<String>,
+
+    /// External url relations harvested via `inc=url-rels`. only
+    /// populated when fetching the artist directly via
+    /// `MusicBrainzClient::get_artist` (artist_credit copies don't
+    /// carry url-rels).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Vec<Relation>>,
 }
 
 /// Medium (disc/cassette/etc.)
@@ -646,7 +667,9 @@ mod tests {
             text_representation: None,
             release_group: None,
             genres: None,
+            tags: None,
             label_info: None,
+            relations: None,
         };
 
         assert!(release_with_art.has_cover_art());
@@ -667,11 +690,33 @@ mod tests {
             text_representation: None,
             release_group: None,
             genres: None,
+            tags: None,
             label_info: None,
+            relations: None,
         };
 
         assert!(!release_without_art.has_cover_art());
         assert_eq!(release_without_art.cover_art_count(), 0);
         assert!(!release_without_art.has_front_cover());
     }
+}
+
+/// generic url-relation entry from `inc=url-rels`. each carries a `type`
+/// (e.g. "bandcamp", "discogs", "allmusic", "free streaming",
+/// "streaming", "wikidata", "last.fm") and a target url object. only
+/// the fields we actually consume are mapped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relation {
+    /// relation type label (e.g. "bandcamp", "discogs", "wikidata").
+    #[serde(rename = "type")]
+    pub relation_type: String,
+    /// the target url object. for url-rels this is always present and
+    /// carries `{ id, resource }`.
+    pub url: Option<RelationUrl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationUrl {
+    pub id: Option<Uuid>,
+    pub resource: String,
 }

@@ -41,25 +41,6 @@ fn test_maintenance_cleanup_orphaned_genres() {
 }
 
 #[test]
-fn test_maintenance_cleanup_orphaned_sub_genres() {
-    let ctx = TestContext::from_snapshot();
-
-    // Cleanup orphaned sub-genres
-    let result = ctx.run_json(&["maintenance", "cleanup-orphaned-sub-genres"]);
-
-    assert!(
-        result["success"].as_bool().unwrap(),
-        "Should cleanup orphaned sub-genres successfully"
-    );
-
-    let data = &result["data"];
-    assert!(
-        data["sub_genres_deleted"].is_number(),
-        "Should have deletion count"
-    );
-}
-
-#[test]
 fn test_maintenance_cleanup_all() {
     let ctx = TestContext::from_snapshot();
 

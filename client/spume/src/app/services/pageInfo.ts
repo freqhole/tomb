@@ -17,6 +17,24 @@ export interface FeedTypeFilter {
   mode: "include" | "exclude";
 }
 
+// generic status filter option (used by the library/table view's
+// `mb_lookup_status` picker — surfaced in the topnav alongside the tag
+// + feed-type pickers for ui consistency).
+export interface StatusFilterOption {
+  /** raw status value (e.g. "needs_review") */
+  value: string;
+  /** human-readable label (e.g. "needs review") */
+  label: string;
+  /** optional count to show inline in the dropdown */
+  count?: number;
+}
+
+// a selected status filter with include/exclude mode
+export interface StatusFilter {
+  value: string;
+  mode: "include" | "exclude";
+}
+
 export interface PageInfo {
   /** page title (e.g. "songs", "artists") */
   title?: string;
@@ -49,6 +67,19 @@ export interface PageInfo {
   onClearFeedTypes?: () => void;
   myItemsOnly?: boolean;
   onToggleMyItems?: () => void;
+
+  // status filter controls (optional - library/table view). mirrors the
+  // tag-filter shape: each entry is include/exclude, the dropdown lets
+  // the user add new statuses, badges below the nav let them flip
+  // mode or remove. icon-button label is configurable via
+  // `statusFilterLabel` so other views could reuse this slot.
+  statusFilterOptions?: StatusFilterOption[];
+  selectedStatusFilters?: StatusFilter[];
+  statusFilterLabel?: string;
+  onAddStatusFilter?: (value: string) => void;
+  onRemoveStatusFilter?: (value: string) => void;
+  onToggleStatusFilterMode?: (value: string) => void;
+  onClearStatusFilters?: () => void;
 
   // back-to-top control (optional - views with long scroll)
   showBackToTop?: boolean;

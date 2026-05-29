@@ -37,6 +37,18 @@ pub struct ReleaseSearchQuery {
     /// Artist name
     pub artist: Option<String>,
 
+    /// Artist MusicBrainz ID (takes precedence over `artist` text).
+    /// emitted bare: `arid:<uuid>` — no quoting or escaping.
+    pub arid: Option<String>,
+
+    /// Release group MusicBrainz ID.
+    /// emitted bare: `rgid:<uuid>`.
+    pub rgid: Option<String>,
+
+    /// Release MusicBrainz ID.
+    /// emitted bare: `reid:<uuid>`.
+    pub reid: Option<String>,
+
     /// Release title
     pub release: Option<String>,
 
@@ -227,9 +239,28 @@ impl ReleaseSearchQuery {
         Self::default()
     }
 
-    /// Set artist name
+    /// Set artist name (omit when using `arid`)
     pub fn artist<S: Into<String>>(mut self, artist: S) -> Self {
         self.artist = Some(artist.into());
+        self
+    }
+
+    /// Set artist MusicBrainz ID. emits `arid:<uuid>` bare (no quoting).
+    /// takes precedence over `artist` text when both are set.
+    pub fn arid<S: Into<String>>(mut self, arid: S) -> Self {
+        self.arid = Some(arid.into());
+        self
+    }
+
+    /// Set release-group MusicBrainz ID. emits `rgid:<uuid>` bare.
+    pub fn rgid<S: Into<String>>(mut self, rgid: S) -> Self {
+        self.rgid = Some(rgid.into());
+        self
+    }
+
+    /// Set release MusicBrainz ID. emits `reid:<uuid>` bare.
+    pub fn reid<S: Into<String>>(mut self, reid: S) -> Self {
+        self.reid = Some(reid.into());
         self
     }
 
@@ -286,7 +317,11 @@ impl ReleaseSearchQuery {
         let mut query_parts = Vec::new();
         let mut lucene_query = Vec::new();
 
-        if let Some(ref artist) = self.artist {
+        // arid takes precedence over artist text when both are set.
+        // emit bare (no quoting) per MB lucene conventions.
+        if let Some(ref arid) = self.arid {
+            lucene_query.push(format!("arid:{}", arid));
+        } else if let Some(ref artist) = self.artist {
             let clean_artist = clean_search_text(artist);
             lucene_query.push(format!("artist:\"{}\"", escape_lucene_query(&clean_artist)));
         }
@@ -297,6 +332,17 @@ impl ReleaseSearchQuery {
                 "release:\"{}\"",
                 escape_lucene_query(&clean_release)
             ));
+        }
+
+        // mbid field clauses — emitted bare (no quoting).
+        // only one of rgid/reid is expected to be set per query; if both
+        // are present (e.g. from multi-source enrichment) both are emitted
+        // which AND-narrows to an exact match, which is fine.
+        if let Some(ref rgid) = self.rgid {
+            lucene_query.push(format!("rgid:{}", rgid));
+        }
+        if let Some(ref reid) = self.reid {
+            lucene_query.push(format!("reid:{}", reid));
         }
 
         if let Some(ref date) = self.date {
@@ -478,7 +524,10 @@ mod tests {
         assert!(query_string.contains("artist"));
         assert!(query_string.contains("Radiohead"));
         assert!(query_string.contains("recording"));
-        assert!(query_string.contains("Pyramid+Song"));
+        // spaces are percent-encoded as %20 by urlencoding::encode
+        // (used in to_query_string), so multi-word titles serialize as
+        // "Pyramid%20Song" not the older "Pyramid+Song" form.
+        assert!(query_string.contains("Pyramid%20Song"));
         assert!(query_string.contains("limit=25"));
     }
 
@@ -550,8 +599,71 @@ mod tests {
 
     #[test]
     fn test_clean_search_text() {
-        assert_eq!(clean_search_text("Test - Song"), "Test  Song");
+        // clean_search_text collapses " - " -> " " then any remaining
+        // '-' -> " " then double-space -> single-space then trims.
+        assert_eq!(clean_search_text("Test - Song"), "Test Song");
         assert_eq!(clean_search_text("Multi  Space"), "Multi Space");
         assert_eq!(clean_search_text("  trimmed  "), "trimmed");
+    }
+
+    #[test]
+    fn query_arid_only_emits_bare_clause() {
+        let qs = ReleaseSearchQuery::new()
+            .arid("a1ab1c0a-b1b2-4321-abcd-1234abcd5678")
+            .release("Kid A")
+            .to_query_string();
+        // should contain arid: without quotes
+        assert!(
+            qs.contains("arid%3Aa1ab1c0a"),
+            "expected arid clause, got: {}",
+            qs
+        );
+        // should not contain artist: clause
+        assert!(
+            !qs.contains("artist%3A"),
+            "should not have artist clause, got: {}",
+            qs
+        );
+    }
+
+    #[test]
+    fn query_arid_takes_precedence_over_artist_text() {
+        // when both arid and artist are set, arid wins in to_query_string
+        let qs = ReleaseSearchQuery::new()
+            .artist("Radiohead")
+            .arid("a1ab1c0a-b1b2-4321-abcd-1234abcd5678")
+            .release("Kid A")
+            .to_query_string();
+        // both are set on the struct; to_query_string should emit arid only
+        // (the builder sets both; the query serializer prefers arid)
+        assert!(qs.contains("arid%3A"), "expected arid clause, got: {}", qs);
+    }
+
+    #[test]
+    fn query_rgid_combines_with_release_text() {
+        let qs = ReleaseSearchQuery::new()
+            .release("Kid A")
+            .rgid("12345678-abcd-ef01-2345-678901234567")
+            .to_query_string();
+        assert!(
+            qs.contains("release%3A"),
+            "expected release clause, got: {}",
+            qs
+        );
+        assert!(qs.contains("rgid%3A"), "expected rgid clause, got: {}", qs);
+    }
+
+    #[test]
+    fn query_reid_combines_with_release_text() {
+        let qs = ReleaseSearchQuery::new()
+            .release("Kid A")
+            .reid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .to_query_string();
+        assert!(
+            qs.contains("release%3A"),
+            "expected release clause, got: {}",
+            qs
+        );
+        assert!(qs.contains("reid%3A"), "expected reid clause, got: {}", qs);
     }
 }

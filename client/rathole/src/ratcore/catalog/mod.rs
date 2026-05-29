@@ -83,6 +83,8 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::users::generate_api_key(),
         builders::users::revoke_api_key(),
         builders::users::hard_delete_peer_node(),
+        builders::users::add_peer_node(),
+        builders::users::remove_peer_node(),
         // -- invites --
         builders::invites::list(),
         builders::invites::generate(),
@@ -93,7 +95,14 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::peers::list_for_user(),
         builders::peers::remove(),
         builders::peers::restore(),
+        builders::peers::hard_delete(),
+        builders::peers::reassign_user(),
         builders::peers::allow(),
+        // -- library --
+        builders::library::scan(),
+        builders::library::list_directories(),
+        builders::library::remove_directory(),
+        builders::library::move_directory(),
         // -- radio --
         builders::radio::stations_get(),
         builders::radio::stations_create(),
@@ -117,6 +126,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::cleanup_orphaned_tags(),
         builders::maintenance::cleanup_orphaned_genres(),
         builders::maintenance::cleanup_all(),
+        builders::maintenance::backfill_blake3(),
         builders::maintenance::backfill_thumbnails(),
         builders::maintenance::cleanup_orphaned_blobs(),
         builders::maintenance::hard_delete_old_records(),
@@ -144,8 +154,9 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::analytics::counts(),
         // -- jobs (rich) --
         builders::jobs::list(),
+        // -- enrichment (rich) --
+        builders::enrichment::bulk_auto(),
         // -- blobz (rich) --
-        builders::blobz::backfill_blake3(),
         builders::blobz::check_references(),
     ]
 }
@@ -239,6 +250,8 @@ pub fn result_actions_for_row(
         "users_list" => &[
             ("get", "users_get"),
             ("update role", "users_update_role"),
+            ("add peer node", "users_add_peer_node"),
+            ("remove peer node", "users_remove_peer_node"),
             ("delete (soft)", "users_delete"),
             ("delete (hard)", "users_hard_delete"),
             ("restore", "users_restore"),
@@ -253,9 +266,12 @@ pub fn result_actions_for_row(
             ("revoke", "invites_revoke"),
             ("update role", "invites_update_role"),
         ],
-        "peers_list_all" | "peers_list_for_user" => {
-            &[("remove", "peers_remove"), ("restore", "peers_restore")]
-        }
+        "peers_list_all" | "peers_list_for_user" => &[
+            ("reassign user", "peers_reassign_user"),
+            ("remove", "peers_remove"),
+            ("restore", "peers_restore"),
+            ("hard delete", "peers_hard_delete"),
+        ],
         "radio_stations_list" => &[
             ("get", "radio_stations_get"),
             ("update", "radio_stations_update"),

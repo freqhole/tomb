@@ -28,10 +28,14 @@ fn test_users_generate_invites() {
     let codes = result["data"]["codes"].as_array().unwrap();
     assert_eq!(codes.len(), 3, "Should generate 3 invite codes");
 
-    // Each code should have 3 words separated by hyphens
+    // Each code should have 3 words plus a 4-digit segment separated by hyphens
     for code_obj in codes {
         let code_str = code_obj["code"].as_str().unwrap();
-        assert_eq!(code_str.split('-').count(), 3, "Code should have 3 words");
+        assert_eq!(
+            code_str.split('-').count(),
+            4,
+            "Code should have 3 words plus a digit segment"
+        );
     }
 }
 

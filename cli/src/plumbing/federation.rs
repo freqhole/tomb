@@ -599,6 +599,19 @@ async fn serve_p2p() -> CommandOutput<serde_json::Value> {
     eprintln!();
     eprintln!("press Ctrl+C to stop");
 
+    // process background jobs while serving P2P requests (uploads, enrichment, etc).
+    let job_cancellation_token = grimoire::jobs::CancellationToken::new();
+    let job_token = job_cancellation_token.clone();
+    let job_runner_handle = tokio::spawn(async move {
+        info!("starting job runner for P2P serve mode");
+        let result = grimoire::jobs::run_job_processor_with_token(job_token).await;
+        if result.success {
+            info!("job runner stopped gracefully");
+        } else {
+            info!("job runner stopped with failure: {}", result.message);
+        }
+    });
+
     // wait for shutdown signal
     match signal::ctrl_c().await {
         Ok(()) => {
@@ -612,6 +625,12 @@ async fn serve_p2p() -> CommandOutput<serde_json::Value> {
 
     // graceful shutdown
     endpoint.close().await;
+    job_cancellation_token.cancel();
+    if let Err(e) =
+        tokio::time::timeout(std::time::Duration::from_secs(12), job_runner_handle).await
+    {
+        info!("timed out waiting for job runner shutdown: {}", e);
+    }
     info!("P2P server stopped");
 
     CommandOutput::success(

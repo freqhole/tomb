@@ -87,6 +87,11 @@ export const ScanCompleteEventSchema = z.object({
     songs_added: z.number(),
     albums_added: z.number(),
     artists_added: z.number(),
+    // rescan-only fields (optional, only present from rescan jobs)
+    blobs_deleted: z.number().optional(),
+    restored_blobs: z.number().optional(),
+    restored_songs: z.number().optional(),
+    purged_scan_dirs: z.number().optional(),
   }),
 });
 

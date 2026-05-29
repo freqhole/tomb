@@ -57,6 +57,9 @@ pub struct PersistedState {
     pub ui: UiPrefs,
     #[serde(default)]
     pub remotes: Vec<RemoteEntry>,
+    /// pending remote connections (invite + knock requests in progress).
+    #[serde(default)]
+    pub pending_remotes: Vec<PendingRemoteEntry>,
 }
 
 fn default_schema_version() -> u32 {
@@ -70,6 +73,7 @@ impl Default for PersistedState {
             active_remote_id: None,
             ui: UiPrefs::default(),
             remotes: vec![],
+            pending_remotes: vec![],
         }
     }
 }
@@ -80,6 +84,49 @@ pub struct UiPrefs {
     pub last_view: Option<String>,
     #[serde(default)]
     pub volume: Option<f32>,
+}
+
+/// statefile entry for a pending remote connection attempt.
+///
+/// persisted to `data/rathole/state.toml` (tty) or the `freqhole_app`
+/// IndexedDB `pending_remotes` store (web shell). entries exist until
+/// the user removes them or the connection transitions to a real
+/// `RemoteEntry` on success.
+///
+/// stage values: `"invited"`, `"knock_pending"`, `"knock_accepted"`,
+/// `"knock_rejected"`, `"failed"`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingRemoteEntry {
+    /// stable uuid for this entry.
+    pub id: String,
+    /// node_id (64 hex chars) or http url of the target remote.
+    pub peer_addr: String,
+    /// transport hint: `"http"`, `"wasm"`, `"app"`.
+    pub transport: String,
+    /// current stage of the request.
+    pub stage: String,
+    /// unix milliseconds when the entry was created.
+    pub created_at: i64,
+    /// unix milliseconds when the entry was last updated.
+    pub updated_at: i64,
+    /// server name from `/api/hello`, when known.
+    #[serde(default)]
+    pub server_name: Option<String>,
+    /// knock id returned by the server when the knock was sent.
+    #[serde(default)]
+    pub knock_id: Option<String>,
+    /// username used in the knock request.
+    #[serde(default)]
+    pub knock_username: Option<String>,
+    /// message used in the knock request.
+    #[serde(default)]
+    pub knock_message: Option<String>,
+    /// invite code stored for later redemption, when provided at add time.
+    #[serde(default)]
+    pub invite_code: Option<String>,
+    /// last error description when `stage == "failed"`.
+    #[serde(default)]
+    pub error_message: Option<String>,
 }
 
 /// statefile entry for one saved server connection. mirrors
@@ -217,6 +264,13 @@ pub struct EphemeralState {
     /// top bar. fed by the same grimoire event channel that drives
     /// `jobs_status`.
     pub pending_knocks: u32,
+    /// username of a pending knock when exactly one is known.
+    /// used by the header indicator to show who knocked.
+    pub pending_knock_username: Option<String>,
+    /// most recent scan session status for `/scan` monitor reopen.
+    pub scan_status: Option<ScanStatus>,
+    /// if set, `/scan abort confirm` must match this session id.
+    pub scan_abort_confirm_for: Option<String>,
 }
 
 /// minimal portable view of an in-flight job session for the
@@ -232,6 +286,16 @@ pub struct JobsStatus {
     pub jobs_total: u32,
     /// jobs still pending.
     pub jobs_pending: u32,
+}
+
+/// in-memory status for the most recent `/scan` session.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScanStatus {
+    pub session_id: String,
+    pub jobs_total: u32,
+    pub jobs_pending: u32,
+    pub percent: u8,
+    pub active: bool,
 }
 
 impl Default for EphemeralState {
@@ -259,6 +323,9 @@ impl Default for EphemeralState {
             serve: ServeBadge::default(),
             jobs_status: None,
             pending_knocks: 0,
+            pending_knock_username: None,
+            scan_status: None,
+            scan_abort_confirm_for: None,
         }
     }
 }

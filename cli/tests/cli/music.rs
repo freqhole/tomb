@@ -32,11 +32,11 @@ fn test_music_query_workflow() {
 
     let song_id = songs[0]["song"]["id"].as_str().unwrap();
 
-    // 2. List songs and verify we can find our song
-    let result = ctx.run_json(&["music", "list-songs", "--limit", "100"]);
+    // 2. query songs and verify we can find our song
+    let result = ctx.run_json(&["music", "query-songs", "--limit", "100"]);
     assert!(result["success"].as_bool().unwrap());
-    let all_songs = result["data"].as_array().unwrap();
-    assert!(all_songs.iter().any(|s| s["id"] == song_id));
+    let all_songs = result["data"]["items"].as_array().unwrap();
+    assert!(all_songs.iter().any(|s| s["song"]["id"] == song_id));
 
     // 3. Get album if present
     if let Some(album_id) = songs[0]["album"]["id"].as_str() {
@@ -44,10 +44,10 @@ fn test_music_query_workflow() {
         assert!(result["success"].as_bool().unwrap());
     }
 
-    // 4. List artists
-    let result = ctx.run_json(&["music", "list-artists", "--limit", "10"]);
+    // 4. query artists
+    let result = ctx.run_json(&["music", "query-artists", "--limit", "10"]);
     assert!(result["success"].as_bool().unwrap());
-    let artists = result["data"].as_array().unwrap();
+    let artists = result["data"]["items"].as_array().unwrap();
     assert!(!artists.is_empty());
 }
 
@@ -108,52 +108,30 @@ fn test_music_error_cases() {
 fn test_music_genres() {
     let ctx = TestContext::from_snapshot();
 
-    // List genres
-    let result = ctx.run_json(&["music", "list-genres"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list genres");
-    let genres = result["data"].as_array().unwrap();
-
-    if !genres.is_empty() {
-        let genre_id = genres[0]["id"].as_str().unwrap();
-
-        // Get genre by ID
-        let result = ctx.run_json(&["music", "get-genre", "--genre-id", genre_id]);
-        assert!(result["success"].as_bool().unwrap(), "Should get genre");
-
-        // Get genre stats
-        let result = ctx.run_json(&["music", "get-genre-stats", "--genre-id", genre_id]);
-        assert!(
-            result["success"].as_bool().unwrap(),
-            "Should get genre stats"
-        );
-
-        // List sub-genres for this genre
-        let result = ctx.run_json(&["music", "list-sub-genres-for-genre", "--genre-id", genre_id]);
-        assert!(
-            result["success"].as_bool().unwrap(),
-            "Should list sub-genres"
-        );
-    }
-}
-
-#[test]
-fn test_music_sub_genres() {
-    let ctx = TestContext::from_snapshot();
-
-    // List all sub-genres
-    let result = ctx.run_json(&["music", "list-sub-genres"]);
+    // genres are now exposed via the unified taxonomy api (kind=genre)
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "100",
+    ]);
     assert!(
         result["success"].as_bool().unwrap(),
-        "Should list sub-genres"
+        "should query genre taxons"
     );
+    let taxons = result["data"]["items"].as_array().unwrap();
 
-    let sub_genres = result["data"].as_array().unwrap();
-    if !sub_genres.is_empty() {
-        let sub_genre_id = sub_genres[0]["id"].as_str().unwrap();
-
-        // Get sub-genre by ID
-        let result = ctx.run_json(&["music", "get-sub-genre", "--sub-genre-id", sub_genre_id]);
-        assert!(result["success"].as_bool().unwrap(), "Should get sub-genre");
+    if !taxons.is_empty() {
+        let taxon_id = taxons[0]["id"].as_str().unwrap();
+        // get the same taxon by id
+        let result = ctx.run_json(&["music", "taxonomy", "get-taxon", "--id", taxon_id]);
+        assert!(
+            result["success"].as_bool().unwrap(),
+            "should get genre taxon"
+        );
     }
 }
 
@@ -189,9 +167,20 @@ fn test_music_query_operations() {
     assert!(result["success"].as_bool().unwrap(), "Should query albums");
     assert!(result["data"]["items"].is_array());
 
-    // Query genres
-    let result = ctx.run_json(&["music", "query-genres", "--limit", "10"]);
-    assert!(result["success"].as_bool().unwrap(), "Should query genres");
+    // Query genre taxons (genres now flow through the taxonomy module)
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "10",
+    ]);
+    assert!(
+        result["success"].as_bool().unwrap(),
+        "Should query genre taxons"
+    );
     assert!(result["data"]["items"].is_array());
 }
 
@@ -199,23 +188,25 @@ fn test_music_query_operations() {
 fn test_music_search_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // Search tags
-    let result = ctx.run_json(&["music", "query-tags-search", "--search", "test"]);
-    assert!(result["success"].as_bool().unwrap(), "Should search tags");
+    // tags and genres are now queried via the standard query commands
+    let result = ctx.run_json(&["music", "list-tags"]);
+    assert!(result["success"].as_bool().unwrap(), "Should list tags");
     assert!(result["data"].is_array());
 
-    // Search genres
-    let result = ctx.run_json(&["music", "query-genres-search", "--search", "test"]);
-    assert!(result["success"].as_bool().unwrap(), "Should search genres");
-    assert!(result["data"].is_array());
-
-    // Search sub-genres
-    let result = ctx.run_json(&["music", "query-sub-genres-search", "--search", "test"]);
+    let result = ctx.run_json(&[
+        "music",
+        "taxonomy",
+        "query-taxons",
+        "--kind-slug",
+        "genre",
+        "--limit",
+        "5",
+    ]);
     assert!(
         result["success"].as_bool().unwrap(),
-        "Should search sub-genres"
+        "Should query genre taxons"
     );
-    assert!(result["data"].is_array());
+    assert!(result["data"]["items"].is_array());
 }
 
 #[test]
@@ -235,15 +226,15 @@ fn test_music_recent_songs() {
 fn test_music_artist_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // List artists
-    let result = ctx.run_json(&["music", "list-artists"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list artists");
+    // query artists
+    let result = ctx.run_json(&["music", "query-artists", "--limit", "100"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query artists");
 
-    let artists = result["data"].as_array().unwrap();
+    let artists = result["data"]["items"].as_array().unwrap();
     if !artists.is_empty() {
-        let artist_id = artists[0]["id"].as_str().unwrap();
+        let artist_id = artists[0]["artist"]["id"].as_str().unwrap();
 
-        // Get artist by ID
+        // get artist by id
         let result = ctx.run_json(&["music", "get-artist", "--artist-id", artist_id]);
         assert!(result["success"].as_bool().unwrap(), "Should get artist");
     }
@@ -253,19 +244,19 @@ fn test_music_artist_operations() {
 fn test_music_album_operations() {
     let ctx = TestContext::from_snapshot();
 
-    // List albums
-    let result = ctx.run_json(&["music", "list-albums"]);
-    assert!(result["success"].as_bool().unwrap(), "Should list albums");
+    // query albums
+    let result = ctx.run_json(&["music", "query-albums", "--limit", "100"]);
+    assert!(result["success"].as_bool().unwrap(), "Should query albums");
 
-    let albums = result["data"].as_array().unwrap();
+    let albums = result["data"]["items"].as_array().unwrap();
     if !albums.is_empty() {
-        let album_id = albums[0]["id"].as_str().unwrap();
+        let album_id = albums[0]["album"]["id"].as_str().unwrap();
 
-        // Get album by ID
+        // get album by id
         let result = ctx.run_json(&["music", "get-album", "--album-id", album_id]);
         assert!(result["success"].as_bool().unwrap(), "Should get album");
 
-        // Get album tags
+        // get album tags
         let result = ctx.run_json(&["music", "get-album-tags", "--album-id", album_id]);
         assert!(
             result["success"].as_bool().unwrap(),
@@ -298,15 +289,13 @@ fn test_music_maintenance_operations() {
 fn test_music_favorites() {
     let ctx = TestContext::from_snapshot();
 
-    // Get an existing user from the DB
+    // get an existing user from the db
     let users_result = ctx.run_json(&["users", "list"]);
     if users_result["success"].as_bool().unwrap() {
         let users = users_result["data"]["users"].as_array().unwrap();
         if !users.is_empty() {
-            let user_id = users[0]["id"].as_str().unwrap();
-
-            // List favorites for this user (may be empty)
-            let result = ctx.run_json(&["music", "favorites", "list", "--user-id", user_id]);
+            // list favorites (uses default caller)
+            let result = ctx.run_json(&["music", "favorites", "list"]);
 
             assert!(
                 result["success"].as_bool().unwrap(),
@@ -331,35 +320,6 @@ fn test_music_ratings() {
         "Should show help or subcommand error: {}",
         output.stderr
     );
-}
-
-#[test]
-fn test_music_find_or_create_sub_genre() {
-    let ctx = TestContext::from_snapshot();
-
-    // Get a genre first to associate the sub-genre with
-    let genres_result = ctx.run_json(&["music", "list-genres"]);
-    if genres_result["success"].as_bool().unwrap() {
-        let genres = genres_result["data"].as_array().unwrap();
-        if !genres.is_empty() {
-            let genre_id = genres[0]["id"].as_str().unwrap();
-
-            // Try to find or create a sub-genre
-            let result = ctx.run_json(&[
-                "music",
-                "find-or-create-sub-genre",
-                "--name",
-                "Test Sub Genre",
-                "--genre-id",
-                genre_id,
-            ]);
-
-            assert!(
-                result["success"].as_bool().unwrap(),
-                "Should find or create sub-genre successfully"
-            );
-        }
-    }
 }
 
 #[test]
@@ -395,12 +355,12 @@ fn test_music_update_songs() {
 fn test_music_query_playlist_songs() {
     let ctx = TestContext::from_snapshot();
 
-    // Get a playlist
-    let playlists_result = ctx.run_json(&["music", "list-playlists"]);
+    // get a playlist
+    let playlists_result = ctx.run_json(&["music", "query-playlists", "--limit", "100"]);
     if playlists_result["success"].as_bool().unwrap() {
-        let playlists = playlists_result["data"].as_array().unwrap();
+        let playlists = playlists_result["data"]["items"].as_array().unwrap();
         if !playlists.is_empty() {
-            let playlist_id = playlists[0]["id"].as_str().unwrap();
+            let playlist_id = playlists[0]["playlist"]["id"].as_str().unwrap();
 
             // Query songs in the playlist
             let result = ctx.run_json(&[
@@ -418,47 +378,6 @@ fn test_music_query_playlist_songs() {
             );
         }
     }
-}
-
-#[test]
-fn test_music_update_song_position() {
-    let ctx = TestContext::from_snapshot();
-
-    // This requires a playlist with songs, which is complex to set up
-    // Just test that the command doesn't crash with invalid input
-    let result = ctx.run_json(&[
-        "music",
-        "update-song-position",
-        "--playlist-id",
-        "fake-playlist-id",
-        "--song-ids",
-        "fake-song-id",
-        "--new-position",
-        "1",
-    ]);
-
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response"
-    );
-}
-
-#[test]
-fn test_music_remove_playlist_thumbnail() {
-    let ctx = TestContext::from_snapshot();
-
-    // Try to remove a thumbnail from a non-existent playlist
-    let result = ctx.run_json(&[
-        "music",
-        "remove-playlist-thumbnail",
-        "--playlist-id",
-        "fake-playlist-id",
-    ]);
-
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response"
-    );
 }
 
 #[test]
@@ -486,18 +405,6 @@ fn test_music_delete_operations() {
     assert!(
         result["success"].as_bool().is_some(),
         "Should return a response for delete-artist"
-    );
-
-    // Delete sub-genre
-    let result = ctx.run_json(&[
-        "music",
-        "delete-sub-genre",
-        "--sub-genre-id",
-        "fake-sub-genre-id",
-    ]);
-    assert!(
-        result["success"].as_bool().is_some(),
-        "Should return a response for delete-sub-genre"
     );
 
     // Delete tag

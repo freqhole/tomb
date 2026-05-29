@@ -38,7 +38,7 @@ import { showStationSelector } from "../hooks/stationSelectorState";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
-import { canUpdatePlaylist } from "../data/permissions";
+import { canRemoveSongsFromPlaylist, canUpdatePlaylist } from "../data/permissions";
 import { getPlaylistById } from "../services/storage/db";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
@@ -425,9 +425,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     });
   };
 
-  // handle add song to queue
-  const handleAddSongToQueue = async (song: Song) => {
-    await addToQueue([song], { source: { type: "song", label: song.title } });
+  // remove a single song from the currently selected playlist (used by
+  // the per-row x button shown to playlist owners + admins).
+  const handleRemoveSongFromPlaylist = async (song: Song) => {
+    const playlistId = selectedPlaylistId();
+    if (!playlistId) return;
+    const dataSource = getDataSource();
+    if (!dataSource.removeSongsFromPlaylist) return;
+    await dataSource.removeSongsFromPlaylist(playlistId, [song.id]);
+    await queryClient.invalidateQueries({ queryKey: ["playlists"] });
   };
 
   // fetch more playlists when scrolling near end
@@ -1331,16 +1337,23 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                                 });
                                               }}
                                               actions={
-                                                <IconButton
-                                                  icon="queue"
-                                                  size="sm"
-                                                  variant="ghost"
-                                                  onClick={(e: MouseEvent) => {
-                                                    e.stopPropagation();
-                                                    handleAddSongToQueue(song);
-                                                  }}
-                                                  aria-label="add to queue"
-                                                />
+                                                <Show
+                                                  when={canRemoveSongsFromPlaylist(
+                                                    selectedPlaylist()?.created_by_id ?? null
+                                                  )}
+                                                  fallback={null}
+                                                >
+                                                  <IconButton
+                                                    icon="close"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={(e: MouseEvent) => {
+                                                      e.stopPropagation();
+                                                      void handleRemoveSongFromPlaylist(song);
+                                                    }}
+                                                    aria-label="remove from playlist"
+                                                  />
+                                                </Show>
                                               }
                                             />
                                           </DraggableRow>

@@ -464,9 +464,13 @@ pub async fn accept_knock(
 
     let user_service = UserService::new();
 
-    // get existing user or create new one
+    // resolve the user to link this knock to. preference order:
+    //   1. explicit `user_id` (admin picked an existing user)
+    //   2. existing user matching the (typed-or-knock) `username`
+    //   3. create a new user with `username` + `role`
+    // this lets the admin just type a username and have it Just Work
+    // whether or not the username already exists.
     let user = if let Some(user_id) = request.user_id {
-        // use existing user
         let user_result = user_service.get_user(&user_id).await;
         user_result
             .data
@@ -474,26 +478,42 @@ pub async fn accept_knock(
                 message: format!("user not found: {}", user_id),
             })?
     } else {
-        // create new user
-        let create_request = CreateUserRequest {
-            username: username.clone(),
-            role: Some(role),
-            invite_code: None, // admin is approving directly
-        };
-
-        // register user (bypassing invite code since admin is approving)
-        let user_result = user_service.register_user(&create_request).await;
-        if !user_result.success {
-            return Err(crate::error::GrimoireError::ProcessingFailed {
-                message: user_result.message,
-            });
+        // try to find by username first
+        let lookup = user_service.get_user_by_username(&username).await;
+        if let Some(existing) = lookup.data {
+            existing
+        } else {
+            // not found -> register a fresh user (admin bypasses invite code)
+            let create_request = CreateUserRequest {
+                username: username.clone(),
+                role: Some(role),
+                invite_code: None,
+            };
+            let user_result = user_service.register_user(&create_request).await;
+            if !user_result.success {
+                let details = if user_result.errors.is_empty() {
+                    user_result.message.clone()
+                } else {
+                    user_result
+                        .errors
+                        .iter()
+                        .map(|e| e.detail.clone())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                };
+                return Err(crate::error::GrimoireError::ProcessingFailed {
+                    message: format!(
+                        "could not create user `{}` from knock: {}",
+                        username, details
+                    ),
+                });
+            }
+            user_result
+                .data
+                .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
+                    message: "user creation returned no data".to_string(),
+                })?
         }
-
-        user_result
-            .data
-            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-                message: "user creation returned no data".to_string(),
-            })?
     };
 
     // link peer node to user

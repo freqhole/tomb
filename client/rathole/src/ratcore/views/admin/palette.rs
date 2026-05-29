@@ -72,11 +72,12 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
     // the message slides under it as a single header line so the
     // body has more room for actual rows.
     let title_text = friendly_title(&d.command, d.rows.len());
-    let status_glyph = if d.success { "✓" } else { "✗" };
-    let status_style = if d.success {
-        Style::new().green()
+    let (status_glyph, status_style) = if d.pending {
+        ("\u{29D6}", Style::new().yellow())
+    } else if d.success {
+        ("\u{2713}", Style::new().green())
     } else {
-        Style::new().red()
+        ("\u{2717}", Style::new().red())
     };
     let header_lines: Vec<Line> = vec![Line::from(vec![
         Span::styled(format!(" {status_glyph} "), status_style),
@@ -85,19 +86,45 @@ fn draw_result_box(frame: &mut Frame, result_area: Rect, app: &App) {
 
     if d.rows.is_empty() {
         // no rows: show pretty json (or "(no data)") with vertical
-        // scroll driven by `last_dispatch_scroll`.
+        // scroll driven by `last_dispatch_scroll`. while a dispatch
+        // is in flight we render streamed progress lines instead so
+        // the user has live feedback.
         let mut lines = header_lines;
         lines.push(Line::from(""));
-        if let Some(pretty) = &d.data_pretty {
+        let has_progress = !d.progress.is_empty();
+        if d.pending && has_progress {
+            for l in &d.progress {
+                lines.push(Line::from(l.clone()).dim());
+            }
+        } else if let Some(pretty) = &d.data_pretty {
+            // include any captured progress above the final payload
+            // so the user can review the run timeline.
+            if has_progress {
+                for l in &d.progress {
+                    lines.push(Line::from(l.clone()).dim());
+                }
+                lines.push(Line::from(""));
+            }
             for l in pretty.lines() {
                 lines.push(Line::from(l.to_string()));
             }
+        } else if has_progress {
+            for l in &d.progress {
+                lines.push(Line::from(l.clone()).dim());
+            }
+        } else if d.pending {
+            lines.push(Line::from("(waiting for progress\u{2026})".dim()));
         } else {
             lines.push(Line::from("(no data)".dim()));
         }
         let viewport = result_area.height.saturating_sub(2);
         let max_scroll = (lines.len() as u16).saturating_sub(viewport);
-        let scroll = app.state.ephemeral.last_dispatch_scroll.min(max_scroll);
+        // while pending, follow the tail so newest progress is visible.
+        let scroll = if d.pending {
+            max_scroll
+        } else {
+            app.state.ephemeral.last_dispatch_scroll.min(max_scroll)
+        };
         let title = if max_scroll > 0 {
             format!("{title_text}  [{}/{}]", scroll, max_scroll)
         } else {

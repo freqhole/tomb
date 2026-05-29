@@ -1,57 +1,68 @@
 //! MusicBrainz HTTP client
 //!
-//! Provides HTTP client implementation for MusicBrainz API with rate limiting,
-//! error handling, and response parsing.
+//! provides http client implementation for the musicbrainz API with retry,
+//! error handling, and response parsing. rate limiting is handled entirely
+//! by the global gate in `crate::jobs::rate_limit` — no per-client limiter.
 
 use crate::config::MusicBrainzConfig;
 use crate::error::GrimoireError;
 use crate::music::musicbrainz::{
     models::{CoverArt, CoverArtResponse, Recording, Release, ReleaseGroup, SearchResult},
     queries::{RecordingSearchQuery, ReleaseGroupSearchQuery, ReleaseSearchQuery},
-    rate_limiter::RateLimiter,
 };
 use crate::response::GrimoireResponse;
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 use std::error::Error as StdError;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing::{debug, error, warn};
 
 // hardcoded sensible defaults for musicbrainz api
 const USER_AGENT: &str = "freqhole/1.0 (https://github.com/freqhole/tomb)";
-const RATE_LIMIT_MS: u64 = 1000; // 1 second between requests (musicbrainz requirement)
 const BASE_URL: &str = "https://musicbrainz.org/ws/2";
 const COVER_ART_URL: &str = "https://coverartarchive.org";
 const TIMEOUT_SECONDS: u64 = 30;
 const MAX_RETRIES: u32 = 3;
 
+/// return the shared, long-lived http client for musicbrainz.org.
+/// built once with the correct user-agent and timeout; cheap to clone
+/// (internally Arc'd by reqwest).
+fn shared_http_client() -> &'static Client {
+    static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
+            .user_agent(USER_AGENT)
+            .build()
+            .expect("failed to build musicbrainz http client")
+    })
+}
+
+/// parse a `Retry-After` response header into a sleep duration.
+/// handles delta-seconds (integer); returns `None` for HTTP-date format
+/// or unparseable values so the caller falls back to exponential backoff.
+/// capped at 5 minutes to prevent runaway sleeps.
+fn parse_retry_after(resp: &Response) -> Option<Duration> {
+    let val = resp.headers().get("retry-after")?.to_str().ok()?;
+    let secs: u64 = val.trim().parse().ok()?;
+    Some(Duration::from_secs(secs.min(300)))
+}
+
 /// MusicBrainz API client
 #[derive(Debug, Clone)]
 pub struct MusicBrainzClient {
-    /// HTTP client
     client: Client,
     config: Arc<MusicBrainzConfig>,
-    /// Rate limiter for API compliance
-    rate_limiter: RateLimiter,
 }
 
 impl MusicBrainzClient {
     /// Create new MusicBrainz client with sensible defaults
     pub fn new(config: MusicBrainzConfig) -> Result<Self, GrimoireError> {
-        // Build HTTP client with timeout
-        let client = Client::builder()
-            .timeout(Duration::from_secs(TIMEOUT_SECONDS))
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|e| GrimoireError::HttpRequest(e.to_string()))?;
-
-        let rate_limiter = RateLimiter::new(Duration::from_millis(RATE_LIMIT_MS));
-
+        let client = shared_http_client().clone();
         Ok(Self {
             client,
             config: Arc::new(config),
-            rate_limiter,
         })
     }
 
@@ -120,13 +131,74 @@ impl MusicBrainzClient {
     pub async fn get_release(&self, mbid: &str) -> GrimoireResponse<Release> {
         let url = format!("{}/release/{}", BASE_URL, mbid);
         let query_string =
-            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres";
+            "fmt=json&inc=artist-credits+recordings+media+release-groups+labels+genres+tags+url-rels";
 
         debug!("Fetching release: {}", mbid);
 
         match self.execute_request(&url, query_string).await {
             Ok(result) => GrimoireResponse::success("Successfully fetched release", result),
             Err(e) => GrimoireResponse::failure("Failed to fetch release", vec![e.into()]),
+        }
+    }
+
+    /// Get specific release group by MusicBrainz ID, with folksonomy data
+    /// (genres + tags) and artist credits.
+    pub async fn get_release_group(&self, mbid: &str) -> GrimoireResponse<ReleaseGroup> {
+        let url = format!("{}/release-group/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits+genres+tags+url-rels";
+
+        debug!("Fetching release-group: {}", mbid);
+
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched release-group", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch release-group", vec![e.into()]),
+        }
+    }
+
+    /// lightweight release-group lookup for the direct-mbid short-circuit.
+    /// uses a minimal `inc` to avoid fetching unnecessary data. returns failure
+    /// cleanly on 404 so the caller can fall back to `lookup_release_search`.
+    pub async fn lookup_release_group_search(&self, mbid: &str) -> GrimoireResponse<ReleaseGroup> {
+        let url = format!("{}/release-group/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits";
+        debug!("direct lookup release-group: {}", mbid);
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("release-group lookup succeeded", result),
+            Err(_) => GrimoireResponse::failure("release-group lookup failed or not found", vec![]),
+        }
+    }
+
+    /// lightweight release lookup for the direct-mbid short-circuit.
+    /// fallback when `lookup_release_group_search` fails (e.g. the mbid is a
+    /// release id rather than a release-group id, as last.fm `album.mbid` often is).
+    pub async fn lookup_release_search(&self, mbid: &str) -> GrimoireResponse<Release> {
+        let url = format!("{}/release/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=artist-credits+release-groups";
+        debug!("direct lookup release: {}", mbid);
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("release lookup succeeded", result),
+            Err(_) => GrimoireResponse::failure("release lookup failed or not found", vec![]),
+        }
+    }
+
+    /// Get specific artist by MusicBrainz ID with url relations.
+    /// the artist endpoint is by far the richest source of external
+    /// links (bandcamp, allmusic, last.fm, songkick, streaming
+    /// services, discogs, wikidata, etc.) — the release/release-group
+    /// endpoints typically only carry a handful of release-specific
+    /// links (free streaming, review, wikidata).
+    pub async fn get_artist(
+        &self,
+        mbid: &str,
+    ) -> GrimoireResponse<crate::music::musicbrainz::models::Artist> {
+        let url = format!("{}/artist/{}", BASE_URL, mbid);
+        let query_string = "fmt=json&inc=url-rels";
+
+        debug!("Fetching artist: {}", mbid);
+
+        match self.execute_request(&url, query_string).await {
+            Ok(result) => GrimoireResponse::success("Successfully fetched artist", result),
+            Err(e) => GrimoireResponse::failure("Failed to fetch artist", vec![e.into()]),
         }
     }
 
@@ -227,7 +299,6 @@ impl MusicBrainzClient {
             ));
         }
 
-        // Respect rate limiting
         let full_url = if query_string.is_empty() {
             url.to_string()
         } else {
@@ -239,9 +310,6 @@ impl MusicBrainzClient {
         let mut retries = 0;
 
         loop {
-            // respect rate limiting before each attempt
-            self.rate_limiter.wait_if_needed().await;
-
             let response = match self
                 .client
                 .get(&full_url)
@@ -285,14 +353,18 @@ impl MusicBrainzClient {
                 }
             };
 
+            // extract Retry-After before the response is consumed
+            let retry_after = parse_retry_after(&response);
             match self.handle_response(response).await {
                 Ok(result) => return Ok(result),
                 Err(GrimoireError::MusicBrainzRateLimit) if retries < MAX_RETRIES => {
                     retries += 1;
-                    warn!("Rate limit exceeded, retry {} of {}", retries, MAX_RETRIES);
-
-                    // Exponential backoff
-                    let backoff = Duration::from_secs(2_u64.pow(retries));
+                    let backoff = retry_after
+                        .unwrap_or_else(|| Duration::from_secs(2_u64.pow(retries)));
+                    warn!(
+                        "rate limit (attempt {}/{}), sleeping {:?}",
+                        retries, MAX_RETRIES, backoff
+                    );
                     tokio::time::sleep(backoff).await;
                     continue;
                 }
@@ -347,15 +419,7 @@ impl MusicBrainzClient {
         &self.config
     }
 
-    /// Check if rate limiter allows immediate requests
-    pub async fn can_make_request(&self) -> bool {
-        self.rate_limiter.can_proceed_immediately().await
-    }
 
-    /// Get time until next request is allowed
-    pub async fn time_until_next_request(&self) -> Duration {
-        self.rate_limiter.time_until_next_request().await
-    }
 }
 
 #[cfg(test)]
@@ -363,7 +427,10 @@ mod tests {
     use super::*;
 
     fn test_config() -> MusicBrainzConfig {
-        MusicBrainzConfig { enabled: true }
+        MusicBrainzConfig {
+            enabled: true,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -382,12 +449,5 @@ mod tests {
         assert!(!client.config.enabled);
     }
 
-    #[tokio::test]
-    async fn test_rate_limiting() {
-        let config = test_config();
-        let client = MusicBrainzClient::new(config).unwrap();
 
-        // Should be able to make request initially
-        assert!(client.can_make_request().await);
-    }
 }

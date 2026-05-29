@@ -37,14 +37,14 @@ all: info
 .PHONY: build-all
 build-all:
 	@echo "building charnel gui apps..."
+	$(MAKE) build-tauri-android-arm64
+	$(MAKE) build-tauri-android
 	$(MAKE) build-tauri-mac-arm
 	$(MAKE) build-tauri-mac-intel
 	$(MAKE) build-tauri-linux-intel
 	$(MAKE) build-tauri-linux-arm64
 	$(MAKE)	build-flatpak-intel
 	$(MAKE)	build-flatpak-arm64
-	$(MAKE) build-tauri-android
-	$(MAKE) build-tauri-android-arm64
 	@echo ""
 	@echo "building cli binz..."
 	@echo ""

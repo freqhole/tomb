@@ -260,6 +260,7 @@ DURIAN
 
     #[test]
     fn test_validate_wordlist() {
+        crate::config::init_config_for_tests();
         let config = WordlistConfig {
             min_words: 3,
             min_word_length: 3,
@@ -315,6 +316,7 @@ _underscore
 
     #[test]
     fn test_validate_wordlist_duplicates() {
+        crate::config::init_config_for_tests();
         let config = WordlistConfig {
             min_words: 3,
             min_word_length: 3,
@@ -336,8 +338,11 @@ _underscore
 
     #[test]
     fn test_wordlist_config_default() {
+        crate::config::init_config_for_tests();
         let config = WordlistConfig::default();
-        assert_eq!(config.file_path, "assets/config/wordlist.txt");
+        // path is derived from the test data_dir installed by
+        // init_config_for_tests (see grimoire/src/config.rs)
+        assert_eq!(config.file_path, "/tmp/grimoire-test/wordlist.txt");
         assert_eq!(config.min_words, 50);
         assert_eq!(config.min_word_length, 3);
         assert_eq!(config.max_word_length, 12);
