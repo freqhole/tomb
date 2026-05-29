@@ -605,6 +605,10 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // playback started
     audio.addEventListener("play", () => {
+      const state = appState();
+      if (this.currentSongId && state?.current_sha256 !== this.currentSongId) {
+        void setCurrentSong(this.currentSongId);
+      }
       this.emit({ kind: "state", state: "playing" });
     });
 
