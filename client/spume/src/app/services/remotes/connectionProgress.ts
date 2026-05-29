@@ -153,16 +153,51 @@ export async function connectToRemote(
 
     // health check (unless skipped)
     if (!options.skipHealthCheck) {
-      debug("connectionProgress", `checking health of ${remote.name}...`);
-      const isOnline = await checkRemoteHealth(remote);
-      
-      if (connectionCancelled) {
-        clearConnectionProgress();
-        return { success: false, cancelled: true };
+      // p2p remotes can fail the first probe during cold boot while peer
+      // addressing/relay info is still warming up. do a short bounded retry
+      // window before declaring offline and rerouting.
+      const isP2P = isP2PRemote(remote);
+      const maxAttempts = isP2P ? 4 : 1;
+      const retryDelaysMs = [350, 900, 1800];
+      let isOnline = false;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        debug(
+          "connectionProgress",
+          `checking health of ${remote.name} (attempt ${attempt}/${maxAttempts})...`
+        );
+        isOnline = await checkRemoteHealth(remote);
+
+        if (connectionCancelled) {
+          clearConnectionProgress();
+          return { success: false, cancelled: true };
+        }
+
+        if (isOnline) {
+          if (attempt > 1) {
+            debug(
+              "connectionProgress",
+              `${remote.name} became reachable after ${attempt} attempts`
+            );
+          }
+          break;
+        }
+
+        if (attempt < maxAttempts) {
+          const delayMs = retryDelaysMs[Math.min(attempt - 1, retryDelaysMs.length - 1)];
+          debug(
+            "connectionProgress",
+            `${remote.name} not reachable yet; retrying health check in ${delayMs}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
       }
 
       if (!isOnline) {
-        debug("connectionProgress", `${remote.name} is offline`);
+        debug(
+          "connectionProgress",
+          `${remote.name} is offline after ${maxAttempts} health check attempt(s)`
+        );
         clearConnectionProgress();
         return { success: false, cancelled: false };
       }
