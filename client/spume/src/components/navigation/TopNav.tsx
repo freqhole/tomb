@@ -820,12 +820,18 @@ export function TopNav(props: TopNavProps) {
         ref={(el) => (navEl = el)}
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
-          // narrow: full-width fixed strip at top
+          // narrow: full-width fixed strip at top; padding-top insets below
+          // system status bar / notch via safe-area env var (works on both
+          // android webview and ios safari with viewport-fit=cover; zero on
+          // desktop so no effect there).
           "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
             isNarrow(),
           // wide: fixed top-left floating element, doesn't push content
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
+        }}
+        style={{
+          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
         }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}

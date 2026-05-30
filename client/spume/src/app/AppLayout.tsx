@@ -1226,7 +1226,7 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class="flex-1 overflow-hidden flex"
         style={{
-          "padding-top": isNarrow() ? "var(--nav-height, 56px)" : undefined,
+          "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined,
           "padding-bottom": "var(--player-bar-height)",
         }}
       >
