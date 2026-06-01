@@ -19,6 +19,14 @@ export interface BulkAvailableTaxon {
   kindColor?: string | null;
 }
 
+export interface BulkCurrentTaxon {
+  id: string;
+  label: string;
+  kindSlug: string;
+  kindLabel: string;
+  kindColor?: string | null;
+}
+
 export interface BulkSelectionPopoverProps {
   mode: Accessor<BulkMode>;
   counts: Accessor<{ taxons: number; albums: number; artists: number }>;
@@ -27,11 +35,14 @@ export interface BulkSelectionPopoverProps {
   kindColor: Accessor<string | undefined>;
   candidateParents: Accessor<BulkCandidateParent[]>;
   availableTaxons: Accessor<BulkAvailableTaxon[]>;
+  currentTaxons?: Accessor<BulkCurrentTaxon[]>;
   canEdit: Accessor<boolean>;
   onReparentTo: (parentTaxonId: string | null) => void;
   onSetColor: (color: string | null) => void;
   onDeleteTaxons: () => void;
   onAssignTaxon: (taxonId: string) => void;
+  onRemoveTaxon?: (taxonId: string) => void;
+  onGroupSelected?: (label: string) => void;
   onClose: () => void;
   x?: number;
   y?: number;
@@ -48,7 +59,7 @@ const COLOR_SWATCHES = [
   "#00bbf9",
 ];
 
-type Flyout = null | "reparent" | "color" | "assign";
+type Flyout = null | "reparent" | "color" | "assign" | "group";
 
 export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
   const positioned = () => props.x !== undefined && props.y !== undefined;
@@ -174,10 +185,10 @@ export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
         <Show when={props.mode() === "taxons" && props.canEdit()}>
           <ToolbarBtn
             active={flyout() === "reparent"}
-            title="re-parent selected taxons"
+            title="move selected taxons under a new parent"
             onClick={() => openFlyout("reparent")}
           >
-            re-parent
+            move under
           </ToolbarBtn>
           <ToolbarBtn
             active={flyout() === "color"}
@@ -202,6 +213,15 @@ export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
           >
             <span class="text-red-300">delete</span>
           </ToolbarBtn>
+          <Show when={props.onGroupSelected}>
+            <ToolbarBtn
+              active={flyout() === "group"}
+              title="create a new group taxon and re-parent every selected taxon under it"
+              onClick={() => openFlyout("group")}
+            >
+              group
+            </ToolbarBtn>
+          </Show>
         </Show>
 
         <Show when={props.mode() === "media" && props.canEdit()}>
@@ -237,6 +257,55 @@ export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
           ×
         </button>
       </div>
+
+      {/* current-taxons intersection chips — media mode only. shows every
+          taxon currently applied to all selected albums/artists; each chip
+          carries an inline × to remove the link from every selection. */}
+      <Show
+        when={
+          props.mode() === "media" &&
+          props.canEdit() &&
+          props.currentTaxons &&
+          (props.currentTaxons!()?.length ?? 0) > 0
+        }
+      >
+        <div class="border-t border-white/10 px-2 py-1.5 flex flex-wrap gap-1 max-w-[28rem]">
+          <span class="text-[9px] uppercase tracking-wider text-white/35 self-center mr-1">
+            applied to all:
+          </span>
+          <For each={props.currentTaxons!()}>
+            {(t) => (
+              <span
+                class="inline-flex items-center gap-1 text-[10px] leading-none rounded pl-1.5 pr-0.5 py-0.5"
+                style={{
+                  background: t.kindColor ? `${t.kindColor}26` : "rgba(255,255,255,0.06)",
+                  color: t.kindColor ?? "rgba(255,255,255,0.7)",
+                  border: `1px solid ${t.kindColor ? `${t.kindColor}66` : "rgba(255,255,255,0.15)"}`,
+                }}
+                title={`${t.kindLabel}: ${t.label}`}
+              >
+                <span class="font-medium">{t.label}</span>
+                <span class="opacity-60">·</span>
+                <span class="opacity-60">{t.kindLabel}</span>
+                <Show when={props.onRemoveTaxon}>
+                  <button
+                    type="button"
+                    aria-label={`remove taxon ${t.label}`}
+                    title={`remove '${t.label}' from every selected album`}
+                    class="ml-0.5 px-1 py-0.5 rounded text-[10px] leading-none hover:bg-red-500/20 hover:text-red-200 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onRemoveTaxon!(t.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </Show>
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
 
       {/* flyout panel — anchored below the toolbar */}
       <Show when={flyout() !== null}>
@@ -369,8 +438,82 @@ export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
               </Show>
             </div>
           </Show>
+
+          <Show when={flyout() === "group"}>
+            <GroupFlyout
+              kindLabel={props.kindLabel()}
+              count={props.counts().taxons}
+              onSubmit={(label) => {
+                props.onGroupSelected?.(label);
+                setFlyout(null);
+              }}
+              onCancel={() => setFlyout(null)}
+            />
+          </Show>
         </div>
       </Show>
+    </div>
+  );
+}
+
+function GroupFlyout(p: {
+  kindLabel: string | undefined;
+  count: number;
+  onSubmit: (label: string) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = createSignal("");
+  const submit = () => {
+    const v = label().trim();
+    if (!v) return;
+    p.onSubmit(v);
+  };
+  return (
+    <div class="flex flex-col gap-1.5">
+      <div class="text-[10px] text-white/55 px-1">
+        create a new group under <span class="text-white/80">{p.kindLabel ?? "this kind"}</span> and
+        move {p.count} selected taxon{p.count === 1 ? "" : "s"} under it.
+      </div>
+      <input
+        type="text"
+        autofocus
+        placeholder="new group label..."
+        value={label()}
+        onInput={(e) => setLabel(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            submit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            p.onCancel();
+          }
+        }}
+        class="w-full px-2 py-1 rounded border border-white/15 bg-white/5 text-xs text-white/90 placeholder:text-white/30 focus:outline-none focus:border-white/35"
+      />
+      <div class="flex justify-end gap-1.5">
+        <button
+          type="button"
+          class="px-2 py-1 rounded text-[11px] leading-none border border-white/15 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            p.onCancel();
+          }}
+        >
+          cancel
+        </button>
+        <button
+          type="button"
+          disabled={!label().trim()}
+          class="px-2 py-1 rounded text-[11px] leading-none border border-pink-500/50 bg-pink-500/15 text-pink-100 hover:bg-pink-500/25 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={(e) => {
+            e.stopPropagation();
+            submit();
+          }}
+        >
+          group
+        </button>
+      </div>
     </div>
   );
 }

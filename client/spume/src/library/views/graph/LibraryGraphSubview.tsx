@@ -1710,6 +1710,7 @@ function Inner(props: {
     taxonParentsByHub,
     taxonLabelsByHub,
     albumsLoadedByPivot,
+    editMode,
     queryClient,
   });
 
@@ -1910,12 +1911,15 @@ function Inner(props: {
     bulkAllGroups,
     bulkCandidateParents,
     bulkAvailableTaxons,
+    bulkCurrentTaxons,
     bulkCanEdit,
     bulkActive,
     handleBulkReparent,
     handleBulkSetColor,
     handleBulkDeleteTaxons,
     handleBulkAssignTaxon,
+    handleBulkRemoveTaxon,
+    handleBulkGroupSelection,
   } = createBulkHandlers({
     remotes: () => props.remotes(),
     isRemoteAdmin,
@@ -2239,6 +2243,7 @@ function Inner(props: {
               }}
               candidateParents={bulkCandidateParents}
               availableTaxons={bulkAvailableTaxons}
+              currentTaxons={bulkCurrentTaxons}
               canEdit={bulkCanEdit}
               onReparentTo={(pid) => {
                 void handleBulkReparent(pid);
@@ -2251,6 +2256,12 @@ function Inner(props: {
               }}
               onAssignTaxon={(tid) => {
                 void handleBulkAssignTaxon(tid);
+              }}
+              onRemoveTaxon={(tid) => {
+                void handleBulkRemoveTaxon(tid);
+              }}
+              onGroupSelected={(label) => {
+                void handleBulkGroupSelection(label);
               }}
               onClose={() => setMultiSelection(new Set<string>())}
             />

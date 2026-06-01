@@ -262,6 +262,24 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       break;
     }
 
+    case "remove": {
+      if (msg.nodeIds.length === 0) break;
+      const drop = new Set(msg.nodeIds);
+      state.fullGraph.nodes = state.fullGraph.nodes.filter((n) => !drop.has(n.id));
+      state.fullGraph.edges = state.fullGraph.edges.filter(
+        (e) => !drop.has(e.source as string) && !drop.has(e.target as string),
+      );
+      // also prune from breadcrumb so we don't strand the pivot on a
+      // node that no longer exists.
+      state.breadcrumb = state.breadcrumb.filter((id) => !drop.has(id));
+      if (state.breadcrumb.length === 0 && state.fullGraph.nodes.length > 0) {
+        state.breadcrumb = [state.fullGraph.nodes[0].id];
+      }
+      indexGraph();
+      buildSim();
+      break;
+    }
+
     case "repivot": {
       if (!nodeMap.has(msg.nodeId)) break;
       if (msg.resetBreadcrumb) {

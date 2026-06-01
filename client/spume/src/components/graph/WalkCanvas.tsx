@@ -737,6 +737,72 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         ctx.stroke();
       }
 
+      // drag-drop wire overlay — screen-space. one curved line per source
+      // node, ending at the target node center (snapped) or the cursor.
+      const dragSnap = dragState;
+      if (dragSnap && dragSnap.sourceIds.size > 0) {
+        const dprDrag = window.devicePixelRatio ?? 1;
+        ctx.setTransform(dprDrag, 0, 0, dprDrag, 0, 0);
+        const vDrag = view();
+        const nodeScreenPos = (id: string): { sx: number; sy: number; r: number } | null => {
+          const idx = nodes.findIndex((n) => n.id === id);
+          if (idx === -1) return null;
+          const wx = positions[idx * 2];
+          const wy = positions[idx * 2 + 1];
+          if (!Number.isFinite(wx) || !Number.isFinite(wy)) return null;
+          return {
+            sx: wx * vDrag.k + vDrag.tx,
+            sy: wy * vDrag.k + vDrag.ty,
+            r: nodeDisplayRadius(nodes[idx]) * vDrag.k,
+          };
+        };
+        const tgt = dragSnap.targetId ? nodeScreenPos(dragSnap.targetId) : null;
+        const endSx = tgt ? tgt.sx : dragSnap.curSx;
+        const endSy = tgt ? tgt.sy : dragSnap.curSy;
+        const wireColor = tgt ? "rgba(110, 231, 183, 0.95)" : "rgba(255, 58, 163, 0.85)";
+
+        ctx.strokeStyle = wireColor;
+        ctx.lineWidth = tgt ? 3.5 : 2.5;
+        ctx.lineCap = "round";
+        ctx.setLineDash(tgt ? [] : [6, 4]);
+        ctx.globalAlpha = 1;
+        for (const sid of dragSnap.sourceIds) {
+          const src = nodeScreenPos(sid);
+          if (!src) continue;
+          const dx = endSx - src.sx;
+          const dy = endSy - src.sy;
+          const mx = (src.sx + endSx) / 2;
+          const my = (src.sy + endSy) / 2;
+          // perpendicular sag for a gentle curve
+          const len = Math.hypot(dx, dy) || 1;
+          const sag = Math.min(40, len * 0.15);
+          const cx = mx + (-dy / len) * sag;
+          const cy = my + (dx / len) * sag;
+          ctx.beginPath();
+          ctx.moveTo(src.sx, src.sy);
+          ctx.quadraticCurveTo(cx, cy, endSx, endSy);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+
+        if (tgt) {
+          // pulse a snap ring around the target
+          const t = (performance.now() / 600) % 1;
+          const pulse = 1 + 0.18 * Math.sin(t * Math.PI * 2);
+          ctx.strokeStyle = "rgba(110, 231, 183, 0.9)";
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(tgt.sx, tgt.sy, tgt.r * 1.25 * pulse, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          // small dot at the cursor end when not over a target
+          ctx.fillStyle = "rgba(255, 58, 163, 0.85)";
+          ctx.beginPath();
+          ctx.arc(endSx, endSy, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       rafId = requestAnimationFrame(draw);
     }
 

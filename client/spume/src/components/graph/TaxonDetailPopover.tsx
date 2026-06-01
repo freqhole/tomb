@@ -2,7 +2,7 @@
 // the user selects a value or group node in the graph.
 // pure presentational; parent positions it via a wrapper container.
 
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { Taxon, TaxonRef } from "freqhole-api-client";
 
@@ -40,6 +40,19 @@ export interface TaxonDetailPopoverProps {
 
 export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
   const positioned = () => props.x !== undefined && props.y !== undefined;
+  const [creating, setCreating] = createSignal(false);
+  const [draftLabel, setDraftLabel] = createSignal("");
+  const submitCreate = () => {
+    const label = draftLabel().trim();
+    if (!label) return;
+    props.onCreateTaxon?.(label);
+    setDraftLabel("");
+    setCreating(false);
+  };
+  const cancelCreate = () => {
+    setDraftLabel("");
+    setCreating(false);
+  };
   // prefer the taxon's own color (groups only); fall back to the kind color.
   const swatchColor = () => props.taxon()?.color ?? props.kindColor();
   // kind-only mode (relation hub selected): no taxon, just kind metadata.
@@ -148,7 +161,7 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
                 props.onEditHierarchy();
               }}
             >
-              {props.editMode() ? "exit edit mode" : "edit hierarchy"}
+              {props.editMode() ? "exit edit mode" : "edit"}
             </button>
           </Show>
 
@@ -208,17 +221,65 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
 
           {/* edit-mode create / delete buttons (admin only) */}
           <Show when={props.canEdit() && props.editMode() && props.onCreateTaxon}>
-            <button
-              type="button"
-              class="mt-1 w-full py-1.5 px-3 rounded text-xs font-medium border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 hover:text-emerald-100 transition-colors cursor-pointer text-left"
-              onClick={(e) => {
-                e.stopPropagation();
-                const label = window.prompt("label for new taxon:");
-                if (label && label.trim().length > 0) props.onCreateTaxon?.(label.trim());
-              }}
+            <Show
+              when={creating()}
+              fallback={
+                <button
+                  type="button"
+                  class="mt-1 w-full py-1.5 px-3 rounded text-xs font-medium border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 hover:text-emerald-100 transition-colors cursor-pointer text-left"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCreating(true);
+                  }}
+                >
+                  + add taxon{!isHubMode() ? " under this one" : ""}
+                </button>
+              }
             >
-              + add taxon{!isHubMode() ? " under this one" : ""}
-            </button>
+              <form
+                class="mt-1 flex flex-col gap-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  submitCreate();
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="text"
+                  autofocus
+                  placeholder={isHubMode() ? "new taxon label" : "new child taxon label"}
+                  value={draftLabel()}
+                  onInput={(e) => setDraftLabel(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelCreate();
+                    }
+                  }}
+                  class="w-full py-1.5 px-2 rounded text-xs bg-black/30 border border-emerald-500/30 focus:border-emerald-400 outline-none text-emerald-100 placeholder:text-emerald-200/40"
+                />
+                <div class="flex gap-1">
+                  <button
+                    type="submit"
+                    disabled={!draftLabel().trim()}
+                    class="flex-1 py-1 px-2 rounded text-xs font-medium border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 hover:text-emerald-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    create
+                  </button>
+                  <button
+                    type="button"
+                    class="flex-1 py-1 px-2 rounded text-xs font-medium border border-white/10 hover:bg-white/5 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      cancelCreate();
+                    }}
+                  >
+                    cancel
+                  </button>
+                </div>
+              </form>
+            </Show>
           </Show>
           <Show when={props.canEdit() && props.editMode() && !isHubMode() && props.onDeleteTaxon}>
             <button

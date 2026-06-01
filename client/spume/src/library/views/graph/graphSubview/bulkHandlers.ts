@@ -1,10 +1,12 @@
-import { createMemo } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { parseNodeId, relationHubId } from "../../../../components/graph/data/nodeIds";
 import { getClientForRemote } from "../../../../app/api/client";
+import { toast } from "../../../../components/feedback/Toast";
 import type { Remote } from "../../../../app/services/storage/schemas/remote";
 import type {
   BulkAvailableTaxon,
   BulkCandidateParent,
+  BulkCurrentTaxon,
   BulkMode,
 } from "../../../../components/graph/BulkSelectionPopover";
 import { tryParse, summarizeMutation, type ParsedId } from "./editModeHandlers";
@@ -285,6 +287,7 @@ export function createBulkHandlers(deps: BulkHandlersDeps) {
     }
     const results = await Promise.allSettled(ops);
     summarizeMutation("bulk assign", results);
+    invalidateLinksForAlbums(albumIds);
     for (const [hubId, cache] of taxonItemsByHub) {
       let found = false;
       for (const item of cache.values()) {
@@ -302,6 +305,224 @@ export function createBulkHandlers(deps: BulkHandlersDeps) {
 
   const bulkActive = createMemo<boolean>(() => editMode() && multiSelection().size >= 2);
 
+  // ---- current-taxons intersection ---------------------------------------
+  //
+  // for the bulk-media popover's "currently applied" chip row. we cache
+  // per-album links (and a `version` signal to invalidate after edits)
+  // so re-renders don't re-fetch on every selection tweak.
+  type CachedLink = {
+    taxonId: string;
+    kindSlug: string;
+    label: string;
+  };
+  const linksByAlbum = new Map<string, CachedLink[]>();
+  const linksInFlight = new Map<string, Promise<void>>();
+  const [linksVersion, setLinksVersion] = createSignal(0);
+  const bumpLinks = () => setLinksVersion((v) => v + 1);
+
+  const fetchLinksForAlbum = async (
+    rid: string,
+    albumId: string,
+    remote: Remote
+  ): Promise<void> => {
+    if (linksByAlbum.has(albumId)) return;
+    let inflight = linksInFlight.get(albumId);
+    if (!inflight) {
+      inflight = (async () => {
+        try {
+          const client = await getClientForRemote(remote);
+          const resp = await client.music.getAlbumTaxonLinks({ album_id: albumId });
+          if (resp.success && resp.data) {
+            const rows: CachedLink[] = (
+              resp.data as Array<{ taxon_id: string; kind_slug: string; label: string }>
+            ).map((l) => ({ taxonId: l.taxon_id, kindSlug: l.kind_slug, label: l.label }));
+            linksByAlbum.set(albumId, rows);
+          } else {
+            linksByAlbum.set(albumId, []);
+          }
+        } catch (err) {
+          console.warn("[graph] fetch album taxon links failed", { albumId, err });
+          linksByAlbum.set(albumId, []);
+        } finally {
+          linksInFlight.delete(albumId);
+          bumpLinks();
+        }
+      })();
+      linksInFlight.set(albumId, inflight);
+      void rid;
+    }
+    await inflight;
+  };
+
+  // collect every album id covered by the current bulk selection
+  // (direct + artist fan-out). pure derivation from existing state.
+  const bulkAlbumIds = createMemo<Set<string>>(() => {
+    const rid = bulkRemoteId();
+    const out = new Set<string>();
+    if (!rid) return out;
+    for (const p of bulkParsedSelection()) {
+      if (p.kind === "album") out.add(p.albumId);
+      else if (p.kind === "artist") {
+        for (const aid of albumIdsForArtist(rid, p.artistId)) out.add(aid);
+      }
+    }
+    return out;
+  });
+
+  // chip row data: intersection of taxons applied to every album in
+  // the selection. only renders when at least one album is in scope.
+  // reads `linksVersion()` so add/remove mutations re-derive.
+  const bulkCurrentTaxons = createMemo<BulkCurrentTaxon[]>(() => {
+    linksVersion(); // dependency
+    const rid = bulkRemoteId();
+    if (!rid) return [];
+    const remote = remotes().find((r) => r.remote_id === rid);
+    if (!remote) return [];
+    const albumIds = Array.from(bulkAlbumIds());
+    if (albumIds.length === 0) return [];
+
+    // kick off lazy fetches for any missing entries. these resolve
+    // asynchronously and call bumpLinks(), which retriggers this memo.
+    let missing = false;
+    for (const aid of albumIds) {
+      if (!linksByAlbum.has(aid)) {
+        missing = true;
+        void fetchLinksForAlbum(rid, aid, remote);
+      }
+    }
+    if (missing) return [];
+
+    // intersection of taxon ids across every album in the selection.
+    let intersection: Set<string> | null = null;
+    const metaByTaxonId = new Map<string, CachedLink>();
+    for (const aid of albumIds) {
+      const links = linksByAlbum.get(aid) ?? [];
+      const ids = new Set<string>();
+      for (const l of links) {
+        ids.add(l.taxonId);
+        if (!metaByTaxonId.has(l.taxonId)) metaByTaxonId.set(l.taxonId, l);
+      }
+      if (intersection === null) intersection = ids;
+      else {
+        const next = new Set<string>();
+        for (const id of intersection) if (ids.has(id)) next.add(id);
+        intersection = next;
+      }
+      if (intersection.size === 0) break;
+    }
+    if (!intersection || intersection.size === 0) return [];
+
+    const out: BulkCurrentTaxon[] = [];
+    for (const id of intersection) {
+      const meta = metaByTaxonId.get(id);
+      if (!meta) continue;
+      const hubId = relationHubId(rid, meta.kindSlug);
+      const kindMeta = taxonKindMetaByHub.get(hubId);
+      out.push({
+        id: meta.taxonId,
+        label: meta.label,
+        kindSlug: meta.kindSlug,
+        kindLabel: kindMeta?.label ?? meta.kindSlug,
+        kindColor: kindMeta?.color ?? null,
+      });
+    }
+    out.sort((a, b) => a.kindLabel.localeCompare(b.kindLabel) || a.label.localeCompare(b.label));
+    return out;
+  });
+
+  const invalidateLinksForAlbums = (albumIds: Iterable<string>) => {
+    for (const aid of albumIds) linksByAlbum.delete(aid);
+    bumpLinks();
+  };
+
+  const handleBulkRemoveTaxon = async (taxonId: string) => {
+    const rid = bulkRemoteId();
+    if (!rid) return;
+    if (!isRemoteAdmin(rid)) return;
+    const remote = remotes().find((r) => r.remote_id === rid);
+    if (!remote) return;
+    const albumIds = Array.from(bulkAlbumIds());
+    if (albumIds.length === 0) return;
+    const client = await getClientForRemote(remote);
+    const ops: Promise<unknown>[] = [];
+    const touched: string[] = [];
+    for (const aid of albumIds) {
+      const links = linksByAlbum.get(aid);
+      // skip albums known to lack the link (cheap optimization). when
+      // the cache is cold we still send the call — server ignores noop.
+      if (links && !links.some((l) => l.taxonId === taxonId)) continue;
+      touched.push(aid);
+      ops.push(
+        client.music.removeAlbumTaxon({
+          album_id: aid,
+          taxon_id: taxonId,
+          origin: null,
+        })
+      );
+    }
+    if (ops.length === 0) return;
+    const results = await Promise.allSettled(ops);
+    summarizeMutation("bulk remove taxon", results);
+    invalidateLinksForAlbums(touched);
+    // refresh the hub for the kind that owned the removed taxon so
+    // its album-count badge updates and the value node disappears if
+    // it dropped to zero.
+    for (const [hubId, cache] of taxonItemsByHub) {
+      let found = false;
+      for (const item of cache.values()) {
+        if (item.id === taxonId) {
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        await refreshHub(hubId);
+        break;
+      }
+    }
+  };
+
+  const handleBulkGroupSelection = async (
+    label: string
+  ): Promise<{ newTaxonId: string | null }> => {
+    const rid = bulkRemoteId();
+    const hub = bulkRelHubId();
+    const kind = bulkKindSlug();
+    if (!rid || !hub || !kind) return { newTaxonId: null };
+    if (!isRemoteAdmin(rid)) return { newTaxonId: null };
+    const remote = remotes().find((r) => r.remote_id === rid);
+    if (!remote) return { newTaxonId: null };
+    const trimmed = label.trim();
+    if (!trimmed) return { newTaxonId: null };
+    const client = await getClientForRemote(remote);
+
+    const created = await client.music.createTaxon({
+      kind_slug: kind,
+      label: trimmed,
+    });
+    if (!created.success || !created.data) {
+      console.warn("[graph] group selection: create taxon failed", created);
+      toast.error("failed to create group taxon");
+      return { newTaxonId: null };
+    }
+    const newId = created.data.id;
+    const parents = taxonParentsByHub.get(hub);
+    const ops: Promise<unknown>[] = [];
+    for (const taxonId of bulkSelectedTaxonIds()) {
+      if (taxonId === newId) continue;
+      const existing = parents?.get(taxonId);
+      if (existing === newId) continue;
+      if (existing) {
+        ops.push(client.music.removeTaxonParent({ child_id: taxonId, parent_id: existing }));
+      }
+      ops.push(client.music.addTaxonParent({ child_id: taxonId, parent_id: newId }));
+    }
+    const results = await Promise.allSettled(ops);
+    summarizeMutation(`group as '${trimmed}'`, results);
+    await refreshHub(hub);
+    return { newTaxonId: newId };
+  };
+
   return {
     bulkParsedSelection,
     bulkCounts,
@@ -313,11 +534,15 @@ export function createBulkHandlers(deps: BulkHandlersDeps) {
     bulkAllGroups,
     bulkCandidateParents,
     bulkAvailableTaxons,
+    bulkCurrentTaxons,
     bulkCanEdit,
     bulkActive,
     handleBulkReparent,
     handleBulkSetColor,
     handleBulkDeleteTaxons,
     handleBulkAssignTaxon,
+    handleBulkRemoveTaxon,
+    handleBulkGroupSelection,
+    invalidateLinksForAlbums,
   };
 }

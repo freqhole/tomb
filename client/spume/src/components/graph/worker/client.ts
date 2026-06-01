@@ -18,6 +18,7 @@ export interface WalkerClient {
   expand(nodeId: string): void;
   resize(width: number, height: number): void;
   merge(addNodes: WalkNode[], addEdges: WalkEdge[]): void;
+  remove(nodeIds: string[]): void;
   repivot(nodeId: string, resetBreadcrumb?: boolean): void;
   setPaused(paused: boolean): void;
   back(): void;
@@ -92,6 +93,9 @@ export function createWalkerClient(): WalkerClient {
     },
     merge(addNodes, addEdges) {
       post({ type: "merge", addNodes, addEdges });
+    },
+    remove(nodeIds) {
+      post({ type: "remove", nodeIds });
     },
     repivot(nodeId, resetBreadcrumb) {
       post({ type: "repivot", nodeId, resetBreadcrumb });

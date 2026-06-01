@@ -104,6 +104,14 @@ export interface MsgMerge {
   addEdges: WalkEdge[];
 }
 
+/** drop nodes (and any edges referencing them) from the full graph.
+ *  used by refreshHub to evict stale taxon nodes/edges before re-merge
+ *  so re-parented children don't keep their old hub edge. */
+export interface MsgRemove {
+  type: "remove";
+  nodeIds: string[];
+}
+
 /** jump to a new pivot; optionally reset breadcrumb instead of pushing */
 export interface MsgRepivot {
   type: "repivot";
@@ -125,6 +133,7 @@ export type MainToWorker =
   | MsgHitTest
   | MsgInit
   | MsgMerge
+  | MsgRemove
   | MsgRepivot
   | MsgResize
   | MsgSetPaused;

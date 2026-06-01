@@ -39,6 +39,11 @@ export interface PivotHandlerDeps {
   taxonParentsByHub: Map<string, Map<string, string>>;
   taxonLabelsByHub: Map<string, Map<string, string>>;
   albumsLoadedByPivot: Set<string>;
+  /** when true, empty leaf taxons (no albums + no children) are still
+   *  surfaced so admins can see + work with placeholders they just
+   *  created. when false (default), they're filtered out to keep the
+   *  graph readable. */
+  editMode?: () => boolean;
   queryClient?: QueryClient;
 }
 
@@ -60,6 +65,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     taxonParentsByHub,
     taxonLabelsByHub,
     albumsLoadedByPivot,
+    editMode,
   } = deps;
 
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
@@ -88,6 +94,10 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   const eraBinAlbumsLoadedByHub = new Set<string>();
   const eraBinAlbumsFetchPromises = new Map<string, Promise<void>>();
   const unassignedPageByHub = new Map<string, number>();
+  // ids of taxon nodes (value + group) we've merged per hub. used to
+  // evict stale nodes/edges on refresh so re-parented taxons drop
+  // their old hub-edge instead of stacking a new one alongside it.
+  const taxonNodeIdsByHub = new Map<string, Set<string>>();
   const unassignedExhaustedByHub = new Set<string>();
 
   const maybeLoadTaxonsForPivot = async (nodeId: string): Promise<void> => {
@@ -153,9 +163,14 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         if (!cache) {
           cache = new Map();
           taxonItemsByHub.set(relHubId, cache);
+        } else {
+          // refresh: drop stale entries so removed/renamed taxons don't
+          // linger in the cache used by typeahead + chip rendering.
+          cache.clear();
         }
         const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
+        const freshNodeIds = new Set<string>();
         for (const item of taxonsResult.data.items) {
           cache.set(slug(item.label), {
             id: item.id,
@@ -163,10 +178,13 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             albumCount: item.album_count,
           });
           const isGroup = childIdSet.has(item.id);
-          if (!isGroup && item.album_count <= 0) continue;
+          // hide empty leaf taxons in read mode; show them in edit mode
+          // so newly-created placeholders are visible immediately.
+          if (!isGroup && item.album_count <= 0 && !editMode?.()) continue;
           const taxonNodeId = isGroup
             ? groupNodeId(remoteId, kind, item.label)
             : valueNodeId(remoteId, kind, item.label);
+          freshNodeIds.add(taxonNodeId);
 
           addNodes.push({
             id: taxonNodeId,
@@ -188,6 +206,17 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             : relHubId;
           addEdges.push({ source: edgeSource, target: taxonNodeId });
         }
+        // evict any node ids we'd previously merged for this hub.
+        // we ALWAYS drop them — even ids that re-appear in the fresh
+        // set — because role and edge source may have changed (e.g.
+        // a value got promoted to a group, or a child got a new
+        // taxon parent). the subsequent merge re-adds them with the
+        // correct topology.
+        const prevNodeIds = taxonNodeIdsByHub.get(relHubId);
+        if (prevNodeIds && prevNodeIds.size > 0) {
+          walkerClient()?.remove(Array.from(prevNodeIds));
+        }
+        taxonNodeIdsByHub.set(relHubId, freshNodeIds);
         walkerClient()?.merge(addNodes, addEdges);
         taxonsLoadedByHub.add(nodeId);
       } catch (err) {
