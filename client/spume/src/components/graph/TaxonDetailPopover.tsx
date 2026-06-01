@@ -45,6 +45,12 @@ export interface TaxonDetailPopoverProps {
   /** number of taxon nodes that currently match the filter query, used
    *  to label the "select matches" button. */
   matchCount?: Accessor<number>;
+  /** when true, the filter only affects leaf value taxons (octagons)
+   *  and leaves group taxons (7-sided) visible so the user can see the
+   *  intermediate parent nodes while corralling matches. */
+  filterValuesOnly?: Accessor<boolean>;
+  /** toggle handler for the values-only filter scope. */
+  onFilterValuesOnlyChange?: (valuesOnly: boolean) => void;
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -234,7 +240,7 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
           {/* filter input — hub mode + edit mode only. hides non-matching
               taxon children on the canvas so the user can corral matches
               for grouping / re-parenting. */}
-          <Show when={props.canEdit() && props.editMode() && isHubMode() && props.onFilterChange}>
+          <Show when={isHubMode() && props.onFilterChange}>
             <div class="mt-1 flex flex-col gap-1">
               <div class="flex items-center gap-1">
                 <input
@@ -264,6 +270,20 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
                   </button>
                 </Show>
               </div>
+              <Show when={props.onFilterValuesOnlyChange}>
+                <label
+                  class="flex items-center gap-1.5 text-[10px] text-white/55 select-none cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={props.filterValuesOnly?.() ?? true}
+                    onChange={(e) => props.onFilterValuesOnlyChange?.(e.currentTarget.checked)}
+                    class="accent-pink-500 cursor-pointer"
+                  />
+                  <span>values only (keep groups visible)</span>
+                </label>
+              </Show>
               <Show when={(props.filterQuery?.() ?? "").length > 0 && props.onSelectMatches}>
                 <button
                   type="button"

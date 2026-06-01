@@ -828,12 +828,49 @@ function Inner(props: {
   // replace normal click-to-pivot behavior.
   const [editMode, setEditMode] = createSignal(false);
   const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
+  // in edit mode, a single value/group taxon selected via plain click
+  // should still surface the bulk popover (nest/color/delete). this wrap
+  // is what the bulk handlers see, so they auto-activate without us
+  // having to mutate the real multiSelection signal.
+  const effectiveMultiSelection = createMemo<Set<string>>(() => {
+    const base = multiSelection();
+    if (!editMode()) return base;
+    const sid = selectedId();
+    if (!sid || base.has(sid)) return base;
+    try {
+      const p = parseNodeId(sid);
+      if (p && (p.kind === "value" || p.kind === "group")) {
+        const next = new Set(base);
+        next.add(sid);
+        return next;
+      }
+    } catch {
+      // ignore unparseable ids
+    }
+    return base;
+  });
+  const setEffectiveMultiSelection = (next: Set<string>) => {
+    setMultiSelection(next);
+    if (next.size === 0) setSelectedId(null);
+  };
   // per-hub filter query for taxon children. only one hub is visible at a
   // time (the one in the open popover) so a flat map by hub id is fine.
   // when a query is set, non-matching value/group node ids under that hub
   // are sent to the worker via setHidden so the sim re-clusters around
   // the matches; everything else stays in the full graph.
   const [taxonFilterByHub, setTaxonFilterByHub] = createSignal<Map<string, string>>(new Map());
+  // per-hub filter scope: when true, the filter only acts on octagons
+  // (leaf value taxons) and leaves 7-sided group taxons visible so the
+  // user can see the intermediate parents while corralling matches.
+  // default true since that's the common case for re-parenting.
+  const [taxonFilterValuesOnlyByHub, setTaxonFilterValuesOnlyByHub] = createSignal<
+    Map<string, boolean>
+  >(new Map());
+  const activeHubFilterValuesOnly = createMemo<boolean>(() => {
+    const info = selectedTaxonInfo();
+    if (!info) return true;
+    return taxonFilterValuesOnlyByHub().get(info.relHubId) ?? true;
+  });
   // bumped by createPivotHandler every time a hub's taxon cache is
   // re-merged (e.g. after a re-parent drop). hubFilterIds depends on it
   // so the hide set is re-derived from the fresh taxonItemsByHub and the
@@ -867,6 +904,9 @@ function Inner(props: {
     if (parents) for (const pid of parents.values()) childIdSet.add(pid);
     for (const meta of items.values()) {
       const isGroup = childIdSet.has(meta.id);
+      // values-only scope: skip group taxons so they remain visible
+      // and don't pollute the hide set.
+      if (isGroup && activeHubFilterValuesOnly()) continue;
       const nodeId = isGroup
         ? groupNodeId(remoteId, kind, meta.label)
         : valueNodeId(remoteId, kind, meta.label);
@@ -900,10 +940,10 @@ function Inner(props: {
       setMultiSelection(new Set<string>());
     }
   });
-  // clear any active taxon filter when leaving edit mode so hidden
-  // nodes reappear immediately.
+  // clear any active taxon filter when no hub popover is open so the
+  // hide set doesn't linger across navigation.
   createEffect(() => {
-    if (!editMode() && taxonFilterByHub().size > 0) {
+    if (!selectedTaxonInfo() && taxonFilterByHub().size > 0) {
       setTaxonFilterByHub(new Map());
     }
   });
@@ -1972,8 +2012,8 @@ function Inner(props: {
     remotes: () => props.remotes(),
     isRemoteAdmin,
     editMode,
-    multiSelection,
-    setMultiSelection,
+    multiSelection: effectiveMultiSelection,
+    setMultiSelection: setEffectiveMultiSelection,
     setSelectedId,
     taxonItemsByHub,
     taxonParentsByHub,
@@ -2369,6 +2409,14 @@ function Inner(props: {
                 const ids = hubFilterIds().matchIds;
                 if (ids.size === 0) return;
                 setMultiSelection(new Set(ids));
+              }}
+              filterValuesOnly={activeHubFilterValuesOnly}
+              onFilterValuesOnlyChange={(valuesOnly) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const next = new Map(taxonFilterValuesOnlyByHub());
+                next.set(info.relHubId, valuesOnly);
+                setTaxonFilterValuesOnlyByHub(next);
               }}
               onSetColor={(color) => {
                 const info = selectedTaxonInfo();
