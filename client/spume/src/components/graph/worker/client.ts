@@ -16,6 +16,11 @@ export type VisibleIdsListener = (ids: string[]) => void;
 export interface WalkerClient {
   init(graph: WalkGraph, pivot: string, width: number, height: number, breadcrumb?: string[]): void;
   expand(nodeId: string): void;
+  /** force-expand a hub's immediate subtree (children + their album
+   *  children for artist children). cleared on the next back(). */
+  expandSubtree(nodeId: string): void;
+  /** clear every eager subtree expansion at once. */
+  collapseSubtrees(): void;
   resize(width: number, height: number): void;
   merge(addNodes: WalkNode[], addEdges: WalkEdge[]): void;
   remove(nodeIds: string[]): void;
@@ -106,6 +111,12 @@ export function createWalkerClient(): WalkerClient {
     },
     expand(nodeId) {
       post({ type: "expand", nodeId });
+    },
+    expandSubtree(nodeId) {
+      post({ type: "expandSubtree", nodeId });
+    },
+    collapseSubtrees() {
+      post({ type: "collapseSubtrees" });
     },
     resize(width, height) {
       post({ type: "resize", width, height });

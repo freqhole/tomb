@@ -244,16 +244,24 @@ export function drawNode(
   }
 
   if (
-    (n.role === "relation" || n.role === "value" || (n.role === "remote" && isHovered)) &&
+    (n.role === "relation" || n.role === "value" || n.role === "group" || (n.role === "remote" && isHovered)) &&
     n.childCount > 0
   ) {
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    // count label: pick a high-contrast foreground from the actual fill
+    // color, then paint a same-width halo in the opposite tone so the
+    // digits stay legible regardless of node tint (group lighten,
+    // kind hue, hub gradient, etc).
+    const bg = nodeFillColor(n);
+    const fg = readableTextColor(bg);
+    const halo = fg === "#ffffff" ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.85)";
     ctx.font = `bold ${Math.max(9, Math.round(radius * 0.42))}px system-ui,sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(n.childCount), x, y);
-    // draw text overlay with contrast-aware color
-    ctx.fillStyle = readableTextColor(nodeFillColor(n));
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(2, radius * 0.18);
+    ctx.strokeStyle = halo;
+    ctx.strokeText(String(n.childCount), x, y);
+    ctx.fillStyle = fg;
     ctx.fillText(String(n.childCount), x, y);
   }
 

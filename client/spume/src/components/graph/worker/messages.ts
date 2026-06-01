@@ -155,9 +155,26 @@ export interface MsgSetTuning {
   }>;
 }
 
+/** expand the entire immediate child subtree of a node. for group/value
+ *  hub nodes this surfaces all child taxons + any artist children + each
+ *  artist's albums. cleared on `back`. */
+export interface MsgExpandSubtree {
+  type: "expandSubtree";
+  nodeId: string;
+}
+
+/** clear every eager subtree expansion at once. fired by the host on
+ *  single-selection of an unrelated node so the previously-expanded
+ *  groups collapse back to normal pivot-driven visibility. */
+export interface MsgCollapseSubtrees {
+  type: "collapseSubtrees";
+}
+
 export type MainToWorker =
   | MsgBack
   | MsgExpand
+  | MsgExpandSubtree
+  | MsgCollapseSubtrees
   | MsgGetBounds
   | MsgHitTest
   | MsgInit

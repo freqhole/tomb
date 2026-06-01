@@ -354,10 +354,25 @@ export function buildSim() {
             : s.role === "value"
               ? (s.radius + t.radius) * 4.7  // value→x fan-out
               : (s.radius + t.radius) * 2.6 * tun.artistHubDistance;
+          // fat hubs / fat artists pull closer: shrink the edge by an
+          // inverse-sqrt of the child-count of either endpoint that
+          // represents a populated leaf. 1 child -> ~0.80x, 4 -> ~0.67x,
+          // 25 -> ~0.44x. applies to value/group/artist endpoints on
+          // any non-related-artist hub edge.
+          const populated = (n: SimNode) =>
+            n.role === "artist" || n.role === "value" || n.role === "group"
+              ? n.childCount
+              : 0;
+          const sCount = populated(s);
+          const tCount = populated(t);
+          const shrinkCount = Math.max(sCount, tCount);
+          const shrink = !d.isRelatedArtist && shrinkCount > 0
+            ? 1 / (1 + Math.sqrt(shrinkCount) * 0.25)
+            : 1;
           if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
-            return base * (1 + pivotBoost * 1.2);
+            return base * shrink * (1 + pivotBoost * 1.2);
           }
-          return base;
+          return base * shrink;
         })
         .strength((d) => {
           const s = d.source as SimNode;

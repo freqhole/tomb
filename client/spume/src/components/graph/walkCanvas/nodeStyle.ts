@@ -2,6 +2,30 @@ import type { VisibleNode } from "../worker/messages";
 import { ROLE_COLOR, valueKindStroke, ROLE_RANK, EDGE_BREADCRUMB } from "./colors";
 import { valueKind } from "./idUtils";
 
+// lighten a color by `amt` (0–1) toward white. handles both hex
+// (#rrggbb) and hsl(h s% l%) strings so groups can sit visually a
+// notch above their sibling values without losing the kind hue.
+function lighten(color: string, amt: number): string {
+  const hex = /^#?([0-9a-f]{6})$/i.exec(color);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    const r = (n >> 16) & 0xff;
+    const g = (n >> 8) & 0xff;
+    const b = n & 0xff;
+    const mix = (c: number) => Math.round(c + (255 - c) * amt);
+    return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+  }
+  const hsl = /^hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%\s*\)$/i.exec(color);
+  if (hsl) {
+    const h = parseFloat(hsl[1]);
+    const s = parseFloat(hsl[2]);
+    const l = parseFloat(hsl[3]);
+    const newL = Math.min(95, l + (100 - l) * amt);
+    return `hsl(${h} ${s}% ${newL}%)`;
+  }
+  return color;
+}
+
 // fills stay role-neutral so labels rendered on top keep consistent contrast.
 // per-kind color only shows up on the stroke + outgoing edge lines.
 export function nodeFillColor(n: VisibleNode): string {
@@ -15,7 +39,10 @@ export function nodeFillColor(n: VisibleNode): string {
   }
   if (n.role === "value" || n.role === "group") {
     const kind = valueKind(n.id);
-    if (kind) return valueKindStroke(kind);
+    if (kind) {
+      const base = valueKindStroke(kind);
+      return n.role === "group" ? lighten(base, 0.35) : base;
+    }
   }
   return ROLE_COLOR[n.role] ?? "#888";
 }

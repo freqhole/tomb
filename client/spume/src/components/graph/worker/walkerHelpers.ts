@@ -72,8 +72,11 @@ export function nodeRadius(role: string, childCount: number): number {
     case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
     case "value":
-    case "group":
       return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
+    case "group":
+      // groups bundle multiple values; size them noticeably above
+      // octagons so they read as a tier above leaf taxons.
+      return 24 + Math.min(Math.sqrt(childCount) * 3.5, 22);
     // artists grow with album count when they have more than a couple of
     // albums, which boosts the parent-radius input into computeTargets'
     // baseR/radialStep and gives related-artist ghosts + album rings

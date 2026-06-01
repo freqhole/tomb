@@ -191,6 +191,27 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       break;
     }
 
+    case "expandSubtree": {
+      const { nodeId } = msg;
+      if (!nodeMap.has(nodeId)) break;
+      // toggle: a second long-press / button click collapses the eagerly-
+      // surfaced subtree back to its normal pivot-driven visibility.
+      if (state.eagerExpansions.has(nodeId)) {
+        state.eagerExpansions.delete(nodeId);
+      } else {
+        state.eagerExpansions.add(nodeId);
+      }
+      buildSim();
+      break;
+    }
+
+    case "collapseSubtrees": {
+      if (state.eagerExpansions.size === 0) break;
+      state.eagerExpansions.clear();
+      buildSim();
+      break;
+    }
+
     case "resize": {
       state.width = msg.width;
       state.height = msg.height;
@@ -306,6 +327,7 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       if (state.breadcrumb.length > 1) {
         state.breadcrumb = state.breadcrumb.slice(0, -1);
       }
+      state.eagerExpansions.clear();
       buildSim();
       break;
     }

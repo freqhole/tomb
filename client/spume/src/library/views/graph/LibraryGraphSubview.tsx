@@ -726,6 +726,17 @@ function Inner(props: {
     const client = walkerClient();
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
+      // when any group has been eagerly expanded, drive album loading
+      // for every visible value/group so the worker's subtree DFS can
+      // surface the resulting artist + album nodes on the next pass.
+      // maybeLoadAlbumsForPivot dedupes via albumsLoadedByPivot.
+      if (eagerHubIds().size > 0) {
+        for (const id of ids) {
+          if (id.startsWith("value::") || id.startsWith("group::")) {
+            void maybeLoadAlbumsForPivot(id);
+          }
+        }
+      }
       // prefetch related-artist edges for every visible artist node so
       // the lavender wires appear as soon as the node renders rather
       // than waiting for the user to pivot. the fetcher dedupes via
@@ -888,6 +899,18 @@ function Inner(props: {
   // so the hide set is re-derived from the fresh taxonItemsByHub and the
   // worker keeps hiding the right nodes across edits.
   const [hubRefreshTick, setHubRefreshTick] = createSignal(0);
+  // group node ids whose subtree has been eagerly expanded via long-press
+  // or the detail-panel button. used to drive album/artist loading for
+  // every visible descendant value/group, and to label the toggle button.
+  const [eagerHubIds, setEagerHubIds] = createSignal<Set<string>>(new Set());
+  const toggleEagerHub = (id: string) => {
+    setEagerHubIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const activeHubFilterQuery = createMemo(() => {
     const info = selectedTaxonInfo();
     if (!info) return "";
@@ -1762,6 +1785,18 @@ function Inner(props: {
   };
 
   const handleSelect = (nodeId: string, _role: string) => {
+    // single-selection of any node other than a currently-eager-expanded
+    // group collapses every previously-expanded subtree back to its
+    // normal pivot-driven visibility. shift / cmd / ctrl multi-select
+    // routes through onMultiSelectionChange and never reaches here, so
+    // those gestures preserve the expansion.
+    {
+      const cur = eagerHubIds();
+      if (cur.size > 0 && !cur.has(nodeId)) {
+        setEagerHubIds(new Set<string>());
+        walkerClient()?.collapseSubtrees();
+      }
+    }
     setSelectedId(nodeId);
     try {
       const parsed = parseNodeId(nodeId);
@@ -1795,6 +1830,7 @@ function Inner(props: {
     pivotKeepingPanel,
     findArtistNodeId,
     maybeLoadTaxonsForPivot,
+    maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
   } = createPivotHandler({
     remotes: () => props.remotes(),
@@ -2087,6 +2123,7 @@ function Inner(props: {
           onEdgeRightClick={(srcId, tgtId) => {
             void handleEdgeRightClick(srcId, tgtId);
           }}
+          onExpandSubtree={(id) => toggleEagerHub(id)}
         />
 
         {/* debug sim-tuning overlay (toggle with shift+d) */}
@@ -2443,6 +2480,18 @@ function Inner(props: {
                 const next = new Map(taxonFilterValuesOnlyByHub());
                 next.set(info.relHubId, valuesOnly);
                 setTaxonFilterValuesOnlyByHub(next);
+              }}
+              onExpandSubtree={() => {
+                const id = selectedId();
+                if (!id) return;
+                const parsed = parseNodeId(id);
+                if (parsed.kind !== "group") return;
+                toggleEagerHub(id);
+                walkerClient()?.expandSubtree(id);
+              }}
+              isExpanded={() => {
+                const id = selectedId();
+                return id ? eagerHubIds().has(id) : false;
               }}
               onSetColor={(color) => {
                 const info = selectedTaxonInfo();

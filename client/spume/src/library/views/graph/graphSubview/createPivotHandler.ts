@@ -924,6 +924,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     pivotKeepingPanel,
     findArtistNodeId,
     maybeLoadTaxonsForPivot,
+    maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
   };
 }

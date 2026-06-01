@@ -51,6 +51,14 @@ export interface TaxonDetailPopoverProps {
   filterValuesOnly?: Accessor<boolean>;
   /** toggle handler for the values-only filter scope. */
   onFilterValuesOnlyChange?: (valuesOnly: boolean) => void;
+  /** when set, shows an "expand all" button that surfaces every
+   *  immediate child + each artist child's albums on the canvas. only
+   *  meaningful for group (7-sided) hub nodes. */
+  onExpandSubtree?: () => void;
+  /** true when this group's subtree is currently eagerly expanded.
+   *  flips the button label between "expand" and "collapse" so the
+   *  toggle gesture is discoverable. */
+  isExpanded?: Accessor<boolean>;
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -235,6 +243,23 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
                 clear
               </button>
             </div>
+          </Show>
+
+          {/* expand-all button — surfaces this hub's immediate children
+              and any artist child's albums on the canvas. mirrors the
+              long-press gesture on the node itself. only meaningful
+              when the selected node is a group (has descendants). */}
+          <Show when={props.isGroup() && props.onExpandSubtree}>
+            <button
+              type="button"
+              class="mt-1 w-full py-1.5 px-2 rounded text-[11px] font-medium border border-sky-400/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-200 hover:text-sky-100 transition-colors cursor-pointer text-left"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onExpandSubtree?.();
+              }}
+            >
+              {props.isExpanded?.() ? "collapse children + albums" : "expand all children + albums"}
+            </button>
           </Show>
 
           {/* filter input — hub mode + edit mode only. hides non-matching

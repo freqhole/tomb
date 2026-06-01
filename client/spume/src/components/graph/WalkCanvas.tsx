@@ -75,6 +75,12 @@ export interface WalkCanvasProps {
   onMultiSelectionChange?: (ids: Set<string>) => void;
   /** fires when a drag-drop completes in edit mode over a valid target node. */
   onDrop?: (sourceIds: Set<string>, targetId: string) => void;
+  /** fires when the user long-presses a group (7-sided) node to toggle
+   *  eager subtree expansion. host should toggle its own bookkeeping
+   *  (e.g. set of expanded hub ids) so it can drive album loading for
+   *  visible descendant taxons. canvas already calls `expandSubtree`
+   *  on the worker; this callback is purely a notification. */
+  onExpandSubtree?: (id: string) => void;
   /** fires on right-click over a canvas edge. */
   onEdgeRightClick?: (srcId: string, tgtId: string) => void;
 }
@@ -163,6 +169,24 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   // press-vs-pan disambiguation: if pointer wanders >3px before release,
   // it's a pan; otherwise a click that fires hit-test on pointerup.
   const PAN_THRESHOLD = 3;
+
+  // long-press on a group node \u2192 expand subtree. timer fires after
+  // LONG_PRESS_MS without significant pointer movement; the resulting
+  // click on pointerup is suppressed via longPressFired.
+  const LONG_PRESS_MS = 450;
+  const LONG_PRESS_MOVE_TOLERANCE_PX = 6;
+  let longPressTimer: number | null = null;
+  let longPressPointerId: number | null = null;
+  let longPressStart: { sx: number; sy: number } | null = null;
+  let longPressFired = false;
+  function cancelLongPress() {
+    if (longPressTimer !== null) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    longPressPointerId = null;
+    longPressStart = null;
+  }
 
   type LassoState = {
     pointerId: number;
@@ -494,6 +518,20 @@ export default function WalkCanvas(props: WalkCanvasProps) {
                 : EDGE_COLOR;
           ctx.lineWidth = e.isBreadcrumb ? 2.5 : 1;
           ctx.globalAlpha = e.isBreadcrumb ? 0.9 : kindEdge ? 0.65 : isAlbumEdge ? 0.8 : 0.7;
+        }
+        // focus boost: when either endpoint is the currently hovered or
+        // selected node, fatten the edge and crank opacity so the
+        // node's connections pop out from the rest of the graph.
+        // hover gets the strongest boost; selection is a touch softer
+        // so a sticky selection doesn't permanently drown out hover.
+        const sId = sn?.id;
+        const tId = tn?.id;
+        const isHovered = hov != null && (sId === hov || tId === hov);
+        const isSelected = selId != null && (sId === selId || tId === selId);
+        if (isHovered || isSelected) {
+          const boost = isHovered ? 2.6 : 2.0;
+          ctx.lineWidth = ctx.lineWidth * boost;
+          ctx.globalAlpha = Math.min(1, ctx.globalAlpha + (isHovered ? 0.25 : 0.18));
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -942,11 +980,40 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       startTy: v.ty,
       moved: false,
     });
+
+    // long-press on a group (7-sided) node → expand its subtree
+    // (immediate children + each artist child's albums). swallows the
+    // click that would otherwise fire on pointerup.
+    const lpHit = syncHitTest(sx, sy);
+    if (lpHit) {
+      const lpNode = nodes.find((n) => n.id === lpHit);
+      if (lpNode?.role === "group") {
+        longPressPointerId = e.pointerId;
+        longPressStart = { sx, sy };
+        longPressFired = false;
+        longPressTimer = window.setTimeout(() => {
+          longPressFired = true;
+          client.expandSubtree(lpHit);
+          props.onExpandSubtree?.(lpHit);
+          longPressTimer = null;
+        }, LONG_PRESS_MS);
+      }
+    }
   }
 
   function onPointerMove(e: PointerEvent) {
     const [sx, sy] = clientToCanvas(e);
     if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { sx, sy });
+
+    // long-press cancel on movement past tolerance
+    if (
+      longPressPointerId === e.pointerId &&
+      longPressStart &&
+      (Math.abs(sx - longPressStart.sx) > LONG_PRESS_MOVE_TOLERANCE_PX ||
+        Math.abs(sy - longPressStart.sy) > LONG_PRESS_MOVE_TOLERANCE_PX)
+    ) {
+      cancelLongPress();
+    }
 
     // pinch
     if (pinchState && activePointers.size >= 2) {
@@ -1102,6 +1169,13 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     const sx = ps.startSx;
     const sy = ps.startSy;
     setPanState(null);
+    // long-press fired — swallow the click that would otherwise pivot/expand
+    if (longPressFired) {
+      cancelLongPress();
+      longPressFired = false;
+      return;
+    }
+    cancelLongPress();
     if (wasPan) return;
     // click → dispatch by role
     const v = view();
@@ -1261,6 +1335,8 @@ function nodeDisplayRadius(n: VisibleNode): number {
       return 20 + Math.min(Math.sqrt(n.childCount) * 4, 20);
     case "value":
       return 14 + Math.min(Math.sqrt(n.childCount) * 3, 16);
+    case "group":
+      return 24 + Math.min(Math.sqrt(n.childCount) * 3.5, 22);
     case "artist":
       return 27;
     case "album":

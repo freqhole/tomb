@@ -189,10 +189,37 @@ export function getVisible(): Set<string> {
   // graphs and a giant ball of nodes. progressive expansion is the goal:
   // pivot a remote \u2192 see artists; click an artist \u2192 see its albums.
   const breadcrumbSet = new Set(state.breadcrumb);
+  // honor eager-expansion requests: long-press / "expand all" on a hub
+  // walks the entire descendant taxon subtree from that hub, surfacing\n  // every value/group taxon plus every artist found along the way. each
+  // surfaced artist is then treated as auto-expand source for its albums.
+  const eagerArtists = new Set<string>();
+  for (const hubId of state.eagerExpansions) {
+    if (!nodeMap.has(hubId)) continue;
+    visible.add(hubId);
+    const stack: string[] = [hubId];
+    const seen = new Set<string>([hubId]);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const childId of clusterChildrenOf(cur)) {
+        if (seen.has(childId)) continue;
+        seen.add(childId);
+        const child = nodeMap.get(childId);
+        if (!child) continue;
+        if (child.role === "album") continue; // albums handled via artist pass below
+        if ((child.role === "value" || child.role === "relation") && child.childCount === 0 && !child.lazy) continue;
+        visible.add(childId);
+        if (child.role === "artist") {
+          eagerArtists.add(childId);
+        } else if (child.role === "group" || child.role === "value" || child.role === "relation") {
+          stack.push(childId);
+        }
+      }
+    }
+  }
   for (const id of [...visible]) {
     const wn = nodeMap.get(id);
     if (wn?.role !== "artist") continue;
-    if (id !== piv && !breadcrumbSet.has(id)) continue;
+    if (id !== piv && !breadcrumbSet.has(id) && !eagerArtists.has(id)) continue;
     for (const childId of clusterChildrenOf(id)) {
       const child = nodeMap.get(childId);
       if (child?.role === "album") visible.add(childId);
