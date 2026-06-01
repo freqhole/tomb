@@ -866,7 +866,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       let isTaxonNode = false;
       try {
         const p = parseNodeId(nodeId);
-        isTaxonNode = p.kind === "value" || p.kind === "group" || p.kind === "relation";
+        isTaxonNode =
+          p.kind === "value" ||
+          p.kind === "group" ||
+          p.kind === "relation" ||
+          p.kind === "remote";
       } catch {
         // non-parseable id — treat as hub pivot
       }

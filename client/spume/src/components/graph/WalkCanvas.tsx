@@ -1064,6 +1064,11 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         props.onSelect?.(id, role);
         client.expand(id);
         props.onPivot?.(id);
+      } else if (role === "remote") {
+        // remote root hubs open a remote-level popover alongside their pivot
+        props.onSelect?.(id, role);
+        client.expand(id);
+        props.onPivot?.(id);
       } else {
         client.expand(id);
         props.onPivot?.(id);

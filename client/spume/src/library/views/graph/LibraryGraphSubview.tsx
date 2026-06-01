@@ -40,6 +40,7 @@ import {
   CollapsedAlbumButton,
   CollapsedArtistButton,
   CollapsedTaxonButton,
+  CollapsedRemoteButton,
 } from "./graphSubview/CollapsedPanels";
 import { createSelectedArtistDisplay } from "./graphSubview/useSelectedArtistDisplay";
 import { createContributingRemotes } from "./graphSubview/useContributingRemotes";
@@ -90,8 +91,9 @@ import { adaptApiImage } from "../../../music/data/remote/adapters";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
+import { RemoteDetailPopover } from "../../../components/graph/RemoteDetailPopover";
 import { BulkSelectionPopover } from "../../../components/graph/BulkSelectionPopover";
-import type { TaxonRef } from "freqhole-api-client";
+import type { TaxonRef, TaxonKind as TaxonKindType } from "freqhole-api-client";
 import { Icon } from "../../../components/icons/registry";
 
 // ---- public props -----------------------------------------------------------
@@ -225,6 +227,12 @@ function Inner(props: {
   // kind metadata by relation hub id -> { label, color }. populated in
   // loadTaxonKindsForRemote for the taxon detail popover kind chip.
   const taxonKindMetaByHub = new Map<string, { label: string; color: string | null }>();
+  // full taxon kind list per remote (categorical + scalar, empty
+  // included). populated by loadTaxonKindsForRemote and consumed by
+  // the remote detail popover for the "add taxon" kind dropdown.
+  const [taxonKindsByRemote, setTaxonKindsByRemote] = createSignal<Map<string, TaxonKindType[]>>(
+    new Map()
+  );
   const [extraNodesById, setExtraNodesById] = createSignal<
     Map<string, AlbumNodeData | ArtistNodeData>
   >(new Map());
@@ -503,6 +511,14 @@ function Inner(props: {
       const result = await client.music.listTaxonKinds();
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
+      // stash the full kind list (categorical + scalar, empties
+      // included) so the remote detail popover can drive its "add
+      // taxon" kind dropdown without an extra round-trip.
+      setTaxonKindsByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, result.data ?? []);
+        return next;
+      });
       const rhId = remoteHubId(remoteId);
       const SKIP_SLUGS = new Set(["favorite", "favorites"]);
       const addNodes: WalkNode[] = [];
@@ -825,6 +841,20 @@ function Inner(props: {
     const node = lookupNode(id);
     if (!node || !("title" in node)) return null;
     return node as AlbumNodeData;
+  });
+
+  // remote hub selection: derived from selectedId when the node is a
+  // root remote hub. drives the RemoteDetailPopover.
+  const selectedRemote = createMemo<Remote | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    try {
+      const parsed = parseNodeId(id);
+      if (parsed.kind !== "remote") return null;
+      return props.remotes().find((r) => r.remote_id === parsed.remoteId) ?? null;
+    } catch {
+      return null;
+    }
   });
 
   const selectedArtist = createMemo<ArtistNodeData | null>(() => {
@@ -2351,6 +2381,99 @@ function Inner(props: {
               />
             );
           })()}
+        </Show>
+
+        {/* remote root detail popover — shown when a remote hub is selected */}
+        <Show when={selectedRemote() !== null && !taxonPanelHidden() && !bulkActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setTaxonPanelHidden(true)}
+              title="hide details"
+              aria-label="hide details"
+              class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+            <RemoteDetailPopover
+              remote={selectedRemote}
+              canEdit={() => isRemoteAdmin(selectedRemote()?.remote_id ?? null)}
+              taxonKinds={() => taxonKindsByRemote().get(selectedRemote()?.remote_id ?? "") ?? []}
+              onClose={() => setSelectedId(null)}
+              onCreateTaxon={(kindSlug, label) => {
+                const remote = selectedRemote();
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const created = await apiClient.music.createTaxon({
+                      kind_slug: kindSlug,
+                      label,
+                    });
+                    if (!created.success || !created.data) {
+                      toast.error("failed to create taxon");
+                      return;
+                    }
+                    toast.success(`taxon '${label}' created`);
+                    // re-fetch kinds so the hub list + counts pick up
+                    // the newly-created taxon's parent kind and so the
+                    // relation hub appears if it was previously empty.
+                    taxonKindsLoadedRemotes.delete(remote.remote_id);
+                    await loadTaxonKindsForRemote(remote);
+                    taxonKindsLoadedRemotes.add(remote.remote_id);
+                    // invalidate cached taxon items for this kind so a
+                    // subsequent pivot re-fetches and the new taxon
+                    // shows up as a value node.
+                    const relHubId = relationHubId(remote.remote_id, kindSlug);
+                    taxonsLoadedByHub.delete(relHubId);
+                  } catch (err) {
+                    console.warn("create taxon failed", { kindSlug, label, err });
+                    toast.error("failed to create taxon");
+                  }
+                })();
+              }}
+              onCreateKind={(input) => {
+                const remote = selectedRemote();
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const created = await apiClient.music.createTaxonKind({
+                      slug: input.slug,
+                      label: input.label,
+                      description: null,
+                      color: input.color,
+                      value_type: null,
+                      unit: null,
+                      display_order: null,
+                    });
+                    if (!created.success) {
+                      toast.error(`failed to create kind '${input.slug}'`);
+                      return;
+                    }
+                    toast.success(`kind '${input.label}' created`);
+                    // re-fetch kinds so the new kind shows up in the
+                    // chip list. note: empty kinds aren't seeded as
+                    // hub nodes (loadTaxonKindsForRemote skips when
+                    // album_count <= 0), so no walker merge here.
+                    taxonKindsLoadedRemotes.delete(remote.remote_id);
+                    await loadTaxonKindsForRemote(remote);
+                    taxonKindsLoadedRemotes.add(remote.remote_id);
+                  } catch (err) {
+                    console.warn("create taxon kind failed", { input, err });
+                    toast.error(`failed to create kind '${input.slug}'`);
+                  }
+                })();
+              }}
+            />
+          </div>
+        </Show>
+
+        <Show when={selectedRemote() !== null && taxonPanelHidden() && !bulkActive()}>
+          <CollapsedRemoteButton
+            label={selectedRemote()?.name ?? "remote"}
+            onRestore={() => setTaxonPanelHidden(false)}
+          />
         </Show>
       </div>
     </div>
