@@ -67,6 +67,7 @@ pub struct Taxon {
     pub slug: String,
     pub label: String,
     pub description: Option<String>,
+    pub color: Option<String>,
     pub is_user_defined: bool,
     pub created_at: i64,
     pub created_by: Option<String>,
@@ -246,4 +247,22 @@ pub struct ListTaxonsByKindRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetAlbumTaxonLinksRequest {
     pub album_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonColorRequest {
+    pub taxon_id: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListTaxonParentsForKindRequest {
+    pub kind_slug: String,
+}
+
+/// a single parent edge in the taxon DAG (child -> parent).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
+pub struct TaxonParentEdge {
+    pub child_id: String,
+    pub parent_id: String,
 }

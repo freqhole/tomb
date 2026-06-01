@@ -1237,6 +1237,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    listTaxonParentsForKind: (params: s.ListTaxonParentsForKindRequest) => {
+      return call(
+        "music",
+        "list_taxon_parents_for_kind",
+        routes.music.list_taxon_parents_for_kind.resp,
+        routes.music.list_taxon_parents_for_kind.req,
+        routes.music.list_taxon_parents_for_kind.method,
+        routes.music.list_taxon_parents_for_kind.path,
+        params,
+      );
+    },
+
     removeTaxonParent: (params: s.RemoveTaxonParentRequest) => {
       return call(
         "music",

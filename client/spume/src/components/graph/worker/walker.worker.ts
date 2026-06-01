@@ -161,7 +161,9 @@ function nodeRadius(role: string, childCount: number): number {
     case "root":     return 14;
     case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
-    case "value":    return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
+    case "value":
+    case "group":
+      return 14 + Math.min(Math.sqrt(childCount) * 3, 16);
     // artists grow with album count when they have more than a couple of
     // albums, which boosts the parent-radius input into computeTargets'
     // baseR/radialStep and gives related-artist ghosts + album rings
@@ -785,7 +787,7 @@ function buildSim() {
         // outer space without disturbing the tight album ring (which
         // is held in place by the near-max album spring).
         .strength((d) => {
-          if (d.role === "value" || d.role === "relation") return -180;
+          if (d.role === "value" || d.role === "relation" || d.role === "group") return -180;
           if (d.role === "artist") {
             if (d.id === pivLeader && pivotActive) {
               return -(400 + pivotBoost * 600);
@@ -1001,6 +1003,7 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         remote:   0.95, // rounded square — corners stay clickable
         relation: 0.5,  // hexagon
         value:    0.5,  // octagon
+        group:    0.5,  // 7-sided polygon, same inradius as octagon
         artist:   0.5,  // circle
         album:    0.95, // square — corners stay clickable
       };

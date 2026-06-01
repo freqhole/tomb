@@ -69,6 +69,7 @@ import {
   remoteHubId,
   relationHubId,
   valueNodeId,
+  groupNodeId,
   artistNodeId,
   ghostArtistId,
   type RelationKind,
@@ -84,6 +85,8 @@ import { adaptApiImage, adaptApiUrls } from "../../../music/data/remote/adapters
 import type { AlbumSummary } from "../../../music/data/types";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
+import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
+import type { TaxonRef } from "freqhole-api-client";
 import type { ContributingRemote } from "../../../components/graph/RemoteSplitButton";
 import { Icon } from "../../../components/icons/registry";
 
@@ -266,10 +269,16 @@ function Inner(props: {
   // value/artist pivots whose lazy album fetch has been issued. dedup
   // guard for query_albums calls in maybeLoadAlbumsForPivot.
   const albumsLoadedByPivot = new Set<string>();
-  // taxon metadata by parent relation hub id -> slug -> { id, label }.
+  // taxon metadata by parent relation hub id -> slug -> { id, label, albumCount }.
   // populated by maybeLoadTaxonsForPivot; used by value-pivot album
   // fetch to look up the original label / taxon id for filter shaping.
-  const taxonItemsByHub = new Map<string, Map<string, { id: string; label: string }>>();
+  const taxonItemsByHub = new Map<
+    string,
+    Map<string, { id: string; label: string; albumCount: number }>
+  >();
+  // kind metadata by relation hub id -> { label, color }. populated in
+  // loadTaxonKindsForRemote for the taxon detail popover kind chip.
+  const taxonKindMetaByHub = new Map<string, { label: string; color: string | null }>();
   const [extraNodesById, setExtraNodesById] = createSignal<
     Map<string, AlbumNodeData | ArtistNodeData>
   >(new Map());
@@ -568,6 +577,11 @@ function Inner(props: {
           tint: kind.color ?? undefined,
         });
         addEdges.push({ source: rhId, target: id });
+        taxonKindMetaByHub.set(id, {
+          label:
+            kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
+          color: kind.color ?? null,
+        });
       }
       if (addNodes.length > 0 || addEdges.length > 0) {
         walkerClient()?.merge(addNodes, addEdges);
@@ -828,6 +842,26 @@ function Inner(props: {
   // ---- selection state -----------------------------------------------
 
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+
+  // taxon selection state — populated async when a value/group node is clicked.
+  // for relation hubs, taxonId is null and the popover renders kind-level info only.
+  const [selectedTaxonInfo, setSelectedTaxonInfo] = createSignal<{
+    taxonId: string | null;
+    remoteId: string;
+    kindSlug: string;
+    relHubId: string;
+    albumCount: number | undefined;
+    label: string;
+  } | null>(null);
+  // clear taxon selection when the global selection is cleared (e.g. Escape key).
+  createEffect(() => {
+    if (!selectedId()) setSelectedTaxonInfo(null);
+  });
+  const [taxonPanelHidden, setTaxonPanelHidden] = createSignal(false);
+  // reset panel visibility whenever a new taxon is selected.
+  createEffect(() => {
+    if (selectedTaxonInfo()) setTaxonPanelHidden(false);
+  });
 
   const selectedAlbum = createMemo<AlbumNodeData | null>(() => {
     const id = selectedId();
@@ -1480,6 +1514,38 @@ function Inner(props: {
     return { artists, meta };
   });
 
+  // taxon detail data for the currently-selected taxon node.
+  // fetches full Taxon, ancestors, and descendants in parallel.
+  const [selectedTaxonData] = createResource(
+    () => selectedTaxonInfo(),
+    async (info) => {
+      // relation hub: no single taxon to fetch; popover renders kind-only.
+      if (!info.taxonId) return null;
+      const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+      if (!remote) return null;
+      try {
+        const client = await getClientForRemote(remote);
+        const [taxonRes, ancestorsRes, descendantsRes] = await Promise.all([
+          client.music.getTaxon({ id: info.taxonId }),
+          client.music.getTaxonAncestors({ id: info.taxonId }),
+          client.music.getTaxonDescendants({ id: info.taxonId }),
+        ]);
+        return {
+          taxon: taxonRes.success && taxonRes.data ? taxonRes.data : null,
+          ancestors: (ancestorsRes.success && ancestorsRes.data
+            ? ancestorsRes.data
+            : []) as TaxonRef[],
+          descendants: (descendantsRes.success && descendantsRes.data
+            ? descendantsRes.data
+            : []) as TaxonRef[],
+        };
+      } catch (err) {
+        console.warn("taxon detail fetch failed", { taxonId: info.taxonId, err });
+        return null;
+      }
+    }
+  );
+
   // per-id image lookup for WalkCanvas artwork rendering (per S1/S11).
   // for artist nodes we additionally fall back across the cross-remote
   // cluster: if the leader's own remote has no image, we scan the
@@ -2015,8 +2081,66 @@ function Inner(props: {
 
   // ---- event handlers ------------------------------------------------
 
+  // async handler for taxon (value/group) node selection. ensures the
+  // parent hub is loaded, then resolves the taxon id from the cache and
+  // sets selectedTaxonInfo so the detail resource can fire.
+  const loadTaxonInfoForNode = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    if (parsed.kind !== "value" && parsed.kind !== "group") {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    const { remoteId, relationKind, valueSlug } = parsed;
+    const relHubId = relationHubId(remoteId, relationKind);
+    // ensure hub taxons are loaded (no-op if already done; deduped internally).
+    await maybeLoadTaxonsForPivot(relHubId);
+    // abort if the user selected a different node while we were waiting.
+    if (selectedId() !== nodeId) return;
+    const meta = taxonItemsByHub.get(relHubId)?.get(valueSlug);
+    if (!meta) {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    setSelectedTaxonInfo({
+      taxonId: meta.id,
+      remoteId,
+      kindSlug: relationKind,
+      relHubId,
+      albumCount: meta.albumCount,
+      label: meta.label,
+    });
+  };
+
   const handleSelect = (nodeId: string, _role: string) => {
     setSelectedId(nodeId);
+    try {
+      const parsed = parseNodeId(nodeId);
+      if (parsed.kind === "value" || parsed.kind === "group") {
+        void loadTaxonInfoForNode(nodeId);
+      } else if (parsed.kind === "relation") {
+        // relation hub: kind-level popover; no per-taxon fetch needed.
+        const relHubId = relationHubId(parsed.remoteId, parsed.relationKind);
+        const meta = taxonKindMetaByHub.get(relHubId);
+        setSelectedTaxonInfo({
+          taxonId: null,
+          remoteId: parsed.remoteId,
+          kindSlug: parsed.relationKind,
+          relHubId,
+          albumCount: undefined,
+          label: meta?.label ?? parsed.relationKind,
+        });
+      } else {
+        setSelectedTaxonInfo(null);
+      }
+    } catch {
+      setSelectedTaxonInfo(null);
+    }
   };
 
   // fan out every lazy-load hook that should fire when a node becomes
@@ -2065,8 +2189,17 @@ function Inner(props: {
     // opens on the first click. previously this only checked
     // buildResult().nodesById which caused a two-click race for cluster
     // leaders + cross-remote merged nodes.
+    // taxon (value/group) nodes are also intentional selections — don't
+    // clear selectedId when the user clicked one of those.
     if (!lookupNode(nodeId)) {
-      setSelectedId(null);
+      let isTaxonNode = false;
+      try {
+        const p = parseNodeId(nodeId);
+        isTaxonNode = p.kind === "value" || p.kind === "group" || p.kind === "relation";
+      } catch {
+        // non-parseable id — treat as hub pivot
+      }
+      if (!isTaxonNode) setSelectedId(null);
     }
     triggerPivotLoaders(nodeId);
   };
@@ -2142,25 +2275,53 @@ function Inner(props: {
       setFetchingNodeFlag(nodeId, true);
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.music.queryTaxons({
-          kind_slug: parsed.relationKind,
-          q: null,
-          // large enough to cover most libraries in one shot; if any kind
-          // grows past this we'll need to wire pagination here.
-          limit: 1000,
-          offset: 0,
-        });
-        if (!result.success || !result.data) return;
+        // fetch taxons (with counts), parent edges, and full taxon details
+        // (with color) in parallel. three calls per hub, but they're all
+        // lightweight taxonomy reads and run concurrently.
+        const [taxonsResult, parentsResult, fullTaxonsResult] = await Promise.all([
+          client.music.queryTaxons({
+            kind_slug: parsed.relationKind,
+            q: null,
+            limit: 1000,
+            offset: 0,
+          }),
+          client.music.listTaxonParentsForKind({ kind_slug: parsed.relationKind }),
+          client.music.listTaxonsByKind({ kind_slug: parsed.relationKind }),
+        ]);
+        if (!taxonsResult.success || !taxonsResult.data) return;
         const remoteId = parsed.remoteId;
         const kind = parsed.relationKind;
         const relHubId = relationHubId(remoteId, kind);
+
+        // build parent->children mapping from the DAG edges
+        const childIdSet = new Set<string>(); // taxon ids that are parents of another taxon
+        const taxonParentOf = new Map<string, string>(); // child taxon_id -> parent taxon_id
+        if (parentsResult.success && parentsResult.data) {
+          for (const edge of parentsResult.data) {
+            childIdSet.add(edge.parent_id);
+            taxonParentOf.set(edge.child_id, edge.parent_id);
+          }
+        }
+
+        // color map from full taxon details (color is not in queryTaxons summary)
+        const taxonColorById = new Map<string, string>();
+        if (fullTaxonsResult.success && fullTaxonsResult.data) {
+          for (const t of fullTaxonsResult.data) {
+            if (t.color) taxonColorById.set(t.id, t.color);
+          }
+        }
+
+        // taxon lookup by id — used to resolve parent node ids from taxon_id edges
+        const taxonById = new Map<string, { id: string; label: string }>();
+        for (const item of taxonsResult.data.items) {
+          taxonById.set(item.id, { id: item.id, label: item.label });
+        }
+
         // populate label-keyed taxon cache for downstream value-pivot lookups
         // (need taxon.id for genre_id filter, taxon.label for include_tags).
-        // key MUST be slug(item.label) so it matches both the value node id
-        // (which embeds slug(item.label)) AND the entity-side relation
+        // key MUST be slug(item.label) so it matches both the value/group node
+        // id (which embeds slug(item.label)) AND the entity-side relation
         // synthesis path (which only knows the label, not the taxon id).
-        // detail-panel relation clicks also compute valueNodeId(_, _, label)
-        // and rely on this same id form.
         let cache = taxonItemsByHub.get(relHubId);
         if (!cache) {
           cache = new Map();
@@ -2168,35 +2329,42 @@ function Inner(props: {
         }
         const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
-        for (const item of result.data.items) {
-          // key by slug(item.label) so cache.get(parsed.valueSlug) matches
-          // what valueNodeId(_, _, item.label) embeds.
-          cache.set(slug(item.label), { id: item.id, label: item.label });
-          // skip empty taxons — no albums means no traversable subtree.
-          if (item.album_count <= 0) continue;
-          const valId = valueNodeId(remoteId, kind, item.label);
+        for (const item of taxonsResult.data.items) {
+          cache.set(slug(item.label), {
+            id: item.id,
+            label: item.label,
+            albumCount: item.album_count,
+          });
+          // a taxon is a group iff it has at least one child in the parent map.
+          // groups render even with 0 direct albums so their children have a
+          // valid parent node; leaves with 0 albums are skipped as before.
+          const isGroup = childIdSet.has(item.id);
+          if (!isGroup && item.album_count <= 0) continue;
+          const taxonNodeId = isGroup
+            ? groupNodeId(remoteId, kind, item.label)
+            : valueNodeId(remoteId, kind, item.label);
+
           addNodes.push({
-            id: valId,
-            role: "value",
+            id: taxonNodeId,
+            role: isGroup ? "group" : "value",
             label:
               item.label && item.label.trim().length > 0
                 ? item.label
                 : (item.slug ?? item.id).replace(/_/g, " "),
             parentId: relHubId,
-            // eager count from query_taxons so the badge is correct
-            // before albums for this value have been lazy-loaded.
             childCount: item.album_count,
-            // mark lazy so the value renders even before any albums
-            // for this taxon have been loaded (worker visibility
-            // filter hides value nodes with childCount === 0 unless
-            // lazy). album fanout is fetched on-demand via
-            // maybeLoadAlbumsForPivot when the user pivots in.
             lazy: true,
+            tint: isGroup ? (taxonColorById.get(item.id) ?? undefined) : undefined,
           });
-          addEdges.push({ source: relHubId, target: valId });
+
+          // children attach to their parent group node; roots attach to the hub
+          const parentTaxonId = taxonParentOf.get(item.id);
+          const parentTaxon = parentTaxonId ? taxonById.get(parentTaxonId) : undefined;
+          const edgeSource = parentTaxon
+            ? groupNodeId(remoteId, kind, parentTaxon.label)
+            : relHubId;
+          addEdges.push({ source: edgeSource, target: taxonNodeId });
         }
-        // worker merge dedupes by id + edge key, so re-adding nodes already
-        // synthesised from page-1 albums is a no-op.
         walkerClient()?.merge(addNodes, addEdges);
         taxonsLoadedByHub.add(nodeId);
       } catch (err) {
@@ -2609,7 +2777,7 @@ function Inner(props: {
     } catch {
       return;
     }
-    if (parsed.kind !== "value" && parsed.kind !== "artist") return;
+    if (parsed.kind !== "value" && parsed.kind !== "group" && parsed.kind !== "artist") return;
     if (albumsLoadedByPivot.has(nodeId)) return;
     if (offlineByRemote().get(parsed.remoteId) === true) return;
     const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
@@ -2617,7 +2785,7 @@ function Inner(props: {
 
     // resolve filter shape per pivot kind.
     let filters: Record<string, unknown> | null = null;
-    if (parsed.kind === "value") {
+    if (parsed.kind === "value" || parsed.kind === "group") {
       // ensure parent hub's taxons are loaded so we have id + label to
       // shape the filter. shares any in-flight fetch via the promise map.
       const relHubId = relationHubId(parsed.remoteId, parsed.relationKind);
@@ -3358,6 +3526,49 @@ function Inner(props: {
           >
             <Icon name="chevronUp" size={12} />
             <span class="text-white/60">artist - show details</span>
+          </button>
+        </Show>
+
+        {/* taxon detail popover — shown when a value or group node is selected */}
+        <Show when={selectedTaxonInfo() !== null && !taxonPanelHidden()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setTaxonPanelHidden(true)}
+              title="hide details"
+              aria-label="hide details"
+              class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+            <TaxonDetailPopover
+              taxon={() => selectedTaxonData()?.taxon ?? null}
+              kindLabel={() => taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.label}
+              kindColor={() =>
+                taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.color ?? undefined
+              }
+              albumCount={() => selectedTaxonInfo()?.albumCount}
+              parents={() => selectedTaxonData()?.ancestors ?? []}
+              descendants={() => selectedTaxonData()?.descendants ?? []}
+              canEdit={() => isRemoteAdmin(selectedTaxonInfo()?.remoteId ?? null)}
+              onEditHierarchy={() => {
+                // TODO(phase 4): taxon hierarchy edit panel
+                console.log("[graph] edit hierarchy (phase 4)", selectedTaxonInfo());
+              }}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        </Show>
+
+        <Show when={selectedTaxonInfo() !== null && taxonPanelHidden()}>
+          <button
+            type="button"
+            onClick={() => setTaxonPanelHidden(false)}
+            title="show details"
+            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
+          >
+            <Icon name="chevronUp" size={12} />
+            <span class="text-white/60">taxon - show details</span>
           </button>
         </Show>
       </div>

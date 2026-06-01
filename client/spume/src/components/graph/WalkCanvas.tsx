@@ -75,6 +75,7 @@ const ROLE_COLOR: Record<string, string> = {
   remote: "#ec4899",
   relation: "#0891b2",
   value: "#059669",
+  group: "#059669",
   artist: "#d97706",
   album: "#475569",
 };
@@ -156,9 +157,8 @@ function readableTextColor(bg: string): string {
 }
 
 function valueKind(id: string): string | undefined {
-  // `value::KIND::val` → KIND
   const parts = id.split("::");
-  return parts[0] === "value" ? parts[1] : undefined;
+  return parts[0] === "value" || parts[0] === "group" ? parts[1] : undefined;
 }
 
 // extract the remote id from an entity node id. covers the encoded
@@ -168,6 +168,7 @@ function valueKind(id: string): string | undefined {
 //   remote::{remoteId}
 //   relation::{remoteId}::{kind}
 //   value::{remoteId}::{kind}::{slug}
+//   group::{remoteId}::{kind}::{slug}
 // returns undefined for root or unrecognised shapes.
 function nodeRemoteId(id: string): string | undefined {
   const parts = id.split("::");
@@ -178,6 +179,7 @@ function nodeRemoteId(id: string): string | undefined {
     case "album":
     case "relation":
     case "value":
+    case "group":
       return parts[1];
     default:
       return undefined;
@@ -195,18 +197,9 @@ function nodeFillColor(n: VisibleNode): string {
     // relation::{remoteId}::favorites
     if (parts[0] === "relation" && parts[2] === "favorites") return "#dc2626";
   }
-  if (n.role === "value") {
+  if (n.role === "value" || n.role === "group") {
     const kind = valueKind(n.id);
     if (kind) return valueKindStroke(kind);
-    // fallback: hash the third :: segment (taxon id slug) for deterministic color
-    const parts = n.id.split("::");
-    if (parts.length >= 3 && parts[0] === "value") {
-      const taxonSlug = parts[2];
-      let h = 5381;
-      for (let i = 0; i < taxonSlug.length; i++) h = (h * 33 + taxonSlug.charCodeAt(i)) | 0;
-      const hue = ((h >>> 0) * 137) % 360;
-      return `hsl(${hue} 70% 55%)`;
-    }
   }
   return ROLE_COLOR[n.role] ?? "#888";
 }
@@ -216,7 +209,7 @@ function nodeFillColor(n: VisibleNode): string {
  *  visually grouped. returns null if neither endpoint is a value. */
 function edgeKindColor(a: VisibleNode | undefined, b: VisibleNode | undefined): string | null {
   for (const n of [a, b]) {
-    if (!n || n.role !== "value") continue;
+    if (!n || (n.role !== "value" && n.role !== "group")) continue;
     const kind = valueKind(n.id);
     if (kind) return valueKindStroke(kind);
   }
@@ -231,6 +224,7 @@ const ROLE_RANK: Record<string, number> = {
   remote: 1,
   relation: 2,
   value: 3,
+  group: 3,
   artist: 4,
   album: 5,
   ghost_artist: 6,
@@ -370,6 +364,9 @@ function nodeShapePath(
     case "relation":
       drawPolygon(ctx, x, y, r + gap, 6, 0);
       break;
+    case "group":
+      drawPolygon(ctx, x, y, r + gap, 7, 0);
+      break;
     case "value":
       drawPolygon(ctx, x, y, r + gap, 8, Math.PI / 8);
       break;
@@ -420,6 +417,8 @@ function shapePolyline(
     }
     case "relation":
       return regularPolyVerts(cx, cy, r + outset, 6, 0);
+    case "group":
+      return regularPolyVerts(cx, cy, r + outset, 7, 0);
     case "value":
       return regularPolyVerts(cx, cy, r + outset, 8, Math.PI / 8);
     case "album": {
@@ -576,11 +575,13 @@ function drawNode(
   } else {
     ctx.fillStyle = color;
   }
-  // value nodes get a colored stroke based on their taxon kind so different
-  // taxons fanning out around an artist/album are visually distinct. pivot +
-  // breadcrumb states still win since they convey navigation state.
+  // value and group nodes get a colored stroke based on their taxon kind so
+  // different taxons fanning out around an artist/album are visually distinct.
+  // pivot + breadcrumb states still win since they convey navigation state.
   const valueStroke =
-    n.role === "value" ? (valueKind(n.id) && valueKindStroke(valueKind(n.id)!)) || null : null;
+    n.role === "value" || n.role === "group"
+      ? (valueKind(n.id) && valueKindStroke(valueKind(n.id)!)) || null
+      : null;
   ctx.strokeStyle =
     n.role === "root" || n.role === "remote"
       ? color // root/remote: stroke matches the magenta-ish fill (override pivot ring)
@@ -1594,6 +1595,17 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         props.onSelect?.(id, "album");
       } else if (role === "artist") {
         props.onSelect?.(id, "artist");
+        client.expand(id);
+        props.onPivot?.(id);
+      } else if (role === "value" || role === "group") {
+        // taxon nodes also expand on click, but fire select so the
+        // taxon detail popover can open alongside the pivot
+        props.onSelect?.(id, role);
+        client.expand(id);
+        props.onPivot?.(id);
+      } else if (role === "relation") {
+        // relation hubs open a kind-level popover alongside their pivot
+        props.onSelect?.(id, role);
         client.expand(id);
         props.onPivot?.(id);
       } else {

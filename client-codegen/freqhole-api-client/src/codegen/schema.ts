@@ -3433,6 +3433,11 @@ export const ListRelatedArtistsResponseSchema = z.object({
 });
 export type ListRelatedArtistsResponse = z.infer<typeof ListRelatedArtistsResponseSchema>;
 
+export const ListTaxonParentsForKindRequestSchema = z.object({
+  kind_slug: z.string()
+});
+export type ListTaxonParentsForKindRequest = z.infer<typeof ListTaxonParentsForKindRequestSchema>;
+
 export const ListTaxonsByKindRequestSchema = z.object({
   kind_slug: z.string()
 });
@@ -5374,6 +5379,12 @@ export const SetScalarAttributeRequestSchema = z.object({
 });
 export type SetScalarAttributeRequest = z.infer<typeof SetScalarAttributeRequestSchema>;
 
+export const SetTaxonColorRequestSchema = z.object({
+  taxon_id: z.string(),
+  color: z.string().nullish()
+});
+export type SetTaxonColorRequest = z.infer<typeof SetTaxonColorRequestSchema>;
+
 export const SongSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
@@ -5923,6 +5934,7 @@ export const TaxonSchema = z.object({
   slug: z.string(),
   label: z.string(),
   description: z.string().nullish(),
+  color: z.string().nullish(),
   is_user_defined: z.boolean(),
   created_at: z.number(),
   created_by: z.string().nullish()
@@ -5943,6 +5955,12 @@ export const TaxonKindSchema = z.object({
   album_count: z.number()
 });
 export type TaxonKind = z.infer<typeof TaxonKindSchema>;
+
+export const TaxonParentEdgeSchema = z.object({
+  child_id: z.string(),
+  parent_id: z.string()
+});
+export type TaxonParentEdge = z.infer<typeof TaxonParentEdgeSchema>;
 
 export const TaxonProposalSchema = z.object({
   kind_slug: z.string(),

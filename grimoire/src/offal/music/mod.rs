@@ -177,12 +177,16 @@ pub async fn dispatch(
         "/api/taxonomy/taxons/query" => Some(taxonomy::query_taxons(caller, body.clone()).await),
         "/api/taxonomy/taxons/get" => Some(taxonomy::get_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/create" => Some(taxonomy::create_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/set-color" => Some(taxonomy::set_color(caller, body.clone()).await),
         "/api/taxonomy/taxons/ancestors" => Some(taxonomy::ancestors(caller, body.clone()).await),
         "/api/taxonomy/taxons/descendants" => {
             Some(taxonomy::descendants(caller, body.clone()).await)
         }
         "/api/taxonomy/parents/add" => Some(taxonomy::add_parent(caller, body.clone()).await),
         "/api/taxonomy/parents/remove" => Some(taxonomy::remove_parent(caller, body.clone()).await),
+        "/api/taxonomy/parents/list-by-kind" => {
+            Some(taxonomy::list_parents_for_kind(caller, body.clone()).await)
+        }
         "/api/taxonomy/album-links/get" => {
             Some(taxonomy::get_album_links(caller, body.clone()).await)
         }

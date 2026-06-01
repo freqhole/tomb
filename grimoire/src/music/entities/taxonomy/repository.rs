@@ -7,10 +7,10 @@
 
 use super::models::{
     AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, CreateTaxonKindRequest,
-    CreateTaxonRequest, GetTaxonRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
-    RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, ScalarValueType,
-    SetAlbumTaxonsRequest, SetScalarAttributeRequest, Taxon, TaxonKind, TaxonRef, TaxonWithStats,
-    TaxonsQueryResult,
+    CreateTaxonRequest, GetTaxonRequest, ListTaxonParentsForKindRequest, QueryScalarRangeRequest,
+    QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
+    ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest, Taxon,
+    TaxonKind, TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
 use crate::database;
 use crate::error::ErrorDetail;
@@ -460,6 +460,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
             slug            as "slug!",
             label           as "label!",
             description,
+            color,
             is_user_defined as "is_user_defined!: bool",
             created_at      as "created_at!",
             created_by
@@ -481,6 +482,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
                 slug: row.slug,
                 label: row.label,
                 description: row.description,
+                color: row.color,
                 is_user_defined: row.is_user_defined,
                 created_at: row.created_at,
                 created_by: row.created_by,
@@ -497,6 +499,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
              slug            as "slug!",
              label           as "label!",
              description,
+             color,
              is_user_defined as "is_user_defined!: bool",
              created_at      as "created_at!",
              created_by"#,
@@ -522,6 +525,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
             slug: row.slug,
             label: row.label,
             description: row.description,
+            color: row.color,
             is_user_defined: row.is_user_defined,
             created_at: row.created_at,
             created_by: row.created_by,
@@ -570,6 +574,7 @@ pub async fn get_taxon(req: GetTaxonRequest) -> GrimoireResponse<Taxon> {
             t.slug            as "slug!",
             t.label           as "label!",
             t.description,
+            t.color,
             t.is_user_defined as "is_user_defined!: bool",
             t.created_at      as "created_at!",
             t.created_by
@@ -597,6 +602,7 @@ pub async fn get_taxon(req: GetTaxonRequest) -> GrimoireResponse<Taxon> {
                 slug: r.slug,
                 label: r.label,
                 description: r.description,
+                color: r.color,
                 is_user_defined: r.is_user_defined,
                 created_at: r.created_at,
                 created_by: r.created_by,
@@ -626,6 +632,7 @@ pub async fn list_taxons_by_kind(kind_slug: &str) -> GrimoireResponse<Vec<Taxon>
             t.slug            as "slug!",
             t.label           as "label!",
             t.description,
+            t.color,
             t.is_user_defined as "is_user_defined!: bool",
             t.created_at      as "created_at!",
             t.created_by
@@ -656,6 +663,7 @@ pub async fn list_taxons_by_kind(kind_slug: &str) -> GrimoireResponse<Vec<Taxon>
             slug: r.slug,
             label: r.label,
             description: r.description,
+            color: r.color,
             is_user_defined: r.is_user_defined,
             created_at: r.created_at,
             created_by: r.created_by,
@@ -1364,6 +1372,91 @@ pub async fn query_albums_by_scalar_range(
     GrimoireResponse::success(
         "matching album ids retrieved",
         rows.into_iter().map(|r| r.album_id).collect(),
+    )
+}
+
+/// set (or clear) the color on a taxon. null color is valid and clears
+/// any previously stored value.
+pub async fn set_taxon_color(req: SetTaxonColorRequest) -> GrimoireResponse<Taxon> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxonz SET color = ? WHERE id = ? AND deleted_at IS NULL"#,
+        req.color,
+        req.taxon_id,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon color",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon not found", vec![]);
+    }
+
+    get_taxon(GetTaxonRequest { id: req.taxon_id }).await
+}
+
+/// return every `taxon_parentz` row whose child belongs to the given
+/// kind. a single join; no N+1 round-trips.
+pub async fn list_taxon_parents_for_kind(
+    req: ListTaxonParentsForKindRequest,
+) -> GrimoireResponse<Vec<TaxonParentEdge>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows = match sqlx::query!(
+        r#"SELECT
+            tp.child_id  as "child_id!",
+            tp.parent_id as "parent_id!"
+           FROM taxon_parentz tp
+           JOIN taxonz t      ON t.id = tp.child_id
+           JOIN taxon_kindz k ON k.id = t.kind_id
+           WHERE k.slug = ? AND t.deleted_at IS NULL"#,
+        req.kind_slug,
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to list taxon parents for kind",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    GrimoireResponse::success(
+        "taxon parent edges retrieved",
+        rows.into_iter()
+            .map(|r| TaxonParentEdge {
+                child_id: r.child_id,
+                parent_id: r.parent_id,
+            })
+            .collect(),
     )
 }
 

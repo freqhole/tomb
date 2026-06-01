@@ -188,9 +188,10 @@ pub mod type_registry {
     use crate::music::entities::taxonomy::{
         AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
         CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
-        ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
-        RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
-        SetScalarAttributeRequest, Taxon, TaxonKind, TaxonRef, TaxonWithStats, TaxonsQueryResult,
+        ListTaxonParentsForKindRequest, ListTaxonsByKindRequest, QueryScalarRangeRequest,
+        QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
+        SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest, Taxon, TaxonKind,
+        TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
@@ -992,6 +993,13 @@ pub mod type_registry {
         registered.insert("SetScalarAttributeRequest".to_string());
         gen.add_schema::<QueryScalarRangeRequest>("QueryScalarRangeRequest");
         registered.insert("QueryScalarRangeRequest".to_string());
+
+        gen.add_schema::<SetTaxonColorRequest>("SetTaxonColorRequest");
+        registered.insert("SetTaxonColorRequest".to_string());
+        gen.add_schema::<ListTaxonParentsForKindRequest>("ListTaxonParentsForKindRequest");
+        registered.insert("ListTaxonParentsForKindRequest".to_string());
+        gen.add_schema::<TaxonParentEdge>("TaxonParentEdge");
+        registered.insert("TaxonParentEdge".to_string());
 
         gen.add_schema::<MediaBlob>("MediaBlob");
         registered.insert("MediaBlob".to_string());
