@@ -232,6 +232,25 @@ function getAutoDownloadEnabled(): boolean {
   return appState()?.auto_download_enabled ?? false;
 }
 
+// default display name for the web local library (used as fallback when
+// the user hasn't customized it via the topnav rename action).
+const DEFAULT_LOCAL_LIBRARY_NAME = "local library";
+
+// get the user-configured local library display name (reactive when read
+// inside a tracked scope via `appState()`).
+function getLocalLibraryName(): string {
+  const name = appState()?.local_library_name?.trim();
+  return name && name.length > 0 ? name : DEFAULT_LOCAL_LIBRARY_NAME;
+}
+
+// set the local library display name. empty/whitespace clears back to default.
+async function setLocalLibraryName(name: string): Promise<void> {
+  const trimmed = name.trim();
+  await updateAppState({
+    local_library_name: trimmed.length > 0 ? trimmed : undefined,
+  });
+}
+
 // set active remote id
 async function setActiveRemoteId(remoteId: string | null): Promise<void> {
   await updateAppState({ active_remote_id: remoteId });
@@ -374,6 +393,8 @@ export {
   getPendingRemoteByPeerAddr,
   getP2PIdentity,
   getSyncQueueToLocal,
+  getLocalLibraryName,
+  DEFAULT_LOCAL_LIBRARY_NAME,
   initAppDB,
   loadAppState,
   saveP2PIdentity,
@@ -383,6 +404,7 @@ export {
   setQueue,
   setQueueOpen,
   setSyncQueueToLocal,
+  setLocalLibraryName,
   updateAppState,
   updatePendingRemote,
   updateSongInQueue,

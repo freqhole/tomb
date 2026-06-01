@@ -8,6 +8,7 @@ import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
 import { pickDirectory, pickFiles } from "../../utils/filePicker";
+import { getLocalLibraryName } from "../../app/services/storage/db";
 
 export interface AddMusicModalProps {
   /** whether modal is open */
@@ -160,7 +161,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                 class="heading-5 text-[var(--color-text-primary)] truncate"
                 style={{ "min-width": "0" }}
               >
-                add music to {props.remoteName || "local library"}
+                add music to {props.remoteName || getLocalLibraryName()}
               </h2>
               <IconButton
                 icon="close"

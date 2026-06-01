@@ -33,6 +33,7 @@ import { sendToLocalLibrary } from "../../music/services/send/sendToLocalLibrary
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
+import { getLocalLibraryName } from "../../app/services/storage/db";
 
 export interface SendToRemoteSectionProps {
   /** the source remote — the data being sent originates from here. */
@@ -113,7 +114,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
     if (localFromCandidates) {
       out.unshift({
         id: localFromCandidates.remote.remote_id,
-        name: localFromCandidates.remote.name ?? "local library",
+        name: localFromCandidates.remote.name ?? getLocalLibraryName(),
         isLocal: true,
         candidate: localFromCandidates,
       });
@@ -122,7 +123,7 @@ export const SendToRemoteSection: Component<SendToRemoteSectionProps> = (props) 
       // a row that drives `sendToLocalLibrary` (idb + opfs).
       out.unshift({
         id: LOCAL_BROWSER_ID,
-        name: "local library",
+        name: getLocalLibraryName(),
         isLocal: true,
       });
     }

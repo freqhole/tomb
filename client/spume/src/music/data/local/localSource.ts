@@ -35,6 +35,7 @@ import {
   updateArtist,
   updateSong,
 } from "../../services/storage/db";
+import { getLocalLibraryName } from "../../../app/services/storage/db";
 import { storeBlob } from "../../services/storage/blobs";
 import { adaptAlbumFromIDB } from "./adapters";
 import {
@@ -1492,7 +1493,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     return {
       type: "local",
-      name: "local library",
+      name: getLocalLibraryName(),
       song_count: results.length,
     };
   }

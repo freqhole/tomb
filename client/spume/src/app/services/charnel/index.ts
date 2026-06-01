@@ -33,7 +33,7 @@ export {
 } from "./schema";
 
 // re-export commands
-export { getConfig, setWindowTitle, takePendingDeepLinks, fetchLocalNodeId } from "./commands";
+export { getConfig, setWindowTitle, takePendingDeepLinks, fetchLocalNodeId, updateServerInfo } from "./commands";
 
 // re-export local-node-id accessor (synchronous; populated by charnel host on startup)
 export { getLocalNodeId, setLocalNodeIdValue, localNodeIdSignal } from "./localNodeId";

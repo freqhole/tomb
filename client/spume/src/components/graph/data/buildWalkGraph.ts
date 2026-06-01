@@ -24,6 +24,10 @@ export interface BuildWalkGraphInput {
   /** which remoteIds correspond to the local charnel-managed sidecar.
    *  the renderer draws a home-icon glyph next to those remote-hub labels. */
   charnelManagedRemoteIds?: Set<string>;
+  /** human-readable display name per remoteId. used as the remote-hub label
+   *  so renames (web local-library AppState, charnel toml server.name) are
+   *  reflected in the graph viz. falls back to remoteId when unset. */
+  remoteNamesById?: Map<string, string>;
 }
 
 export interface BuildWalkGraphOutput {
@@ -86,7 +90,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
     nodes.push({
       id: rhId,
       role: "remote",
-      label: remoteId,
+      label: input.remoteNamesById?.get(remoteId) ?? remoteId,
       parentId: rId,
       childCount: artists.length, // direct artist children (not counting relation hubs for sizing)
       isCharnelManaged: input.charnelManagedRemoteIds?.has(remoteId) || undefined,

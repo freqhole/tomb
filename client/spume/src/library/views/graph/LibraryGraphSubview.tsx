@@ -662,6 +662,7 @@ function Inner(props: {
           .filter((r) => !!r.is_charnel_managed)
           .map((r) => r.remote_id)
       ),
+      remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -1828,6 +1829,7 @@ function Inner(props: {
             .filter((r) => !!r.is_charnel_managed)
             .map((r) => r.remote_id)
         ),
+        remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
       });
 
       // include only the artist + album nodes and the edges directly
