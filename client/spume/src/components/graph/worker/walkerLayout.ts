@@ -234,5 +234,14 @@ export function getVisible(): Set<string> {
     visible.delete(id);
     visible.add(lead);
   }
+  // apply host-driven hide filter last. breadcrumb is preserved so the
+  // user can't accidentally orphan the pivot.
+  if (state.hidden.size > 0) {
+    const crumb = new Set(state.breadcrumb);
+    for (const id of state.hidden) {
+      if (crumb.has(id)) continue;
+      visible.delete(id);
+    }
+  }
   return visible;
 }

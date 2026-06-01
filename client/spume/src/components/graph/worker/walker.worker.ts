@@ -275,7 +275,18 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       if (state.breadcrumb.length === 0 && state.fullGraph.nodes.length > 0) {
         state.breadcrumb = [state.fullGraph.nodes[0].id];
       }
+      // intentionally NOT pruning state.hidden here: the host typically
+      // re-merges fresh nodes with the same ids right after remove() and
+      // re-pushes setHidden(). dropping hidden entries between the two
+      // would briefly un-hide nodes mid-refresh, breaking edit-mode
+      // filter persistence across re-parent operations.
       indexGraph();
+      buildSim();
+      break;
+    }
+
+    case "setHidden": {
+      state.hidden = new Set(msg.nodeIds);
       buildSim();
       break;
     }

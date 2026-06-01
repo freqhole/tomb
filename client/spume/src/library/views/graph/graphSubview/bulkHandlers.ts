@@ -303,7 +303,7 @@ export function createBulkHandlers(deps: BulkHandlersDeps) {
     }
   };
 
-  const bulkActive = createMemo<boolean>(() => editMode() && multiSelection().size >= 2);
+  const bulkActive = createMemo<boolean>(() => editMode() && multiSelection().size >= 1);
 
   // ---- current-taxons intersection ---------------------------------------
   //

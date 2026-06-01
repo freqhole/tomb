@@ -34,6 +34,9 @@ export const state: {
   breadcrumb: string[];
   sim: Simulation<SimNode, SimLink> | null;
   paused: boolean;
+  /** node ids the host has marked hidden (e.g. filtered-out taxons in
+   *  edit mode). breadcrumb nodes are never hidden even if listed here. */
+  hidden: Set<string>;
 } = {
   fullGraph: { nodes: [], edges: [] },
   width: 800,
@@ -41,6 +44,7 @@ export const state: {
   breadcrumb: [],
   sim: null,
   paused: false,
+  hidden: new Set<string>(),
 };
 
 // node + edge maps rebuilt on each init

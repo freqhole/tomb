@@ -19,6 +19,10 @@ export interface WalkerClient {
   resize(width: number, height: number): void;
   merge(addNodes: WalkNode[], addEdges: WalkEdge[]): void;
   remove(nodeIds: string[]): void;
+  /** mark a set of node ids as hidden in the worker. they're skipped
+   *  in the visible set so the sim re-lays out without them. pass an
+   *  empty array to clear. breadcrumb nodes are never hidden. */
+  setHidden(nodeIds: string[]): void;
   repivot(nodeId: string, resetBreadcrumb?: boolean): void;
   setPaused(paused: boolean): void;
   back(): void;
@@ -96,6 +100,9 @@ export function createWalkerClient(): WalkerClient {
     },
     remove(nodeIds) {
       post({ type: "remove", nodeIds });
+    },
+    setHidden(nodeIds) {
+      post({ type: "setHidden", nodeIds });
     },
     repivot(nodeId, resetBreadcrumb) {
       post({ type: "repivot", nodeId, resetBreadcrumb });

@@ -77,6 +77,7 @@ import {
   remoteHubId,
   relationHubId,
   valueNodeId,
+  groupNodeId,
   artistNodeId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
@@ -827,11 +828,83 @@ function Inner(props: {
   // replace normal click-to-pivot behavior.
   const [editMode, setEditMode] = createSignal(false);
   const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
+  // per-hub filter query for taxon children. only one hub is visible at a
+  // time (the one in the open popover) so a flat map by hub id is fine.
+  // when a query is set, non-matching value/group node ids under that hub
+  // are sent to the worker via setHidden so the sim re-clusters around
+  // the matches; everything else stays in the full graph.
+  const [taxonFilterByHub, setTaxonFilterByHub] = createSignal<Map<string, string>>(new Map());
+  // bumped by createPivotHandler every time a hub's taxon cache is
+  // re-merged (e.g. after a re-parent drop). hubFilterIds depends on it
+  // so the hide set is re-derived from the fresh taxonItemsByHub and the
+  // worker keeps hiding the right nodes across edits.
+  const [hubRefreshTick, setHubRefreshTick] = createSignal(0);
+  const activeHubFilterQuery = createMemo(() => {
+    const info = selectedTaxonInfo();
+    if (!info) return "";
+    return taxonFilterByHub().get(info.relHubId) ?? "";
+  });
+  // compute matching + non-matching node ids for the currently-open hub.
+  // matches are taxon ids whose label contains the (lowercased) query.
+  // non-matches become the worker hide set.
+  const hubFilterIds = createMemo<{ matchIds: Set<string>; hideIds: Set<string> }>(() => {
+    // subscribe to the refresh tick so this re-runs after refreshHub
+    // repopulates taxonItemsByHub (e.g. post re-parent drop).
+    hubRefreshTick();
+    const info = selectedTaxonInfo();
+    const query = activeHubFilterQuery().trim().toLowerCase();
+    const matchIds = new Set<string>();
+    const hideIds = new Set<string>();
+    if (!info || !query) return { matchIds, hideIds };
+    const items = taxonItemsByHub.get(info.relHubId);
+    if (!items) return { matchIds, hideIds };
+    const parsed = parseNodeId(info.relHubId);
+    if (!parsed || parsed.kind !== "relation") return { matchIds, hideIds };
+    const remoteId = parsed.remoteId;
+    const kind = parsed.relationKind;
+    const childIdSet = new Set<string>();
+    const parents = taxonParentsByHub.get(info.relHubId);
+    if (parents) for (const pid of parents.values()) childIdSet.add(pid);
+    for (const meta of items.values()) {
+      const isGroup = childIdSet.has(meta.id);
+      const nodeId = isGroup
+        ? groupNodeId(remoteId, kind, meta.label)
+        : valueNodeId(remoteId, kind, meta.label);
+      if (meta.label.toLowerCase().includes(query)) matchIds.add(nodeId);
+      else hideIds.add(nodeId);
+    }
+    return { matchIds, hideIds };
+  });
+  // push the hide set to the worker whenever it changes. clears when
+  // no filter is active or no taxon hub is open.
+  createEffect(() => {
+    const client = walkerClient();
+    if (!client) return;
+    const { hideIds } = hubFilterIds();
+    client.setHidden(Array.from(hideIds));
+  });
+  // clear the filter for a hub when its popover closes / switches hubs.
+  createEffect((prevHubId: string | null) => {
+    const info = selectedTaxonInfo();
+    const curHubId = info?.relHubId ?? null;
+    if (prevHubId && prevHubId !== curHubId) {
+      const next = new Map(taxonFilterByHub());
+      if (next.delete(prevHubId)) setTaxonFilterByHub(next);
+    }
+    return curHubId;
+  }, null);
   // exit edit mode when the taxon selection is cleared
   createEffect(() => {
     if (!selectedTaxonInfo() && editMode()) {
       setEditMode(false);
       setMultiSelection(new Set<string>());
+    }
+  });
+  // clear any active taxon filter when leaving edit mode so hidden
+  // nodes reappear immediately.
+  createEffect(() => {
+    if (!editMode() && taxonFilterByHub().size > 0) {
+      setTaxonFilterByHub(new Map());
     }
   });
 
@@ -1525,32 +1598,6 @@ function Inner(props: {
         e.preventDefault();
         walkerClient()?.repivot(rootId(), true);
       }
-      // e: toggle edit mode when a taxon/hub is selected
-      if (e.key === "e" && selectedTaxonInfo()) {
-        e.preventDefault();
-        if (editMode()) {
-          setEditMode(false);
-          setMultiSelection(new Set<string>());
-        } else {
-          setEditMode(true);
-        }
-      }
-      // del/backspace: soft-delete focused taxon (single) or bulk taxon selection
-      if ((e.key === "Delete" || e.key === "Backspace") && editMode()) {
-        if (multiSelection().size >= 2 && bulkMode() === "taxons" && bulkCanEdit()) {
-          e.preventDefault();
-          const n = bulkCounts().taxons;
-          if (window.confirm(`soft-delete ${n} selected taxon${n === 1 ? "" : "s"}?`)) {
-            void handleBulkDeleteTaxons();
-          }
-        } else if (selectedTaxonInfo()?.taxonId) {
-          e.preventDefault();
-          const label = selectedTaxonInfo()?.label ?? "this taxon";
-          if (window.confirm(`soft-delete taxon '${label}'?`)) {
-            void handleDeleteTaxon();
-          }
-        }
-      }
     };
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
@@ -1711,6 +1758,7 @@ function Inner(props: {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
+    onHubRefreshed: (_relHubId) => setHubRefreshTick((n) => n + 1),
     queryClient,
   });
 
@@ -1996,7 +2044,7 @@ function Inner(props: {
           />
           <div class="absolute top-3 right-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-pink-500/40 bg-[rgba(50,0,25,0.85)] backdrop-blur-sm text-[11px] text-pink-300 pointer-events-auto select-none">
             <span>editing hierarchy</span>
-            <span class="text-pink-300/50 text-[10px]">(esc · del · e)</span>
+            <span class="text-pink-300/50 text-[10px]">(esc)</span>
             <button
               type="button"
               aria-label="exit edit mode"
@@ -2306,6 +2354,21 @@ function Inner(props: {
               }}
               onDeleteTaxon={() => {
                 void handleDeleteTaxon();
+              }}
+              filterQuery={activeHubFilterQuery}
+              onFilterChange={(query) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const next = new Map(taxonFilterByHub());
+                if (query.length === 0) next.delete(info.relHubId);
+                else next.set(info.relHubId, query);
+                setTaxonFilterByHub(next);
+              }}
+              matchCount={() => hubFilterIds().matchIds.size}
+              onSelectMatches={() => {
+                const ids = hubFilterIds().matchIds;
+                if (ids.size === 0) return;
+                setMultiSelection(new Set(ids));
               }}
               onSetColor={(color) => {
                 const info = selectedTaxonInfo();

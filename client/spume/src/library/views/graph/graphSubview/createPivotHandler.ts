@@ -44,6 +44,10 @@ export interface PivotHandlerDeps {
    *  created. when false (default), they're filtered out to keep the
    *  graph readable. */
   editMode?: () => boolean;
+  /** fires after a taxon hub finishes loading + merging fresh nodes.
+   *  hosts use this to re-derive any per-hub state (e.g. edit-mode
+   *  filter hide sets) that depends on the populated taxon caches. */
+  onHubRefreshed?: (relHubId: string) => void;
   queryClient?: QueryClient;
 }
 
@@ -66,6 +70,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
+    onHubRefreshed,
   } = deps;
 
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
@@ -218,6 +223,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         }
         taxonNodeIdsByHub.set(relHubId, freshNodeIds);
         walkerClient()?.merge(addNodes, addEdges);
+        onHubRefreshed?.(relHubId);
         taxonsLoadedByHub.add(nodeId);
       } catch (err) {
         console.warn("lazy taxon fetch failed", { nodeId, err });

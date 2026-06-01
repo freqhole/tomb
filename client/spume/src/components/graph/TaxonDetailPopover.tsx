@@ -33,6 +33,18 @@ export interface TaxonDetailPopoverProps {
   onCreateTaxon?: (label: string) => void;
   /** soft-delete the current taxon. only invoked when a taxon is selected. */
   onDeleteTaxon?: () => void;
+  /** current filter query for this hub's children (only meaningful in
+   *  hub mode). when non-empty, the host hides non-matching taxon nodes
+   *  on the canvas so the user can corral matches for re-parenting. */
+  filterQuery?: Accessor<string>;
+  /** called whenever the user types in the filter input. */
+  onFilterChange?: (query: string) => void;
+  /** select all currently-matching taxon nodes into the multi-selection.
+   *  shown next to the filter input when a query is active. */
+  onSelectMatches?: () => void;
+  /** number of taxon nodes that currently match the filter query, used
+   *  to label the "select matches" button. */
+  matchCount?: Accessor<number>;
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -216,6 +228,56 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
               >
                 clear
               </button>
+            </div>
+          </Show>
+
+          {/* filter input — hub mode + edit mode only. hides non-matching
+              taxon children on the canvas so the user can corral matches
+              for grouping / re-parenting. */}
+          <Show when={props.canEdit() && props.editMode() && isHubMode() && props.onFilterChange}>
+            <div class="mt-1 flex flex-col gap-1">
+              <div class="flex items-center gap-1">
+                <input
+                  type="text"
+                  placeholder="filter taxons…"
+                  value={props.filterQuery?.() ?? ""}
+                  onInput={(e) => props.onFilterChange?.(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      props.onFilterChange?.("");
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  class="flex-1 py-1 px-2 rounded text-xs bg-black/30 border border-white/15 focus:border-pink-400 outline-none text-white/85 placeholder:text-white/30"
+                />
+                <Show when={(props.filterQuery?.() ?? "").length > 0}>
+                  <button
+                    type="button"
+                    class="py-1 px-2 rounded text-[10px] font-medium border border-white/15 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onFilterChange?.("");
+                    }}
+                  >
+                    clear
+                  </button>
+                </Show>
+              </div>
+              <Show when={(props.filterQuery?.() ?? "").length > 0 && props.onSelectMatches}>
+                <button
+                  type="button"
+                  disabled={(props.matchCount?.() ?? 0) === 0}
+                  class="w-full py-1 px-2 rounded text-[11px] font-medium border border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20 text-pink-200 hover:text-pink-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onSelectMatches?.();
+                  }}
+                >
+                  select {props.matchCount?.() ?? 0} match
+                  {(props.matchCount?.() ?? 0) === 1 ? "" : "es"}
+                </button>
+              </Show>
             </div>
           </Show>
 

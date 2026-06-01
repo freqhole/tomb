@@ -112,6 +112,15 @@ export interface MsgRemove {
   nodeIds: string[];
 }
 
+/** mark nodes as hidden without removing them from the full graph.
+ *  hidden nodes are skipped by getVisible() (breadcrumb is exempt) so
+ *  the sim re-lays out the remaining nodes more tightly. used by the
+ *  edit-mode taxon filter. pass an empty array to clear. */
+export interface MsgSetHidden {
+  type: "setHidden";
+  nodeIds: string[];
+}
+
 /** jump to a new pivot; optionally reset breadcrumb instead of pushing */
 export interface MsgRepivot {
   type: "repivot";
@@ -136,6 +145,7 @@ export type MainToWorker =
   | MsgRemove
   | MsgRepivot
   | MsgResize
+  | MsgSetHidden
   | MsgSetPaused;
 
 // ---- worker → main ---------------------------------------------------------
