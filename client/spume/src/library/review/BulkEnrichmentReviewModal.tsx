@@ -20,7 +20,6 @@
 // upstream by the Modal stack).
 
 import {
-  For,
   Show,
   createEffect,
   createMemo,
@@ -36,34 +35,25 @@ import { toast } from "../../components/feedback/Toast";
 import { getClientForRemote } from "../../app/api/client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { TaxonReviewPanel, proposalKey, type TaxonProposalLike } from "./TaxonReviewPanel";
-import {
-  ArtistBioReviewPanel,
-  type BioProposalLike,
-  type BioSourceLike,
-} from "./ArtistBioReviewPanel";
-import {
-  RelatedArtistsReviewPanel,
-  type RelatedArtistProposalLike,
-} from "./RelatedArtistsReviewPanel";
-import {
-  ExternalUrlsReviewPanel,
-  externalUrlKey,
-  type ExternalUrlProposalLike,
-} from "./ExternalUrlsReviewPanel";
-import { ImagePickGrid, type ImageCandidateLike } from "./ImagePickGrid";
+import { ArtistBioReviewPanel } from "./ArtistBioReviewPanel";
+import { RelatedArtistsReviewPanel } from "./RelatedArtistsReviewPanel";
+import { ExternalUrlsReviewPanel, externalUrlKey } from "./ExternalUrlsReviewPanel";
+import { ImagePickGrid } from "./ImagePickGrid";
 import { BulkRequeryPanel } from "./BulkRequeryPanel";
-import {
-  MusicBrainzTrackComparison,
-  type ComparisonSong,
-} from "../../components/musicbrainz/MusicBrainzTrackComparison";
+import type { ComparisonSong } from "../../components/musicbrainz/MusicBrainzTrackComparison";
 import type { MbReleaseDetail } from "../../music/data/types";
-import { parseAlbumMetadata, type MbCandidate } from "../data/albumMetadata";
+import { parseAlbumMetadata } from "../data/albumMetadata";
 import { queryClient } from "../../queryClient";
-import { LastFmReviewModal } from "../components/LastFmReviewModal";
-import { AudioDbReviewModal } from "../components/AudioDbReviewModal";
 import { useRemoteIsAdmin } from "../hooks/useRemoteRole";
-
-const PROGRESS_POLL_INTERVAL_MS = 5000;
+import { PROGRESS_POLL_INTERVAL_MS, pickSource } from "./bulkEnrichmentReview/helpers";
+import { ProgressBadges } from "./bulkEnrichmentReview/ProgressBadges";
+import { ProgressErrorList } from "./bulkEnrichmentReview/ProgressErrorList";
+import { RawDataPeekModals } from "./bulkEnrichmentReview/RawDataPeekModals";
+import {
+  TracksComparisonSection,
+  buildMergedCandidates,
+} from "./bulkEnrichmentReview/TracksComparisonSection";
+import { useAuxiliaryReviewState } from "./bulkEnrichmentReview/useAuxiliaryReviewState";
 
 export interface BulkEnrichmentReviewModalProps {
   ids: string[];
@@ -180,67 +170,9 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     })
   );
 
-  // merged mb candidate list — the canonical source is
-  // `meta.musicbrainz.candidates`, but lastfm + audiodb sometimes
-  // surface mbids of their own that we want to make confirmable from
-  // the same picker. each merged entry gets a `via` field tagging its
-  // origin so the ui can render a small badge when the candidate isn't
-  // already in the mb list.
-  type MergedCandidate = MbCandidate & {
-    via: "mb" | "lastfm" | "audiodb";
-  };
-  const mergedCandidates = createMemo<MergedCandidate[]>(() => {
+  const mergedCandidates = createMemo(() => {
     const a = album();
-    const meta = parseAlbumMetadata(a?.metadata ?? null);
-    const out: MergedCandidate[] = [];
-    const seenReleaseIds = new Set<string>();
-    const seenRgIds = new Set<string>();
-    for (const c of meta.musicbrainz?.candidates ?? []) {
-      out.push({ ...c, via: "mb" });
-      if (c.release_id) seenReleaseIds.add(c.release_id);
-      if (c.release_group_id) seenRgIds.add(c.release_group_id);
-    }
-    const lf = meta.lastfm?.album as
-      | {
-          mbid?: string | null;
-        }
-      | undefined;
-    // last.fm `mbid` on an album record is the release-group mbid in
-    // most cases (lastfm doesn't distinguish strongly). treat it as a
-    // release_group_id candidate so the user can confirm it; the mb
-    // detail fetch will fan out to release-group → release as needed.
-    if (lf?.mbid && !seenRgIds.has(lf.mbid) && !seenReleaseIds.has(lf.mbid)) {
-      out.push({
-        release_id: null,
-        release_group_id: lf.mbid,
-        title: a?.title ?? "",
-        artist: a?.artist_name ?? "",
-        secondary_types: [],
-        local_confidence: null,
-        first_release_date: null,
-        country: null,
-        media: null,
-        via: "lastfm",
-      } as MergedCandidate);
-      seenRgIds.add(lf.mbid);
-    }
-    const ad = meta.audiodb?.album as { musicbrainz_release_group_id?: string | null } | undefined;
-    if (ad?.musicbrainz_release_group_id && !seenRgIds.has(ad.musicbrainz_release_group_id)) {
-      out.push({
-        release_id: null,
-        release_group_id: ad.musicbrainz_release_group_id,
-        title: a?.title ?? "",
-        artist: a?.artist_name ?? "",
-        secondary_types: [],
-        local_confidence: null,
-        first_release_date: null,
-        country: null,
-        media: null,
-        via: "audiodb",
-      } as MergedCandidate);
-      seenRgIds.add(ad.musicbrainz_release_group_id);
-    }
-    return out;
+    return buildMergedCandidates(a?.metadata ?? null, a?.title ?? "", a?.artist_name ?? "");
   });
 
   // compare-tracks: top-level section rendered after the artist images
@@ -436,407 +368,14 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
     setTaxonsAutoFor(id);
   });
 
-  // ---- artist bio (slice 4a) ----
-  // server resolves album_id -> artist_id and returns the bio
-  // candidates in one call, so we don't need a separate song fetch.
-  const [bioReloadKey, setBioReloadKey] = createSignal(0);
-  const bioKey = createMemo<[string | null, number] | null>(() => {
-    const id = albumId();
-    if (!id) return null;
-    return [id, bioReloadKey()];
+  // auxiliary review panels (bio / related artists / external urls /
+  // album+artist images) live in their own state hook to keep this
+  // file at a manageable size.
+  const aux = useAuxiliaryReviewState({
+    albumId,
+    proposalReloadKey,
+    remote: props.remote,
   });
-  const [bioResp] = createResource(bioKey, async (k) => {
-    // eslint-disable-next-line no-console
-    console.log("[BulkReview] bioResp fetcher fired", k);
-    if (!k) return null;
-    const [id] = k;
-    if (!id) return null;
-    try {
-      const client = await getClientForRemote(props.remote);
-      const resp = await client.music.proposeArtistBios({ album_id: id });
-      // eslint-disable-next-line no-console
-      console.log("[BulkReview] bioResp response", id, resp);
-      if (!resp.success || !resp.data) return null;
-      return resp.data as { artist_id: string; proposals: BioProposalLike[] };
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[BulkReview] bioResp threw", err);
-      return null;
-    }
-  });
-
-  // refetch bios whenever a source flips terminal (same trigger as taxons).
-  createEffect(
-    on(proposalReloadKey, (k, prev) => {
-      if (prev !== undefined && k !== prev) setBioReloadKey((x) => x + 1);
-    })
-  );
-
-  const [selectedBioSource, setSelectedBioSource] = createSignal<BioSourceLike | null>(null);
-  const [customBioText, setCustomBioText] = createSignal("");
-  // reset bio selection on album change.
-  createEffect(
-    on(albumId, () => {
-      setSelectedBioSource(null);
-      setCustomBioText("");
-    })
-  );
-  // when proposals load, default-select a proposal so the textarea
-  // seeds and a no-op save&next does the right thing. preference order:
-  //   1. whichever proposal is `is_current` (already persisted)
-  //   2. otherwise the first proposal in the list (server orders
-  //      user > lastfm > audiodb).
-  createEffect(
-    on(bioResp, (r) => {
-      if (!r) return;
-      if (selectedBioSource() !== null) return;
-      const pick = r.proposals.find((p) => p.is_current) ?? r.proposals[0];
-      if (pick) {
-        setSelectedBioSource(pick.source);
-        setCustomBioText(pick.text);
-      }
-    })
-  );
-
-  const onPickBio = (source: BioSourceLike, text: string) => {
-    // toggle off when clicking the already-selected source so the user
-    // can opt out of writing a bio entirely.
-    if (selectedBioSource() === source) {
-      setSelectedBioSource(null);
-      setCustomBioText("");
-      return;
-    }
-    setSelectedBioSource(source);
-    setCustomBioText(text);
-  };
-
-  // returns true if the user's pick differs from whichever proposal is
-  // currently flagged `is_current` (i.e. there's something to write).
-  const bioNeedsApply = (): boolean => {
-    const r = bioResp();
-    if (!r) return false;
-    if (selectedBioSource() === null) return false;
-    const text = customBioText().trim();
-    if (text.length === 0) return false;
-    const cur = r.proposals.find((p) => p.is_current);
-    if (cur && cur.text.trim() === text) return false;
-    return true;
-  };
-
-  // ---- related artists (slice 4c) ----
-  // refetched on the same triggers as bios + taxons (album change,
-  // source flip-to-terminal). uses album_id and lets the server
-  // resolve to an artist_id.
-  const [relatedReloadKey, setRelatedReloadKey] = createSignal(0);
-  const relatedKey = createMemo<[string | null, number] | null>(() => {
-    const id = albumId();
-    if (!id) return null;
-    return [id, relatedReloadKey()];
-  });
-  const [relatedResp] = createResource(relatedKey, async (k) => {
-    // eslint-disable-next-line no-console
-    console.log("[BulkReview] relatedResp fetcher fired", k);
-    if (!k) return null;
-    const [id] = k;
-    if (!id) return null;
-    try {
-      const client = await getClientForRemote(props.remote);
-      const resp = await client.music.proposeRelatedArtists({ album_id: id });
-      // eslint-disable-next-line no-console
-      console.log("[BulkReview] relatedResp response", id, resp);
-      if (!resp.success || !resp.data) return null;
-      return resp.data as { artist_id: string; proposals: RelatedArtistProposalLike[] };
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[BulkReview] relatedResp threw", err);
-      return null;
-    }
-  });
-  createEffect(
-    on(proposalReloadKey, (k, prev) => {
-      if (prev !== undefined && k !== prev) setRelatedReloadKey((x) => x + 1);
-    })
-  );
-
-  const [acceptRelatedIds, setAcceptRelatedIds] = createSignal<Set<string>>(new Set<string>());
-  const [rejectRelatedIds, setRejectRelatedIds] = createSignal<Set<string>>(new Set<string>());
-  // track which album we already auto-accepted for so we don't clobber
-  // user edits on subsequent fetcher refetches.
-  const [autoAcceptedFor, setAutoAcceptedFor] = createSignal<string | null>(null);
-  // reset on album change.
-  createEffect(
-    on(albumId, () => {
-      setAcceptRelatedIds(new Set<string>());
-      setRejectRelatedIds(new Set<string>());
-      setAutoAcceptedFor(null);
-    })
-  );
-  // default-accept only the related-artist proposals that are already
-  // matched to a local artist (`related_artist_id` non-null). external
-  // / unmatched candidates start unchecked so the user explicitly
-  // opts in (linking a brand-new artist is a heavier decision).
-  createEffect(() => {
-    if (relatedResp.loading) return;
-    const r = relatedResp();
-    if (!r) return;
-    const id = albumId();
-    if (!id) return;
-    if (autoAcceptedFor() === id) return;
-    const inLibrary = r.proposals
-      .filter((p) => !!(p as { related_artist_id?: string | null }).related_artist_id)
-      .map((p) => p.id);
-    setAcceptRelatedIds(new Set<string>(inLibrary));
-    setAutoAcceptedFor(id);
-  });
-
-  const toggleAcceptRelated = (id: string) => {
-    setAcceptRelatedIds((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    // accept clears any reject mark on the same row.
-    setRejectRelatedIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set<string>(prev);
-      next.delete(id);
-      return next;
-    });
-  };
-  const toggleRejectRelated = (id: string) => {
-    setRejectRelatedIds((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    setAcceptRelatedIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set<string>(prev);
-      next.delete(id);
-      return next;
-    });
-  };
-  const acceptAllRelated = () => {
-    const r = relatedResp();
-    if (!r) return;
-    setAcceptRelatedIds(new Set<string>(r.proposals.map((p) => p.id)));
-    setRejectRelatedIds(new Set<string>());
-  };
-  const clearRelated = () => {
-    setAcceptRelatedIds(new Set<string>());
-    setRejectRelatedIds(new Set<string>());
-  };
-  const relatedNeedsApply = (): boolean =>
-    acceptRelatedIds().size > 0 || rejectRelatedIds().size > 0;
-
-  // ---- external urls (phase 11.x) ----
-  // surface external links harvested from already-stored snapshots
-  // (mb url-rels, last.fm pages, audiodb website/facebook/twitter).
-  // defaults to all-checked per user request: ingest is the common
-  // case, opt-out is one click. only proposes urls not already in
-  // entity_urlz so re-runs converge cleanly.
-  const [externalUrlsReloadKey, setExternalUrlsReloadKey] = createSignal(0);
-  const externalUrlsKey = createMemo<[string | null, number] | null>(() => {
-    const id = albumId();
-    if (!id) return null;
-    return [id, externalUrlsReloadKey()];
-  });
-  const [externalUrlsResp] = createResource(externalUrlsKey, async (k) => {
-    if (!k) return null;
-    const [id] = k;
-    if (!id) return null;
-    try {
-      const client = await getClientForRemote(props.remote);
-      const resp = await client.music.proposeExternalUrls({ album_id: id });
-      if (!resp.success || !resp.data) return null;
-      return resp.data as {
-        album_id: string;
-        artist_id?: string | null;
-        proposals: ExternalUrlProposalLike[];
-      };
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[BulkReview] externalUrlsResp threw", err);
-      return null;
-    }
-  });
-  createEffect(
-    on(proposalReloadKey, (k, prev) => {
-      if (prev !== undefined && k !== prev) setExternalUrlsReloadKey((x) => x + 1);
-    })
-  );
-
-  const [acceptExternalUrlKeys, setAcceptExternalUrlKeys] = createSignal<Set<string>>(
-    new Set<string>()
-  );
-  const [externalUrlsAutoFor, setExternalUrlsAutoFor] = createSignal<string | null>(null);
-  createEffect(
-    on(albumId, () => {
-      setAcceptExternalUrlKeys(new Set<string>());
-      setExternalUrlsAutoFor(null);
-    })
-  );
-  // default-check every proposal on first arrival for a given album.
-  // user can toggle individual rows off before save.
-  createEffect(() => {
-    if (externalUrlsResp.loading) return;
-    const r = externalUrlsResp();
-    if (!r) return;
-    const id = albumId();
-    if (!id) return;
-    if (externalUrlsAutoFor() === id) return;
-    setAcceptExternalUrlKeys(new Set<string>(r.proposals.map((p) => externalUrlKey(p))));
-    setExternalUrlsAutoFor(id);
-  });
-
-  const toggleExternalUrl = (p: ExternalUrlProposalLike) => {
-    const k = externalUrlKey(p);
-    setAcceptExternalUrlKeys((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
-  };
-  const acceptAllExternalUrls = () => {
-    const r = externalUrlsResp();
-    if (!r) return;
-    setAcceptExternalUrlKeys(new Set<string>(r.proposals.map((p) => externalUrlKey(p))));
-  };
-  const clearExternalUrls = () => {
-    setAcceptExternalUrlKeys(new Set<string>());
-  };
-  const externalUrlsNeedsApply = (): boolean => acceptExternalUrlKeys().size > 0;
-
-  // ---- album image candidates (slice 3) ----
-  // surface remote image urls from stored audiodb / mb metadata so
-  // the user can one-click ingest the right cover. read-only on the
-  // server; ingest happens per-tile via existing ingestRemoteImage.
-  const [imageReloadKey, setImageReloadKey] = createSignal(0);
-  const imageKey = createMemo<[string | null, number] | null>(() => {
-    const id = albumId();
-    if (!id) return null;
-    return [id, imageReloadKey()];
-  });
-  const [albumImagesResp, { refetch: _refetchAlbumImages }] = createResource(
-    imageKey,
-    async (k) => {
-      // eslint-disable-next-line no-console
-      console.log("[BulkReview] albumImagesResp fetcher fired", k);
-      if (!k) return null;
-      const [id] = k;
-      if (!id) return null;
-      try {
-        const client = await getClientForRemote(props.remote);
-        const resp = await client.music.albumImageCandidates({ album_id: id });
-        // eslint-disable-next-line no-console
-        console.log("[BulkReview] albumImagesResp response", id, resp);
-        if (!resp.success || !resp.data) return null;
-        return resp.data as {
-          album_id: string;
-          candidates: ImageCandidateLike[];
-          ingested_blob_ids: string[];
-        };
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[BulkReview] albumImagesResp threw", err);
-        return null;
-      }
-    }
-  );
-  // refetch when proposal sources flip-to-terminal (mirrors bio /
-  // related — newly arrived audiodb data may add cover urls).
-  createEffect(
-    on(proposalReloadKey, (k, prev) => {
-      if (prev !== undefined && k !== prev) setImageReloadKey((x) => x + 1);
-    })
-  );
-  const [selectedAlbumImageUrls, setSelectedAlbumImageUrls] = createSignal<Set<string>>(
-    new Set<string>()
-  );
-  // reset per-album so prior selections don't bleed across.
-  createEffect(
-    on(albumId, () => {
-      setSelectedAlbumImageUrls(new Set<string>());
-    })
-  );
-  const onToggleAlbumImage = (c: ImageCandidateLike) => {
-    setSelectedAlbumImageUrls((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(c.url)) next.delete(c.url);
-      else next.add(c.url);
-      return next;
-    });
-  };
-
-  // ---- artist image candidates (slice 4b) ----
-  // mirror of album images but resolved through album_id -> artist.
-  const [artistImgReloadKey, setArtistImgReloadKey] = createSignal(0);
-  const artistImgKey = createMemo<[string | null, number] | null>(() => {
-    const id = albumId();
-    if (!id) return null;
-    return [id, artistImgReloadKey()];
-  });
-  const [artistImagesResp, { refetch: _refetchArtistImages }] = createResource(
-    artistImgKey,
-    async (k) => {
-      // eslint-disable-next-line no-console
-      console.log("[BulkReview] artistImagesResp fetcher fired", k);
-      if (!k) return null;
-      const [id] = k;
-      if (!id) return null;
-      try {
-        const client = await getClientForRemote(props.remote);
-        const resp = await client.music.artistImageCandidates({ album_id: id });
-        // eslint-disable-next-line no-console
-        console.log("[BulkReview] artistImagesResp response", id, resp);
-        if (!resp.success || !resp.data) return null;
-        return resp.data as {
-          artist_id: string;
-          candidates: ImageCandidateLike[];
-          ingested_blob_ids: string[];
-        };
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[BulkReview] artistImagesResp threw", err);
-        return null;
-      }
-    }
-  );
-  createEffect(
-    on(proposalReloadKey, (k, prev) => {
-      if (prev !== undefined && k !== prev) setArtistImgReloadKey((x) => x + 1);
-    })
-  );
-  const [selectedArtistImageUrls, setSelectedArtistImageUrls] = createSignal<Set<string>>(
-    new Set<string>()
-  );
-  createEffect(
-    on(albumId, () => {
-      setSelectedArtistImageUrls(new Set<string>());
-    })
-  );
-  // when artist images load, default-select the first candidate so the
-  // user only has to hit save to ingest a sensible default.
-  createEffect(
-    on(artistImagesResp, (r) => {
-      if (!r) return;
-      if (selectedArtistImageUrls().size > 0) return;
-      const first = r.candidates[0];
-      if (!first) return;
-      setSelectedArtistImageUrls(new Set<string>([first.url]));
-    })
-  );
-  const onToggleArtistImage = (c: ImageCandidateLike) => {
-    setSelectedArtistImageUrls((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(c.url)) next.delete(c.url);
-      else next.add(c.url);
-      return next;
-    });
-  };
 
   const toggleProposal = (p: TaxonProposalLike) => {
     if (p.already_linked) return;
@@ -921,13 +460,13 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         }
       }
       // apply bio first (cheap, no cascading effects on taxons).
-      if (bioNeedsApply()) {
-        const r = bioResp()!;
-        const src = selectedBioSource()!;
+      if (aux.bioNeedsApply()) {
+        const r = aux.bioResp()!;
+        const src = aux.selectedBioSource()!;
         const bioApply = await client.music.applyArtistBio({
           artist_id: r.artist_id,
           source: src,
-          text: customBioText(),
+          text: aux.customBioText(),
         });
         if (!bioApply.success) {
           toast.error(bioApply.error.message || "failed to apply bio");
@@ -935,13 +474,13 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         }
       }
       // apply related-artist accept / reject decisions.
-      if (relatedNeedsApply()) {
-        const r = relatedResp();
+      if (aux.relatedNeedsApply()) {
+        const r = aux.relatedResp();
         if (r) {
           const relApply = await client.music.applyRelatedArtists({
             artist_id: r.artist_id,
-            accept_ids: [...acceptRelatedIds()],
-            reject_ids: [...rejectRelatedIds()],
+            accept_ids: [...aux.acceptRelatedIds()],
+            reject_ids: [...aux.rejectRelatedIds()],
           });
           if (!relApply.success) {
             toast.error(relApply.error.message || "failed to apply related artists");
@@ -950,11 +489,11 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         }
       }
       // apply external-url ingestions (mb url-rels, lf, audiodb).
-      if (externalUrlsNeedsApply()) {
-        const r = externalUrlsResp();
+      if (aux.externalUrlsNeedsApply()) {
+        const r = aux.externalUrlsResp();
         if (r) {
           const accepted = r.proposals
-            .filter((p) => acceptExternalUrlKeys().has(externalUrlKey(p)))
+            .filter((p) => aux.acceptExternalUrlKeys().has(externalUrlKey(p)))
             .map((p) => ({
               entity_type: p.entity_type,
               entity_id: p.entity_id,
@@ -984,8 +523,8 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
       // ingest any user-selected remote images (album + artist).
       // sequential: avoid hammering the network + lets `is_primary`
       // logic see prior ingests' effects.
-      const albumPicked = [...selectedAlbumImageUrls()];
-      const albumPanel = albumImagesResp();
+      const albumPicked = [...aux.selectedAlbumImageUrls()];
+      const albumPanel = aux.albumImagesResp();
       const albumCandList = albumPanel?.candidates ?? [];
       let albumLinkedCount = albumPanel?.ingested_blob_ids.length ?? 0;
       for (const url of albumPicked) {
@@ -1003,8 +542,8 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         }
         albumLinkedCount += 1;
       }
-      const artistPicked = [...selectedArtistImageUrls()];
-      const artistPanel = artistImagesResp();
+      const artistPicked = [...aux.selectedArtistImageUrls()];
+      const artistPanel = aux.artistImagesResp();
       if (artistPicked.length > 0 && artistPanel) {
         let artistLinkedCount = artistPanel.ingested_blob_ids.length;
         const artistCandList = artistPanel.candidates;
@@ -1125,11 +664,11 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
   // reported in every other panel.
   const totalSelectedCount = createMemo(() => {
     let n = acceptedCount();
-    if (bioNeedsApply()) n += 1;
-    n += acceptRelatedIds().size + rejectRelatedIds().size;
-    n += acceptExternalUrlKeys().size;
-    n += selectedAlbumImageUrls().size;
-    n += selectedArtistImageUrls().size;
+    if (aux.bioNeedsApply()) n += 1;
+    n += aux.acceptRelatedIds().size + aux.rejectRelatedIds().size;
+    n += aux.acceptExternalUrlKeys().size;
+    n += aux.selectedAlbumImageUrls().size;
+    n += aux.selectedArtistImageUrls().size;
     const a = album();
     if (a) {
       const newArtist = editedArtist().trim();
@@ -1235,14 +774,14 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             currentIndex: props.currentIndex,
             proposalsState: proposals.state,
             proposalsLen: proposals()?.length,
-            bioState: bioResp.state,
-            bioProposalsLen: bioResp()?.proposals.length,
-            relatedState: relatedResp.state,
-            relatedProposalsLen: relatedResp()?.proposals.length,
-            albumImagesState: albumImagesResp.state,
-            albumCandidatesLen: albumImagesResp()?.candidates.length,
-            artistImagesState: artistImagesResp.state,
-            artistCandidatesLen: artistImagesResp()?.candidates.length,
+            bioState: aux.bioResp.state,
+            bioProposalsLen: aux.bioResp()?.proposals.length,
+            relatedState: aux.relatedResp.state,
+            relatedProposalsLen: aux.relatedResp()?.proposals.length,
+            albumImagesState: aux.albumImagesResp.state,
+            albumCandidatesLen: aux.albumImagesResp()?.candidates.length,
+            artistImagesState: aux.artistImagesResp.state,
+            artistCandidatesLen: aux.artistImagesResp()?.candidates.length,
           });
           return null;
         })()}
@@ -1281,329 +820,79 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
             onClearAllUnlinked={clearAllUnlinked}
           />
         </Show>
-        <Show when={(bioResp()?.proposals.length ?? 0) > 0}>
+        <Show when={(aux.bioResp()?.proposals.length ?? 0) > 0}>
           <ArtistBioReviewPanel
             artistName={null}
-            proposals={bioResp()?.proposals ?? []}
-            selectedSource={selectedBioSource()}
-            customText={customBioText()}
-            onSelect={onPickBio}
-            onCustomChange={setCustomBioText}
+            proposals={aux.bioResp()?.proposals ?? []}
+            selectedSource={aux.selectedBioSource()}
+            customText={aux.customBioText()}
+            onSelect={aux.onPickBio}
+            onCustomChange={aux.setCustomBioText}
           />
         </Show>
-        <Show when={relatedResp() !== undefined}>
+        <Show when={aux.relatedResp() !== undefined}>
           <RelatedArtistsReviewPanel
-            proposals={relatedResp()?.proposals ?? []}
-            acceptIds={acceptRelatedIds()}
-            rejectIds={rejectRelatedIds()}
-            onToggleAccept={toggleAcceptRelated}
-            onToggleReject={toggleRejectRelated}
-            onAcceptAll={acceptAllRelated}
-            onClear={clearRelated}
+            proposals={aux.relatedResp()?.proposals ?? []}
+            acceptIds={aux.acceptRelatedIds()}
+            rejectIds={aux.rejectRelatedIds()}
+            onToggleAccept={aux.toggleAcceptRelated}
+            onToggleReject={aux.toggleRejectRelated}
+            onAcceptAll={aux.acceptAllRelated}
+            onClear={aux.clearRelated}
           />
         </Show>
-        <Show when={externalUrlsResp() !== undefined}>
+        <Show when={aux.externalUrlsResp() !== undefined}>
           <ExternalUrlsReviewPanel
-            proposals={externalUrlsResp()?.proposals ?? []}
-            acceptKeys={acceptExternalUrlKeys()}
-            onToggle={toggleExternalUrl}
-            onAcceptAll={acceptAllExternalUrls}
-            onClear={clearExternalUrls}
+            proposals={aux.externalUrlsResp()?.proposals ?? []}
+            acceptKeys={aux.acceptExternalUrlKeys()}
+            onToggle={aux.toggleExternalUrl}
+            onAcceptAll={aux.acceptAllExternalUrls}
+            onClear={aux.clearExternalUrls}
           />
         </Show>
-        <Show when={albumImagesResp() !== undefined}>
+        <Show when={aux.albumImagesResp() !== undefined}>
           <ImagePickGrid
             title="album images"
-            candidates={albumImagesResp()?.candidates ?? []}
-            ingestedCount={albumImagesResp()?.ingested_blob_ids.length ?? 0}
-            selected={selectedAlbumImageUrls()}
-            onToggle={onToggleAlbumImage}
+            candidates={aux.albumImagesResp()?.candidates ?? []}
+            ingestedCount={aux.albumImagesResp()?.ingested_blob_ids.length ?? 0}
+            selected={aux.selectedAlbumImageUrls()}
+            onToggle={aux.onToggleAlbumImage}
           />
         </Show>
-        <Show when={artistImagesResp() !== undefined}>
+        <Show when={aux.artistImagesResp() !== undefined}>
           <ImagePickGrid
             title="artist images"
-            candidates={artistImagesResp()?.candidates ?? []}
-            ingestedCount={artistImagesResp()?.ingested_blob_ids.length ?? 0}
-            selected={selectedArtistImageUrls()}
-            onToggle={onToggleArtistImage}
+            candidates={aux.artistImagesResp()?.candidates ?? []}
+            ingestedCount={aux.artistImagesResp()?.ingested_blob_ids.length ?? 0}
+            selected={aux.selectedArtistImageUrls()}
+            onToggle={aux.onToggleArtistImage}
           />
         </Show>
-        {/* tracks — always visible (even before mb results land) so
-            the user can sanity-check the album title against the
-            actual song titles. when one or more candidate releases
-            exist we also surface a dropdown picker for side-by-side
-            comparison against any mb release. */}
-        <Show when={(songs() ?? []).length > 0}>
-          <div class="flex flex-col gap-2 p-2 rounded border border-[var(--color-border-subtle)]">
-            <div class="flex items-center justify-between gap-2 flex-wrap">
-              <span class="text-xs uppercase tracking-wide text-[var(--color-text-secondary)]">
-                tracks ({(songs() ?? []).length})
-              </span>
-              <Show when={mergedCandidates().filter((c) => !!c.release_id).length > 0}>
-                <label class="flex items-center gap-2 text-xs">
-                  <span class="text-[var(--color-text-muted)]">compare to release</span>
-                  <select
-                    value={compareReleaseId() ?? ""}
-                    onChange={(e) => setCompareReleaseId(e.currentTarget.value || null)}
-                    class="px-2 py-0.5 text-xs bg-[var(--color-bg-base)] border border-[var(--color-border-subtle)] rounded text-[var(--color-text-primary)] max-w-[28rem] truncate"
-                  >
-                    <option value="">— none (local tracks only) —</option>
-                    <For each={mergedCandidates().filter((c) => !!c.release_id)}>
-                      {(c) => (
-                        <option value={c.release_id!}>
-                          {(c.title || "(untitled)") +
-                            (c.first_release_date ? ` · ${c.first_release_date}` : "") +
-                            (c.country ? ` · ${c.country}` : "") +
-                            (c.track_count != null
-                              ? ` · ${c.track_count} track${c.track_count === 1 ? "" : "s"}`
-                              : "") +
-                            (c.via !== "mb" ? ` · via ${c.via}` : "")}
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                </label>
-              </Show>
-            </div>
-            <Show
-              when={compareReleaseId()}
-              fallback={
-                <ul class="flex flex-col gap-0.5 text-xs text-[var(--color-text-secondary)] max-h-72 overflow-y-auto">
-                  <For each={songs() ?? []}>
-                    {(s) => (
-                      <li class="flex items-baseline gap-2 px-1 py-0.5">
-                        <span class="text-[var(--color-text-muted)] tabular-nums w-12 flex-shrink-0">
-                          {s.disc_number > 1 ? `${s.disc_number}.` : ""}
-                          {s.track_number || "—"}
-                        </span>
-                        <span class="flex-1 min-w-0 truncate text-[var(--color-text-primary)]">
-                          {s.title || "(untitled)"}
-                          <Show when={s.track_artist}>
-                            <span class="text-[var(--color-text-muted)]"> — {s.track_artist}</span>
-                          </Show>
-                        </span>
-                        <Show when={s.duration_seconds > 0}>
-                          <span class="text-[var(--color-text-muted)] tabular-nums flex-shrink-0">
-                            {Math.floor(s.duration_seconds / 60)}:
-                            {String(Math.floor(s.duration_seconds % 60)).padStart(2, "0")}
-                          </span>
-                        </Show>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              }
-            >
-              <Show
-                when={!compareReleaseDetail.loading && compareReleaseDetail()}
-                fallback={
-                  <div class="text-xs text-[var(--color-text-disabled)] italic">
-                    loading release details…
-                  </div>
-                }
-              >
-                <MusicBrainzTrackComparison
-                  release={compareReleaseDetail()!}
-                  songs={songs() ?? []}
-                  remote={props.remote}
-                  onAlbumUpdated={() => {
-                    setProposalReloadKey((k) => k + 1);
-                    setAlbumReloadKey((k) => k + 1);
-                  }}
-                />
-              </Show>
-            </Show>
-          </div>
-        </Show>
+        <TracksComparisonSection
+          songs={songs() ?? []}
+          mergedCandidates={mergedCandidates()}
+          compareReleaseId={compareReleaseId()}
+          setCompareReleaseId={setCompareReleaseId}
+          compareReleaseDetail={compareReleaseDetail}
+          remote={props.remote}
+          onAlbumUpdated={() => {
+            setProposalReloadKey((k) => k + 1);
+            setAlbumReloadKey((k) => k + 1);
+          }}
+        />
         <Show when={refetchProposals as unknown}>
           <></>
         </Show>
       </div>
-      <Show when={showLastFm() && album()}>
-        <LastFmReviewModal
-          isOpen={true}
-          onClose={() => setShowLastFm(false)}
-          album={
-            {
-              album_id: album()!.album_id,
-              title: album()!.title,
-              artist_id: album()!.artist_id ?? "",
-              artist_name: album()!.artist_name ?? "",
-              album_type: "",
-              song_count: 0,
-              total_duration: 0,
-              metadata: album()!.metadata ?? null,
-            } as any
-          }
-          remote={props.remote}
-          isAdmin={isRemoteAdmin()}
-        />
-      </Show>
-      <Show when={showAudioDb() && album()}>
-        <AudioDbReviewModal
-          isOpen={true}
-          onClose={() => setShowAudioDb(false)}
-          album={
-            {
-              album_id: album()!.album_id,
-              title: album()!.title,
-              artist_id: album()!.artist_id ?? "",
-              artist_name: album()!.artist_name ?? "",
-              album_type: "",
-              song_count: 0,
-              total_duration: 0,
-              metadata: album()!.metadata ?? null,
-            } as any
-          }
-          remote={props.remote}
-          isAdmin={isRemoteAdmin()}
-        />
-      </Show>
+      <RawDataPeekModals
+        album={album() ?? null}
+        remote={props.remote}
+        isAdmin={isRemoteAdmin()}
+        showLastFm={showLastFm()}
+        showAudioDb={showAudioDb()}
+        onCloseLastFm={() => setShowLastFm(false)}
+        onCloseAudioDb={() => setShowAudioDb(false)}
+      />
     </Modal>
   );
-}
-
-function ProgressBadges(props: {
-  progress: Array<{ source: string; status: string; last_error?: string | null }>;
-  /** when set, clicking the badge for `lastfm` / `audiodb` opens that
-   *  source's raw-data peek modal. `mb` is intentionally not
-   *  clickable here — the candidate list is already rendered inline
-   *  in the main modal body. */
-  onClickSource?: (source: string) => void;
-}) {
-  return (
-    <div class="flex items-center gap-1.5">
-      <For each={props.progress}>
-        {(p) => {
-          const clickable = () =>
-            !!props.onClickSource && (p.source === "lastfm" || p.source === "audiodb");
-          return (
-            <span
-              role={clickable() ? "button" : undefined}
-              tabindex={clickable() ? 0 : undefined}
-              onClick={clickable() ? () => props.onClickSource?.(p.source) : undefined}
-              onKeyDown={
-                clickable()
-                  ? (e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        props.onClickSource?.(p.source);
-                      }
-                    }
-                  : undefined
-              }
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide"
-              classList={{
-                "bg-[var(--color-error-500)]/15 text-[var(--color-error-500)]":
-                  isFailed(p.status) || !!p.last_error,
-                "bg-[var(--color-success-500)]/15 text-[var(--color-success-500)]":
-                  isTerminalDone(p.status) && !p.last_error,
-                "bg-[var(--color-warning-500)]/15 text-[var(--color-warning-500)]": isInflight(
-                  p.status
-                ),
-                "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)]":
-                  !isTerminalDone(p.status) &&
-                  !isInflight(p.status) &&
-                  !isFailed(p.status) &&
-                  !p.last_error,
-                "cursor-pointer hover:ring-1 hover:ring-[var(--color-border-subtle)]": clickable(),
-              }}
-              title={
-                clickable()
-                  ? `${p.source}: ${p.status}${p.last_error ? `\n${p.last_error}` : ""}\nclick to view raw ${p.source} data`
-                  : p.last_error
-                    ? `${p.source}: ${p.status}\n${p.last_error}`
-                    : `${p.source}: ${p.status}`
-              }
-            >
-              {sourceShort(p.source)}
-              <span class="opacity-70">{statusGlyph(p.status, !!p.last_error)}</span>
-            </span>
-          );
-        }}
-      </For>
-    </div>
-  );
-}
-
-// inline expandable error list — surfaces backend failure messages so
-// the user can see *why* a source returned no candidates (e.g. mb api
-// rate-limit, network error, mismatched artist/title).
-function ProgressErrorList(props: {
-  progress: Array<{ source: string; status: string; last_error?: string | null }>;
-}) {
-  const errors = () => props.progress.filter((p) => p.last_error || isFailed(p.status));
-  return (
-    <Show when={errors().length > 0}>
-      <details class="text-[10px] text-[var(--color-error-500)] mt-0.5">
-        <summary class="cursor-pointer">
-          {errors().length} enrichment error{errors().length === 1 ? "" : "s"} — click to show
-        </summary>
-        <ul class="mt-1 pl-3 flex flex-col gap-0.5">
-          <For each={errors()}>
-            {(p) => (
-              <li>
-                <span class="font-medium">{sourceShort(p.source)}</span>: 
-                <span class="opacity-90 break-all">{p.last_error || p.status}</span>
-              </li>
-            )}
-          </For>
-        </ul>
-      </details>
-    </Show>
-  );
-}
-
-function sourceShort(s: string): string {
-  switch (s) {
-    case "mb":
-      return "mb";
-    case "lastfm":
-      return "lf";
-    case "audiodb":
-      return "ad";
-    default:
-      return s.toLowerCase();
-  }
-}
-
-function isTerminalDone(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s === "completed" || s === "enriched" || s === "no_match" || s === "done" || s === "complete"
-  );
-}
-
-function isInflight(status: string): boolean {
-  const s = status.toLowerCase();
-  return (
-    s === "running" ||
-    s === "queued" ||
-    s === "pending" ||
-    s === "searching" ||
-    s === "fetching_detail"
-  );
-}
-
-function isFailed(status: string): boolean {
-  const s = status.toLowerCase();
-  return s === "failed" || s === "error" || s.includes("error");
-}
-
-function statusGlyph(status: string, hasError = false): string {
-  if (hasError || isFailed(status)) return "!";
-  if (isTerminalDone(status)) return "✓";
-  if (isInflight(status)) return "…";
-  return "·";
-}
-
-function pickSource(sources: string[]): "mb" | "lastfm" | "audiodb" {
-  // priority order: musicbrainz > lastfm > audiodb. matches the
-  // `ProposalSource` enum on the server side; the wire serialization
-  // uses snake_case variants ("mb" / "lastfm" / "audiodb").
-  if (sources.includes("mb")) return "mb";
-  if (sources.includes("lastfm")) return "lastfm";
-  if (sources.includes("audiodb")) return "audiodb";
-  return "mb";
 }
