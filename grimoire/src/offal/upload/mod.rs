@@ -911,7 +911,9 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 continue;
             }
 
-            // create a ProcessFile job for this file
+            // create a ProcessFile job for this file. leave
+            // serialization_group unset so the runner falls back to
+            // parent-dir grouping (siblings of one album dir serialize).
             let params = ProcessFileParams {
                 file_path: path_str.clone(),
                 extract_metadata: true,
@@ -919,6 +921,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 generate_waveform: true,
                 source_url: None,
                 existing_blob_id: None,
+                serialization_group: None,
             };
 
             let job_request = CreateJobRequest {

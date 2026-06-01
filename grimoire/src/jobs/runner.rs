@@ -614,8 +614,30 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
         }
         JobType::ProcessFile => {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
-            let path = params.get("file_path")?.as_str()?.to_string();
-            Some((JobType::ProcessFile, path))
+            // prefer an explicit grouping key (set by fetch jobs etc. so
+            // all sibling ProcessFile children serialize through one
+            // worker, avoiding races in find_or_create_artist /
+            // find_or_create_album_for_artist). fall back to the parent
+            // directory of the file so plain imports from one dir also
+            // serialize. last resort: the file path itself.
+            let key = params
+                .get("serialization_group")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    let path = params.get("file_path")?.as_str()?;
+                    std::path::Path::new(path)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .map(str::to_string)
+                })
+                .or_else(|| {
+                    params
+                        .get("file_path")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })?;
+            Some((JobType::ProcessFile, key))
         }
         JobType::ProcessDirectory => {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;

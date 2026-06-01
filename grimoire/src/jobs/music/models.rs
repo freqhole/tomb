@@ -32,6 +32,14 @@ pub struct ProcessFileParams {
     /// memberships, favorites, ratings, listening sessions, etc.).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing_blob_id: Option<String>,
+    /// optional grouping key used by the job runner to serialize sibling
+    /// ProcessFile jobs onto a single worker. set to a fetch job id, a
+    /// playlist id, etc. so all tracks of one logical batch share a
+    /// conflict key and the album/artist find_or_create paths can't race.
+    /// when unset the runner falls back to the parent directory of
+    /// `file_path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serialization_group: Option<String>,
 }
 
 /// results from directory scan jobs

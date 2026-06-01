@@ -105,7 +105,12 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             "playlist_index": file_metadata.playlist_index,
         });
 
-        // create ProcessFile job with fetch metadata embedded in parameters
+        // create ProcessFile job with fetch metadata embedded in parameters.
+        // serialization_group is set to this fetch job's id so the runner
+        // serializes every child of this yt-dlp url onto a single worker
+        // (avoids find_or_create_artist / find_or_create_album races for
+        // sibling tracks of one playlist). multi-url submits still fan out
+        // because each fetch job has a distinct id.
         let process_params = ProcessFileParams {
             file_path: downloaded_file.file_path.clone(),
             extract_metadata: true,
@@ -113,6 +118,7 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             generate_waveform: true,
             source_url: Some(params.url.clone()),
             existing_blob_id: None,
+            serialization_group: Some(job.id.clone()),
         };
 
         let job_request = CreateJobRequest {

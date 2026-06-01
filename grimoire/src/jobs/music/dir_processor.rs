@@ -59,6 +59,7 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
             generate_waveform: true,
             source_url: None,
             existing_blob_id: entry.existing_blob_id.clone(),
+            serialization_group: None,
         };
 
         // synthesize a per-file Job so the existing file processor
