@@ -148,6 +148,9 @@ pub async fn dispatch(
         "/api/music/relations/era-albums" => {
             Some(relations::era_albums(caller, body.clone()).await)
         }
+        "/api/music/relations/unassigned-albums" => {
+            Some(relations::unassigned_albums(caller, body.clone()).await)
+        }
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
@@ -178,6 +181,7 @@ pub async fn dispatch(
         "/api/taxonomy/taxons/get" => Some(taxonomy::get_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/create" => Some(taxonomy::create_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/set-color" => Some(taxonomy::set_color(caller, body.clone()).await),
+        "/api/taxonomy/taxons/delete" => Some(taxonomy::delete_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/ancestors" => Some(taxonomy::ancestors(caller, body.clone()).await),
         "/api/taxonomy/taxons/descendants" => {
             Some(taxonomy::descendants(caller, body.clone()).await)

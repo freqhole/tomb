@@ -195,6 +195,51 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         album_count: recently_added_count,
     });
 
+    // unassigned: albums with no album_taxonz rows at all (across any
+    // kind). useful for admin triage — surfaces orphan content that
+    // hasn't been tagged yet. only emit the hub when the count is > 0
+    // so a fully-tagged library doesn't show a dead hub.
+    let unassigned_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!"
+           FROM albumz a
+           WHERE a.deleted_at IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM album_taxonz at
+               JOIN taxonz t ON t.id = at.taxon_id
+               WHERE at.album_id = a.id AND t.deleted_at IS NULL
+             )"#
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to count unassigned albums",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if unassigned_count > 0 {
+        kinds.push(TaxonKind {
+            id: "synth::unassigned".to_string(),
+            slug: "unassigned".to_string(),
+            label: "unassigned".to_string(),
+            description: Some(
+                "synthesized hub: albums with no taxon assignments".to_string(),
+            ),
+            color: None,
+            value_type: "categorical".to_string(),
+            unit: None,
+            // sort after recently_added
+            display_order: 9002,
+            is_user_defined: false,
+            created_at: now,
+            album_count: unassigned_count,
+        });
+    }
+
     GrimoireResponse::success("taxon kinds retrieved", kinds)
 }
 

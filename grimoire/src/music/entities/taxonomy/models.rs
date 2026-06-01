@@ -159,6 +159,11 @@ pub struct GetTaxonRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteTaxonRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct QueryTaxonsRequest {
     /// optional kind filter; when set, only taxons of this kind are returned.
     pub kind_slug: Option<String>,

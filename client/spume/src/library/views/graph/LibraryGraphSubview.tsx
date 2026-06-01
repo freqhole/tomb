@@ -86,6 +86,12 @@ import type { AlbumSummary } from "../../../music/data/types";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
 import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
+import {
+  BulkSelectionPopover,
+  type BulkAvailableTaxon,
+  type BulkCandidateParent,
+  type BulkMode,
+} from "../../../components/graph/BulkSelectionPopover";
 import type { TaxonRef } from "freqhole-api-client";
 import type { ContributingRemote } from "../../../components/graph/RemoteSplitButton";
 import { Icon } from "../../../components/icons/registry";
@@ -276,6 +282,14 @@ function Inner(props: {
     string,
     Map<string, { id: string; label: string; albumCount: number }>
   >();
+  // parent edges per relation hub: child_taxon_id -> parent_taxon_id.
+  // populated by maybeLoadTaxonsForPivot; consulted by edit-mode drag
+  // handlers to know which existing parent link to remove on re-parent.
+  const taxonParentsByHub = new Map<string, Map<string, string>>();
+  // labels per relation hub: taxon_id -> label. lets edit-mode handlers
+  // resolve a taxon id back to the value/group node id without a
+  // full refetch.
+  const taxonLabelsByHub = new Map<string, Map<string, string>>();
   // kind metadata by relation hub id -> { label, color }. populated in
   // loadTaxonKindsForRemote for the taxon detail popover kind chip.
   const taxonKindMetaByHub = new Map<string, { label: string; color: string | null }>();
@@ -415,6 +429,16 @@ function Inner(props: {
       const parts = hubId.split("::");
       const remoteId = parts[1];
       if (remoteId && !active.has(remoteId)) taxonItemsByHub.delete(hubId);
+    }
+    for (const hubId of [...taxonParentsByHub.keys()]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonParentsByHub.delete(hubId);
+    }
+    for (const hubId of [...taxonLabelsByHub.keys()]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonLabelsByHub.delete(hubId);
     }
   });
 
@@ -2026,6 +2050,32 @@ function Inner(props: {
         e.preventDefault();
         walkerClient()?.repivot(rootId(), true);
       }
+      // e: toggle edit mode when a taxon/hub is selected
+      if (e.key === "e" && selectedTaxonInfo()) {
+        e.preventDefault();
+        if (editMode()) {
+          setEditMode(false);
+          setMultiSelection(new Set<string>());
+        } else {
+          setEditMode(true);
+        }
+      }
+      // del/backspace: soft-delete focused taxon (single) or bulk taxon selection
+      if ((e.key === "Delete" || e.key === "Backspace") && editMode()) {
+        if (multiSelection().size >= 2 && bulkMode() === "taxons" && bulkCanEdit()) {
+          e.preventDefault();
+          const n = bulkCounts().taxons;
+          if (window.confirm(`soft-delete ${n} selected taxon${n === 1 ? "" : "s"}?`)) {
+            void handleBulkDeleteTaxons();
+          }
+        } else if (selectedTaxonInfo()?.taxonId) {
+          e.preventDefault();
+          const label = selectedTaxonInfo()?.label ?? "this taxon";
+          if (window.confirm(`soft-delete taxon '${label}'?`)) {
+            void handleDeleteTaxon();
+          }
+        }
+      }
     };
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
@@ -2181,6 +2231,10 @@ function Inner(props: {
     // albums and attach them as direct children of the recently_added
     // hub. flat (no value tier).
     void maybeLoadRecentlyAddedForPivot(nodeId);
+    // lazy unassigned expansion: pull the next page of albums missing
+    // taxon assignments and attach them as direct children of the
+    // unassigned hub. flat (no value tier), paged client-side.
+    void maybeLoadUnassignedForPivot(nodeId);
     // lazy album expansion: when the pivot is a value (taxon) or an
     // artist, fetch only the albums belonging to that subtree. results
     // append into nodesByRemote and propagate through buildResult ->
@@ -2234,13 +2288,15 @@ function Inner(props: {
   // taxonz rows — pivot drill-in is handled by maybeLoadEraBinsForPivot and
   // maybeLoadRecentlyAddedForPivot. keep them in the filter so the generic
   // queryTaxons lazy-loader skips them and doesn't fire a wasted request.
-  const NON_TAXON_KINDS = new Set<string>(["favorites", "era", "recently_added"]);
+  const NON_TAXON_KINDS = new Set<string>(["favorites", "era", "recently_added", "unassigned"]);
 
   // pivot-loader dedup sets for synthesized hubs.
   const eraBinsLoadedByHub = new Set<string>();
   const eraBinsFetchPromises = new Map<string, Promise<void>>();
   const recentlyAddedLoadedByHub = new Set<string>();
   const recentlyAddedFetchPromises = new Map<string, Promise<void>>();
+  const unassignedLoadedByHub = new Set<string>();
+  const unassignedFetchPromises = new Map<string, Promise<void>>();
   // related-artists pivot dedup: keyed by the full artist node id
   // (`artist::{remoteId}::{artistId}`). populated after a successful fetch
   // so subsequent pivots on the same artist don't re-issue the call.
@@ -2317,6 +2373,8 @@ function Inner(props: {
             taxonParentOf.set(edge.child_id, edge.parent_id);
           }
         }
+        // stash for edit-mode mutation handlers (re-parent needs current parent)
+        taxonParentsByHub.set(relHubId, new Map(taxonParentOf));
 
         // color map from full taxon details (color is not in queryTaxons summary)
         const taxonColorById = new Map<string, string>();
@@ -2331,6 +2389,10 @@ function Inner(props: {
         for (const item of taxonsResult.data.items) {
           taxonById.set(item.id, { id: item.id, label: item.label });
         }
+        // stash labels per hub for edit-mode mutation handlers
+        const labelMap = new Map<string, string>();
+        for (const item of taxonsResult.data.items) labelMap.set(item.id, item.label);
+        taxonLabelsByHub.set(relHubId, labelMap);
 
         // populate label-keyed taxon cache for downstream value-pivot lookups
         // (need taxon.id for genre_id filter, taxon.label for include_tags).
@@ -2710,6 +2772,109 @@ function Inner(props: {
       }
     })();
     recentlyAddedFetchPromises.set(relHubId, promise);
+    return promise;
+  };
+
+  // lazy unassigned expansion. triggered on pivot into a
+  // `relation::{remoteId}::unassigned` hub. fetches one page of albums
+  // missing taxon assignments via `client.music.unassignedAlbums(...)`,
+  // appends them to nodesByRemote (so they flow through buildResult
+  // into the normal artist/album taxonomy), and merges direct edges
+  // from the hub to each album. paged via offset = adapted.length so
+  // repeated pivots fetch the next page until exhausted.
+  const unassignedPageByHub = new Map<string, number>();
+  const unassignedExhaustedByHub = new Set<string>();
+  const maybeLoadUnassignedForPivot = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    // accepted triggers: pivot on the unassigned hub OR on the
+    // parent remote (eager seed before the user clicks the hub).
+    let remoteId: string;
+    if (parsed.kind === "relation" && parsed.relationKind === "unassigned") {
+      remoteId = parsed.remoteId;
+    } else if (parsed.kind === "remote") {
+      remoteId = parsed.remoteId;
+    } else {
+      return;
+    }
+    const relHubId = relationHubId(remoteId, "unassigned");
+    // re-pivots can request another page until the server reports
+    // exhaustion; first-pivot dedup is via the in-flight promise map.
+    if (unassignedExhaustedByHub.has(relHubId)) return;
+    const inFlight = unassignedFetchPromises.get(relHubId);
+    if (inFlight) return inFlight;
+    if (offlineByRemote().get(remoteId) === true) return;
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
+    if (!remote) return;
+    const pageSize = 100;
+    const offset = unassignedPageByHub.get(relHubId) ?? 0;
+    const promise = (async () => {
+      setFetchingNodeFlag(relHubId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.music.unassignedAlbums({
+          kind_slug: null,
+          limit: pageSize,
+          offset,
+        });
+        if (!result.success || !result.data) return;
+        const albums = result.data.albums;
+        // mark the hub as loaded on first fetch even if the page is
+        // empty so we don't keep retrying. when the page is short of
+        // pageSize the server has nothing more to give us.
+        if (albums.length < pageSize) {
+          unassignedExhaustedByHub.add(relHubId);
+        }
+        unassignedPageByHub.set(relHubId, offset + albums.length);
+        unassignedLoadedByHub.add(relHubId);
+        if (albums.length === 0) return;
+        const adapted: AlbumNodeData[] = albums.map((item) => adaptQueryAlbumItem(item, remote));
+        appendAlbumsToRemote(remoteId, adapted);
+        const rhId = remoteHubId(remoteId);
+        // child count tracks the total seen so far on this hub.
+        const totalSoFar = offset + albums.length;
+        const addNodes: WalkNode[] = [
+          {
+            id: relHubId,
+            role: "relation",
+            label: "unassigned",
+            parentId: rhId,
+            childCount: totalSoFar,
+            lazy: true,
+          },
+        ];
+        const addEdges: WalkEdge[] = [{ source: rhId, target: relHubId }];
+        const prefix = `${remoteId}::`;
+        const seenArtists = new Set<string>();
+        for (const album of adapted) {
+          const bareAlbumId = album.id.startsWith(prefix)
+            ? album.id.slice(prefix.length)
+            : album.id;
+          addEdges.push({
+            source: relHubId,
+            target: `album::${remoteId}::${bareAlbumId}`,
+          });
+          if (album.artistId && !seenArtists.has(album.artistId)) {
+            seenArtists.add(album.artistId);
+            addEdges.push({
+              source: relHubId,
+              target: `artist::${remoteId}::${album.artistId}`,
+            });
+          }
+        }
+        walkerClient()?.merge(addNodes, addEdges);
+      } catch (err) {
+        console.warn("lazy unassigned-albums fetch failed", { nodeId, err });
+      } finally {
+        setFetchingNodeFlag(relHubId, false);
+        unassignedFetchPromises.delete(relHubId);
+      }
+    })();
+    unassignedFetchPromises.set(relHubId, promise);
     return promise;
   };
 
@@ -3276,6 +3441,622 @@ function Inner(props: {
     return fetchingByRemote().get(parsed.remoteId) === true;
   };
 
+  // ---- edit-mode mutation handlers (phase 4b) -----------------------------
+  // these run when the user drags a node onto another node (handleDrop) or
+  // right-clicks an edge (handleEdgeRightClick) while editing. all routes are
+  // admin-gated server-side; ui only invokes from edit mode + isRemoteAdmin.
+
+  type ParsedId = ReturnType<typeof parseNodeId>;
+  const tryParse = (id: string): ParsedId | null => {
+    try {
+      return parseNodeId(id);
+    } catch {
+      return null;
+    }
+  };
+  const isTaxonId = (p: ParsedId | null): boolean =>
+    !!p && (p.kind === "value" || p.kind === "group");
+
+  // walk parent chain up from `taxonId` within `relHubId`'s parent map.
+  // returns the chain (not including taxonId itself). used for cycle
+  // pre-flight before adding a parent edge.
+  const ancestorsInHub = (relHubId: string, taxonId: string): string[] => {
+    const parents = taxonParentsByHub.get(relHubId);
+    if (!parents) return [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    let cur: string | undefined = parents.get(taxonId);
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      out.push(cur);
+      cur = parents.get(cur);
+    }
+    return out;
+  };
+
+  // resolve a value/group node id to the underlying taxon_id by walking the
+  // hub's items map. taxon items are keyed by slug(label) and carry id+label.
+  const taxonIdForNode = (p: ParsedId): { taxonId: string; relHubId: string } | null => {
+    if (!p || (p.kind !== "value" && p.kind !== "group")) return null;
+    const relHubId = relationHubId(p.remoteId, p.relationKind);
+    const cache = taxonItemsByHub.get(relHubId);
+    if (!cache) return null;
+    const item = cache.get(p.valueSlug);
+    if (!item) return null;
+    return { taxonId: item.id, relHubId };
+  };
+
+  const refreshHub = async (relHubId: string) => {
+    taxonsLoadedByHub.delete(relHubId);
+    await maybeLoadTaxonsForPivot(relHubId);
+  };
+
+  // surface aggregate result of a parallel-fan-out mutation as a toast.
+  // logs every rejected reason for debug; user sees a single tally.
+  const summarizeMutation = (
+    label: string,
+    results: PromiseSettledResult<unknown>[]
+  ): { ok: number; fail: number } => {
+    let ok = 0;
+    let fail = 0;
+    for (const r of results) {
+      if (r.status === "fulfilled") ok += 1;
+      else {
+        fail += 1;
+        console.warn(`[graph] ${label} op failed`, r.reason);
+      }
+    }
+    if (fail === 0 && ok > 0) toast.success(`${label}: ${ok} ok`);
+    else if (ok === 0 && fail > 0) toast.error(`${label}: ${fail} failed`);
+    else if (fail > 0) toast.warning(`${label}: ${ok} ok, ${fail} failed`);
+    return { ok, fail };
+  };
+
+  // collect every album id for an artist that's currently in the graph.
+  const albumIdsForArtist = (remoteId: string, artistId: string): string[] => {
+    const out: string[] = [];
+    const result = buildResult();
+    if (result) {
+      for (const [key, node] of result.nodesById) {
+        if (
+          "title" in node &&
+          (node as AlbumNodeData).artistId === artistId &&
+          (node as AlbumNodeData).sourceRemoteId === remoteId
+        ) {
+          const parsed = tryParse(key);
+          if (parsed?.kind === "album") out.push(parsed.albumId);
+        }
+      }
+    }
+    return out;
+  };
+
+  // drop dispatcher: every source mapped onto target. mixed-kind sources or
+  // cross-remote targets are rejected to keep the matrix tractable.
+  const handleDrop = async (sourceIds: string[], targetId: string) => {
+    if (sourceIds.length === 0) return;
+    const targetParsed = tryParse(targetId);
+    if (!targetParsed) return;
+    const srcParsed = sourceIds.map(tryParse).filter((p): p is ParsedId => !!p);
+    if (srcParsed.length === 0) return;
+    // require same remote across the whole gesture
+    const targetRemote =
+      "remoteId" in targetParsed ? (targetParsed as { remoteId: string }).remoteId : null;
+    if (!targetRemote) return;
+    if (
+      srcParsed.some(
+        (p) => "remoteId" in p && (p as { remoteId: string }).remoteId !== targetRemote
+      )
+    ) {
+      console.warn("[graph] drop: cross-remote not supported");
+      toast.warning("cross-remote bulk drop is not supported");
+      return;
+    }
+    const remote = props.remotes().find((r) => r.remote_id === targetRemote);
+    if (!remote) return;
+    if (!isRemoteAdmin(targetRemote)) return;
+    const client = await getClientForRemote(remote);
+
+    // case A: target is a value/group taxon node
+    if (isTaxonId(targetParsed)) {
+      const tgt = taxonIdForNode(targetParsed);
+      if (!tgt) return;
+      const targetKind = (targetParsed as { relationKind: string }).relationKind;
+
+      // sub-case A1: all sources are taxons in the same kind -> re-parent
+      const allTaxonsSameKind = srcParsed.every(
+        (p) => isTaxonId(p) && (p as { relationKind: string }).relationKind === targetKind
+      );
+      if (allTaxonsSameKind) {
+        const parents = taxonParentsByHub.get(tgt.relHubId);
+        const ops: Promise<unknown>[] = [];
+        for (const p of srcParsed) {
+          const src = taxonIdForNode(p);
+          if (!src) continue;
+          if (src.taxonId === tgt.taxonId) continue; // self
+          // cycle pre-flight: target must not be a descendant of source.
+          // descendant-of-source <=> source appears in target's ancestor chain.
+          // walk target ancestors and skip if src.taxonId in chain (would form cycle).
+          const targetAncestors = ancestorsInHub(tgt.relHubId, tgt.taxonId);
+          if (targetAncestors.includes(src.taxonId)) {
+            console.warn("[graph] drop: would create cycle, skipping", {
+              src: src.taxonId,
+              tgt: tgt.taxonId,
+            });
+            continue;
+          }
+          const existingParent = parents?.get(src.taxonId);
+          if (existingParent === tgt.taxonId) continue; // already parented here
+          if (existingParent) {
+            ops.push(
+              client.music.removeTaxonParent({ child_id: src.taxonId, parent_id: existingParent })
+            );
+          }
+          ops.push(client.music.addTaxonParent({ child_id: src.taxonId, parent_id: tgt.taxonId }));
+        }
+        const results = await Promise.allSettled(ops);
+        summarizeMutation("re-parent", results);
+        await refreshHub(tgt.relHubId);
+        return;
+      }
+
+      // sub-case A2: sources are albums and/or artists -> assign taxon
+      const albumIds = new Set<string>();
+      for (const p of srcParsed) {
+        if (p.kind === "album") albumIds.add(p.albumId);
+        else if (p.kind === "artist") {
+          for (const aid of albumIdsForArtist(targetRemote, p.artistId)) albumIds.add(aid);
+        }
+      }
+      if (albumIds.size === 0) return;
+      const ops: Promise<unknown>[] = [];
+      for (const aid of albumIds) {
+        ops.push(
+          client.music.addAlbumTaxon({ album_id: aid, taxon_id: tgt.taxonId, origin: "manual" })
+        );
+      }
+      const results = await Promise.allSettled(ops);
+      summarizeMutation("assign taxon", results);
+      await refreshHub(tgt.relHubId);
+      return;
+    }
+
+    // case B: target is a relation hub (same kind). sources must be taxons of
+    // that kind. semantics: detach each source from its current parent (make it root).
+    if (targetParsed.kind === "relation") {
+      const relHubId = relationHubId(targetRemote, targetParsed.relationKind);
+      const parents = taxonParentsByHub.get(relHubId);
+      if (!parents) return;
+      const ops: Promise<unknown>[] = [];
+      for (const p of srcParsed) {
+        if (
+          !isTaxonId(p) ||
+          (p as { relationKind: string }).relationKind !== targetParsed.relationKind
+        )
+          continue;
+        const src = taxonIdForNode(p);
+        if (!src) continue;
+        const existingParent = parents.get(src.taxonId);
+        if (!existingParent) continue;
+        ops.push(
+          client.music.removeTaxonParent({ child_id: src.taxonId, parent_id: existingParent })
+        );
+      }
+      const results = await Promise.allSettled(ops);
+      summarizeMutation("detach taxon", results);
+      await refreshHub(relHubId);
+      return;
+    }
+  };
+
+  // right-click on an edge in edit mode: prompt to remove the relationship.
+  const handleEdgeRightClick = async (srcId: string, tgtId: string) => {
+    const srcParsed = tryParse(srcId);
+    const tgtParsed = tryParse(tgtId);
+    if (!srcParsed || !tgtParsed) return;
+    const remoteId =
+      "remoteId" in srcParsed
+        ? (srcParsed as { remoteId: string }).remoteId
+        : "remoteId" in tgtParsed
+          ? (tgtParsed as { remoteId: string }).remoteId
+          : null;
+    if (!remoteId || !isRemoteAdmin(remoteId)) return;
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
+    if (!remote) return;
+
+    // taxon parent edge: src=parent (group), tgt=child (value/group), same kind
+    if (
+      isTaxonId(srcParsed) &&
+      isTaxonId(tgtParsed) &&
+      (srcParsed as { relationKind: string }).relationKind ===
+        (tgtParsed as { relationKind: string }).relationKind
+    ) {
+      const parent = taxonIdForNode(srcParsed);
+      const child = taxonIdForNode(tgtParsed);
+      if (!parent || !child) return;
+      const parents = taxonParentsByHub.get(parent.relHubId);
+      if (parents?.get(child.taxonId) !== parent.taxonId) return;
+      if (!window.confirm("remove this parent link?")) return;
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.removeTaxonParent({
+        child_id: child.taxonId,
+        parent_id: parent.taxonId,
+      });
+      if (!resp.success) {
+        console.warn("[graph] remove parent edge failed", resp);
+        toast.error("failed to remove parent link");
+      } else {
+        toast.success("parent link removed");
+      }
+      await refreshHub(parent.relHubId);
+      return;
+    }
+
+    // album <-> value taxon link: src=value, tgt=album (or vice versa)
+    const valueP = isTaxonId(srcParsed) ? srcParsed : isTaxonId(tgtParsed) ? tgtParsed : null;
+    const albumP =
+      srcParsed.kind === "album" ? srcParsed : tgtParsed.kind === "album" ? tgtParsed : null;
+    if (valueP && albumP && (valueP.kind === "value" || valueP.kind === "group")) {
+      const t = taxonIdForNode(valueP);
+      if (!t) return;
+      if (!window.confirm("remove this album-taxon link?")) return;
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.removeAlbumTaxon({
+        album_id: albumP.albumId,
+        taxon_id: t.taxonId,
+      });
+      if (!resp.success) {
+        console.warn("[graph] remove album-taxon link failed", resp);
+        toast.error("failed to remove album link");
+      } else {
+        toast.success("album link removed");
+      }
+      await refreshHub(t.relHubId);
+      return;
+    }
+  };
+
+  // create a new taxon in the currently-pivoted relation hub (or under the
+  // currently-selected taxon if one is selected). called from the detail
+  // popover "add taxon" button.
+  const handleCreateTaxon = async (label: string) => {
+    const info = selectedTaxonInfo();
+    if (!info) return;
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+    if (!remote) return;
+    if (!isRemoteAdmin(info.remoteId)) return;
+    // resolve kind_slug from the relation hub id
+    const parsedHub = tryParse(info.relHubId);
+    if (!parsedHub || parsedHub.kind !== "relation") return;
+    const client = await getClientForRemote(remote);
+    const created = await client.music.createTaxon({
+      kind_slug: parsedHub.relationKind,
+      label: trimmed,
+    });
+    if (!created.success || !created.data) {
+      console.warn("[graph] create taxon failed", created);
+      toast.error("failed to create taxon");
+      return;
+    }
+    toast.success(`taxon '${trimmed}' created`);
+    // if the user was sitting on a value/group node, also parent the new taxon under it
+    if (info.taxonId) {
+      const parented = await client.music.addTaxonParent({
+        child_id: created.data.id,
+        parent_id: info.taxonId,
+      });
+      if (!parented.success) console.warn("[graph] parent new taxon failed", parented);
+    }
+    await refreshHub(info.relHubId);
+  };
+
+  // soft-delete the currently-selected taxon. exits edit mode + clears selection.
+  const handleDeleteTaxon = async () => {
+    const info = selectedTaxonInfo();
+    if (!info?.taxonId) return;
+    const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+    if (!remote) return;
+    if (!isRemoteAdmin(info.remoteId)) return;
+    const client = await getClientForRemote(remote);
+    const resp = await client.music.deleteTaxon({ id: info.taxonId });
+    if (!resp.success) {
+      console.warn("[graph] delete taxon failed", resp);
+      toast.error("failed to delete taxon");
+      return;
+    }
+    toast.success("taxon deleted");
+    setEditMode(false);
+    setMultiSelection(new Set<string>());
+    setSelectedId(null);
+    await refreshHub(info.relHubId);
+  };
+
+  // ---- bulk (multi-selection) actions (phase 4c) --------------------------
+  // shown via BulkSelectionPopover when multiSelection has 2+ nodes in edit
+  // mode. fan out the same per-item mutations used by drag-drop.
+
+  // classify the multi-selection into one of three buckets.
+  const bulkParsedSelection = createMemo(() => {
+    const out: ParsedId[] = [];
+    for (const id of multiSelection()) {
+      const p = tryParse(id);
+      if (p) out.push(p);
+    }
+    return out;
+  });
+
+  const bulkCounts = createMemo(() => {
+    const c = { taxons: 0, albums: 0, artists: 0 };
+    for (const p of bulkParsedSelection()) {
+      if (p.kind === "value" || p.kind === "group") c.taxons += 1;
+      else if (p.kind === "album") c.albums += 1;
+      else if (p.kind === "artist") c.artists += 1;
+    }
+    return c;
+  });
+
+  const bulkMode = createMemo<BulkMode>(() => {
+    const c = bulkCounts();
+    if (c.taxons > 0 && c.albums === 0 && c.artists === 0) return "taxons";
+    if (c.taxons === 0 && (c.albums > 0 || c.artists > 0)) return "media";
+    return "mixed";
+  });
+
+  // single shared remote across the selection (else null). every mutation
+  // route is admin-gated per remote, so we refuse cross-remote bulk ops.
+  const bulkRemoteId = createMemo<string | null>(() => {
+    let remote: string | null = null;
+    for (const p of bulkParsedSelection()) {
+      if (!("remoteId" in p)) continue;
+      const rid = (p as { remoteId: string }).remoteId;
+      if (remote === null) remote = rid;
+      else if (remote !== rid) return null;
+    }
+    return remote;
+  });
+
+  // single shared kind across the taxon selection (only meaningful for
+  // "taxons" mode). when null, re-parent picker is disabled.
+  const bulkKindSlug = createMemo<string | null>(() => {
+    let kind: string | null = null;
+    for (const p of bulkParsedSelection()) {
+      if (p.kind !== "value" && p.kind !== "group") continue;
+      const k = (p as { relationKind: string }).relationKind;
+      if (kind === null) kind = k;
+      else if (kind !== k) return null;
+    }
+    return kind;
+  });
+
+  const bulkRelHubId = createMemo<string | null>(() => {
+    const rid = bulkRemoteId();
+    const kind = bulkKindSlug();
+    if (!rid || !kind) return null;
+    return relationHubId(rid, kind);
+  });
+
+  // children index per hub, derived from taxonParentsByHub.
+  const childrenForHub = (relHubId: string): Map<string, Set<string>> => {
+    const out = new Map<string, Set<string>>();
+    const parents = taxonParentsByHub.get(relHubId);
+    if (!parents) return out;
+    for (const [child, parent] of parents) {
+      if (!out.has(parent)) out.set(parent, new Set());
+      out.get(parent)!.add(child);
+    }
+    return out;
+  };
+
+  // every selected taxon id (resolved via taxonItemsByHub cache).
+  const bulkSelectedTaxonIds = createMemo<Set<string>>(() => {
+    const out = new Set<string>();
+    for (const p of bulkParsedSelection()) {
+      if (p.kind !== "value" && p.kind !== "group") continue;
+      const t = taxonIdForNode(p);
+      if (t) out.add(t.taxonId);
+    }
+    return out;
+  });
+
+  // true when every selected taxon has at least one child (i.e. is a group).
+  const bulkAllGroups = createMemo<boolean>(() => {
+    const hub = bulkRelHubId();
+    const ids = bulkSelectedTaxonIds();
+    if (!hub || ids.size === 0) return false;
+    const children = childrenForHub(hub);
+    for (const id of ids) {
+      if (!children.has(id) || children.get(id)!.size === 0) return false;
+    }
+    return true;
+  });
+
+  // candidate parents in the kind: every taxon except the selection itself
+  // and its descendants (would create a cycle).
+  const bulkCandidateParents = createMemo<BulkCandidateParent[]>(() => {
+    const hub = bulkRelHubId();
+    if (!hub) return [];
+    const cache = taxonItemsByHub.get(hub);
+    if (!cache) return [];
+    const selected = bulkSelectedTaxonIds();
+    const children = childrenForHub(hub);
+    // collect every descendant of the selection (bfs)
+    const banned = new Set<string>(selected);
+    const queue: string[] = [...selected];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const kids = children.get(cur);
+      if (!kids) continue;
+      for (const k of kids) {
+        if (!banned.has(k)) {
+          banned.add(k);
+          queue.push(k);
+        }
+      }
+    }
+    const out: BulkCandidateParent[] = [];
+    for (const item of cache.values()) {
+      if (banned.has(item.id)) continue;
+      out.push({ id: item.id, label: item.label });
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  });
+
+  // flatten every loaded hub's taxon cache so media-mode typeahead can
+  // assign across any kind we've already pivoted into. cross-remote filtered
+  // to the bulk remote so we only assign within the selection's remote.
+  const bulkAvailableTaxons = createMemo<BulkAvailableTaxon[]>(() => {
+    const rid = bulkRemoteId();
+    if (!rid) return [];
+    const out: BulkAvailableTaxon[] = [];
+    for (const [hubId, cache] of taxonItemsByHub) {
+      const hubParsed = tryParse(hubId);
+      if (!hubParsed || hubParsed.kind !== "relation") continue;
+      if (hubParsed.remoteId !== rid) continue;
+      const kindMeta = taxonKindMetaByHub.get(hubId);
+      const kindLabel = kindMeta?.label ?? hubParsed.relationKind;
+      const kindColor = kindMeta?.color ?? null;
+      for (const item of cache.values()) {
+        out.push({ id: item.id, label: item.label, kindLabel, kindColor });
+      }
+    }
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  });
+
+  const bulkCanEdit = createMemo<boolean>(() => {
+    const rid = bulkRemoteId();
+    return !!rid && isRemoteAdmin(rid);
+  });
+
+  // re-parent every selected taxon under `parentTaxonId` (or null = root).
+  // removes any existing same-kind parent edge first to keep each child
+  // single-parented within the kind.
+  const handleBulkReparent = async (parentTaxonId: string | null) => {
+    const hub = bulkRelHubId();
+    const rid = bulkRemoteId();
+    if (!hub || !rid) return;
+    if (!isRemoteAdmin(rid)) return;
+    const remote = props.remotes().find((r) => r.remote_id === rid);
+    if (!remote) return;
+    const parents = taxonParentsByHub.get(hub);
+    const client = await getClientForRemote(remote);
+    const ops: Promise<unknown>[] = [];
+    // cycle pre-flight: when targeting a real parent, refuse children-of-self.
+    const children = childrenForHub(hub);
+    const descendantsOfTarget = new Set<string>();
+    if (parentTaxonId) {
+      const queue = [parentTaxonId];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        const kids = children.get(cur);
+        if (!kids) continue;
+        for (const k of kids) {
+          if (!descendantsOfTarget.has(k)) {
+            descendantsOfTarget.add(k);
+            queue.push(k);
+          }
+        }
+      }
+    }
+    for (const taxonId of bulkSelectedTaxonIds()) {
+      if (taxonId === parentTaxonId) continue;
+      if (parentTaxonId && descendantsOfTarget.has(taxonId)) continue;
+      const existing = parents?.get(taxonId);
+      if (existing === parentTaxonId) continue;
+      if (existing) {
+        ops.push(client.music.removeTaxonParent({ child_id: taxonId, parent_id: existing }));
+      }
+      if (parentTaxonId) {
+        ops.push(client.music.addTaxonParent({ child_id: taxonId, parent_id: parentTaxonId }));
+      }
+    }
+    const results = await Promise.allSettled(ops);
+    summarizeMutation("bulk re-parent", results);
+    await refreshHub(hub);
+  };
+
+  // set color on every selected taxon (groups-only — gated by allGroups in ui).
+  const handleBulkSetColor = async (color: string | null) => {
+    const rid = bulkRemoteId();
+    if (!rid) return;
+    if (!isRemoteAdmin(rid)) return;
+    const remote = props.remotes().find((r) => r.remote_id === rid);
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    const ops: Promise<unknown>[] = [];
+    for (const taxonId of bulkSelectedTaxonIds()) {
+      ops.push(client.music.set_taxon_color({ taxon_id: taxonId, color }));
+    }
+    const results = await Promise.allSettled(ops);
+    summarizeMutation("bulk set color", results);
+    const hub = bulkRelHubId();
+    if (hub) await refreshHub(hub);
+  };
+
+  // soft-delete every selected taxon.
+  const handleBulkDeleteTaxons = async () => {
+    const rid = bulkRemoteId();
+    if (!rid) return;
+    if (!isRemoteAdmin(rid)) return;
+    const remote = props.remotes().find((r) => r.remote_id === rid);
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    const ops: Promise<unknown>[] = [];
+    for (const taxonId of bulkSelectedTaxonIds()) {
+      ops.push(client.music.deleteTaxon({ id: taxonId }));
+    }
+    const results = await Promise.allSettled(ops);
+    summarizeMutation("bulk delete", results);
+    const hub = bulkRelHubId();
+    setMultiSelection(new Set<string>());
+    setSelectedId(null);
+    if (hub) await refreshHub(hub);
+  };
+
+  // assign a taxon to every selected album, fanning out across selected
+  // artists' albums on the same remote.
+  const handleBulkAssignTaxon = async (taxonId: string) => {
+    const rid = bulkRemoteId();
+    if (!rid) return;
+    if (!isRemoteAdmin(rid)) return;
+    const remote = props.remotes().find((r) => r.remote_id === rid);
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    const albumIds = new Set<string>();
+    for (const p of bulkParsedSelection()) {
+      if (p.kind === "album") albumIds.add(p.albumId);
+      else if (p.kind === "artist") {
+        for (const aid of albumIdsForArtist(rid, p.artistId)) albumIds.add(aid);
+      }
+    }
+    if (albumIds.size === 0) return;
+    const ops: Promise<unknown>[] = [];
+    for (const aid of albumIds) {
+      ops.push(client.music.addAlbumTaxon({ album_id: aid, taxon_id: taxonId, origin: "manual" }));
+    }
+    const results = await Promise.allSettled(ops);
+    summarizeMutation("bulk assign", results);
+    // best-effort refresh: refresh the hub that owns this taxon if cached
+    for (const [hubId, cache] of taxonItemsByHub) {
+      let found = false;
+      for (const item of cache.values()) {
+        if (item.id === taxonId) {
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        await refreshHub(hubId);
+        break;
+      }
+    }
+  };
+
+  const bulkActive = createMemo<boolean>(() => editMode() && multiSelection().size >= 2);
+
   return (
     <div class="h-full flex flex-col">
       <For each={onlineRemotes()}>
@@ -3316,13 +4097,28 @@ function Inner(props: {
           interceptClick={interceptClick}
           editMode={editMode}
           multiSelection={multiSelection}
-          onMultiSelectionChange={(ids) => setMultiSelection(new Set(ids))}
+          onMultiSelectionChange={(ids) => setMultiSelection(ids)}
+          onDrop={(sourceIds, targetId) => {
+            void handleDrop([...sourceIds], targetId);
+          }}
+          onEdgeRightClick={(srcId, tgtId) => {
+            void handleEdgeRightClick(srcId, tgtId);
+          }}
         />
 
         {/* edit-mode badge */}
         <Show when={editMode()}>
+          {/* subtle pink edge-glow overlay so it's unambiguous the canvas is in edit mode */}
+          <div
+            class="absolute inset-0 pointer-events-none z-[5]"
+            style={{
+              "box-shadow": "inset 0 0 24px 4px rgba(244,114,182,0.18)",
+              "border-radius": "0",
+            }}
+          />
           <div class="absolute top-3 right-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-pink-500/40 bg-[rgba(50,0,25,0.85)] backdrop-blur-sm text-[11px] text-pink-300 pointer-events-auto select-none">
             <span>editing hierarchy</span>
+            <span class="text-pink-300/50 text-[10px]">(esc · del · e)</span>
             <button
               type="button"
               aria-label="exit edit mode"
@@ -3565,8 +4361,43 @@ function Inner(props: {
           </button>
         </Show>
 
+        {/* bulk-selection popover — shown in edit mode when multi-select has 2+ */}
+        <Show when={bulkActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(320px,calc(100%-1.5rem))] pointer-events-auto">
+            <BulkSelectionPopover
+              mode={bulkMode}
+              counts={bulkCounts}
+              allGroups={bulkAllGroups}
+              kindLabel={() => {
+                const hub = bulkRelHubId();
+                return hub ? taxonKindMetaByHub.get(hub)?.label : undefined;
+              }}
+              kindColor={() => {
+                const hub = bulkRelHubId();
+                return hub ? (taxonKindMetaByHub.get(hub)?.color ?? undefined) : undefined;
+              }}
+              candidateParents={bulkCandidateParents}
+              availableTaxons={bulkAvailableTaxons}
+              canEdit={bulkCanEdit}
+              onReparentTo={(pid) => {
+                void handleBulkReparent(pid);
+              }}
+              onSetColor={(c) => {
+                void handleBulkSetColor(c);
+              }}
+              onDeleteTaxons={() => {
+                void handleBulkDeleteTaxons();
+              }}
+              onAssignTaxon={(tid) => {
+                void handleBulkAssignTaxon(tid);
+              }}
+              onClose={() => setMultiSelection(new Set<string>())}
+            />
+          </div>
+        </Show>
+
         {/* taxon detail popover — shown when a value or group node is selected */}
-        <Show when={selectedTaxonInfo() !== null && !taxonPanelHidden()}>
+        <Show when={selectedTaxonInfo() !== null && !taxonPanelHidden() && !bulkActive()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -3598,6 +4429,12 @@ function Inner(props: {
               onClose={() => setSelectedId(null)}
               isGroup={() => (selectedTaxonData()?.descendants?.length ?? 0) > 0}
               editMode={editMode}
+              onCreateTaxon={(label) => {
+                void handleCreateTaxon(label);
+              }}
+              onDeleteTaxon={() => {
+                void handleDeleteTaxon();
+              }}
               onSetColor={(color) => {
                 const info = selectedTaxonInfo();
                 if (!info?.taxonId) return;
@@ -3619,7 +4456,7 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedTaxonInfo() !== null && taxonPanelHidden()}>
+        <Show when={selectedTaxonInfo() !== null && taxonPanelHidden() && !bulkActive()}>
           <button
             type="button"
             onClick={() => setTaxonPanelHidden(false)}

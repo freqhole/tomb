@@ -236,6 +236,100 @@ pub async fn list_albums_in_era_bin(
     GrimoireResponse::success("albums in era bin retrieved", albums)
 }
 
+/// list (non-deleted) albums that have no album_taxonz row pointing
+/// at a non-deleted taxon (i.e. fully untagged). when `kind_slug` is
+/// Some, restrict the "missing" check to taxons of that kind only.
+/// used by the graph view's synthesized "unassigned" first-order hub
+/// (phase 24).
+pub async fn list_unassigned_albums(
+    kind_slug: Option<&str>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    user_id: Option<&str>,
+) -> GrimoireResponse<Vec<AlbumQueryResult>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let limit = limit.unwrap_or(100).min(500) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+
+    // two sql variants so we keep compile-time check via query_as.
+    let rows: Vec<AlbumViewRow> = if let Some(slug) = kind_slug {
+        let sql = r#"SELECT v.*
+            FROM album_query_view v
+            WHERE v.album_deleted_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM album_taxonz at
+                JOIN taxonz t ON t.id = at.taxon_id
+                JOIN taxon_kindz k ON k.id = t.kind_id
+                WHERE at.album_id = v.album_id
+                  AND t.deleted_at IS NULL
+                  AND k.slug = ?1
+              )
+            ORDER BY v.album_created_at DESC
+            LIMIT ?2 OFFSET ?3"#;
+        match sqlx::query_as::<_, AlbumViewRow>(sql)
+            .bind(slug)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to list unassigned albums",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        }
+    } else {
+        let sql = r#"SELECT v.*
+            FROM album_query_view v
+            WHERE v.album_deleted_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM album_taxonz at
+                JOIN taxonz t ON t.id = at.taxon_id
+                WHERE at.album_id = v.album_id
+                  AND t.deleted_at IS NULL
+              )
+            ORDER BY v.album_created_at DESC
+            LIMIT ?1 OFFSET ?2"#;
+        match sqlx::query_as::<_, AlbumViewRow>(sql)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&pool)
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to list unassigned albums",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        }
+    };
+
+    let mut albums: Vec<AlbumQueryResult> = rows
+        .into_iter()
+        .map(|r| r.to_album_query_result(user_id))
+        .collect();
+
+    if let Some(uid) = user_id {
+        apply_user_preferences_albums(&mut albums, uid).await;
+    }
+
+    GrimoireResponse::success("unassigned albums retrieved", albums)
+}
+
 /// one synthesized era bin — used by the graph view's first-order
 /// "era" hub fan-out (phase 22). bins are computed server-side from
 /// `release_date`-derived years using a greedy hysteresis pass so

@@ -9,19 +9,19 @@ use crate::error::ErrorDetail;
 use crate::music::entities::taxonomy::{
     add_album_taxon as r_add_album_taxon, add_taxon_parent as r_add_taxon_parent,
     create_taxon as r_create_taxon, create_taxon_kind as r_create_taxon_kind,
-    get_album_taxon_links as r_get_album_taxon_links, get_taxon as r_get_taxon,
-    get_taxon_ancestors as r_get_taxon_ancestors, get_taxon_descendants as r_get_taxon_descendants,
-    list_taxon_kinds as r_list_taxon_kinds,
+    delete_taxon as r_delete_taxon, get_album_taxon_links as r_get_album_taxon_links,
+    get_taxon as r_get_taxon, get_taxon_ancestors as r_get_taxon_ancestors,
+    get_taxon_descendants as r_get_taxon_descendants, list_taxon_kinds as r_list_taxon_kinds,
     list_taxon_parents_for_kind as r_list_taxon_parents_for_kind,
     list_taxons_by_kind as r_list_taxons_by_kind,
     query_albums_by_scalar_range as r_query_albums_by_scalar_range, query_taxons as r_query_taxons,
     remove_album_taxon as r_remove_album_taxon, remove_taxon_parent as r_remove_taxon_parent,
     set_album_taxons as r_set_album_taxons, set_scalar_attribute as r_set_scalar_attribute,
     set_taxon_color as r_set_taxon_color, AddAlbumTaxonRequest, AddTaxonParentRequest,
-    CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
-    ListTaxonParentsForKindRequest, ListTaxonsByKindRequest, QueryScalarRangeRequest,
-    QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, SetAlbumTaxonsRequest,
-    SetScalarAttributeRequest, SetTaxonColorRequest,
+    CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
+    GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
+    QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest,
+    SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -93,6 +93,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "SetTaxonColorRequest",
         response_type: "Taxon",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "delete_taxon",
+        path: "/api/taxonomy/taxons/delete",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "DeleteTaxonRequest",
+        response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     // ---- parents (DAG edges) ----
@@ -363,4 +372,12 @@ pub async fn list_parents_for_kind(
         Err(e) => return bad_req(e),
     };
     to_json(r_list_taxon_parents_for_kind(req).await)
+}
+
+pub async fn delete_taxon(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: DeleteTaxonRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_req(e),
+    };
+    to_json(r_delete_taxon(&req.id, Some(caller.user_id.clone())).await)
 }

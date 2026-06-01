@@ -21,7 +21,7 @@ use crate::music::entities::artists::Artist;
 use crate::music::entities::relations::{
     find_albums_by_merged_key, find_artists_by_merged_key, get_album_taxons_batch,
     list_albums_by_taxon_value, list_albums_in_era_bin, list_era_bins, list_recently_added_albums,
-    EraBin,
+    list_unassigned_albums, EraBin,
 };
 use crate::music::entities::taxonomy::TaxonRef;
 use crate::offal::caller::Caller;
@@ -86,6 +86,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "EraAlbumsRequest",
         response_type: "EraAlbumsResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "unassigned_albums",
+        path: "/api/music/relations/unassigned-albums",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "UnassignedAlbumsRequest",
+        response_type: "UnassignedAlbumsResponse",
         auth: RouteAuth::Authenticated,
     },
 ];
@@ -563,5 +572,65 @@ pub async fn era_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
             count,
         })
         .unwrap()
+    })
+}
+
+/// unassigned-albums request — fan out the synthesized "unassigned"
+/// hub to its member albums.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UnassignedAlbumsRequest {
+    /// when Some, only consider albums missing taxons of this kind;
+    /// when None or empty, only consider albums missing taxons of any
+    /// kind (fully untagged).
+    pub kind_slug: Option<String>,
+    /// page size; default 100, capped server-side at 500.
+    pub limit: Option<u32>,
+    /// optional offset for paging.
+    pub offset: Option<u32>,
+}
+
+/// unassigned-albums response — same enriched album shape as
+/// [`AlbumsByValueResponse::albums`].
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UnassignedAlbumsResponse {
+    pub albums: Vec<AlbumQueryResult>,
+    pub count: u32,
+}
+
+/// path: POST /api/music/relations/unassigned-albums
+pub async fn unassigned_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UnassignedAlbumsRequest = if body.is_null() {
+        UnassignedAlbumsRequest {
+            kind_slug: None,
+            limit: None,
+            offset: None,
+        }
+    } else {
+        match serde_json::from_value(body) {
+            Ok(r) => r,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "bad request",
+                    vec![ErrorDetail::new(
+                        "bad_request",
+                        "bad request",
+                        &e.to_string(),
+                    )],
+                )
+            }
+        }
+    };
+
+    let kind = req
+        .kind_slug
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    let resp =
+        list_unassigned_albums(kind, req.limit, req.offset, Some(caller.user_id.as_str())).await;
+    resp.map(|albums| {
+        let count = albums.len() as u32;
+        serde_json::to_value(UnassignedAlbumsResponse { albums, count }).unwrap()
     })
 }

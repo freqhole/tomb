@@ -26,6 +26,10 @@ export interface TaxonDetailPopoverProps {
   editMode: Accessor<boolean>;
   /** called when the user picks a color swatch or clears the color. */
   onSetColor: (color: string | null) => void;
+  /** create a new taxon (prompts for label). only invoked in edit mode. */
+  onCreateTaxon?: (label: string) => void;
+  /** soft-delete the current taxon. only invoked when a taxon is selected. */
+  onDeleteTaxon?: () => void;
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -187,6 +191,34 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
                 clear
               </button>
             </div>
+          </Show>
+
+          {/* edit-mode create / delete buttons (admin only) */}
+          <Show when={props.canEdit() && props.editMode() && props.onCreateTaxon}>
+            <button
+              type="button"
+              class="mt-1 w-full py-1.5 px-3 rounded text-xs font-medium border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 hover:text-emerald-100 transition-colors cursor-pointer text-left"
+              onClick={(e) => {
+                e.stopPropagation();
+                const label = window.prompt("label for new taxon:");
+                if (label && label.trim().length > 0) props.onCreateTaxon?.(label.trim());
+              }}
+            >
+              + add taxon{!isHubMode() ? " under this one" : ""}
+            </button>
+          </Show>
+          <Show when={props.canEdit() && props.editMode() && !isHubMode() && props.onDeleteTaxon}>
+            <button
+              type="button"
+              class="mt-1 w-full py-1.5 px-3 rounded text-xs font-medium border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-200 hover:text-red-100 transition-colors cursor-pointer text-left"
+              onClick={(e) => {
+                e.stopPropagation();
+                const label = props.taxon()?.label ?? "this taxon";
+                if (window.confirm(`soft-delete taxon '${label}'?`)) props.onDeleteTaxon?.();
+              }}
+            >
+              soft-delete taxon
+            </button>
           </Show>
         </div>
       </div>

@@ -187,11 +187,12 @@ pub mod type_registry {
     };
     use crate::music::entities::taxonomy::{
         AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
-        CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
-        ListTaxonParentsForKindRequest, ListTaxonsByKindRequest, QueryScalarRangeRequest,
-        QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
-        SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest, Taxon, TaxonKind,
-        TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
+        CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
+        GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
+        QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest,
+        RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
+        SetScalarAttributeRequest, SetTaxonColorRequest, Taxon, TaxonKind, TaxonParentEdge,
+        TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
@@ -307,6 +308,7 @@ pub mod type_registry {
         EntityTaxonsBatchResponse, EntityTaxonsEntry, EraAlbumsRequest, EraAlbumsResponse,
         EraBinsRequest, EraBinsResponse, FindByMergedKeyRequest, FindByMergedKeyResponse,
         MergedKeyMatch, RecentlyAddedAlbumsRequest, RecentlyAddedAlbumsResponse,
+        UnassignedAlbumsRequest, UnassignedAlbumsResponse,
     };
 
     // radio public types
@@ -503,6 +505,12 @@ pub mod type_registry {
         registered.insert("EraAlbumsRequest".to_string());
         gen.add_schema::<EraAlbumsResponse>("EraAlbumsResponse");
         registered.insert("EraAlbumsResponse".to_string());
+
+        // phase 24: unassigned-albums hub
+        gen.add_schema::<UnassignedAlbumsRequest>("UnassignedAlbumsRequest");
+        registered.insert("UnassignedAlbumsRequest".to_string());
+        gen.add_schema::<UnassignedAlbumsResponse>("UnassignedAlbumsResponse");
+        registered.insert("UnassignedAlbumsResponse".to_string());
 
         gen.add_schema::<UpdateAlbumRequest>("UpdateAlbumRequest");
         registered.insert("UpdateAlbumRequest".to_string());
@@ -973,6 +981,8 @@ pub mod type_registry {
         registered.insert("CreateTaxonRequest".to_string());
         gen.add_schema::<GetTaxonRequest>("GetTaxonRequest");
         registered.insert("GetTaxonRequest".to_string());
+        gen.add_schema::<DeleteTaxonRequest>("DeleteTaxonRequest");
+        registered.insert("DeleteTaxonRequest".to_string());
         gen.add_schema::<ListTaxonsByKindRequest>("ListTaxonsByKindRequest");
         registered.insert("ListTaxonsByKindRequest".to_string());
         gen.add_schema::<GetAlbumTaxonLinksRequest>("GetAlbumTaxonLinksRequest");

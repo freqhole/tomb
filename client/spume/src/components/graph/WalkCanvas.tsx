@@ -73,6 +73,10 @@ export interface WalkCanvasProps {
   multiSelection?: Accessor<Set<string>>;
   /** fires whenever the multi-selection changes (lasso close or modifier click). */
   onMultiSelectionChange?: (ids: Set<string>) => void;
+  /** fires when a drag-drop completes in edit mode over a valid target node. */
+  onDrop?: (sourceIds: Set<string>, targetId: string) => void;
+  /** fires on right-click over a canvas edge. */
+  onEdgeRightClick?: (srcId: string, tgtId: string) => void;
 }
 
 // ---- colors ----------------------------------------------------------------
@@ -572,6 +576,16 @@ function drawNode(
     ctx.globalAlpha = 0.35;
   }
 
+  // newly-created taxons (no children, no albums yet) render dimmed
+  // until they gain at least one link, so authors can tell at a glance
+  // which nodes are placeholders waiting for content.
+  const isPlaceholderTaxon =
+    !isOffline && (n.role === "value" || n.role === "group") && n.childCount === 0;
+  if (isPlaceholderTaxon) {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+  }
+
   const color = nodeFillColor(n);
   // remote hubs replace their flat fill with a deterministic 3-color
   // gradient (magenta -> purple -> orange) when no avatar image is
@@ -694,6 +708,9 @@ function drawNode(
   }
 
   if (isOffline) {
+    ctx.restore();
+  }
+  if (isPlaceholderTaxon) {
     ctx.restore();
   }
 }
@@ -957,11 +974,22 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   // lasso trail points in css screen coords; mutable ref to avoid creating a
   // new array on every pointermove event (draw loop reads it directly).
   let lassoPoints: { x: number; y: number }[] = [];
+  // node id that was hit on pointer-down in edit mode; used to seed drag-drop.
+  let dragSourceId: string | null = null;
+  // active drag state: set once the pointer moves past the threshold in edit mode.
+  let dragState: {
+    sourceIds: Set<string>;
+    curSx: number;
+    curSy: number;
+    targetId: string | null;
+  } | null = null;
   // clear lasso trail whenever edit mode is turned off
   createEffect(() => {
     if (!props.editMode?.()) {
       lassoPoints = [];
       setLassoState(null);
+      dragState = null;
+      dragSourceId = null;
     }
   });
 
@@ -1571,6 +1599,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       if (e.key !== "Escape" || !props.editMode?.()) return;
       lassoPoints = [];
       setLassoState(null);
+      dragState = null;
+      dragSourceId = null;
     };
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
@@ -1632,6 +1662,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         startSy: sy,
         startedOnNode: hitId !== null,
       });
+      dragSourceId = hitId;
       return;
     }
 
@@ -1671,7 +1702,36 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     // lasso accumulation: edit mode drag on empty canvas
     const ls = lassoState();
     if (ls && e.pointerId === ls.pointerId) {
-      if (!ls.startedOnNode) {
+      if (ls.startedOnNode) {
+        // drag-drop: detect threshold, then track cursor and async hit-test target
+        const dx = sx - ls.startSx;
+        const dy = sy - ls.startSy;
+        if (Math.hypot(dx, dy) > 7) {
+          if (!dragState && dragSourceId) {
+            const multi = props.multiSelection?.();
+            const sources = new Set<string>();
+            if (multi && multi.size > 0) {
+              for (const id of multi) sources.add(id);
+            } else {
+              sources.add(dragSourceId);
+            }
+            dragState = { sourceIds: sources, curSx: sx, curSy: sy, targetId: null };
+          } else if (dragState) {
+            dragState.curSx = sx;
+            dragState.curSy = sy;
+            const v = view();
+            const wx = (sx - v.tx) / v.k;
+            const wy = (sy - v.ty) / v.k;
+            client.hitTest(wx, wy, v.k).then((id) => {
+              if (dragState && id && !dragState.sourceIds.has(id)) {
+                dragState.targetId = id;
+              } else if (dragState) {
+                dragState.targetId = null;
+              }
+            });
+          }
+        }
+      } else {
         const dx = sx - ls.startSx;
         const dy = sy - ls.startSy;
         if (Math.hypot(dx, dy) > PAN_THRESHOLD) {
@@ -1723,6 +1783,14 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       const points = [...lassoPoints];
       lassoPoints = [];
       setLassoState(null);
+      // dispatch drag-drop if a drag was in progress
+      if (dragState) {
+        const ds = dragState;
+        dragState = null;
+        dragSourceId = null;
+        if (ds.targetId) props.onDrop?.(ds.sourceIds, ds.targetId);
+        return;
+      }
       if (!ls.startedOnNode && points.length >= 3 && distMoved >= 5) {
         // lasso closed: hit-test all nodes against the polygon
         props.onMultiSelectionChange?.(computeLassoSelection(points));
@@ -1807,6 +1875,42 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     setHoveredId(null);
   }
 
+  // right-click in edit mode: find the nearest edge under the cursor
+  // (within 8px in screen space) and emit onEdgeRightClick so the host
+  // can prompt for removal. native browser context menu always blocked
+  // over the canvas to keep the gesture available.
+  function onContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    if (!props.editMode?.()) return;
+    const [sx, sy] = clientToCanvas(e);
+    const v = view();
+    const tol = 8;
+    let bestDist = tol;
+    let bestEdge: { src: string; tgt: string } | null = null;
+    for (const ed of edges) {
+      const a = nodes[ed.sourceIdx];
+      const b = nodes[ed.targetIdx];
+      if (!a || !b) continue;
+      const ax = positions[ed.sourceIdx * 2] * v.k + v.tx;
+      const ay = positions[ed.sourceIdx * 2 + 1] * v.k + v.ty;
+      const bx = positions[ed.targetIdx * 2] * v.k + v.tx;
+      const by = positions[ed.targetIdx * 2 + 1] * v.k + v.ty;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      if (len2 === 0) continue;
+      const t = Math.max(0, Math.min(1, ((sx - ax) * dx + (sy - ay) * dy) / len2));
+      const cx = ax + t * dx;
+      const cy = ay + t * dy;
+      const d = Math.hypot(sx - cx, sy - cy);
+      if (d < bestDist) {
+        bestDist = d;
+        bestEdge = { src: a.id, tgt: b.id };
+      }
+    }
+    if (bestEdge) props.onEdgeRightClick?.(bestEdge.src, bestEdge.tgt);
+  }
+
   function onWheel(e: WheelEvent) {
     e.preventDefault();
     const [sx, sy] = clientToCanvas(e);
@@ -1869,6 +1973,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       onPointerCancel={onPointerUp}
       onPointerLeave={onPointerLeave}
       onWheel={onWheel}
+      onContextMenu={onContextMenu}
     />
   );
 }

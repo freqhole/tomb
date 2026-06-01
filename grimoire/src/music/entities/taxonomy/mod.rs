@@ -27,11 +27,12 @@ pub use kinds::{
 };
 pub use models::{
     AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
-    CreateTaxonKindRequest, CreateTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest,
-    ListTaxonParentsForKindRequest, ListTaxonsByKindRequest, QueryScalarRangeRequest,
-    QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
-    ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest, Taxon,
-    TaxonKind, TaxonNode, TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
+    CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
+    GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
+    QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest,
+    ScalarAttribute, ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest,
+    SetTaxonColorRequest, Taxon, TaxonKind, TaxonNode, TaxonParentEdge, TaxonRef, TaxonWithStats,
+    TaxonsQueryResult,
 };
 pub use repository::{
     add_album_taxon, add_taxon_parent, create_taxon, create_taxon_kind, delete_taxon,

@@ -1225,6 +1225,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    deleteTaxon: (params: s.DeleteTaxonRequest) => {
+      return call(
+        "music",
+        "delete_taxon",
+        routes.music.delete_taxon.resp,
+        routes.music.delete_taxon.req,
+        routes.music.delete_taxon.method,
+        routes.music.delete_taxon.path,
+        params,
+      );
+    },
+
     addTaxonParent: (params: s.AddTaxonParentRequest) => {
       return call(
         "music",
@@ -1622,6 +1634,23 @@ export function createMusicMethods(call: CallFn) {
         routes.music.era_albums.req,
         routes.music.era_albums.method,
         routes.music.era_albums.path,
+        params,
+      );
+    },
+
+    // fan-out the synthesized "unassigned" hub to its member albums.
+    // when kind_slug is null/empty, returns albums with no taxon
+    // assignments of any kind (fully untagged); otherwise restricts
+    // the missing-check to the given kind only. paged (default 100,
+    // max 500).
+    unassignedAlbums: (params: s.UnassignedAlbumsRequest) => {
+      return call(
+        "music",
+        "unassigned_albums",
+        routes.music.unassigned_albums.resp,
+        routes.music.unassigned_albums.req,
+        routes.music.unassigned_albums.method,
+        routes.music.unassigned_albums.path,
         params,
       );
     },

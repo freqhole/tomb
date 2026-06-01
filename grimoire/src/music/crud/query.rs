@@ -797,6 +797,42 @@ fn add_global_filters(
         }
     }
 
+    // unassigned_for_kind: keep only albums that have no album_taxonz row
+    // pointing at a taxon of the given kind. when the value is an empty
+    // string (or `*`), match albums with no taxons at all (any kind).
+    // slug input is validated to a-z0-9_- to keep the inlined sql safe.
+    if let Some(raw) = params
+        .filters
+        .get("unassigned_for_kind")
+        .and_then(|v| v.as_str())
+    {
+        let trimmed = raw.trim();
+        let is_safe = |s: &str| {
+            !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        };
+        if trimmed.is_empty() || trimmed == "*" {
+            query.and_where(Expr::cust(
+                "NOT EXISTS (SELECT 1 FROM album_taxonz at_unassigned \
+                 JOIN taxonz t_unassigned ON t_unassigned.id = at_unassigned.taxon_id \
+                 WHERE at_unassigned.album_id = album_query_view.album_id \
+                 AND t_unassigned.deleted_at IS NULL)",
+            ));
+        } else if is_safe(trimmed) {
+            let sql = format!(
+                "NOT EXISTS (SELECT 1 FROM album_taxonz at_unassigned \
+                 JOIN taxonz t_unassigned ON t_unassigned.id = at_unassigned.taxon_id \
+                 JOIN taxon_kindz k_unassigned ON k_unassigned.id = t_unassigned.kind_id \
+                 WHERE at_unassigned.album_id = album_query_view.album_id \
+                 AND t_unassigned.deleted_at IS NULL \
+                 AND k_unassigned.slug = '{}')",
+                trimmed
+            );
+            query.and_where(Expr::cust(&sql));
+        }
+    }
+
     // Handle tag filters (include_tags and exclude_tags)
     // include_tags: show only items that have ANY of these tags (OR logic)
     if let Some(include_tags) = params
