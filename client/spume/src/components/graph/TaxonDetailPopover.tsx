@@ -20,6 +20,12 @@ export interface TaxonDetailPopoverProps {
   canEdit: Accessor<boolean>;
   onEditHierarchy: () => void;
   onClose: () => void;
+  /** whether this taxon has descendants (making it a group). shows color picker when true. */
+  isGroup: Accessor<boolean>;
+  /** reflects current edit-mode state; used to toggle the button label. */
+  editMode: Accessor<boolean>;
+  /** called when the user picks a color swatch or clears the color. */
+  onSetColor: (color: string | null) => void;
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -125,7 +131,7 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
             </div>
           </Show>
 
-          {/* edit button — admin only, phase 4 will add full edit mode */}
+          {/* edit button — admin only */}
           <Show when={props.canEdit()}>
             <button
               type="button"
@@ -135,8 +141,52 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
                 props.onEditHierarchy();
               }}
             >
-              edit hierarchy
+              {props.editMode() ? "exit edit mode" : "edit hierarchy"}
             </button>
+          </Show>
+
+          {/* color picker — visible to admins for group taxons only */}
+          <Show when={props.canEdit() && props.isGroup()}>
+            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+              <For
+                each={[
+                  "#e63946",
+                  "#f4a261",
+                  "#e9c46a",
+                  "#2a9d8f",
+                  "#264653",
+                  "#9b5de5",
+                  "#f15bb5",
+                  "#00bbf9",
+                ]}
+              >
+                {(hex) => (
+                  <button
+                    type="button"
+                    title={hex}
+                    class="w-5 h-5 rounded-sm border-2 border-transparent hover:border-white/60 transition-colors cursor-pointer p-0 flex-shrink-0"
+                    style={{
+                      background: hex,
+                      "border-color": props.taxon()?.color === hex ? "white" : undefined,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onSetColor(hex);
+                    }}
+                  />
+                )}
+              </For>
+              <button
+                type="button"
+                class="text-[10px] leading-none px-1.5 py-0.5 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 cursor-pointer transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onSetColor(null);
+                }}
+              >
+                clear
+              </button>
+            </div>
           </Show>
         </div>
       </div>

@@ -2,6 +2,7 @@
 // renders the walk graph: shapes per role, edge lines, labels, hover highlight.
 
 import { createEffect, createSignal, onCleanup, onMount, createMemo } from "solid-js";
+import type { Accessor } from "solid-js";
 import type { WalkGraph, NodeRole } from "./types";
 import { createWalkerClient } from "./worker/client";
 import type { VisibleNode, TopologyEdge } from "./worker/messages";
@@ -66,6 +67,12 @@ export interface WalkCanvasProps {
    *  canvas will skip its default expand/pivot behavior for that node.
    *  used to retry a health check when clicking an offline remote. */
   interceptClick?: (id: string, role: NodeRole) => boolean;
+  /** when true, pivot-on-click is suspended; lasso and modifier-key multi-select activate. */
+  editMode?: Accessor<boolean>;
+  /** node ids currently in the multi-selection. rendered with selection rings. */
+  multiSelection?: Accessor<Set<string>>;
+  /** fires whenever the multi-selection changes (lasso close or modifier click). */
+  onMultiSelectionChange?: (ids: Set<string>) => void;
 }
 
 // ---- colors ----------------------------------------------------------------
@@ -852,6 +859,21 @@ function drawHomeGlyph(
   ctx.restore();
 }
 
+// ray-casting point-in-polygon test (crossing number algorithm).
+function pointInPolygon(px: number, py: number, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x,
+      yi = poly[i].y;
+    const xj = poly[j].x,
+      yj = poly[j].y;
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 // ---- component -------------------------------------------------------------
 
 export default function WalkCanvas(props: WalkCanvasProps) {
@@ -925,6 +947,24 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   // it's a pan; otherwise a click that fires hit-test on pointerup.
   const PAN_THRESHOLD = 3;
 
+  type LassoState = {
+    pointerId: number;
+    startSx: number;
+    startSy: number;
+    startedOnNode: boolean;
+  };
+  const [lassoState, setLassoState] = createSignal<LassoState | null>(null);
+  // lasso trail points in css screen coords; mutable ref to avoid creating a
+  // new array on every pointermove event (draw loop reads it directly).
+  let lassoPoints: { x: number; y: number }[] = [];
+  // clear lasso trail whenever edit mode is turned off
+  createEffect(() => {
+    if (!props.editMode?.()) {
+      lassoPoints = [];
+      setLassoState(null);
+    }
+  });
+
   // latched when the user manually pans (drag or wheel-pan). disables the
   // proportional pivot-follow until the next pivot change clears it, so we
   // never fight the user when they're exploring far from the pivot.
@@ -961,6 +1001,41 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   client.onFrame((pos) => {
     positions = pos;
   });
+
+  // synchronous hit-test using the current nodes/positions snapshot.
+  // used in onPointerDown to decide between lasso-start and node-drag-start.
+  function syncHitTest(sx: number, sy: number): string | null {
+    const v = view();
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      const wx = positions[i * 2];
+      const wy = positions[i * 2 + 1];
+      if (!Number.isFinite(wx) || !Number.isFinite(wy)) continue;
+      const nsx = wx * v.k + v.tx;
+      const nsy = wy * v.k + v.ty;
+      const r = nodeDisplayRadius(n) * v.k;
+      const dx = sx - nsx;
+      const dy = sy - nsy;
+      if (dx * dx + dy * dy <= r * r) return n.id;
+    }
+    return null;
+  }
+
+  // converts lasso screen-space polygon to the set of node ids whose
+  // screen positions fall inside the closed polygon.
+  function computeLassoSelection(poly: { x: number; y: number }[]): Set<string> {
+    const v = view();
+    const selected = new Set<string>();
+    for (let i = 0; i < nodes.length; i++) {
+      const wx = positions[i * 2];
+      const wy = positions[i * 2 + 1];
+      if (!Number.isFinite(wx) || !Number.isFinite(wy)) continue;
+      const sx = wx * v.k + v.tx;
+      const sy = wy * v.k + v.ty;
+      if (pointInPolygon(sx, sy, poly)) selected.add(nodes[i].id);
+    }
+    return selected;
+  }
 
   onMount(() => {
     // storybook-solidjs-vite wraps story args in a createStore, making props
@@ -1300,6 +1375,16 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
+        // multi-selection ring for nodes in the edit-mode selection set
+        const multiSel = props.multiSelection?.();
+        if (multiSel && multiSel.has(n.id) && selId !== n.id) {
+          const selGap = n.role === "root" ? 10 : 11;
+          nodeShapePath(ctx, n.role, x, y, r, selGap);
+          ctx.strokeStyle = SELECTION_RING_COLOR;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
         if (hov === n.id) {
           const gap = n.role === "root" ? 5 : 6;
           nodeShapePath(ctx, n.role, x, y, r, gap);
@@ -1406,6 +1491,24 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         }
       }
 
+      // lasso trail overlay — screen-space, drawn last so it sits above all nodes
+      const lsSnap = lassoState();
+      if (lsSnap && !lsSnap.startedOnNode && lassoPoints.length >= 2) {
+        const dprLasso = window.devicePixelRatio ?? 1;
+        ctx.setTransform(dprLasso, 0, 0, dprLasso, 0, 0);
+        ctx.strokeStyle = "rgba(255, 58, 163, 0.65)";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+        for (let pi = 1; pi < lassoPoints.length; pi++)
+          ctx.lineTo(lassoPoints[pi].x, lassoPoints[pi].y);
+        ctx.stroke();
+      }
+
       rafId = requestAnimationFrame(draw);
     }
 
@@ -1463,6 +1566,14 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       },
     };
     props.onReady?.(api);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !props.editMode?.()) return;
+      lassoPoints = [];
+      setLassoState(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   // resize: keep worker sim, canvas bitmap, and canvas css dimensions in sync
@@ -1506,6 +1617,21 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         centerSy: (a[1].sy + b[1].sy) / 2,
       };
       setPanState(null);
+      lassoPoints = [];
+      setLassoState(null);
+      return;
+    }
+
+    if (props.editMode?.()) {
+      // in edit mode: sync hit-test to decide lasso-start vs node-drag-start
+      const hitId = syncHitTest(sx, sy);
+      lassoPoints = [{ x: sx, y: sy }];
+      setLassoState({
+        pointerId: e.pointerId,
+        startSx: sx,
+        startSy: sy,
+        startedOnNode: hitId !== null,
+      });
       return;
     }
 
@@ -1542,6 +1668,20 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       return;
     }
 
+    // lasso accumulation: edit mode drag on empty canvas
+    const ls = lassoState();
+    if (ls && e.pointerId === ls.pointerId) {
+      if (!ls.startedOnNode) {
+        const dx = sx - ls.startSx;
+        const dy = sy - ls.startSy;
+        if (Math.hypot(dx, dy) > PAN_THRESHOLD) {
+          lassoPoints.push({ x: sx, y: sy });
+          setHoveredId(null);
+        }
+      }
+      return;
+    }
+
     // active drag-pan
     const ps = panState();
     if (ps && e.pointerId === ps.pointerId) {
@@ -1574,6 +1714,54 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     if (pinchState && (e.pointerId === pinchState.p1 || e.pointerId === pinchState.p2)) {
       pinchState = null;
     }
+
+    // edit mode: handle lasso completion or modifier-key click
+    const ls = lassoState();
+    if (ls && e.pointerId === ls.pointerId) {
+      const [csx, csy] = clientToCanvas(e);
+      const distMoved = Math.hypot(csx - ls.startSx, csy - ls.startSy);
+      const points = [...lassoPoints];
+      lassoPoints = [];
+      setLassoState(null);
+      if (!ls.startedOnNode && points.length >= 3 && distMoved >= 5) {
+        // lasso closed: hit-test all nodes against the polygon
+        props.onMultiSelectionChange?.(computeLassoSelection(points));
+      } else if (distMoved < 5) {
+        // treat as click: modifier-key multi-select, no expand/pivot
+        const v = view();
+        const [wx, wy] = screenToWorld(ls.startSx, ls.startSy);
+        const isMeta = e.metaKey || e.ctrlKey;
+        const isShift = e.shiftKey;
+        client.hitTest(wx, wy, v.k).then((id) => {
+          if (!id) return;
+          const node = nodes.find((n) => n.id === id);
+          const role = node?.role;
+          if (role && props.interceptClick?.(id, role)) return;
+          if (isMeta) {
+            // toggle in multi-selection; promote selectedId into set if set is empty
+            const cur = new Set<string>(props.multiSelection?.() ?? []);
+            const selId = props.selectedId ?? null;
+            if (cur.size === 0 && selId) cur.add(selId);
+            if (cur.has(id)) cur.delete(id);
+            else cur.add(id);
+            props.onMultiSelectionChange?.(cur);
+          } else if (isShift) {
+            // TODO(phase 5): real range-extend along walk DFS
+            const cur = new Set<string>(props.multiSelection?.() ?? []);
+            const selId = props.selectedId ?? null;
+            if (cur.size === 0 && selId) cur.add(selId);
+            cur.add(id);
+            props.onMultiSelectionChange?.(cur);
+          } else {
+            // plain click: clear multi, set selected, no pivot
+            props.onMultiSelectionChange?.(new Set<string>());
+            props.onSelect?.(id, role ?? "value");
+          }
+        });
+      }
+      return;
+    }
+
     const ps = panState();
     if (!ps || e.pointerId !== ps.pointerId) return;
     const wasPan = ps.moved;
@@ -1666,7 +1854,13 @@ export default function WalkCanvas(props: WalkCanvasProps) {
               width: "100%",
               height: "100%",
             }),
-        cursor: panState()?.moved ? "grabbing" : hoveredId() ? "pointer" : "default",
+        cursor: panState()?.moved
+          ? "grabbing"
+          : lassoState() && !lassoState()?.startedOnNode
+            ? "crosshair"
+            : hoveredId()
+              ? "pointer"
+              : "default",
         "touch-action": "none",
       }}
       onPointerDown={onPointerDown}

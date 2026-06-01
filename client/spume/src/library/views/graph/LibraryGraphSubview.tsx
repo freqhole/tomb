@@ -863,6 +863,18 @@ function Inner(props: {
     if (selectedTaxonInfo()) setTaxonPanelHidden(false);
   });
 
+  // edit mode: when active, lasso selection and modifier-click multi-select
+  // replace normal click-to-pivot behavior.
+  const [editMode, setEditMode] = createSignal(false);
+  const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
+  // exit edit mode when the taxon selection is cleared
+  createEffect(() => {
+    if (!selectedTaxonInfo() && editMode()) {
+      setEditMode(false);
+      setMultiSelection(new Set<string>());
+    }
+  });
+
   const selectedAlbum = createMemo<AlbumNodeData | null>(() => {
     const id = selectedId();
     if (!id) return null;
@@ -1999,6 +2011,9 @@ function Inner(props: {
       if (!props.isActive()) return;
       if (e.key === "Escape") {
         if (isAnyModalOpen()) return;
+        if (editMode()) {
+          setMultiSelection(new Set<string>());
+        }
         setSelectedId(null);
         return;
       }
@@ -3299,7 +3314,28 @@ function Inner(props: {
           isOfflineNode={isOfflineNode}
           isLoadingNode={isLoadingNode}
           interceptClick={interceptClick}
+          editMode={editMode}
+          multiSelection={multiSelection}
+          onMultiSelectionChange={(ids) => setMultiSelection(new Set(ids))}
         />
+
+        {/* edit-mode badge */}
+        <Show when={editMode()}>
+          <div class="absolute top-3 right-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-pink-500/40 bg-[rgba(50,0,25,0.85)] backdrop-blur-sm text-[11px] text-pink-300 pointer-events-auto select-none">
+            <span>editing hierarchy</span>
+            <button
+              type="button"
+              aria-label="exit edit mode"
+              class="text-pink-300/70 hover:text-pink-200 cursor-pointer p-0 leading-none"
+              onClick={() => {
+                setEditMode(false);
+                setMultiSelection(new Set<string>());
+              }}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        </Show>
 
         {/* album detail popover */}
         <Show when={selectedAlbum() !== null && !albumPanel.hidden()}>
@@ -3552,10 +3588,33 @@ function Inner(props: {
               descendants={() => selectedTaxonData()?.descendants ?? []}
               canEdit={() => isRemoteAdmin(selectedTaxonInfo()?.remoteId ?? null)}
               onEditHierarchy={() => {
-                // TODO(phase 4): taxon hierarchy edit panel
-                console.log("[graph] edit hierarchy (phase 4)", selectedTaxonInfo());
+                if (editMode()) {
+                  setEditMode(false);
+                  setMultiSelection(new Set<string>());
+                } else {
+                  setEditMode(true);
+                }
               }}
               onClose={() => setSelectedId(null)}
+              isGroup={() => (selectedTaxonData()?.descendants?.length ?? 0) > 0}
+              editMode={editMode}
+              onSetColor={(color) => {
+                const info = selectedTaxonInfo();
+                if (!info?.taxonId) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    await apiClient.music.set_taxon_color({
+                      taxon_id: info.taxonId!,
+                      color: color ?? null,
+                    });
+                  } catch (err) {
+                    console.warn("set taxon color failed", { taxonId: info.taxonId, err });
+                  }
+                })();
+              }}
             />
           </div>
         </Show>
