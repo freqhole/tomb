@@ -42,8 +42,7 @@ import { toast } from "../../../components/feedback/Toast";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
 import type { AlbumNodeData, ArtistNodeData } from "../../../components/graph/types";
-import { getAuthStatus, getAuthInfo } from "../../../app/services/remotes/authStatusStore";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { useRemoteIsAdminMulti } from "../../hooks/useRemoteRole";
 import {
   showAlbumEditor,
   showArtistEditor,
@@ -212,18 +211,13 @@ function Inner(props: {
   // search query (phase 6 wires it to topnav search)
   const [searchQuery] = createSignal("");
 
-  // admin state drives edit buttons in popovers
-  const authStatus = getAuthStatus();
-  const isRemoteAdmin = (remoteId: string | null | undefined): boolean => {
-    if (!remoteId) return false;
-    const entry = authStatus().get(remoteId) ?? getAuthInfo(remoteId);
-    if (!entry || !entry.loggedIn || !entry.role) return false;
-    return permissions.isAdmin(entry.role as UserRoleName);
-  };
-  const isAnyRemoteAdmin = (): boolean => {
-    for (const r of props.remotes()) if (isRemoteAdmin(r.remote_id)) return true;
-    return false;
-  };
+  // admin state drives edit buttons in popovers. delegated to the
+  // canonical multi-remote hook so this view stays in sync with
+  // anywhere else that gates on admin role.
+  const { isAdmin: isRemoteAdmin, isAnyAdmin: isAnyRemoteAdminMemo } = useRemoteIsAdminMulti(() =>
+    props.remotes()
+  );
+  const isAnyRemoteAdmin = (): boolean => isAnyRemoteAdminMemo();
 
   // ---- per-remote album store + rAF batcher ---------------------------
 
@@ -881,11 +875,6 @@ function Inner(props: {
   createEffect(() => {
     if (!selectedId()) setSelectedTaxonInfo(null);
   });
-  const [taxonPanelHidden, setTaxonPanelHidden] = createSignal(false);
-  // reset panel visibility whenever a new taxon is selected.
-  createEffect(() => {
-    if (selectedTaxonInfo()) setTaxonPanelHidden(false);
-  });
 
   // edit mode: when active, lasso selection and modifier-click multi-select
   // replace normal click-to-pivot behavior.
@@ -921,9 +910,11 @@ function Inner(props: {
     return node as ArtistNodeData;
   });
 
-  // keep album + artist popovers in a shared minimized state so once
-  // the user collapses details, all subsequent detail popovers stay
-  // collapsed until explicitly expanded again.
+  // single shared minimized flag for ALL detail panels (album, artist,
+  // taxon/hub). once the user collapses any one of them, all subsequent
+  // selections render in the collapsed state — only an explicit
+  // chevron-up restores. global by design so navigating between an
+  // album, an artist, and a taxon doesn't keep popping panels back open.
   const [detailPanelsHidden, setDetailPanelsHidden] = createSignal(false);
   const albumPanel = {
     hidden: detailPanelsHidden,
@@ -935,6 +926,8 @@ function Inner(props: {
     hide: () => setDetailPanelsHidden(true),
     restore: () => setDetailPanelsHidden(false),
   };
+  const taxonPanelHidden = detailPanelsHidden;
+  const setTaxonPanelHidden = setDetailPanelsHidden;
 
   const selectedArtistAlbums = createMemo<AlbumNodeData[]>(() => {
     const artist = selectedArtist();
@@ -4255,11 +4248,14 @@ function Inner(props: {
           <button
             type="button"
             onClick={albumPanel.restore}
-            title="show details"
-            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
+            title={`${selectedAlbum()?.title ?? ""} — ${selectedAlbum()?.artistName ?? ""}`}
+            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto max-w-[min(280px,calc(100%-1.5rem))]"
           >
             <Icon name="chevronUp" size={12} />
-            <span class="text-white/60">album - show details</span>
+            <span class="truncate">{selectedAlbum()?.title ?? "album"}</span>
+            <Show when={selectedAlbum()?.artistName}>
+              <span class="text-white/40 truncate">— {selectedAlbum()!.artistName}</span>
+            </Show>
           </button>
         </Show>
 
@@ -4353,11 +4349,11 @@ function Inner(props: {
           <button
             type="button"
             onClick={artistPanel.restore}
-            title="show details"
-            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
+            title={selectedArtistDisplay()?.name ?? "artist"}
+            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto max-w-[min(280px,calc(100%-1.5rem))]"
           >
             <Icon name="chevronUp" size={12} />
-            <span class="text-white/60">artist - show details</span>
+            <span class="truncate">{selectedArtistDisplay()?.name ?? "artist"}</span>
           </button>
         </Show>
 
@@ -4452,20 +4448,84 @@ function Inner(props: {
                   }
                 })();
               }}
+              onSetKindColor={(color) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                const kindSlug = info.kindSlug;
+                const relHubId = info.relHubId;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const result = await apiClient.music.set_taxon_kind_color({
+                      kind_slug: kindSlug,
+                      color: color ?? null,
+                    });
+                    // optimistic local update so the hexagon re-tints
+                    // without waiting for a refetch.
+                    const prevMeta = taxonKindMetaByHub.get(relHubId);
+                    if (prevMeta) {
+                      taxonKindMetaByHub.set(relHubId, {
+                        ...prevMeta,
+                        color: color ?? null,
+                      });
+                    }
+                    // re-merge the hub node so WalkCanvas picks up the new tint.
+                    walkerClient()?.merge(
+                      [
+                        {
+                          id: relHubId,
+                          role: "relation",
+                          label: prevMeta?.label ?? kindSlug,
+                          parentId: remoteHubId(info.remoteId),
+                          childCount: info.albumCount ?? 0,
+                          lazy: true,
+                          tint: color ?? undefined,
+                        },
+                      ],
+                      []
+                    );
+                    toast.success(color ? `kind color set to ${color}` : "kind color cleared");
+                    void result;
+                  } catch (err) {
+                    console.warn("set taxon kind color failed", {
+                      kindSlug,
+                      err,
+                    });
+                    toast.error("failed to set kind color");
+                  }
+                })();
+              }}
             />
           </div>
         </Show>
 
         <Show when={selectedTaxonInfo() !== null && taxonPanelHidden() && !bulkActive()}>
-          <button
-            type="button"
-            onClick={() => setTaxonPanelHidden(false)}
-            title="show details"
-            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
-          >
-            <Icon name="chevronUp" size={12} />
-            <span class="text-white/60">taxon - show details</span>
-          </button>
+          {(() => {
+            const info = selectedTaxonInfo();
+            const taxon = selectedTaxonData()?.taxon ?? null;
+            const kindColor = taxonKindMetaByHub.get(info?.relHubId ?? "")?.color ?? null;
+            const swatch = taxon?.color ?? kindColor;
+            const label = info?.label ?? taxon?.label ?? "taxon";
+            return (
+              <button
+                type="button"
+                onClick={() => setTaxonPanelHidden(false)}
+                title={label}
+                class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto max-w-[min(280px,calc(100%-1.5rem))]"
+              >
+                <Icon name="chevronUp" size={12} />
+                <Show when={swatch}>
+                  <span
+                    class="inline-block w-3 h-3 rounded-sm border border-white/20 flex-shrink-0"
+                    style={{ background: swatch! }}
+                  />
+                </Show>
+                <span class="truncate">{label}</span>
+              </button>
+            );
+          })()}
         </Show>
       </div>
     </div>

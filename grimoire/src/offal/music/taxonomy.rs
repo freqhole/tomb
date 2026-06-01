@@ -17,11 +17,13 @@ use crate::music::entities::taxonomy::{
     query_albums_by_scalar_range as r_query_albums_by_scalar_range, query_taxons as r_query_taxons,
     remove_album_taxon as r_remove_album_taxon, remove_taxon_parent as r_remove_taxon_parent,
     set_album_taxons as r_set_album_taxons, set_scalar_attribute as r_set_scalar_attribute,
-    set_taxon_color as r_set_taxon_color, AddAlbumTaxonRequest, AddTaxonParentRequest,
+    set_taxon_color as r_set_taxon_color, set_taxon_kind_color as r_set_taxon_kind_color,
+    AddAlbumTaxonRequest, AddTaxonParentRequest,
     CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
     GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
     QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest,
     SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest,
+    SetTaxonKindColorRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -93,6 +95,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "SetTaxonColorRequest",
         response_type: "Taxon",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "set_taxon_kind_color",
+        path: "/api/taxonomy/kinds/set-color",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetTaxonKindColorRequest",
+        response_type: "TaxonKind",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
@@ -361,6 +372,14 @@ pub async fn set_color(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         Err(e) => return bad_req(e),
     };
     to_json(r_set_taxon_color(req).await)
+}
+
+pub async fn set_kind_color(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: SetTaxonKindColorRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_req(e),
+    };
+    to_json(r_set_taxon_kind_color(req).await)
 }
 
 pub async fn list_parents_for_kind(

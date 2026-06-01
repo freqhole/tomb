@@ -31,8 +31,8 @@ pub use models::{
     GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
     QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest,
     ScalarAttribute, ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest,
-    SetTaxonColorRequest, Taxon, TaxonKind, TaxonNode, TaxonParentEdge, TaxonRef, TaxonWithStats,
-    TaxonsQueryResult,
+    SetTaxonColorRequest, SetTaxonKindColorRequest, Taxon, TaxonKind, TaxonNode, TaxonParentEdge,
+    TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
 pub use repository::{
     add_album_taxon, add_taxon_parent, create_taxon, create_taxon_kind, delete_taxon,
@@ -40,5 +40,5 @@ pub use repository::{
     get_taxon_ancestors, get_taxon_descendants, list_taxon_kinds, list_taxon_parents_for_kind,
     list_taxons_by_kind, query_albums_by_scalar_range, query_taxons, remove_album_taxon,
     remove_taxon_parent, set_album_taxons, set_scalar_attribute, set_taxon_color,
-    slugify_taxon_label, sync_album_user_taxon,
+    set_taxon_kind_color, slugify_taxon_label, sync_album_user_taxon,
 };

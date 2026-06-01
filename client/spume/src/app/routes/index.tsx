@@ -11,6 +11,7 @@ import {
 import { connectToRemote } from "../../app/services/remotes/connectionProgress";
 import { isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import { getRemoteNeedsAuth, clearRemoteNeedsAuth } from "../../music/data/remote/authState";
+import { refreshOne as refreshRemoteAuthStatus } from "../services/remotes/authStatusStore";
 import { AuthExpiredToast } from "../../components/auth/AuthExpiredToast";
 import { ReauthModal } from "../../components/auth/ReauthModal";
 import { toast } from "../../components/feedback/Toast";
@@ -412,6 +413,13 @@ function RemoteContextHandler(props: { children?: any }) {
     const info = remoteInfo();
     if (info) {
       clearRemoteNeedsAuth(info.remote_id);
+      // refresh the global auth status store so admin-gated ui
+      // (graph edit buttons, etc.) picks up the newly authenticated
+      // role without waiting for the next remount or status change.
+      void (async () => {
+        const full = await getRemoteById(info.remote_id);
+        if (full) await refreshRemoteAuthStatus(full);
+      })();
     }
     setShowReauthModal(false);
 

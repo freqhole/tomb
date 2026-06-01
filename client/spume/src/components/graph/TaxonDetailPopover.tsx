@@ -26,6 +26,9 @@ export interface TaxonDetailPopoverProps {
   editMode: Accessor<boolean>;
   /** called when the user picks a color swatch or clears the color. */
   onSetColor: (color: string | null) => void;
+  /** called when the user picks/clears the color in hub (kind) mode.
+   *  writes to the parent taxon kind so the entire hexagon re-skins. */
+  onSetKindColor?: (color: string | null) => void;
   /** create a new taxon (prompts for label). only invoked in edit mode. */
   onCreateTaxon?: (label: string) => void;
   /** soft-delete the current taxon. only invoked when a taxon is selected. */
@@ -151,41 +154,51 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
 
           {/* color picker — visible to admins for group taxons only */}
           <Show when={props.canEdit() && props.isGroup()}>
-            <div class="mt-1 flex flex-wrap items-center gap-1.5">
-              <For
-                each={[
-                  "#e63946",
-                  "#f4a261",
-                  "#e9c46a",
-                  "#2a9d8f",
-                  "#264653",
-                  "#9b5de5",
-                  "#f15bb5",
-                  "#00bbf9",
-                ]}
-              >
-                {(hex) => (
-                  <button
-                    type="button"
-                    title={hex}
-                    class="w-5 h-5 rounded-sm border-2 border-transparent hover:border-white/60 transition-colors cursor-pointer p-0 flex-shrink-0"
-                    style={{
-                      background: hex,
-                      "border-color": props.taxon()?.color === hex ? "white" : undefined,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onSetColor(hex);
-                    }}
-                  />
-                )}
-              </For>
+            <div class="mt-1 flex items-center gap-1.5">
+              <label class="text-[10px] uppercase tracking-wide text-white/40">color</label>
+              <input
+                type="color"
+                value={props.taxon()?.color ?? "#888888"}
+                class="w-6 h-6 rounded-sm border border-white/15 bg-transparent cursor-pointer p-0"
+                onClick={(e) => e.stopPropagation()}
+                onInput={(e) => {
+                  props.onSetColor((e.currentTarget as HTMLInputElement).value);
+                }}
+              />
               <button
                 type="button"
                 class="text-[10px] leading-none px-1.5 py-0.5 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 cursor-pointer transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   props.onSetColor(null);
+                }}
+              >
+                clear
+              </button>
+            </div>
+          </Show>
+
+          {/* kind color picker — visible to admins when a relation hub
+              (hexagon) is selected. writes to taxon_kindz.color so the
+              entire hub + its leaf children re-skin. */}
+          <Show when={props.canEdit() && isHubMode() && props.onSetKindColor}>
+            <div class="mt-1 flex items-center gap-1.5">
+              <label class="text-[10px] uppercase tracking-wide text-white/40">kind color</label>
+              <input
+                type="color"
+                value={props.kindColor() ?? "#888888"}
+                class="w-6 h-6 rounded-sm border border-white/15 bg-transparent cursor-pointer p-0"
+                onClick={(e) => e.stopPropagation()}
+                onInput={(e) => {
+                  props.onSetKindColor?.((e.currentTarget as HTMLInputElement).value);
+                }}
+              />
+              <button
+                type="button"
+                class="text-[10px] leading-none px-1.5 py-0.5 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 cursor-pointer transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onSetKindColor?.(null);
                 }}
               >
                 clear

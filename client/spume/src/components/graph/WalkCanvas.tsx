@@ -621,7 +621,9 @@ function drawNode(
         : n.isBreadcrumb
           ? 2
           : valueStroke
-            ? 2
+            ? n.role === "group"
+              ? 3 // group (parent-of-parent) taxons get a thicker stroke
+              : 2
             : 1;
 
   nodeShapePath(ctx, n.role, x, y, radius);

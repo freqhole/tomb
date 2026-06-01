@@ -5390,6 +5390,12 @@ export const SetTaxonColorRequestSchema = z.object({
 });
 export type SetTaxonColorRequest = z.infer<typeof SetTaxonColorRequestSchema>;
 
+export const SetTaxonKindColorRequestSchema = z.object({
+  kind_slug: z.string(),
+  color: z.string().nullish()
+});
+export type SetTaxonKindColorRequest = z.infer<typeof SetTaxonKindColorRequestSchema>;
+
 export const SongSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),

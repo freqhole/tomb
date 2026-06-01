@@ -191,8 +191,8 @@ pub mod type_registry {
         GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
         QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest,
         RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
-        SetScalarAttributeRequest, SetTaxonColorRequest, Taxon, TaxonKind, TaxonParentEdge,
-        TaxonRef, TaxonWithStats, TaxonsQueryResult,
+        SetScalarAttributeRequest, SetTaxonColorRequest, SetTaxonKindColorRequest, Taxon,
+        TaxonKind, TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
     use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
     use crate::upload::{
@@ -1006,6 +1006,8 @@ pub mod type_registry {
 
         gen.add_schema::<SetTaxonColorRequest>("SetTaxonColorRequest");
         registered.insert("SetTaxonColorRequest".to_string());
+        gen.add_schema::<SetTaxonKindColorRequest>("SetTaxonKindColorRequest");
+        registered.insert("SetTaxonKindColorRequest".to_string());
         gen.add_schema::<ListTaxonParentsForKindRequest>("ListTaxonParentsForKindRequest");
         registered.insert("ListTaxonParentsForKindRequest".to_string());
         gen.add_schema::<TaxonParentEdge>("TaxonParentEdge");

@@ -165,6 +165,7 @@ export const routes = {
     set_related_artist_bandcamp: { method: 'POST', path: '/api/related-artists/set-bandcamp', req: s.SetRelatedArtistBandcampRequestSchema, resp: s.RelatedArtistApiSchema, auth: { type: 'role', role: 'admin' } as const },
     set_scalar_attribute: { method: 'POST', path: '/api/taxonomy/scalars/set', req: s.SetScalarAttributeRequestSchema, resp: s.ScalarAttributeSchema, auth: { type: 'role', role: 'admin' } as const },
     set_taxon_color: { method: 'POST', path: '/api/taxonomy/taxons/set-color', req: s.SetTaxonColorRequestSchema, resp: s.TaxonSchema, auth: { type: 'role', role: 'admin' } as const },
+    set_taxon_kind_color: { method: 'POST', path: '/api/taxonomy/kinds/set-color', req: s.SetTaxonKindColorRequestSchema, resp: s.TaxonKindSchema, auth: { type: 'role', role: 'admin' } as const },
     song_analytics: { method: 'POST', path: '/api/analytics/song-stats', req: s.SongAnalyticsRequestSchema, resp: s.PlayAnalyticsSchema, auth: { type: 'authenticated' } as const },
     stream_blob: { method: 'GET', path: '/api/blobs/{id}', req: null, resp: null, auth: { type: 'authenticated' } as const },
     suggestions: { method: 'POST', path: '/api/music/suggestions', req: s.SuggestionsRequestSchema, resp: s.SuggestionsResponseSchema, auth: { type: 'authenticated' } as const },

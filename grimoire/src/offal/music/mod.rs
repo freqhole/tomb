@@ -174,6 +174,9 @@ pub async fn dispatch(
         // taxonomy (kinds, taxons, parents, album links, scalar attributes)
         "/api/taxonomy/kinds/list" => Some(taxonomy::list_kinds(caller, body.clone()).await),
         "/api/taxonomy/kinds/create" => Some(taxonomy::create_kind(caller, body.clone()).await),
+        "/api/taxonomy/kinds/set-color" => {
+            Some(taxonomy::set_kind_color(caller, body.clone()).await)
+        }
         "/api/taxonomy/taxons/list-by-kind" => {
             Some(taxonomy::list_taxons_by_kind(caller, body.clone()).await)
         }

@@ -9,7 +9,8 @@ use super::models::{
     AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, CreateTaxonKindRequest,
     CreateTaxonRequest, GetTaxonRequest, ListTaxonParentsForKindRequest, QueryScalarRangeRequest,
     QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
-    ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest, Taxon,
+    ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest,
+    SetTaxonKindColorRequest, Taxon,
     TaxonKind, TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
 use crate::database;
@@ -1455,6 +1456,64 @@ pub async fn set_taxon_color(req: SetTaxonColorRequest) -> GrimoireResponse<Taxo
     }
 
     get_taxon(GetTaxonRequest { id: req.taxon_id }).await
+}
+
+/// set (or clear) the color on a taxon kind. used by the graph viz
+/// hub-detail popover so admins can re-skin a whole kind's hexagon
+/// hub without touching individual taxons. null clears the value
+/// (falls back to client default).
+pub async fn set_taxon_kind_color(
+    req: SetTaxonKindColorRequest,
+) -> GrimoireResponse<TaxonKind> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let slug = req.kind_slug.trim();
+    if slug.is_empty() {
+        return GrimoireResponse::failure("kind slug is required", vec![]);
+    }
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxon_kindz SET color = ? WHERE slug = ? AND deleted_at IS NULL"#,
+        req.color,
+        slug,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon kind color",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon kind not found", vec![]);
+    }
+
+    // re-read the kind via list + filter (cheaper than a dedicated getter and
+    // matches the album_count enrichment shape returned by list_taxon_kinds).
+    let kinds = list_taxon_kinds().await;
+    if !kinds.success {
+        return GrimoireResponse::failure(
+            "color updated but failed to re-read kind",
+            kinds.errors,
+        );
+    }
+    match kinds.data.and_then(|all| all.into_iter().find(|k| k.slug == slug)) {
+        Some(kind) => GrimoireResponse::success("taxon kind color updated", kind),
+        None => GrimoireResponse::failure("taxon kind disappeared after update", vec![]),
+    }
 }
 
 /// return every `taxon_parentz` row whose child belongs to the given

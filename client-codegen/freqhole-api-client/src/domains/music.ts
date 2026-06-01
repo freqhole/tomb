@@ -1357,6 +1357,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    set_taxon_kind_color: (params: s.SetTaxonKindColorRequest) => {
+      return call(
+        "music",
+        "set_taxon_kind_color",
+        routes.music.set_taxon_kind_color.resp,
+        routes.music.set_taxon_kind_color.req,
+        routes.music.set_taxon_kind_color.method,
+        routes.music.set_taxon_kind_color.path,
+        params,
+      );
+    },
+
     setScalarAttribute: (params: s.SetScalarAttributeRequest) => {
       return call(
         "music",

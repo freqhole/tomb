@@ -14,7 +14,7 @@
 // auto-poll.
 
 import { createSignal, type Accessor } from "solid-js";
-import { whoami, whoamiForRemote } from "./authService";
+import { whoamiForRemote } from "./authService";
 import { isHttpRemote, type Remote } from "../storage/types";
 import { getRemoteById, onRemoteStatusChange } from "./remoteManager";
 
@@ -97,7 +97,12 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
     return { loggedIn: false };
   }
   try {
-    const result = await whoami(remote.base_url);
+    // use whoamiForRemote so the saved Remote's credentials (api_key,
+    // session token, etc.) are carried through `getClientForRemote`.
+    // bare `whoami(base_url)` would synthesise a transient credential-less
+    // remote via `httpRemote(...)`, which is why admin gating used to
+    // silently come back false on every non-charnel http remote.
+    const result = await whoamiForRemote(remote);
     return {
       loggedIn: result.success,
       username: result.username,
@@ -134,8 +139,30 @@ export async function refreshAll(remoteList: Remote[]): Promise<void> {
 
 /** refresh a single remote without touching the others. */
 export async function refreshOne(remote: Remote): Promise<void> {
-  const info = await resolveOne(remote);
+  let info = await resolveOne(remote);
+  // cold-boot heuristic: if the very first whoami says "logged out" but
+  // we have no prior entry for this remote, retry once after a short
+  // delay. on web browser builds the initial whoami can race ahead of
+  // session cookie hydration / cross-origin cookie attach, leading to
+  // a sticky `loggedIn:false` that survives navigation. a single retry
+  // is cheap and rescues that case without re-querying on every render.
+  const prior = authStatus().get(remote.remote_id);
+  if (!info.loggedIn && prior === undefined) {
+    await new Promise((r) => setTimeout(r, 250));
+    const retry = await resolveOne(remote);
+    if (retry.loggedIn) info = retry;
+  }
   patch(remote.remote_id, info);
+}
+
+/**
+ * imperatively set an AuthInfo entry. used by callers (e.g. data source
+ * switching) that have already performed a whoami via another transport
+ * and want the canonical store to reflect that result without a second
+ * round-trip.
+ */
+export function patchAuthInfo(remoteId: string, info: AuthInfo): void {
+  patch(remoteId, info);
 }
 
 /** mark a remote as logged out without re-querying (for post-logout updates). */
