@@ -558,9 +558,9 @@ export function TopNav(props: TopNavProps) {
   // on the radio route — radio has its own list-and-detail layout.
   const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
   const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
-  const isLibraryRoute = () =>
-    (props.currentPath ?? "").startsWith("/explore") ||
-    (props.currentPath ?? "").startsWith("/library");
+  // /library is a legacy redirect to /explore (see LibraryRedirect in routes),
+  // so only /explore can actually be the live path here.
+  const isLibraryRoute = () => (props.currentPath ?? "").startsWith("/explore");
   const isLocalSourceActive = () =>
     !isAggregateFeedRoute() &&
     !isRadioRoute() &&
@@ -1703,7 +1703,7 @@ export function TopNav(props: TopNavProps) {
              *  pageInfo.statusFilterOptions. used by the library/table
              *  view for `mb_lookup_status`; other views can opt in by
              *  setting the same fields. */}
-            <Show when={info().statusFilterOptions?.length && (!isNarrow() || !searchExpanded())}>
+            <Show when={info().statusFilterOptions?.length && !searchExpanded()}>
               <div
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {

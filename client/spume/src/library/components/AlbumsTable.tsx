@@ -139,7 +139,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
   });
 
   // signal to LibraryView that the first batch of data has arrived for
-  // this remote. used by the 9a switching indicator to clear the spinner.
+  // this remote. used by the switching indicator to clear the spinner.
   createEffect(() => {
     if (!albumsQuery.isLoading && albumsQuery.data) {
       props.onDataReady?.();
@@ -259,7 +259,9 @@ export function AlbumsTable(props: AlbumsTableProps) {
   });
   createEffect(() => {
     setPageInfo({
-      title: "library",
+      // title matches the "albums" view-selector option so the topnav
+      // flyout highlights the right entry while we're in table mode.
+      title: "albums",
       count: filteredItems().length,
       sortFields: SORT_OPTIONS,
       sortBy: sortField(),

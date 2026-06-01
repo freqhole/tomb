@@ -162,8 +162,13 @@ export function AlbumsView(props: AlbumsViewProps) {
     });
   });
 
-  // update page info for TopNav
+  // update page info for TopNav.
+  // skip in table mode — AlbumsTable owns pageInfo there (it surfaces
+  // its own sort + status-filter controls), so letting this effect
+  // re-run would clobber statusFilterOptions and cause the topnav
+  // filter picker to flicker / disappear.
   createEffect(() => {
+    if (viewMode() === "table") return;
     const count = albums().length;
     setPageInfo({
       title: "albums",
