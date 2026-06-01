@@ -1490,6 +1490,31 @@ function Inner(props: {
   const getImage = (
     id: string
   ): import("../../../music/services/storage/types").ImageMetadata | null => {
+    // remote hub nodes aren't in `nodesById` / `extraNodesById` (those
+    // only carry artists + albums). resolve their avatar directly from
+    // the Remote record so the graph can paint hub artwork when present.
+    if (id.startsWith("remote::")) {
+      const remoteId = id.slice("remote::".length);
+      const r = props.remotes().find((x) => x.remote_id === remoteId);
+      if (!r) return null;
+      const raw = r.image_url ?? undefined;
+      const baseUrl = (r as { base_url?: string }).base_url ?? "";
+      const remoteUrl = raw
+        ? raw.startsWith("asset://") || raw.startsWith("http://") || raw.startsWith("https://")
+          ? raw
+          : baseUrl
+            ? `${baseUrl}${raw}`
+            : undefined
+        : undefined;
+      if (!r.image_blob_id && !remoteUrl) return null;
+      return {
+        remote_blob_id: r.image_blob_id ?? undefined,
+        remote_server_id: r.remote_id,
+        remote_url: remoteUrl,
+        blob_type: "thumbnail",
+        is_primary: true,
+      };
+    }
     const direct = lookupNode(id)?.image ?? null;
     if (direct) return direct;
     // only artist nodes get the cluster-fallback treatment; albums are

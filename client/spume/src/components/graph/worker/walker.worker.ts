@@ -997,8 +997,8 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       // corners don't register. floored at 12 screen pixels (12/k in
       // world units) so small nodes stay clickable when zoomed out.
       const INRADIUS: Record<string, number> = {
-        root:     0.5,
-        remote:   0.42, // freqhole mark — narrow at bottom
+        root:     0.42, // freqhole mark — narrow at bottom
+        remote:   0.95, // rounded square — corners stay clickable
         relation: 0.5,  // hexagon
         value:    0.5,  // octagon
         artist:   0.5,  // circle

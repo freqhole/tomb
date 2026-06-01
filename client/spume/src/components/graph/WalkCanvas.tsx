@@ -104,6 +104,29 @@ function remoteAccentColor(remoteId: string): string {
   return `hsl(${hashKind(remoteId)} 80% 60%)`;
 }
 
+/** deterministic 3-color gradient (magenta -> purple -> orange) used as
+ *  the fill for a remote hub when no avatar image is available. the
+ *  gradient direction and a small per-remote hue shift are seeded from
+ *  the remote id hash so every remote keeps a stable, distinct look. */
+function remoteGradientFill(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  remoteId: string
+): CanvasGradient {
+  const h = hashKind(remoteId);
+  const angle = (h * Math.PI) / 180;
+  const dx = Math.cos(angle) * radius;
+  const dy = Math.sin(angle) * radius;
+  const g = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+  const shift = (h % 30) - 15;
+  g.addColorStop(0, `hsl(${320 + shift} 85% 58%)`); // magenta
+  g.addColorStop(0.55, `hsl(${275 + shift} 70% 50%)`); // purple
+  g.addColorStop(1, `hsl(${28 + shift} 92% 56%)`); // orange
+  return g;
+}
+
 /** pick black or white based on the perceived luminance of bg. accepts
  *  hex (#rrggbb or #rgb) or hsl(h s% l%) strings. returns #ffffff for
  *  dark fills, #000000 for light fills. */
@@ -310,7 +333,7 @@ function freqholeMarkVerts(
 
 /** sets up the canvas path for a node's shape without filling or stroking.
  *  used for both the node fill and the hover/pivot ring. for most roles the
- *  ring is achieved by passing `r + gap`; the `remote` role uses a true
+ *  ring is achieved by passing `r + gap`; the `root` role uses a true
  *  uniform outset via freqholeMarkVerts so its asymmetric silhouette gets
  *  an even gap on every side. callers may pass `gap` (defaults to 0) when
  *  drawing a ring instead of the base shape. */
@@ -323,18 +346,25 @@ function nodeShapePath(
   gap: number = 0
 ) {
   switch (role) {
-    case "root":
-      ctx.beginPath();
-      ctx.arc(x, y, r + gap, 0, Math.PI * 2);
-      break;
-    case "remote": {
-      // uniform outset via shape centroid keeps the hover/selection ring
-      // equidistant from every silhouette edge.
+    case "root": {
+      // freqhole-mark silhouette — single root node uses the wonky
+      // triangle. uniform outset via shape centroid keeps the hover/
+      // selection ring equidistant from every silhouette edge.
       const verts = freqholeMarkVerts(x, y, r, gap);
       ctx.beginPath();
       ctx.moveTo(verts[0].x, verts[0].y);
       for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
       ctx.closePath();
+      break;
+    }
+    case "remote": {
+      // rounded square — hosts the remote's avatar image or a
+      // deterministic 3-color gradient. ~12% larger than album squares
+      // so the hub still reads as a higher-tier node.
+      const half = r + gap;
+      const radius = Math.max(2, (r + gap) * 0.22);
+      ctx.beginPath();
+      ctx.roundRect(x - half, y - half, half * 2, half * 2, radius);
       break;
     }
     case "relation":
@@ -371,10 +401,22 @@ function shapePolyline(
   outset: number
 ): { x: number; y: number }[] {
   switch (role) {
-    case "remote": {
+    case "root": {
       // freqhole mark — uniform outset along centroid-to-vertex direction
       // so the comet trails the silhouette evenly on every side.
       return freqholeMarkVerts(cx, cy, r, outset);
+    }
+    case "remote": {
+      // rounded square — approximate with the bounding square so the
+      // comet rides the outer rectangle (corner radius is small enough
+      // that the visual diff is negligible at typical zoom).
+      const half = r + outset;
+      return [
+        { x: cx - half, y: cy - half },
+        { x: cx + half, y: cy - half },
+        { x: cx + half, y: cy + half },
+        { x: cx - half, y: cy + half },
+      ];
     }
     case "relation":
       return regularPolyVerts(cx, cy, r + outset, 6, 0);
@@ -390,7 +432,6 @@ function shapePolyline(
       ];
     }
     case "artist":
-    case "root":
     default: {
       // circle → discretize to 64 segments so the perimeter sampler can
       // walk it with the same arc-length math as polygon shapes.
@@ -508,7 +549,7 @@ function drawNode(
   if (n.role === "ghost_artist") return;
 
   // offline remote hubs: draw an opaque black backdrop disk so the dimmed
-  // hex shape doesn't bleed through the connecting edge behind it.
+  // rounded-square shape doesn't bleed through the connecting edge behind it.
   if (isOffline && n.role === "remote") {
     ctx.save();
     ctx.globalAlpha = 1;
@@ -526,7 +567,15 @@ function drawNode(
   }
 
   const color = nodeFillColor(n);
-  ctx.fillStyle = color;
+  // remote hubs replace their flat fill with a deterministic 3-color
+  // gradient (magenta -> purple -> orange) when no avatar image is
+  // resolved. the gradient direction + hue offset are seeded from the
+  // remote id hash so every remote stays visually distinct.
+  if (n.role === "remote") {
+    ctx.fillStyle = remoteGradientFill(ctx, x, y, radius, n.id);
+  } else {
+    ctx.fillStyle = color;
+  }
   // value nodes get a colored stroke based on their taxon kind so different
   // taxons fanning out around an artist/album are visually distinct. pivot +
   // breadcrumb states still win since they convey navigation state.
@@ -579,6 +628,19 @@ function drawNode(
       ctx.save();
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+      ctx.restore();
+      // re-establish path for stroke (clip block called beginPath)
+      nodeShapePath(ctx, n.role, x, y, radius);
+    }
+  } else if (n.role === "remote" && getImage) {
+    const img = getNodeImage(n.id, getImage(n.id), undefined);
+    if (img) {
+      const cornerR = Math.max(2, radius * 0.22);
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x - radius, y - radius, radius * 2, radius * 2, cornerR);
       ctx.clip();
       ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
       ctx.restore();
@@ -1230,7 +1292,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 
         // selection ring — drawn outermost so it's visible behind hover ring
         if (selId === n.id) {
-          const selGap = n.role === "remote" ? 10 : 11;
+          const selGap = n.role === "root" ? 10 : 11;
           nodeShapePath(ctx, n.role, x, y, r, selGap);
           ctx.strokeStyle = SELECTION_RING_COLOR;
           ctx.lineWidth = 2;
@@ -1238,7 +1300,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         }
 
         if (hov === n.id) {
-          const gap = n.role === "remote" ? 5 : 6;
+          const gap = n.role === "root" ? 5 : 6;
           nodeShapePath(ctx, n.role, x, y, r, gap);
           ctx.strokeStyle = HOVER_RING_COLOR;
           ctx.lineWidth = 2;
@@ -1293,14 +1355,14 @@ export default function WalkCanvas(props: WalkCanvasProps) {
         if (Number.isFinite(x) && Number.isFinite(y)) {
           const r = nodeDisplayRadius(n);
           if (selId === n.id) {
-            const selGap = n.role === "remote" ? 10 : 11;
+            const selGap = n.role === "root" ? 10 : 11;
             nodeShapePath(ctx, n.role, x, y, r, selGap);
             ctx.strokeStyle = SELECTION_RING_COLOR;
             ctx.lineWidth = 2;
             ctx.stroke();
           }
           if (hov === n.id) {
-            const gap = n.role === "remote" ? 5 : 6;
+            const gap = n.role === "root" ? 5 : 6;
             nodeShapePath(ctx, n.role, x, y, r, gap);
             ctx.strokeStyle = HOVER_RING_COLOR;
             ctx.lineWidth = 2;
