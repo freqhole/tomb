@@ -94,6 +94,11 @@ import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopov
 import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
 import { RemoteDetailPopover } from "../../../components/graph/RemoteDetailPopover";
 import { BulkSelectionPopover } from "../../../components/graph/BulkSelectionPopover";
+import {
+  SimTuningOverlay,
+  DEFAULT_TUNING,
+  type SimTuningValues,
+} from "../../../components/graph/SimTuningOverlay";
 import type { TaxonRef, TaxonKind as TaxonKindType } from "freqhole-api-client";
 import { Icon } from "../../../components/icons/registry";
 
@@ -828,6 +833,13 @@ function Inner(props: {
   // replace normal click-to-pivot behavior.
   const [editMode, setEditMode] = createSignal(false);
   const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
+  // debug sim-tuning overlay (toggle with shift+d). values forwarded
+  // to the worker any time they change.
+  const [tuningOverlayOpen, setTuningOverlayOpen] = createSignal(false);
+  const [simTuning, setSimTuning] = createSignal<SimTuningValues>({ ...DEFAULT_TUNING });
+  createEffect(() => {
+    walkerClient()?.setTuning(simTuning());
+  });
   // in edit mode, a single value/group taxon selected via plain click
   // should still surface the bulk popover (nest/color/delete). this wrap
   // is what the bulk handlers see, so they auto-activate without us
@@ -1638,6 +1650,11 @@ function Inner(props: {
         e.preventDefault();
         walkerClient()?.repivot(rootId(), true);
       }
+      // shift + d: toggle debug sim-tuning overlay
+      if (e.shiftKey && (e.key === "D" || e.key === "d")) {
+        e.preventDefault();
+        setTuningOverlayOpen(!tuningOverlayOpen());
+      }
     };
     window.addEventListener("keydown", onKey, true);
     onCleanup(() => window.removeEventListener("keydown", onKey, true));
@@ -2071,6 +2088,15 @@ function Inner(props: {
             void handleEdgeRightClick(srcId, tgtId);
           }}
         />
+
+        {/* debug sim-tuning overlay (toggle with shift+d) */}
+        <Show when={tuningOverlayOpen()}>
+          <SimTuningOverlay
+            values={simTuning}
+            onChange={(next) => setSimTuning(next)}
+            onClose={() => setTuningOverlayOpen(false)}
+          />
+        </Show>
 
         {/* edit-mode badge */}
         <Show when={editMode()}>

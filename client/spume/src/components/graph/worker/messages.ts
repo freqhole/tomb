@@ -135,6 +135,26 @@ export interface MsgSetPaused {
   paused: boolean;
 }
 
+/** debug overlay — update runtime sim tuning multipliers. partial
+ *  patch: any missing keys keep their current value. */
+export interface MsgSetTuning {
+  type: "setTuning";
+  tuning: Partial<{
+    albumArtistDistance: number;
+    albumArtistStrength: number;
+    relatedArtistDistance: number;
+    relatedArtistStrength: number;
+    artistHubDistance: number;
+    artistHubStrength: number;
+    albumCollide: number;
+    artistCollide: number;
+    clusterCohesion: number;
+    artistCharge: number;
+    albumCharge: number;
+    gravity: number;
+  }>;
+}
+
 export type MainToWorker =
   | MsgBack
   | MsgExpand
@@ -146,7 +166,8 @@ export type MainToWorker =
   | MsgRepivot
   | MsgResize
   | MsgSetHidden
-  | MsgSetPaused;
+  | MsgSetPaused
+  | MsgSetTuning;
 
 // ---- worker → main ---------------------------------------------------------
 

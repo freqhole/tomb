@@ -27,6 +27,38 @@ export function post(msg: WorkerToMain) {
   ctx.postMessage(msg);
 }
 
+/** runtime-tunable sim knobs. multipliers default to 1 (no change).
+ *  driven by the debug overlay; persistence is host-side. */
+export interface SimTuning {
+  albumArtistDistance: number;
+  albumArtistStrength: number;
+  relatedArtistDistance: number;
+  relatedArtistStrength: number;
+  artistHubDistance: number;
+  artistHubStrength: number;
+  albumCollide: number;
+  artistCollide: number;
+  clusterCohesion: number;
+  artistCharge: number;
+  albumCharge: number;
+  gravity: number;
+}
+
+export const DEFAULT_SIM_TUNING: SimTuning = {
+  albumArtistDistance: 0.7,
+  albumArtistStrength: 1.5,
+  relatedArtistDistance: 2,
+  relatedArtistStrength: 1,
+  artistHubDistance: 1,
+  artistHubStrength: 1,
+  albumCollide: 2,
+  artistCollide: 1,
+  clusterCohesion: 0.4,
+  artistCharge: 1,
+  albumCharge: 1,
+  gravity: 0.25,
+};
+
 export const state: {
   fullGraph: WalkGraph;
   width: number;
@@ -37,6 +69,7 @@ export const state: {
   /** node ids the host has marked hidden (e.g. filtered-out taxons in
    *  edit mode). breadcrumb nodes are never hidden even if listed here. */
   hidden: Set<string>;
+  tuning: SimTuning;
 } = {
   fullGraph: { nodes: [], edges: [] },
   width: 800,
@@ -45,6 +78,7 @@ export const state: {
   sim: null,
   paused: false,
   hidden: new Set<string>(),
+  tuning: { ...DEFAULT_SIM_TUNING },
 };
 
 // node + edge maps rebuilt on each init

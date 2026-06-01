@@ -320,6 +320,14 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       break;
     }
 
+    case "setTuning": {
+      state.tuning = { ...state.tuning, ...msg.tuning };
+      if (state.sim) {
+        buildSim();
+      }
+      break;
+    }
+
     case "getBounds": {
       if (!state.sim || state.sim.nodes().length === 0) {
         post({ type: "boundsResult", reqId: msg.reqId, bounds: null });

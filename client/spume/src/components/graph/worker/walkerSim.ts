@@ -294,6 +294,39 @@ export function buildSim() {
     }
   }
 
+  // cluster cohesion — for every artist↔album edge, nudge the album's
+  // velocity toward its parent artist's live position. complements the
+  // link force (which has a fixed rest distance) by letting users dial
+  // in extra "bundling" without distorting album spacing. strength is
+  // multiplied by alpha so it fades with the sim. tuning value of 0
+  // disables it (default).
+  const albumParentPairs: Array<[albumIdx: number, artistIdx: number]> = [];
+  for (const lk of simLinks) {
+    const sId = typeof lk.source === "string" ? lk.source : (lk.source as SimNode).id;
+    const tId = typeof lk.target === "string" ? lk.target : (lk.target as SimNode).id;
+    const sIdx = idToIdx.get(sId);
+    const tIdx = idToIdx.get(tId);
+    if (sIdx === undefined || tIdx === undefined) continue;
+    const sN = simNodes[sIdx];
+    const tN = simNodes[tIdx];
+    if (sN.role === "artist" && tN.role === "album") albumParentPairs.push([tIdx, sIdx]);
+    else if (sN.role === "album" && tN.role === "artist") albumParentPairs.push([sIdx, tIdx]);
+  }
+  function cohesionForce(alpha: number) {
+    const k = state.tuning.clusterCohesion;
+    if (k <= 0) return;
+    for (const [ai, pi] of albumParentPairs) {
+      const a = simNodes[ai];
+      const p = simNodes[pi];
+      const ax = a.x ?? 0;
+      const ay = a.y ?? 0;
+      const px = p.x ?? 0;
+      const py = p.y ?? 0;
+      a.vx = (a.vx ?? 0) + (px - ax) * k * alpha;
+      a.vy = (a.vy ?? 0) + (py - ay) * k * alpha;
+    }
+  }
+
   state.sim = forceSimulation<SimNode, SimLink>(simNodes)
     .force(
       "link",
@@ -302,6 +335,7 @@ export function buildSim() {
         .distance((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
+          const tun = state.tuning;
           // album edges: tight inner ring, even more so when the
           // parent is the selected pivot (creates a cohesive catalog
           // halo against which the pivot's repulsion field can clear
@@ -310,16 +344,16 @@ export function buildSim() {
             const tight = s.id === pivLeader && pivotActive
               ? Math.max(1.05, 1.3 - pivotBoost * 0.15)
               : 1.3;
-            return (s.radius + t.radius) * tight;
+            return (s.radius + t.radius) * tight * tun.albumArtistDistance;
           }
           // every other edge touching the pivot artist (related-artist,
           // taxon hubs, value chips...) gets pushed outward in
           // proportion to the catalog size. one knob, every edge type.
           const base = d.isRelatedArtist
-            ? (s.radius + t.radius) * 1.6
+            ? (s.radius + t.radius) * 1.6 * tun.relatedArtistDistance
             : s.role === "value"
               ? (s.radius + t.radius) * 4.7  // value→x fan-out
-              : (s.radius + t.radius) * 2.6;
+              : (s.radius + t.radius) * 2.6 * tun.artistHubDistance;
           if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
             return base * (1 + pivotBoost * 1.2);
           }
@@ -328,19 +362,23 @@ export function buildSim() {
         .strength((d) => {
           const s = d.source as SimNode;
           const t = d.target as SimNode;
+          const tun = state.tuning;
           // album edges: lock tight (near-max) so the catalog ring
           // shrugs off every other attractor pulling at the albums.
           if (s.role === "artist" && t.role === "album") {
-            return s.id === pivLeader && pivotActive
+            const base = s.id === pivLeader && pivotActive
               ? Math.min(1, 0.95 + pivotBoost * 0.05)
               : 0.95;
+            return base * tun.albumArtistStrength;
           }
           // every other edge touching the pivot artist gets RELAXED
           // — related-artist links, hub connections, ghost satellites
           // — so they don't yank the pivot off-center or crowd the
           // album ring. base strength varies by edge type but pivot-
           // touching ones are uniformly divided by `1 + boost * 2`.
-          const base = d.isRelatedArtist ? 0.6 : 0.22;
+          const base = d.isRelatedArtist
+            ? 0.6 * tun.relatedArtistStrength
+            : 0.22 * tun.artistHubStrength;
           if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
             return base / (1 + pivotBoost * 2);
           }
@@ -350,18 +388,10 @@ export function buildSim() {
     .force(
       "collide",
       forceCollide<SimNode>()
-        // a bit more breathing room around leaves so labels/artwork don't
-        // overlap as aggressively. hubs stay generous so their fan-outs
-        // don't get squashed. artist/album collide bumped slightly so
-        // there's some visible padding around each tile even when packed.
-        // NOTE: keep pivot artist's collide modest — its big personal-
-        // space bubble is enforced by the strong negative charge below,
-        // not by collide, because a huge collide radius would fight the
-        // album spring (albums sit at ~1.3 * sum-of-radii and would get
-        // shoved out of formation by an oversized pivot collide).
         .radius((d) => {
-          if (d.role === "album") return d.radius * 1.55;
-          if (d.role === "artist") return d.radius * 1.8;
+          const tun = state.tuning;
+          if (d.role === "album") return d.radius * 1.55 * tun.albumCollide;
+          if (d.role === "artist") return d.radius * 1.8 * tun.artistCollide;
           return d.radius * 1.9;
         })
         .strength(1.0)
@@ -370,25 +400,23 @@ export function buildSim() {
     .force(
       "x",
       forceX<SimNode>((d) => d.targetX).strength((d) => {
-        if (d.role === "album") return 0.45;
-        // when pivot is a fat artist, relax the bloom-target homing
-        // on every satellite so they can drift outward under the
-        // pivot's strong negative charge instead of being yanked
-        // back to their original placement.
+        const g = state.tuning.gravity;
+        if (d.role === "album") return 0.45 * g;
         if (pivotActive && d.id !== pivLeader) {
-          return Math.max(0.05, 0.18 - pivotBoost * 0.09);
+          return Math.max(0.05, 0.18 - pivotBoost * 0.09) * g;
         }
-        return 0.18;
+        return 0.18 * g;
       }),
     )
     .force(
       "y",
       forceY<SimNode>((d) => d.targetY).strength((d) => {
-        if (d.role === "album") return 0.45;
+        const g = state.tuning.gravity;
+        if (d.role === "album") return 0.45 * g;
         if (pivotActive && d.id !== pivLeader) {
-          return Math.max(0.05, 0.18 - pivotBoost * 0.09);
+          return Math.max(0.05, 0.18 - pivotBoost * 0.09) * g;
         }
-        return 0.18;
+        return 0.18 * g;
       }),
     )
     .force(
@@ -401,19 +429,21 @@ export function buildSim() {
         // outer space without disturbing the tight album ring (which
         // is held in place by the near-max album spring).
         .strength((d) => {
+          const tun = state.tuning;
           if (d.role === "value" || d.role === "relation" || d.role === "group") return -180;
           if (d.role === "artist") {
             if (d.id === pivLeader && pivotActive) {
-              return -(400 + pivotBoost * 600);
+              return -(400 + pivotBoost * 600) * tun.artistCharge;
             }
-            return -90;
+            return -90 * tun.artistCharge;
           }
-          if (d.role === "album") return -20;
+          if (d.role === "album") return -20 * tun.albumCharge;
           return -55;
         })
         .distanceMax(1400),
     )
     .force("cordon", cordonForce)
+    .force("cohesion", cohesionForce)
     .alphaDecay(0.015)
     .velocityDecay(0.42)
     .on("tick", onTick);

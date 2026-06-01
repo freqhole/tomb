@@ -25,6 +25,21 @@ export interface WalkerClient {
   setHidden(nodeIds: string[]): void;
   repivot(nodeId: string, resetBreadcrumb?: boolean): void;
   setPaused(paused: boolean): void;
+  /** debug overlay — push partial tuning patch to the worker. */
+  setTuning(tuning: Partial<{
+    albumArtistDistance: number;
+    albumArtistStrength: number;
+    relatedArtistDistance: number;
+    relatedArtistStrength: number;
+    artistHubDistance: number;
+    artistHubStrength: number;
+    albumCollide: number;
+    artistCollide: number;
+    clusterCohesion: number;
+    artistCharge: number;
+    albumCharge: number;
+    gravity: number;
+  }>): void;
   back(): void;
   /** point hit-test in WORLD coordinates. `k` is the viewport scale
    *  (defaults to 1) so the worker can apply a 12-screen-px minimum
@@ -109,6 +124,9 @@ export function createWalkerClient(): WalkerClient {
     },
     setPaused(paused) {
       post({ type: "setPaused", paused });
+    },
+    setTuning(tuning) {
+      post({ type: "setTuning", tuning });
     },
     back() {
       post({ type: "back" });
