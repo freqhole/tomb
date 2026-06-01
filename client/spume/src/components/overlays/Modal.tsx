@@ -102,6 +102,10 @@ export function Modal(props: ModalProps) {
           h-[100dvh] max-h-[100dvh] rounded-none
           sm:rounded-lg sm:max-h-[80dvh] sm:h-auto
         `}
+        style={{
+          "margin-top": "var(--safe-area-top, 0px)",
+          "max-height": "calc(100dvh - var(--safe-area-top, 0px))",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}

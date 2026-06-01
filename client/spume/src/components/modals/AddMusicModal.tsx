@@ -149,9 +149,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
           <div
             class={`w-full wide:max-w-3xl wide:h-auto wide:max-h-[80dvh] bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg overflow-hidden flex flex-col ${props.class || ""}`}
             style={{
-              height: "calc(100% - env(safe-area-inset-top, 0px))",
-              "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
-              "margin-top": "env(safe-area-inset-top, 0px)",
+              height: "calc(100% - var(--safe-area-top, 0px))",
+              "max-height": "calc(100% - var(--safe-area-top, 0px))",
+              "margin-top": "var(--safe-area-top, 0px)",
             }}
             onClick={(e) => e.stopPropagation()}
           >

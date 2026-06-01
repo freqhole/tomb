@@ -1199,8 +1199,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           right: 0,
           bottom: 0,
           "z-index": 1050,
-          "margin-top": "env(safe-area-inset-top, 0px)",
-          height: "calc(100% - env(safe-area-inset-top, 0px))",
+          "margin-top": "var(--safe-area-top, 0px)",
+          height: "calc(100% - var(--safe-area-top, 0px))",
         }}
         onClick={handleClose}
       >

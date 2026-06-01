@@ -276,9 +276,9 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
       <div
         class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:max-h-[80dvh] flex flex-col"
         style={{
-          "margin-top": "env(safe-area-inset-top, 0px)",
-          height: "calc(100% - env(safe-area-inset-top, 0px))",
-          "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
+          "margin-top": "var(--safe-area-top, 0px)",
+          height: "calc(100% - var(--safe-area-top, 0px))",
+          "max-height": "calc(100% - var(--safe-area-top, 0px))",
         }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -120,7 +120,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
           props.onClose();
         }}
         class="absolute right-4 p-2 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 rounded-full"
-        style={{ top: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+        style={{ top: "calc(var(--safe-area-top, 0px) + 1rem)" }}
         title="close (esc)"
       >
         <Icon name={IconNames.close} size={24} />
@@ -130,7 +130,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
       <Show when={props.title}>
         <div
           class="absolute left-4 text-white text-lg font-medium z-10"
-          style={{ top: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+          style={{ top: "calc(var(--safe-area-top, 0px) + 1rem)" }}
         >
           {props.title}
         </div>
