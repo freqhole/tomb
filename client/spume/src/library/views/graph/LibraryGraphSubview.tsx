@@ -49,7 +49,7 @@ import { createPivotHandler } from "./graphSubview/createPivotHandler";
 import { createEditModeHandlers } from "./graphSubview/editModeHandlers";
 import { createBulkHandlers } from "./graphSubview/bulkHandlers";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
-import { routes } from "../../../music/utils/routing";
+import { routes, getDefaultRoute } from "../../../music/utils/routing";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import { isNarrowViewport } from "../../../config/breakpoints";
@@ -721,11 +721,16 @@ function Inner(props: {
     client.setPaused(!props.isActive());
   });
 
+  // mirror the worker's visible-ids stream into a signal so other
+  // memos (e.g. the smart-filter scope inference) can react to what
+  // is actually on-screen rather than re-deriving from buildResult.
+  const [visibleIds, setVisibleIds] = createSignal<string[]>([]);
   // subscribe to visible-ids to trigger cross-remote artist lookups
   createEffect(() => {
     const client = walkerClient();
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
+      setVisibleIds(ids);
       // when any group has been eagerly expanded, drive album loading
       // for every visible value/group so the worker's subtree DFS can
       // surface the resulting artist + album nodes on the next pass.
@@ -911,42 +916,178 @@ function Inner(props: {
       return next;
     });
   };
-  const activeHubFilterQuery = createMemo(() => {
+  // unassigned hub pager state. page size is one of UNASSIGNED_PAGE_SIZES;
+  // page index is clamped client-side once the total album count comes
+  // back from the server. info map captures the last-known server
+  // response (total + hasNext) so prev/next can be disabled correctly.
+  const UNASSIGNED_PAGE_SIZES = [4, 8, 12, 16, 24, 32, 48, 64];
+  const UNASSIGNED_DEFAULT_PAGE_SIZE = 16;
+  const [unassignedPageIndexByHub, setUnassignedPageIndexByHub] = createSignal<Map<string, number>>(
+    new Map()
+  );
+  const [unassignedPageSizeByHub, setUnassignedPageSizeByHub] = createSignal<Map<string, number>>(
+    new Map()
+  );
+  const [unassignedInfoByHub, setUnassignedInfoByHub] = createSignal<
+    Map<
+      string,
+      { total: number; pageIndex: number; pageSize: number; consumed: number; hasNext: boolean }
+    >
+  >(new Map());
+  const getUnassignedPageIndex = (hubId: string) => unassignedPageIndexByHub().get(hubId) ?? 0;
+  const getUnassignedPageSize = (hubId: string) =>
+    unassignedPageSizeByHub().get(hubId) ?? UNASSIGNED_DEFAULT_PAGE_SIZE;
+  // builds the pager bundle shared between the expanded popover and the
+  // collapsed taxon button. returns undefined unless the currently-
+  // selected hub is `relation::*::unassigned`.
+  const buildUnassignedPager = () => {
     const info = selectedTaxonInfo();
-    if (!info) return "";
-    return taxonFilterByHub().get(info.relHubId) ?? "";
+    if (info?.kindSlug !== "unassigned") return undefined;
+    const hubId = info.relHubId;
+    return {
+      pageIndex: () => getUnassignedPageIndex(hubId),
+      pageSize: () => getUnassignedPageSize(hubId),
+      pageSizes: UNASSIGNED_PAGE_SIZES,
+      total: () => unassignedInfoByHub().get(hubId)?.total ?? 0,
+      consumed: () => unassignedInfoByHub().get(hubId)?.consumed ?? 0,
+      canPrev: () => getUnassignedPageIndex(hubId) > 0,
+      canNext: () => unassignedInfoByHub().get(hubId)?.hasNext ?? false,
+      onPrev: () => {
+        const cur = getUnassignedPageIndex(hubId);
+        if (cur <= 0) return;
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, cur - 1);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+      onNext: () => {
+        if (!(unassignedInfoByHub().get(hubId)?.hasNext ?? false)) return;
+        const cur = getUnassignedPageIndex(hubId);
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, cur + 1);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+      onPageSizeChange: (size: number) => {
+        if (size === getUnassignedPageSize(hubId)) return;
+        setUnassignedPageSizeByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, size);
+          return next;
+        });
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, 0);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+    };
+  };
+  // unified key used to scope the filter query / scope override / values-
+  // only sub-toggle across whichever popover is currently open. covers
+  // relation, value, and group selections via their parent kind hub id,
+  // and remote root selections via a synthetic `remote::{id}` key.
+  const filterContextKey = createMemo<string | null>(() => {
+    const info = selectedTaxonInfo();
+    if (info) return info.relHubId;
+    return null;
   });
-  // compute matching + non-matching node ids for the currently-open hub.
-  // matches are taxon ids whose label contains the (lowercased) query.
+  const activeHubFilterQuery = createMemo(() => {
+    const key = filterContextKey();
+    if (!key) return "";
+    return taxonFilterByHub().get(key) ?? "";
+  });
+  // per-hub manual override for filter scope. when absent the scope
+  // is inferred from visible context (see inferredFilterScope below).
+  const [taxonFilterScopeByHub, setTaxonFilterScopeByHub] = createSignal<
+    Map<string, "taxons" | "entities">
+  >(new Map());
+  // infer whether the filter input should match taxon labels (values +
+  // groups) or entity labels (artists + albums) based on what's
+  // currently visible. taxon scope only ever applies to a relation hub
+  // selection (and even then `unassigned` always forces entities since
+  // it only contains orphan albums). value / group / remote selections
+  // always default to entities — their interesting children are
+  // artists and albums, not sibling taxons.
+  const inferredFilterScope = createMemo<"taxons" | "entities">(() => {
+    const info = selectedTaxonInfo();
+    if (info && info.taxonId !== null) return "entities";
+    if (info && info.kindSlug === "unassigned") return "entities";
+    if (!info) return "taxons";
+    let taxonCount = 0;
+    let entityCount = 0;
+    for (const id of visibleIds()) {
+      if (id.startsWith("value::") || id.startsWith("group::")) taxonCount++;
+      else if (id.startsWith("artist::") || id.startsWith("album::")) entityCount++;
+    }
+    return entityCount > taxonCount ? "entities" : "taxons";
+  });
+  const activeFilterScope = createMemo<"taxons" | "entities">(() => {
+    const key = filterContextKey();
+    if (!key) return inferredFilterScope();
+    return taxonFilterScopeByHub().get(key) ?? inferredFilterScope();
+  });
+  // compute matching + non-matching node ids for the currently-open
+  // selection. matches feed the "select matches" multi-select shortcut;
   // non-matches become the worker hide set.
   const hubFilterIds = createMemo<{ matchIds: Set<string>; hideIds: Set<string> }>(() => {
     // subscribe to the refresh tick so this re-runs after refreshHub
     // repopulates taxonItemsByHub (e.g. post re-parent drop).
     hubRefreshTick();
     const info = selectedTaxonInfo();
+    const key = filterContextKey();
     const query = activeHubFilterQuery().trim().toLowerCase();
     const matchIds = new Set<string>();
     const hideIds = new Set<string>();
-    if (!info || !query) return { matchIds, hideIds };
-    const items = taxonItemsByHub.get(info.relHubId);
-    if (!items) return { matchIds, hideIds };
-    const parsed = parseNodeId(info.relHubId);
-    if (!parsed || parsed.kind !== "relation") return { matchIds, hideIds };
-    const remoteId = parsed.remoteId;
-    const kind = parsed.relationKind;
-    const childIdSet = new Set<string>();
-    const parents = taxonParentsByHub.get(info.relHubId);
-    if (parents) for (const pid of parents.values()) childIdSet.add(pid);
-    for (const meta of items.values()) {
-      const isGroup = childIdSet.has(meta.id);
-      // values-only scope: skip group taxons so they remain visible
-      // and don't pollute the hide set.
-      if (isGroup && activeHubFilterValuesOnly()) continue;
-      const nodeId = isGroup
-        ? groupNodeId(remoteId, kind, meta.label)
-        : valueNodeId(remoteId, kind, meta.label);
-      if (meta.label.toLowerCase().includes(query)) matchIds.add(nodeId);
-      else hideIds.add(nodeId);
+    if (!key || !query) return { matchIds, hideIds };
+    const scope = activeFilterScope();
+    // taxon scope requires a relation-hub selection — only then do we
+    // know which kind's children to enumerate from taxonItemsByHub.
+    if (scope === "taxons" && info && info.taxonId === null) {
+      const items = taxonItemsByHub.get(info.relHubId);
+      if (!items) return { matchIds, hideIds };
+      const parsed = parseNodeId(info.relHubId);
+      if (!parsed || parsed.kind !== "relation") return { matchIds, hideIds };
+      const remoteId = parsed.remoteId;
+      const kind = parsed.relationKind;
+      const childIdSet = new Set<string>();
+      const parents = taxonParentsByHub.get(info.relHubId);
+      if (parents) for (const pid of parents.values()) childIdSet.add(pid);
+      for (const meta of items.values()) {
+        const isGroup = childIdSet.has(meta.id);
+        // values-only scope: skip group taxons so they remain visible
+        // and don't pollute the hide set.
+        if (isGroup && activeHubFilterValuesOnly()) continue;
+        const nodeId = isGroup
+          ? groupNodeId(remoteId, kind, meta.label)
+          : valueNodeId(remoteId, kind, meta.label);
+        if (meta.label.toLowerCase().includes(query)) matchIds.add(nodeId);
+        else hideIds.add(nodeId);
+      }
+      return { matchIds, hideIds };
+    }
+    // entity scope: scan currently-visible artist + album nodes and
+    // match against their names / titles. relies on the worker's
+    // hide-set semantics so hidden artists fade off-screen without
+    // tearing down their edges.
+    for (const id of visibleIds()) {
+      if (!id.startsWith("artist::") && !id.startsWith("album::")) continue;
+      const node = lookupNode(id);
+      if (!node) continue;
+      let label = "";
+      if ("title" in node) label = (node as AlbumNodeData).title ?? "";
+      else if ("name" in node) label = (node as ArtistNodeData).name ?? "";
+      if (!label) {
+        hideIds.add(id);
+        continue;
+      }
+      if (label.toLowerCase().includes(query)) matchIds.add(id);
+      else hideIds.add(id);
     }
     return { matchIds, hideIds };
   });
@@ -958,15 +1099,16 @@ function Inner(props: {
     const { hideIds } = hubFilterIds();
     client.setHidden(Array.from(hideIds));
   });
-  // clear the filter for a hub when its popover closes / switches hubs.
-  createEffect((prevHubId: string | null) => {
-    const info = selectedTaxonInfo();
-    const curHubId = info?.relHubId ?? null;
-    if (prevHubId && prevHubId !== curHubId) {
+  // clear the filter for a context when its popover closes / swaps.
+  createEffect((prevKey: string | null) => {
+    const curKey = filterContextKey();
+    if (prevKey && prevKey !== curKey) {
       const next = new Map(taxonFilterByHub());
-      if (next.delete(prevHubId)) setTaxonFilterByHub(next);
+      if (next.delete(prevKey)) setTaxonFilterByHub(next);
+      const nextScope = new Map(taxonFilterScopeByHub());
+      if (nextScope.delete(prevKey)) setTaxonFilterScopeByHub(nextScope);
     }
-    return curHubId;
+    return curKey;
   }, null);
   // exit edit mode when the taxon selection is cleared
   createEffect(() => {
@@ -975,11 +1117,14 @@ function Inner(props: {
       setMultiSelection(new Set<string>());
     }
   });
-  // clear any active taxon filter when no hub popover is open so the
-  // hide set doesn't linger across navigation.
+  // clear any lingering filter state when no popover is open so the
+  // hide set doesn't persist across navigation.
   createEffect(() => {
-    if (!selectedTaxonInfo() && taxonFilterByHub().size > 0) {
+    if (!filterContextKey() && taxonFilterByHub().size > 0) {
       setTaxonFilterByHub(new Map());
+    }
+    if (!filterContextKey() && taxonFilterScopeByHub().size > 0) {
+      setTaxonFilterScopeByHub(new Map());
     }
   });
 
@@ -1832,6 +1977,7 @@ function Inner(props: {
     maybeLoadTaxonsForPivot,
     maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
+    reloadUnassignedPage,
   } = createPivotHandler({
     remotes: () => props.remotes(),
     offlineByRemote,
@@ -1852,6 +1998,27 @@ function Inner(props: {
     albumsLoadedByPivot,
     editMode,
     onHubRefreshed: (_relHubId) => setHubRefreshTick((n) => n + 1),
+    getUnassignedPagerState: (relHubId) => ({
+      pageIndex: getUnassignedPageIndex(relHubId),
+      pageSize: getUnassignedPageSize(relHubId),
+    }),
+    onUnassignedPageInfo: (relHubId, info) => {
+      setUnassignedInfoByHub((prev) => {
+        const next = new Map(prev);
+        next.set(relHubId, info);
+        return next;
+      });
+      // clamp host page index if server returned earlier than requested
+      // (e.g. asked for page 3 but cursors only go up to page 1 because
+      // the page size changed).
+      if (info.pageIndex !== getUnassignedPageIndex(relHubId)) {
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(relHubId, info.pageIndex);
+          return next;
+        });
+      }
+    },
     queryClient,
   });
 
@@ -2434,6 +2601,7 @@ function Inner(props: {
             <TaxonDetailPopover
               taxon={() => selectedTaxonData()?.taxon ?? null}
               kindLabel={() => taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.label}
+              kindSlug={() => selectedTaxonInfo()?.kindSlug}
               kindColor={() =>
                 taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.color ?? undefined
               }
@@ -2460,11 +2628,11 @@ function Inner(props: {
               }}
               filterQuery={activeHubFilterQuery}
               onFilterChange={(query) => {
-                const info = selectedTaxonInfo();
-                if (!info) return;
+                const key = filterContextKey();
+                if (!key) return;
                 const next = new Map(taxonFilterByHub());
-                if (query.length === 0) next.delete(info.relHubId);
-                else next.set(info.relHubId, query);
+                if (query.length === 0) next.delete(key);
+                else next.set(key, query);
                 setTaxonFilterByHub(next);
               }}
               matchCount={() => hubFilterIds().matchIds.size}
@@ -2481,6 +2649,16 @@ function Inner(props: {
                 next.set(info.relHubId, valuesOnly);
                 setTaxonFilterValuesOnlyByHub(next);
               }}
+              filterScope={activeFilterScope}
+              inferredFilterScope={inferredFilterScope}
+              onFilterScopeChange={(scope) => {
+                const key = filterContextKey();
+                if (!key) return;
+                const next = new Map(taxonFilterScopeByHub());
+                if (scope === null) next.delete(key);
+                else next.set(key, scope);
+                setTaxonFilterScopeByHub(next);
+              }}
               onExpandSubtree={() => {
                 const id = selectedId();
                 if (!id) return;
@@ -2493,6 +2671,7 @@ function Inner(props: {
                 const id = selectedId();
                 return id ? eagerHubIds().has(id) : false;
               }}
+              unassignedPager={buildUnassignedPager()}
               onSetColor={(color) => {
                 const info = selectedTaxonInfo();
                 if (!info?.taxonId) return;
@@ -2575,6 +2754,26 @@ function Inner(props: {
                 label={label}
                 swatch={swatch ?? null}
                 onRestore={() => setTaxonPanelHidden(false)}
+                pager={(() => {
+                  const pg = buildUnassignedPager();
+                  if (!pg) return undefined;
+                  const pageCount = () => {
+                    const t = pg.total();
+                    const ps = pg.pageSize();
+                    if (t <= 0 || ps <= 0) return 1;
+                    return Math.max(1, Math.ceil(t / ps));
+                  };
+                  return {
+                    pageIndex: pg.pageIndex,
+                    pageCount,
+                    consumed: pg.consumed,
+                    total: pg.total,
+                    canPrev: pg.canPrev,
+                    canNext: pg.canNext,
+                    onPrev: pg.onPrev,
+                    onNext: pg.onNext,
+                  };
+                })()}
               />
             );
           })()}
@@ -2597,6 +2796,11 @@ function Inner(props: {
               canEdit={() => isRemoteAdmin(selectedRemote()?.remote_id ?? null)}
               taxonKinds={() => taxonKindsByRemote().get(selectedRemote()?.remote_id ?? "") ?? []}
               onClose={() => setSelectedId(null)}
+              onBrowse={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                navigate(getDefaultRoute(r.remote_id));
+              }}
               onCreateTaxon={(kindSlug, label) => {
                 const remote = selectedRemote();
                 if (!remote) return;

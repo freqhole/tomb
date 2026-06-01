@@ -48,6 +48,15 @@ export interface PivotHandlerDeps {
    *  hosts use this to re-derive any per-hub state (e.g. edit-mode
    *  filter hide sets) that depends on the populated taxon caches. */
   onHubRefreshed?: (relHubId: string) => void;
+  /** host-owned page state for the unassigned hub: which page to fetch
+   *  + page size. when omitted, pager defaults to page 0 / size 16. */
+  getUnassignedPagerState?: (relHubId: string) => { pageIndex: number; pageSize: number };
+  /** fires after an unassigned page load completes. host uses this to
+   *  update its pager ui (total count, can-prev/next). */
+  onUnassignedPageInfo?: (
+    relHubId: string,
+    info: { total: number; pageIndex: number; pageSize: number; consumed: number; hasNext: boolean }
+  ) => void;
   queryClient?: QueryClient;
 }
 
@@ -71,6 +80,8 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     albumsLoadedByPivot,
     editMode,
     onHubRefreshed,
+    getUnassignedPagerState,
+    onUnassignedPageInfo,
   } = deps;
 
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
@@ -85,6 +96,19 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   const recentlyAddedFetchPromises = new Map<string, Promise<void>>();
   const unassignedLoadedByHub = new Set<string>();
   const unassignedFetchPromises = new Map<string, Promise<void>>();
+  // raw API offset cursor per page index. index [i] gives the offset to
+  // request to fetch page i. index [0] is always 0. each completed fetch
+  // pushes the next cursor so backwards navigation can replay the same
+  // page boundaries even if pageSize was changed mid-walk (pageSize
+  // change resets the array).
+  const unassignedPageOffsetsByHub = new Map<string, number[]>();
+  // page size used to compute each entry in unassignedPageOffsetsByHub.
+  // tracked so a size change can invalidate the cached cursors.
+  const unassignedPageSizeAnchorByHub = new Map<string, number>();
+  // ids of album+artist nodes merged for the currently-displayed page.
+  // removed before the next page is merged so the canvas swaps pages
+  // cleanly instead of accumulating every page's nodes.
+  const unassignedPageNodeIdsByHub = new Map<string, string[]>();
   const relatedArtistsLoadedByPivot = new Set<string>();
   const relatedArtistsFetchPromises = new Map<string, Promise<void>>();
   const entityRelationsLoadedByPivot = new Set<string>();
@@ -98,12 +122,13 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   const eraBinsByHub = new Map<string, EraBinMeta[]>();
   const eraBinAlbumsLoadedByHub = new Set<string>();
   const eraBinAlbumsFetchPromises = new Map<string, Promise<void>>();
-  const unassignedPageByHub = new Map<string, number>();
   // ids of taxon nodes (value + group) we've merged per hub. used to
   // evict stale nodes/edges on refresh so re-parented taxons drop
   // their old hub-edge instead of stacking a new one alongside it.
   const taxonNodeIdsByHub = new Map<string, Set<string>>();
   const unassignedExhaustedByHub = new Set<string>();
+  /** unassigned default pager state when host doesn't supply one. */
+  const UNASSIGNED_DEFAULT_PAGE_SIZE = 16;
 
   const maybeLoadTaxonsForPivot = async (nodeId: string): Promise<void> => {
     let parsed: ReturnType<typeof parseNodeId>;
@@ -502,67 +527,152 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       return;
     }
     const relHubId = relationHubId(remoteId, "unassigned");
-    if (unassignedExhaustedByHub.has(relHubId)) return;
-    const inFlight = unassignedFetchPromises.get(relHubId);
-    if (inFlight) return inFlight;
+    if (unassignedLoadedByHub.has(relHubId)) return;
+    return loadUnassignedPage(relHubId);
+  };
+
+  const loadUnassignedPage = async (relHubId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(relHubId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "relation" || parsed.relationKind !== "unassigned") return;
+    const remoteId = parsed.remoteId;
     if (offlineByRemote().get(remoteId) === true) return;
     const remote = remotes().find((r) => r.remote_id === remoteId);
     if (!remote) return;
-    const pageSize = 100;
-    const offset = unassignedPageByHub.get(relHubId) ?? 0;
+
+    const inFlight = unassignedFetchPromises.get(relHubId);
+    if (inFlight) return inFlight;
+
+    const requested = getUnassignedPagerState?.(relHubId);
+    const pageSize = Math.max(1, requested?.pageSize ?? UNASSIGNED_DEFAULT_PAGE_SIZE);
+    const pageIndex = Math.max(0, requested?.pageIndex ?? 0);
+
+    // page-size change invalidates cached page offsets (the boundaries
+    // were computed for a different size). reset everything; the host
+    // is expected to clamp pageIndex to 0 on size change as well.
+    if (unassignedPageSizeAnchorByHub.get(relHubId) !== pageSize) {
+      unassignedPageOffsetsByHub.set(relHubId, [0]);
+      unassignedPageSizeAnchorByHub.set(relHubId, pageSize);
+      unassignedExhaustedByHub.delete(relHubId);
+    }
+    const cursors = unassignedPageOffsetsByHub.get(relHubId) ?? [0];
+    // can't jump ahead past the furthest fetched cursor
+    const clampedPage = Math.min(pageIndex, cursors.length - 1);
+    const rawOffset = cursors[clampedPage];
+    // overfetch headroom so the per-artist-trim has whole blocks to
+    // choose from. fetch enough to comfortably fit pageSize even when
+    // the last artist on a page has many records.
+    const requestLimit = Math.max(pageSize * 2, pageSize + 16);
+
     const promise = (async () => {
       setFetchingNodeFlag(relHubId, true);
       try {
         const client = await getClientForRemote(remote);
         const result = await client.music.unassignedAlbums({
           kind_slug: null,
-          limit: pageSize,
-          offset,
+          limit: requestLimit,
+          offset: rawOffset,
         });
         if (!result.success || !result.data) return;
         const albums = result.data.albums;
-        if (albums.length < pageSize) {
-          unassignedExhaustedByHub.add(relHubId);
+        const total = result.data.count;
+
+        // group albums by artist (first-seen order). then take whole
+        // artist blocks until the page is full; always take at least
+        // the first block so we advance even when one artist owns more
+        // unassigned albums than fits in pageSize.
+        type RawAlbum = typeof albums[number];
+        const blocks: { artistKey: string; rows: RawAlbum[] }[] = [];
+        const blockIndex = new Map<string, number>();
+        for (const item of albums) {
+          const key = item.artist?.id ?? `__no_artist__::${item.album.id}`;
+          let i = blockIndex.get(key);
+          if (i === undefined) {
+            i = blocks.length;
+            blockIndex.set(key, i);
+            blocks.push({ artistKey: key, rows: [] });
+          }
+          blocks[i].rows.push(item);
         }
-        unassignedPageByHub.set(relHubId, offset + albums.length);
+        const taken: RawAlbum[] = [];
+        for (let i = 0; i < blocks.length; i++) {
+          const block = blocks[i];
+          if (taken.length === 0 || taken.length + block.rows.length <= pageSize) {
+            for (const row of block.rows) taken.push(row);
+          } else {
+            break;
+          }
+        }
+        const consumed = taken.length;
+
+        // remove the prior page's album+artist nodes so the swap is
+        // clean (and so re-paginating doesn't accumulate). breadcrumb /
+        // pivot ids are protected by the worker's remove() logic.
+        const prevIds = unassignedPageNodeIdsByHub.get(relHubId);
+        if (prevIds && prevIds.length > 0) {
+          walkerClient()?.remove(prevIds);
+        }
+
+        // exhausted: server returned strictly fewer rows than requested
+        // (we asked for more than pageSize). no more pages after this.
+        const hasNext = albums.length > consumed || albums.length === requestLimit;
+        if (!hasNext) {
+          unassignedExhaustedByHub.add(relHubId);
+        } else {
+          unassignedExhaustedByHub.delete(relHubId);
+          cursors[clampedPage + 1] = rawOffset + consumed;
+        }
+        unassignedPageOffsetsByHub.set(relHubId, cursors);
         unassignedLoadedByHub.add(relHubId);
-        if (albums.length === 0) return;
-        const adapted: AlbumNodeData[] = albums.map((item) => adaptQueryAlbumItem(item, remote));
-        appendAlbumsToRemote(remoteId, adapted);
+
         const rhId = remoteHubId(remoteId);
-        const totalSoFar = offset + albums.length;
         const addNodes: WalkNode[] = [
           {
             id: relHubId,
             role: "relation",
             label: "unassigned",
             parentId: rhId,
-            childCount: totalSoFar,
+            childCount: total,
             lazy: true,
           },
         ];
         const addEdges: WalkEdge[] = [{ source: rhId, target: relHubId }];
         const prefix = `${remoteId}::`;
         const seenArtists = new Set<string>();
-        for (const album of adapted) {
-          const bareAlbumId = album.id.startsWith(prefix)
-            ? album.id.slice(prefix.length)
-            : album.id;
-          addEdges.push({
-            source: relHubId,
-            target: `album::${remoteId}::${bareAlbumId}`,
-          });
-          if (album.artistId && !seenArtists.has(album.artistId)) {
-            seenArtists.add(album.artistId);
-            addEdges.push({
-              source: relHubId,
-              target: `artist::${remoteId}::${album.artistId}`,
-            });
+        const pageNodeIds: string[] = [];
+        if (consumed > 0) {
+          const adapted: AlbumNodeData[] = taken.map((item) => adaptQueryAlbumItem(item, remote));
+          appendAlbumsToRemote(remoteId, adapted);
+          for (const album of adapted) {
+            const bareAlbumId = album.id.startsWith(prefix)
+              ? album.id.slice(prefix.length)
+              : album.id;
+            const albumNodeId = `album::${remoteId}::${bareAlbumId}`;
+            addEdges.push({ source: relHubId, target: albumNodeId });
+            pageNodeIds.push(albumNodeId);
+            if (album.artistId && !seenArtists.has(album.artistId)) {
+              seenArtists.add(album.artistId);
+              const artistNodeIdStr = `artist::${remoteId}::${album.artistId}`;
+              addEdges.push({ source: relHubId, target: artistNodeIdStr });
+              pageNodeIds.push(artistNodeIdStr);
+            }
           }
         }
+        unassignedPageNodeIdsByHub.set(relHubId, pageNodeIds);
         walkerClient()?.merge(addNodes, addEdges);
+        onUnassignedPageInfo?.(relHubId, {
+          total,
+          pageIndex: clampedPage,
+          pageSize,
+          consumed,
+          hasNext,
+        });
       } catch (err) {
-        console.warn("lazy unassigned-albums fetch failed", { nodeId, err });
+        console.warn("lazy unassigned-albums fetch failed", { relHubId, err });
       } finally {
         setFetchingNodeFlag(relHubId, false);
         unassignedFetchPromises.delete(relHubId);
@@ -570,6 +680,14 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     })();
     unassignedFetchPromises.set(relHubId, promise);
     return promise;
+  };
+
+  const reloadUnassignedPage = (relHubId: string): Promise<void> => {
+    // host requested a re-fetch (page nav or size change). drop the
+    // loaded flag so the next call to maybeLoad/loadUnassignedPage
+    // re-runs the fetch instead of treating it as already done.
+    unassignedLoadedByHub.delete(relHubId);
+    return loadUnassignedPage(relHubId);
   };
 
   const filterForValuePivot = (
@@ -926,5 +1044,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     maybeLoadTaxonsForPivot,
     maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
+    reloadUnassignedPage,
   };
 }

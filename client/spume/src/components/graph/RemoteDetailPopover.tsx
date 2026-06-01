@@ -18,6 +18,8 @@ export interface RemoteDetailPopoverProps {
   onCreateTaxon: (kindSlug: string, label: string) => void;
   /** create a new taxon kind on the popover's remote. */
   onCreateKind: (input: { slug: string; label: string; color: string | null }) => void;
+  /** navigate to the remote's default browse view (albums). */
+  onBrowse?: () => void;
 }
 
 // derive a url-safe slug from a freeform label. matches the
@@ -96,7 +98,7 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
         class="rounded-lg bg-[var(--color-bg-elevated)] border border-white/10 shadow-xl text-[var(--color-text)] w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-var(--nav-height,56px)-var(--player-bar-height,0px)-3.5rem)] overflow-y-auto flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* header: name + close */}
+        {/* header: name */}
         <div class="flex items-start gap-2 p-3 pb-2">
           <div class="flex-1 min-w-0">
             <div class="font-semibold text-sm leading-tight truncate">
@@ -108,49 +110,21 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
               </div>
             </Show>
           </div>
-          <button
-            type="button"
-            class="text-white/40 hover:text-white/80 text-xs leading-none px-1 cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onClose();
-            }}
-            title="close"
-            aria-label="close"
-          >
-            ×
-          </button>
         </div>
 
         {/* body */}
         <div class="px-3 pb-3 flex flex-col gap-2 text-xs text-white/65">
-          <Show when={props.taxonKinds().length > 0}>
-            <div>
-              {props.taxonKinds().length} taxon kind
-              {props.taxonKinds().length !== 1 ? "s" : ""}
-            </div>
-            <div class="flex flex-wrap gap-1">
-              <For each={props.taxonKinds()}>
-                {(kind) => (
-                  <span
-                    class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] leading-none font-medium"
-                    style={{
-                      background: kind.color ? `${kind.color}33` : "rgba(255,255,255,0.08)",
-                      color: kind.color ?? "rgba(255,255,255,0.65)",
-                      border: `1px solid ${
-                        kind.color ? `${kind.color}55` : "rgba(255,255,255,0.12)"
-                      }`,
-                    }}
-                    title={`${kind.album_count} album${kind.album_count !== 1 ? "s" : ""}`}
-                  >
-                    {kind.label || kind.slug}
-                    <Show when={kind.album_count > 0}>
-                      <span class="ml-1 text-white/40">{kind.album_count}</span>
-                    </Show>
-                  </span>
-                )}
-              </For>
-            </div>
+          <Show when={props.onBrowse}>
+            <button
+              type="button"
+              class="w-full py-1.5 px-3 rounded text-xs font-medium border border-sky-400/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-100 hover:text-white transition-colors cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onBrowse?.();
+              }}
+            >
+              browse albums
+            </button>
           </Show>
 
           {/* admin tools */}
@@ -294,12 +268,6 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
                   </div>
                 </Show>
               </div>
-            </div>
-          </Show>
-
-          <Show when={!props.canEdit()}>
-            <div class="text-[10px] text-white/35 italic">
-              admin tools require an admin session on this remote.
             </div>
           </Show>
         </div>

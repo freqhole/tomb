@@ -5,12 +5,17 @@
 import { createSignal, For, Show } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { Taxon, TaxonRef } from "freqhole-api-client";
+import { GraphFilterInput } from "./GraphFilterInput";
 
 const MAX_DESCENDANTS = 8;
 
 export interface TaxonDetailPopoverProps {
   taxon: Accessor<Taxon | null>;
   kindLabel: Accessor<string | undefined>;
+  /** kind slug for the selected hub/taxon. used to suppress hub-only
+   *  actions (edit / add taxon) for synthetic kinds like `unassigned`
+   *  where no real taxon hierarchy exists. */
+  kindSlug?: Accessor<string | undefined>;
   kindColor: Accessor<string | undefined>;
   albumCount: Accessor<number | undefined>;
   /** ancestor path, root first, immediate parent last. shown as a breadcrumb. */
@@ -51,6 +56,17 @@ export interface TaxonDetailPopoverProps {
   filterValuesOnly?: Accessor<boolean>;
   /** toggle handler for the values-only filter scope. */
   onFilterValuesOnlyChange?: (valuesOnly: boolean) => void;
+  /** which kind of nodes the filter currently targets — taxons
+   *  (values + groups) or entities (artists + albums). inferred by the
+   *  host from what's visible inside this hub. drives the input
+   *  placeholder + the visibility of the values-only sub-toggle. */
+  filterScope?: Accessor<"taxons" | "entities">;
+  /** which scope was inferred from context, regardless of any user
+   *  override. shown as a hint next to the manual override pills. */
+  inferredFilterScope?: Accessor<"taxons" | "entities">;
+  /** called when the user picks a scope manually. passing `null` clears
+   *  the override and reverts to the inferred scope. */
+  onFilterScopeChange?: (scope: "taxons" | "entities" | null) => void;
   /** when set, shows an "expand all" button that surfaces every
    *  immediate child + each artist child's albums on the canvas. only
    *  meaningful for group (7-sided) hub nodes. */
@@ -59,6 +75,22 @@ export interface TaxonDetailPopoverProps {
    *  flips the button label between "expand" and "collapse" so the
    *  toggle gesture is discoverable. */
   isExpanded?: Accessor<boolean>;
+  /** optional pager controls — shown when the selected node is the
+   *  unassigned relation hub. lets the user step pages + change page
+   *  size so the canvas only shows one chunk of orphan albums at a
+   *  time. omitted for every other hub. */
+  unassignedPager?: {
+    pageIndex: Accessor<number>;
+    pageSize: Accessor<number>;
+    pageSizes: number[];
+    total: Accessor<number>;
+    consumed: Accessor<number>;
+    canPrev: Accessor<boolean>;
+    canNext: Accessor<boolean>;
+    onPrev: () => void;
+    onNext: () => void;
+    onPageSizeChange: (size: number) => void;
+  };
   /** when provided, positions the popover absolutely at these css coords. */
   x?: number;
   y?: number;
@@ -83,6 +115,9 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
   const swatchColor = () => props.taxon()?.color ?? props.kindColor();
   // kind-only mode (relation hub selected): no taxon, just kind metadata.
   const isHubMode = () => props.taxon() === null;
+  // synthetic kinds (e.g. `unassigned`) have no real taxonomy — hide
+  // the edit + create affordances when the hub itself is selected.
+  const isSyntheticHub = () => isHubMode() && props.kindSlug?.() === "unassigned";
   const title = () => props.taxon()?.label ?? props.kindLabel() ?? "";
 
   return (
@@ -177,8 +212,8 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
             </div>
           </Show>
 
-          {/* edit button — admin only */}
-          <Show when={props.canEdit()}>
+          {/* edit button — admin only; hidden for synthetic hubs. */}
+          <Show when={props.canEdit() && !isSyntheticHub()}>
             <button
               type="button"
               class="mt-1 w-full py-1.5 px-3 rounded text-xs font-medium border border-white/15 bg-white/5 hover:bg-white/10 hover:border-white/25 text-white/80 hover:text-white transition-colors cursor-pointer text-left"
@@ -262,72 +297,107 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
             </button>
           </Show>
 
-          {/* filter input — hub mode + edit mode only. hides non-matching
-              taxon children on the canvas so the user can corral matches
-              for grouping / re-parenting. */}
-          <Show when={isHubMode() && props.onFilterChange}>
-            <div class="mt-1 flex flex-col gap-1">
-              <div class="flex items-center gap-1">
-                <input
-                  type="text"
-                  placeholder="filter taxons…"
-                  value={props.filterQuery?.() ?? ""}
-                  onInput={(e) => props.onFilterChange?.(e.currentTarget.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      props.onFilterChange?.("");
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  class="flex-1 py-1 px-2 rounded text-xs bg-black/30 border border-white/15 focus:border-pink-400 outline-none text-white/85 placeholder:text-white/30"
-                />
-                <Show when={(props.filterQuery?.() ?? "").length > 0}>
-                  <button
-                    type="button"
-                    class="py-1 px-2 rounded text-[10px] font-medium border border-white/15 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 transition-colors cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onFilterChange?.("");
-                    }}
-                  >
-                    clear
-                  </button>
-                </Show>
-              </div>
-              <Show when={props.onFilterValuesOnlyChange}>
-                <label
-                  class="flex items-center gap-1.5 text-[10px] text-white/55 select-none cursor-pointer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="checkbox"
-                    checked={props.filterValuesOnly?.() ?? true}
-                    onChange={(e) => props.onFilterValuesOnlyChange?.(e.currentTarget.checked)}
-                    class="accent-pink-500 cursor-pointer"
-                  />
-                  <span>values only (keep groups visible)</span>
-                </label>
-              </Show>
-              <Show when={(props.filterQuery?.() ?? "").length > 0 && props.onSelectMatches}>
-                <button
-                  type="button"
-                  disabled={(props.matchCount?.() ?? 0) === 0}
-                  class="w-full py-1 px-2 rounded text-[11px] font-medium border border-pink-500/30 bg-pink-500/10 hover:bg-pink-500/20 text-pink-200 hover:text-pink-100 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onSelectMatches?.();
-                  }}
-                >
-                  select {props.matchCount?.() ?? 0} match
-                  {(props.matchCount?.() ?? 0) === 1 ? "" : "es"}
-                </button>
-              </Show>
-            </div>
+          {/* unassigned hub pager — only present when the host wires it
+              up (i.e. selected node is `relation::*::unassigned`). lets
+              the user step through pages of orphan albums one chunk at
+              a time and pick the chunk size with an 8-step slider. */}
+          <Show when={props.unassignedPager}>
+            {(pagerAccessor) => {
+              const p = pagerAccessor();
+              const sizeIndex = () => {
+                const idx = p.pageSizes.indexOf(p.pageSize());
+                return idx >= 0 ? idx : 0;
+              };
+              const pageCount = () => {
+                const t = p.total();
+                const ps = p.pageSize();
+                if (t <= 0 || ps <= 0) return 1;
+                return Math.max(1, Math.ceil(t / ps));
+              };
+              return (
+                <div class="mt-1 flex flex-col gap-1 rounded border border-white/10 bg-white/5 px-2 py-1.5">
+                  <div class="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      class="w-7 h-7 inline-flex items-center justify-center rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="previous page"
+                      aria-label="previous page"
+                      disabled={!p.canPrev()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onPrev();
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <div class="flex-1 text-center text-[10px] text-white/70 tabular-nums leading-tight">
+                      <div>
+                        page {p.pageIndex() + 1} / {pageCount()}
+                      </div>
+                      <div class="text-white/40">
+                        {p.consumed()} of {p.total()} albums
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="w-7 h-7 inline-flex items-center justify-center rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="next page"
+                      aria-label="next page"
+                      disabled={!p.canNext()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        p.onNext();
+                      }}
+                    >
+                      ›
+                    </button>
+                  </div>
+                  <label class="flex items-center gap-2 text-[10px] text-white/60">
+                    <span class="shrink-0">size</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={p.pageSizes.length - 1}
+                      step={1}
+                      value={sizeIndex()}
+                      class="flex-1 accent-sky-400"
+                      onInput={(e) => {
+                        const i = parseInt(e.currentTarget.value, 10);
+                        const size = p.pageSizes[i] ?? p.pageSize();
+                        p.onPageSizeChange(size);
+                      }}
+                    />
+                    <span class="w-6 text-right tabular-nums text-white/80">{p.pageSize()}</span>
+                  </label>
+                </div>
+              );
+            }}
+          </Show>
+
+          {/* filter input — hides non-matching nodes on the canvas so
+              the user can corral matches for grouping / re-parenting.
+              shown for relation hubs, value taxons, and group taxons.
+              the values-only sub-toggle + scope pills only render in
+              hub mode (where taxon-scope matching makes sense). */}
+          <Show when={props.onFilterChange}>
+            <GraphFilterInput
+              query={() => props.filterQuery?.() ?? ""}
+              onQueryChange={(q) => props.onFilterChange?.(q)}
+              valuesOnly={props.filterValuesOnly}
+              onValuesOnlyChange={props.onFilterValuesOnlyChange}
+              scope={props.filterScope}
+              inferredScope={props.inferredFilterScope}
+              onScopeChange={props.onFilterScopeChange}
+              matchCount={props.matchCount}
+              onSelectMatches={props.onSelectMatches}
+              scopeFixedToEntities={!isHubMode()}
+            />
           </Show>
 
           {/* edit-mode create / delete buttons (admin only) */}
-          <Show when={props.canEdit() && props.editMode() && props.onCreateTaxon}>
+          <Show
+            when={props.canEdit() && props.editMode() && props.onCreateTaxon && !isSyntheticHub()}
+          >
             <Show
               when={creating()}
               fallback={
