@@ -62,6 +62,11 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         let already_converted = exists_response.success && exists_response.data.unwrap_or(false);
 
         if !already_converted {
+            crate::jobs::job_events::emit_stage_from_job(
+                job,
+                "converting",
+                Some("converting to webp"),
+            );
             // get original image data from blob_data
             let data_response = blob_data::get_blob_data(blob_id).await;
             if !data_response.success {
@@ -98,6 +103,11 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
 
         // generate thumbnails (for pre-generation mode, not on-demand)
         // this ensures thumbnails exist when on_demand is disabled
+        crate::jobs::job_events::emit_stage_from_job(
+            job,
+            "thumbnails",
+            Some("generating thumbnails"),
+        );
         let thumb_result =
             blob_data::generate_sized_thumbnails(blob_id, job.created_by.clone()).await;
         if thumb_result.success {
@@ -123,6 +133,11 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
 
     // handle association if requested
     if let Some(assoc) = association {
+        crate::jobs::job_events::emit_stage_from_job(
+            job,
+            "associating",
+            Some("linking image to entity"),
+        );
         let entity_type =
             assoc["entity_type"]
                 .as_str()
@@ -360,6 +375,11 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
     // - song creation with relationships
     // - falls back to basic import if metadata extraction fails
     // pass original filename so fallback parsing works (file is stored with blob_id as name)
+    crate::jobs::job_events::emit_stage_from_job(
+        job,
+        "extracting",
+        Some(&format!("extracting metadata: {}", filename)),
+    );
     let import_result =
         extract_and_import(&blob_id, file_path, job.created_by.clone(), Some(&filename)).await?;
 
@@ -410,6 +430,7 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
     }
 
     // generate waveform for uploaded audio
+    crate::jobs::job_events::emit_stage_from_job(job, "waveform", Some("generating waveform"));
     let cfg = config::get_config();
     let mut waveform_generated = false;
     match blob_data::create_audio_waveform_blob(

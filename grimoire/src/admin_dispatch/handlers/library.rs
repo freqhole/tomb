@@ -129,12 +129,19 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
         // emit an immediate progress event so rathole's header badge
         // appears as soon as jobs are enqueued (before first file
         // finishes processing).
-        crate::events::emit(crate::events::GrimoireEvent::JobProgress {
+        crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
             session_id: session_id.clone(),
-            directory: path.clone(),
-            songs_added: 0,
-            jobs_pending: count as u32,
-            jobs_total: count as u32,
+            complete: 0,
+            total: count as i64,
+            topic: crate::jobs::JobType::ScanDirectory,
+            entity_ref: None,
+            created_by: None,
+            details: Some(serde_json::json!({
+                "directory": path.clone(),
+                "songs_added": 0,
+                "jobs_pending": count as u32,
+                "jobs_total": count as u32,
+            })),
         });
     }
 
@@ -352,18 +359,25 @@ pub(in crate::admin_dispatch) async fn fetch(
         let _ =
             crate::jobs::update_session_progress(sid, crate::jobs::JobProgress::new(0, 1), None)
                 .await;
-        // emit an immediate JobProgress so the rathole top-bar badge
+        // emit an immediate Progress so the rathole top-bar badge
         // appears the instant /fetch runs. without this, no event
         // fires until the (potentially minutes-long) FetchMedia row
         // completes, leaving the user with no visual feedback that
         // anything is happening. directory = url so subscribers
         // classify it as a fetch.
-        crate::events::emit(crate::events::GrimoireEvent::JobProgress {
+        crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
             session_id: sid.clone(),
-            directory: url.clone(),
-            songs_added: 0,
-            jobs_pending: 1,
-            jobs_total: 1,
+            complete: 0,
+            total: 1,
+            topic: crate::jobs::JobType::FetchMedia,
+            entity_ref: None,
+            created_by: Some(caller.user_id.clone()),
+            details: Some(serde_json::json!({
+                "directory": url.clone(),
+                "songs_added": 0,
+                "jobs_pending": 1,
+                "jobs_total": 1,
+            })),
         });
     }
     let req = crate::jobs::CreateJobRequest {

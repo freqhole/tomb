@@ -131,14 +131,48 @@ async fn run_inner(
         })
     };
 
-    // forward grimoire broadcast events (job progress, knock create/
-    // process) into the ui loop so the top-bar badges + bell stay
-    // current. uses tokio::spawn (not spawn_local) so the broadcast
-    // receiver lives outside the LocalSet — `AppAction` is Send.
+    // forward grimoire broadcast events into the ui loop.
+    // split into two tasks: knock events via the legacy grimoire events
+    // broadcast, job-lifecycle events via the typed job_events broker.
+    // uses tokio::spawn (not spawn_local) so the receivers live
+    // outside the LocalSet — `AppAction` is Send.
+
+    // knock events (KnockCreated / KnockProcessed)
     let grimoire_events_handle = {
         let tx = action_tx.clone();
         tokio::spawn(async move {
             let mut rx = grimoire::events::subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        let action = match ev {
+                            grimoire::events::GrimoireEvent::KnockCreated {
+                                id, username, ..
+                            } => AppAction::KnockCreated {
+                                id,
+                                username: Some(username),
+                            },
+                            grimoire::events::GrimoireEvent::KnockProcessed { id, .. } => {
+                                AppAction::KnockProcessed { id }
+                            }
+                        };
+                        if tx.send(action).is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    };
+
+    // job-lifecycle events (Progress / Completed) from the typed broker
+    let job_events_handle = {
+        let tx = action_tx.clone();
+        tokio::spawn(async move {
+            use grimoire::jobs::job_events::JobEvent;
+            let mut rx = grimoire::jobs::job_events::subscribe();
             // remember the kind we classified each session as, so the
             // top-bar label doesn't flip from "fetch" to "scan" once
             // the FetchMedia row finishes and child ProcessFile rows
@@ -149,17 +183,20 @@ async fn run_inner(
                 match rx.recv().await {
                     Ok(ev) => {
                         let action = match ev {
-                            grimoire::events::GrimoireEvent::JobProgress {
+                            JobEvent::Progress {
                                 session_id,
-                                directory,
-                                songs_added,
-                                jobs_pending,
-                                jobs_total,
+                                details: Some(d),
+                                ..
                             } => {
+                                let directory = d
+                                    .get("directory")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
                                 // first event for a session classifies
                                 // it; subsequent events keep the same
                                 // label even if `directory` switches
-                                // shape (fetch → child file paths).
+                                // shape (fetch -> child file paths).
                                 let kind =
                                     *session_kinds.entry(session_id.clone()).or_insert_with(|| {
                                         if directory.starts_with("enrich://") {
@@ -173,6 +210,15 @@ async fn run_inner(
                                             "scan"
                                         }
                                     });
+                                let songs_added =
+                                    d.get("songs_added").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                let jobs_pending =
+                                    d.get("jobs_pending").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                let jobs_total =
+                                    d.get("jobs_total").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
                                 AppAction::JobProgress {
                                     session_id,
                                     kind: kind.to_string(),
@@ -181,22 +227,11 @@ async fn run_inner(
                                     jobs_total,
                                 }
                             }
-                            grimoire::events::GrimoireEvent::JobSessionComplete {
-                                session_id,
-                                ..
-                            } => {
+                            JobEvent::Completed { session_id, .. } => {
                                 session_kinds.remove(&session_id);
                                 AppAction::JobSessionComplete { session_id }
                             }
-                            grimoire::events::GrimoireEvent::KnockCreated {
-                                id, username, ..
-                            } => AppAction::KnockCreated {
-                                id,
-                                username: Some(username),
-                            },
-                            grimoire::events::GrimoireEvent::KnockProcessed { id, .. } => {
-                                AppAction::KnockProcessed { id }
-                            }
+                            _ => continue,
                         };
                         if tx.send(action).is_err() {
                             break;
@@ -259,6 +294,7 @@ async fn run_inner(
         tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
     grimoire_events_handle.abort();
+    job_events_handle.abort();
     Ok(())
 }
 

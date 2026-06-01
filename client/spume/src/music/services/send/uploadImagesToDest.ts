@@ -16,6 +16,8 @@
 import type { Transport } from "freqhole-api-client";
 import type { ImageMetadata } from "../storage/types";
 import { debug, info, warn } from "../../../utils/logger";
+import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
+import type { RemoteLike } from "../../../app/api/client";
 
 export type ImageEntityType = "album" | "song" | "playlist" | "artist";
 
@@ -76,6 +78,14 @@ export async function uploadImagesToDest(opts: {
   logPrefix: string;
   imageCache?: ImageBlobCache;
   skipBlobIds?: Set<string>;
+  /**
+   * when provided, the helper polls each upload's returned `job_id`
+   * (the dest's ConvertWebp job) and waits up to `imageJobTimeoutMs`
+   * (default 60s) for completion. timeouts and job failures are logged
+   * but never fail the send.
+   */
+  destRemote?: RemoteLike;
+  imageJobTimeoutMs?: number;
 }): Promise<UploadImagesResult> {
   const {
     sourceTransport,
@@ -86,6 +96,8 @@ export async function uploadImagesToDest(opts: {
     logPrefix,
     imageCache,
     skipBlobIds,
+    destRemote,
+    imageJobTimeoutMs = 60_000,
   } = opts;
   const result: UploadImagesResult = {
     attempted: 0,
@@ -203,7 +215,7 @@ export async function uploadImagesToDest(opts: {
       }
       let parsed: {
         success?: boolean;
-        data?: { blob_id?: string; existing?: boolean };
+        data?: { blob_id?: string; existing?: boolean; job_id?: string };
         errors?: Array<{ detail?: string }>;
       } = {};
       try {
@@ -224,6 +236,40 @@ export async function uploadImagesToDest(opts: {
         "uploadImagesToDest",
         `${logPrefix} [img ${idx}] uploaded blob_id=${parsed.data?.blob_id ?? "?"} existing=${parsed.data?.existing ?? "?"}`,
       );
+
+      // optionally wait for the dest's ConvertWebp job so subsequent
+      // reads on the dest see thumbnails ready. non-fatal on timeout.
+      const jobId = parsed.data?.job_id;
+      if (destRemote && jobId) {
+        try {
+          const pollResult = await pollJobUntilComplete(
+            destRemote,
+            jobId,
+            imageJobTimeoutMs,
+          );
+          if (pollResult === "failed") {
+            warn(
+              "uploadImagesToDest",
+              `${logPrefix} [img ${idx}] dest job ${jobId} failed`,
+            );
+          } else if (pollResult === "timeout") {
+            warn(
+              "uploadImagesToDest",
+              `${logPrefix} [img ${idx}] dest job ${jobId} did not complete within ${imageJobTimeoutMs}ms`,
+            );
+          } else {
+            debug(
+              "uploadImagesToDest",
+              `${logPrefix} [img ${idx}] dest job ${jobId} completed`,
+            );
+          }
+        } catch (e) {
+          warn(
+            "uploadImagesToDest",
+            `${logPrefix} [img ${idx}] dest job ${jobId} poll threw: ${String(e)}`,
+          );
+        }
+      }
     } catch (e) {
       result.failed += 1;
       warn(

@@ -358,7 +358,10 @@ export function SongEditorModal(props: SongEditorModalProps) {
       const remote = pickRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) =>
+            setProcessingJob({ status: "processing", message: message ?? "processing image..." }),
+        });
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);

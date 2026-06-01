@@ -8,8 +8,7 @@ import {
   Show,
 } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 
@@ -49,9 +48,8 @@ interface MoveScanDirectoryResult {
   dry_run: boolean;
 }
 
-// progress payload mirrors GrimoireEvent::JobProgress emitted by the
-// runner and forwarded through charnel's grimoire-event subscription
-// (see client/charnel/src-tauri/src/lib.rs ~line 513).
+// progress payload mirrors JobEvent.Progress.details emitted by the runner
+// and forwarded through the typed job_events broker.
 interface JobProgressPayload {
   session_id: string;
   directory?: string;
@@ -66,11 +64,6 @@ interface JobSessionCompletePayload {
   albums_added: number;
   artists_added: number;
 }
-
-type FreqholeEvent =
-  | { type: "job-progress"; data: JobProgressPayload }
-  | { type: "job-session-complete"; data: JobSessionCompletePayload }
-  | { type: string; data: unknown };
 
 export default function LibraryView() {
   const admin = useAdminTransport();
@@ -108,23 +101,66 @@ export default function LibraryView() {
 
   onMount(async () => {
     await loadDirectories();
-    // listen for job progress / completion events emitted by grimoire and
-    // forwarded by charnel as freqhole:event. these fire for any active
-    // ProcessFile session, so they cover both new scans and rescans.
+    // subscribe to job lifecycle events via the typed broker channel.
+    // these fire for any active ProcessFile session, covering new scans and rescans.
     try {
-      unlistenScan = await listen<FreqholeEvent>("freqhole:event", (event) => {
-        if (event.payload.type === "job-progress") {
-          const data = event.payload.data as JobProgressPayload;
-          setScanProgress(data);
+      const channel = new Channel<{
+        kind: string;
+        evt?: unknown;
+        reason?: unknown;
+      }>();
+      channel.onmessage = (frame) => {
+        if (frame.kind !== "event") return;
+        const evt = frame.evt as
+          | {
+              kind?: string;
+              session_id?: string;
+              details?: Record<string, unknown>;
+            }
+          | undefined;
+        if (!evt) return;
+        if (evt.kind === "progress") {
+          const d = (evt.details ?? {}) as {
+            directory?: string;
+            songs_added?: number;
+            jobs_pending?: number;
+            jobs_total?: number;
+          };
+          setScanProgress({
+            session_id: evt.session_id ?? "",
+            directory: d.directory,
+            songs_added: d.songs_added ?? 0,
+            jobs_pending: d.jobs_pending ?? 0,
+            jobs_total: d.jobs_total ?? 0,
+          });
           setScanSummary(null);
-        } else if (event.payload.type === "job-session-complete") {
-          const summary = event.payload.data as JobSessionCompletePayload;
-          setScanSummary(summary);
+        } else if (evt.kind === "completed") {
+          const d = (evt.details ?? {}) as {
+            songs_added?: number;
+            albums_added?: number;
+            artists_added?: number;
+          };
+          setScanSummary({
+            session_id: evt.session_id ?? "",
+            songs_added: d.songs_added ?? 0,
+            albums_added: d.albums_added ?? 0,
+            artists_added: d.artists_added ?? 0,
+          });
           setScanProgress(null);
           // refresh directory file counts after scan completes
           void loadDirectories();
         }
+      };
+      const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
+        filter: null,
+        events: channel,
+        targetPeer: null,
       });
+      unlistenScan = () => {
+        void invoke("jobs_events_unsubscribe", {
+          sessionId: jobEventsSessionId,
+        });
+      };
     } catch (e) {
       console.error("failed to listen for job events:", e);
     }

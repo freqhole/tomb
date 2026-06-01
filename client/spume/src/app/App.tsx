@@ -607,7 +607,15 @@ export function App() {
           key === "artists" ||
           key === "genres" ||
           key === "feed" ||
-          key === "tags"
+          key === "tags" ||
+          // singular-prefixed keys (e.g. queryKeys.albums.songs() ->
+          // ["album", "songs", ...], queryKeys.artists.albums() ->
+          // ["artist", "albums", ...]). these aren't covered by the
+          // plural keys above and would otherwise show stale data on
+          // album/artist detail views right after an import.
+          key === "album" ||
+          key === "artist" ||
+          key === "genre"
         );
       },
     });

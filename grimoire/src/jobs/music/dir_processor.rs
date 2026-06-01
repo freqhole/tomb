@@ -28,7 +28,7 @@ use tracing::{info, warn};
 /// progress at the session level is driven by the runner's per-job
 /// aggregate emit (one event per dir-job completion). per-file
 /// visibility is via the `info!` log line below — emitting per-file
-/// `GrimoireEvent::JobProgress` here would race with the runner's
+/// `JobEvent::Progress` here would race with the runner's
 /// session-aggregate emit on the same ui consumer.
 pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError> {
     let params: ProcessDirectoryParams = match serde_json::from_str(&job.parameters) {

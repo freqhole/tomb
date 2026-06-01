@@ -274,8 +274,8 @@ pub struct EphemeralState {
 }
 
 /// minimal portable view of an in-flight job session for the
-/// header badge. populated from `GrimoireEvent::JobProgress` by
-/// the shell.
+/// header badge. populated from `JobEvent::Progress` rollup details
+/// by the shell.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct JobsStatus {
     /// short label for the job kind (e.g. "scan", "fetch").

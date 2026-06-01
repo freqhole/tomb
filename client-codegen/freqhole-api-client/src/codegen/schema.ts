@@ -2833,7 +2833,8 @@ export const JobEventSchema = z.union([z.object({
   kind: z.literal('artist'),
   id: z.string()
 })]).nullish(),
-  created_by: z.string().nullish()
+  created_by: z.string().nullish(),
+  details: z.any().nullish()
 }), z.object({
   kind: z.literal('status_changed'),
   session_id: z.string(),
@@ -2890,7 +2891,8 @@ export const JobEventSchema = z.union([z.object({
   kind: z.literal('artist'),
   id: z.string()
 })]).nullish(),
-  created_by: z.string().nullish()
+  created_by: z.string().nullish(),
+  details: z.any().nullish()
 })]);
 export type JobEvent = z.infer<typeof JobEventSchema>;
 

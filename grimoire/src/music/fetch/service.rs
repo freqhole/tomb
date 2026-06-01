@@ -9,7 +9,10 @@
 //! 3. fetch: download media files
 //! 4. import: create ProcessFile jobs for downloaded files
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{info, warn};
 
@@ -17,6 +20,22 @@ use crate::config::GrimoireConfig;
 use crate::response::GrimoireResponse;
 
 use super::models::{ContentMetadata, DownloadedFile, FetchMediaParams, FetchMediaResult};
+
+/// progress callback trait for live fetch updates
+pub trait FetchProgress: Send + Sync {
+    fn item_started(&self, content_id: &str, filename_hint: Option<&str>);
+    fn item_complete(&self, content_id: &str, filename: &str);
+    fn postprocess(&self, content_id: &str);
+}
+
+/// no-op progress callback for non-job callers
+pub struct NoopFetchProgress;
+
+impl FetchProgress for NoopFetchProgress {
+    fn item_started(&self, _: &str, _: Option<&str>) {}
+    fn item_complete(&self, _: &str, _: &str) {}
+    fn postprocess(&self, _: &str) {}
+}
 
 /// extract metadata from URL without downloading (precheck)
 ///
@@ -119,6 +138,7 @@ pub async fn download_media(
     url: &str,
     job_id: &str,
     config: &GrimoireConfig,
+    progress: &dyn FetchProgress,
 ) -> Result<Vec<DownloadedFile>, String> {
     let fetch_config = config
         .server
@@ -150,40 +170,149 @@ pub async fn download_media(
 
     info!("downloading media from URL: {} to {}", url, output_dir);
 
-    // parse command and args
-    let parts: Vec<&str> = fetch_cmd.split_whitespace().collect();
+    // parse command and args using shell-words for proper quoting support
+    let parts = shell_words::split(fetch_cmd)
+        .map_err(|e| format!("invalid fetch_command shell syntax: {}", e))?;
+
     if parts.is_empty() {
         return Err("fetch_command is empty".to_string());
     }
 
     let (cmd, args) = parts.split_first().unwrap();
 
-    // execute fetch command
-    let output = Command::new(cmd)
+    // spawn yt-dlp with piped stdout/stderr for streaming
+    let mut child = Command::new(cmd)
         .args(args)
         .arg("--paths")
         .arg(&output_dir)
-        .arg("--") // separator before URL
+        .arg("--")
         .arg(url)
-        .output()
-        .await
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
         .map_err(|e| format!("failed to execute fetch command: {}", e))?;
+
+    let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("failed to capture stderr")?;
+
+    // spawn task to drain stderr (log warnings)
+    let stderr_task = tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !line.trim().is_empty() {
+                warn!("yt-dlp stderr: {}", line);
+            }
+        }
+    });
+
+    // read stdout line by line
+    let mut file_paths: Vec<String> = Vec::new();
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    let mut started_ids: HashSet<String> = HashSet::new();
+    let mut postprocess_ids: HashSet<String> = HashSet::new();
+
+    let reader = BufReader::new(stdout);
+    let mut lines = reader.lines();
+
+    while let Ok(Some(raw_line)) = lines.next_line().await {
+        // yt-dlp progress emits `\r`-terminated updates that overwrite the
+        // same terminal line; tokio's next_line splits only on `\n`, so a
+        // single returned line may carry many `\r`-separated progress
+        // chunks plus a trailing real line. handle each chunk separately.
+        for line in raw_line.split('\r') {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            // yt-dlp's `--progress-template [KIND:]TEMPLATE` consumes the
+            // `KIND:` prefix as a destination selector, so the actual output
+            // is just the template body. distinguish progress lines from
+            // final filepaths (emitted by `--print after_move:filepath`) by
+            // structure: progress lines are pipe-delimited and filepaths
+            // never contain `|`.
+            if line.contains('|') {
+                let fields: Vec<&str> = line.split('|').collect();
+                match fields.len() {
+                    // download: id|status|downloaded|total|filename
+                    5 => {
+                        let content_id = fields[0];
+                        let status = fields[1];
+                        // yt-dlp emits full local paths in %(progress.filename)s;
+                        // strip to basename before broadcasting (no local fs
+                        // paths in job events).
+                        let filename = std::path::Path::new(fields[4])
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(fields[4]);
+
+                        if !started_ids.contains(content_id) {
+                            started_ids.insert(content_id.to_string());
+                            progress.item_started(content_id, Some(filename));
+                        }
+
+                        if status == "finished" && !seen_ids.contains(content_id) {
+                            seen_ids.insert(content_id.to_string());
+                            progress.item_complete(content_id, filename);
+                        }
+                    }
+                    // postprocess: id|status
+                    2 => {
+                        let content_id = fields[0];
+                        if !postprocess_ids.contains(content_id) {
+                            postprocess_ids.insert(content_id.to_string());
+                            progress.postprocess(content_id);
+                        }
+                    }
+                    _ => {
+                        // unknown pipe-delimited line — log and skip rather
+                        // than misinterpret as a filepath.
+                        warn!("yt-dlp: unrecognized progress line: {}", line);
+                    }
+                }
+            } else {
+                // non-pipe lines are final file paths from `--print after_move:filepath`
+                file_paths.push(line.to_string());
+            }
+        } // end of inner `for line in raw_line.split('\r')`
+    }
+
+    // defensive: drop anything that doesn't actually exist on disk. yt-dlp's
+    // output is messy (progress and filepaths interleave on stdout/stderr,
+    // exact behavior varies by version), so trust the filesystem as the
+    // source of truth rather than the parser's heuristic.
+    let before = file_paths.len();
+    file_paths.retain(|p| {
+        let exists = Path::new(p).exists();
+        if !exists {
+            warn!("yt-dlp: discarding non-existent reported path: {}", p);
+        }
+        exists
+    });
+    file_paths.sort();
+    file_paths.dedup();
+    if file_paths.len() != before {
+        warn!(
+            "yt-dlp: filtered {} suspect path(s) down to {} real file(s)",
+            before,
+            file_paths.len()
+        );
+    }
+
+    // wait for stderr drain and child process
+    let _ = tokio::join!(stderr_task);
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("failed to wait for fetch command: {}", e))?;
 
     // note: we don't check status.success() because --ignore-errors means
     // partial success is still a success. check if any files were downloaded instead.
 
-    // parse stdout to get downloaded file paths (one per line)
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let file_paths: Vec<String> = stdout
-        .lines()
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .map(String::from)
-        .collect();
-
     if file_paths.is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("no files were downloaded. stderr: {}", stderr));
+        return Err("no files were downloaded".to_string());
     }
 
     info!("downloaded {} file(s) from URL: {}", file_paths.len(), url);
@@ -240,6 +369,7 @@ pub async fn fetch_media(
     params: FetchMediaParams,
     job_id: &str,
     config: &GrimoireConfig,
+    progress: &dyn FetchProgress,
 ) -> GrimoireResponse<FetchMediaResult> {
     // step 1: extract metadata (precheck)
     let metadata_list = match extract_metadata(&params.url, config).await {
@@ -257,7 +387,7 @@ pub async fn fetch_media(
     }
 
     // step 3: download media
-    let downloaded_files = match download_media(&params.url, job_id, config).await {
+    let downloaded_files = match download_media(&params.url, job_id, config, progress).await {
         Ok(files) => files,
         Err(e) => return GrimoireResponse::failure(&format!("download failed: {}", e), vec![]),
     };

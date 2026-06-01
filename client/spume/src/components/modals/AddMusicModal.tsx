@@ -392,17 +392,36 @@ export function AddMusicModal(props: AddMusicModalProps) {
                             {job.label}
                           </span>
                           {/* status text */}
-                          <span class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)]">
+                          <span
+                            class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
+                            title={
+                              job.status === "failed"
+                                ? (job.errorFull ?? job.error ?? "failed")
+                                : job.status === "polling" && job.stage
+                                  ? job.stage
+                                  : undefined
+                            }
+                          >
                             {job.status === "uploading"
                               ? "uploading..."
                               : job.status === "polling"
-                                ? "processing..."
+                                ? (job.stage ?? "processing...")
                                 : job.status === "completed"
                                   ? "done"
                                   : job.status === "timeout"
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
                           </span>
+                          {/* album link (once import finishes) */}
+                          <Show when={job.status === "completed" && job.albumId}>
+                            <a
+                              class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                              href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}
+                              title="view album"
+                            >
+                              view album
+                            </a>
+                          </Show>
                         </div>
                       )}
                     </For>

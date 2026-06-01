@@ -530,7 +530,8 @@ pub async fn mark_job_failed(
         // (scheduled_at is integer seconds so jitter rounds to seconds)
         const BASE_SECS: i64 = 5;
         const CAP_SECS: i64 = 300;
-        let backoff = (BASE_SECS * 2_i64.pow(new_retry_count.saturating_sub(1) as u32)).min(CAP_SECS);
+        let backoff =
+            (BASE_SECS * 2_i64.pow(new_retry_count.saturating_sub(1) as u32)).min(CAP_SECS);
         let jitter: i64 = rand::thread_rng().gen_range(0..5);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -678,6 +679,7 @@ pub async fn update_session_progress(
         topic,
         entity_ref: None,
         created_by: session.created_by.clone(),
+        details: None,
     });
 
     GrimoireResponse::success("Session progress updated", session)

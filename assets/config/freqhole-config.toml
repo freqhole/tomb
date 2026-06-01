@@ -395,12 +395,21 @@ precheck_command = "yt-dlp --print-json --no-download"
 #   --no-overwrites: don't overwrite existing files
 #   --output: filename template (include %(id)s to prevent duplicates)
 #   --print after_move:filepath: output final file path for each download
+#   --newline: force progress output on separate lines (machine-parseable)
+#   --progress: enable progress reporting
+#   --progress-template: custom progress format for per-item tracking
 #
 # output pattern explained:
 #   %(uploader)s: channel/artist name
 #   %(title)s: video/track title
 #   %(id)s: unique content ID (prevents duplicates!)
 #   %(ext)s: file extension
+#
+# progress templates:
+#   download: emits per-item download progress (id, status, bytes, filename)
+#   postprocess: emits per-item postprocessing status (converting/tagging)
+#   these enable live per-item progress in the UI. omitting them is safe
+#   (back-compat) but users lose granular fetch progress.
 #
 # CRITICAL: do NOT wrap the --output template in quotes!
 #   BAD:  --output '%(uploader)s - %(title)s.%(ext)s'
@@ -413,11 +422,11 @@ precheck_command = "yt-dlp --print-json --no-download"
 # also: avoid spaces and special characters in filenames - use hyphens
 # single quotes in filenames can cause issues with shell commands
 #
-# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 #
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
-# it should print one downloaded file path per line to stdout
-fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 
 # ============================================================================
 # OPTIONAL: federation/P2P configuration
