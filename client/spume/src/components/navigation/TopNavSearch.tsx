@@ -5,6 +5,7 @@ import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue } from "../../music/services/queue/queue";
 import { routes, matchRoute } from "../../music/utils/routing";
+import { valueNodeId, type RelationKind } from "../graph/data/nodeIds";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
 import type { SearchSuggestion } from "../forms/SearchInput";
@@ -357,6 +358,16 @@ export function TopNavSearch(props: TopNavSearchProps) {
           remoteId ? routes.playlistOn(remoteId, s.entity_id) : routes.playlist(s.entity_id)
         );
         break;
+      case "genre": {
+        // taxon hits deep-link into the graph viz view focused on the
+        // picked taxon. requires a remote id; if remoteIdFor returned
+        // undefined (single-source local), skip nav.
+        if (!remoteId) break;
+        const kind = ((meta?.kind_slug as string | undefined) ?? "genre") as RelationKind;
+        const nodeId = valueNodeId(remoteId, kind, s.display);
+        props.onNavigate?.(`/explore?graph=${encodeURIComponent(nodeId)}`);
+        break;
+      }
     }
 
     // close dropdown and clear focus so hint doesn't linger

@@ -21,6 +21,7 @@ import type { SearchSuggestion as APISuggestion } from "../../../music/data/type
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { slug } from "../../../components/graph/data/nodeIds";
+import { routes } from "../../../music/utils/routing";
 import { pickRemote } from "../../../app/services/remotePickerState";
 import { wakeAllRemotes } from "../../../app/services/remotes/remoteHealth";
 
@@ -414,34 +415,54 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     return best;
   };
 
-  /** row click or Enter on a highlighted row: hand the suggestion +
-   *  its primary remote to the parent. parent maps to a library node
-   *  id and repivots the walker. returning true suppresses the input's
-   *  default route-nav. */
+  /** row click or Enter on a highlighted row. taxons (genre/tag/mood/
+   *  style/era/label) are intercepted and handed to the parent for a
+   *  solo graph pivot. everything else (artist/album/song/playlist)
+   *  falls through to the base topnav's default route navigation so
+   *  it lands on the entity's detail view, same as elsewhere in the
+   *  app. */
   const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
     const data = s.data as APISuggestion | undefined;
     if (!data) return false;
+    if (data.suggestion_type !== "genre") return false;
     const primary = (s.id ?? "").split("::")[0];
     if (!primary) return false;
-    const all = aggregatedSuggestions().map((agg) => ({
-      s: agg.primary,
-      remoteId: agg.primaryRemoteId,
-    }));
-    return Boolean(await props.onPivotToSuggestion?.(data, primary, all));
+    return Boolean(await props.onPivotToSuggestion?.(data, primary, []));
   };
 
-  /** Enter with no highlighted row: pivot to the top-confidence
-   *  suggestion if there is one. otherwise let the input's default
-   *  behavior run. */
+  /** build the detail-view route for a non-taxon suggestion. mirrors
+   *  the switch in base TopNavSearch.handleSelect so Enter-on-no-
+   *  highlight on the graph view routes non-taxon top hits to the
+   *  same place a click would. */
+  const detailRouteFor = (s: APISuggestion, remoteId: string): string | null => {
+    const meta = (s.metadata ?? {}) as { album_id?: string };
+    switch (s.suggestion_type) {
+      case "song":
+        return meta.album_id ? routes.albumOn(remoteId, meta.album_id) : null;
+      case "artist":
+        return routes.artistOn(remoteId, s.entity_id);
+      case "album":
+        return routes.albumOn(remoteId, s.entity_id);
+      case "playlist":
+        return routes.playlistOn(remoteId, s.entity_id);
+      default:
+        return null;
+    }
+  };
+
+  /** Enter with no highlighted row. pivots the graph to the top hit
+   *  if it's a taxon; otherwise navigates to that hit's detail view. */
   const onSubmit = (): boolean => {
     if (query().length < 2) return false;
     const top = topSuggestion();
     if (!top) return false;
-    const all = aggregatedSuggestions().map((agg) => ({
-      s: agg.primary,
-      remoteId: agg.primaryRemoteId,
-    }));
-    void props.onPivotToSuggestion?.(top.s, top.remoteId, all);
+    if (top.s.suggestion_type === "genre") {
+      void props.onPivotToSuggestion?.(top.s, top.remoteId, []);
+      return true;
+    }
+    const route = detailRouteFor(top.s, top.remoteId);
+    if (!route) return false;
+    props.onNavigate?.(route);
     return true;
   };
 
