@@ -63,7 +63,6 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
           sizeClass={btnSize()}
           iconPx={iconPx()}
         />
-        <Divider />
       </Show>
 
       <IconBtn
@@ -75,7 +74,6 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       />
 
       <Show when={props.onResetWalk}>
-        <Divider />
         <IconBtn
           icon="home"
           label="reset walk to root"
@@ -86,7 +84,6 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       </Show>
 
       <Show when={props.onResetView || props.onRefetch}>
-        <Divider />
         <RefreshButton
           onResetView={props.onResetView}
           onRefetch={props.onRefetch}
@@ -97,10 +94,7 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       </Show>
 
       {/* extra slot */}
-      <Show when={props.extra}>
-        <Divider />
-        {props.extra}
-      </Show>
+      <Show when={props.extra}>{props.extra}</Show>
     </div>
   );
 }
@@ -131,10 +125,6 @@ function IconBtn(props: {
       {props.children ?? <Icon name={props.icon} size={props.iconPx ?? 14} />}
     </button>
   );
-}
-
-function Divider() {
-  return <div class="w-px h-5 bg-white/10 mx-0.5 self-center" />;
 }
 
 // dual-action refresh button: tap = reset view position, long-press = refetch data.
