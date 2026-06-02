@@ -22,7 +22,6 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
   on,
   onMount,
   Show,
@@ -30,15 +29,16 @@ import {
 import { useQueryClient } from "@tanstack/solid-query";
 import { getRemoteClient } from "../../music/data";
 import { queryKeys } from "../../music/queries/queryKeys";
-import { TaxonAutocomplete } from "../forms/TaxonAutocomplete";
+import {
+  TaxonChipsGrid,
+  type TaxonChipData,
+  type TaxonKindOption,
+} from "../taxonomy/TaxonChipsGrid";
 import { Icon, IconNames } from "../icons/registry";
 import { toast } from "../feedback/Toast";
 import type { TaxonRef } from "../../music/data/types";
 
-interface KindOption {
-  slug: string;
-  label: string;
-}
+interface KindOption extends TaxonKindOption {}
 
 interface AlbumTaxonLink {
   album_id: string;
@@ -51,17 +51,7 @@ interface AlbumTaxonLink {
 
 // unified shape used for chip rendering — server links and pending adds
 // look the same on screen; the `pending` flag drives the styling tweak.
-interface DisplayChip {
-  taxon_id: string;
-  kind_slug: string;
-  label: string;
-  origin: string;
-  pending: "add" | null;
-  /** when this chip was seeded by a proposal (phase 14.8), the source
-   *  string ("musicbrainz", "lastfm", "audiodb", ...) is shown as a tiny
-   *  badge so the user can tell ai-suggested chips from manual ones. */
-  proposalSource?: string | null;
-}
+type DisplayChip = TaxonChipData;
 
 /** taxon proposal seeded by `seedProposals` (phase 14.8). looks like a
  *  `TaxonRef` plus the `source` that suggested it. */
@@ -105,6 +95,12 @@ export interface AlbumTaxonsEditorProps {
 export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   const queryClient = useQueryClient();
   const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
+
+  // resolve the active remote's client once so we can pass it down to
+  // the autocomplete (which otherwise falls back to getRemoteClient()).
+  const [clientResource] = createResource(async () => {
+    return await getRemoteClient();
+  });
 
   // 1. resolve the kinds we want to render — explicit prop wins,
   //    otherwise pull the live list and filter excludeKinds out. note:
@@ -422,68 +418,14 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
           </p>
         }
       >
-        <div class="space-y-3">
-          <For each={kindsResource()}>
-            {(kind) => {
-              const chips = () => chipsByKind().get(kind.slug) ?? [];
-              const excludeIds = () => chips().map((c) => c.taxon_id);
-              return (
-                <div class="space-y-1.5 p-2 rounded border border-[var(--color-border-subtle,var(--color-border-default))] bg-[var(--color-bg-secondary,var(--color-bg-primary))]/40">
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                      {kind.label || kind.slug}
-                    </span>
-                    <span class="text-[10px] text-[var(--color-text-tertiary)]">
-                      {chips().length} linked
-                    </span>
-                  </div>
-
-                  <Show when={chips().length > 0}>
-                    <div class="flex flex-wrap gap-1.5">
-                      <For each={chips()}>
-                        {(chip) => (
-                          <span
-                            class={
-                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs " +
-                              (chip.pending === "add"
-                                ? "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-600,var(--color-accent-500))] ring-1 ring-[var(--color-accent-500)]/30"
-                                : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]")
-                            }
-                            title={`${chip.kind_slug}: ${chip.label}${chip.pending === "add" ? (chip.proposalSource ? ` (proposed by ${chip.proposalSource})` : " (pending add)") : ` (origin: ${chip.origin})`}`}
-                          >
-                            <span>{chip.label}</span>
-                            <Show when={chip.pending === "add" && chip.proposalSource}>
-                              <span class="opacity-70 text-[10px]">from {chip.proposalSource}</span>
-                            </Show>
-                            <Show when={chip.pending === null && chip.origin !== "user"}>
-                              <span class="opacity-60 text-[10px]">{chip.origin}</span>
-                            </Show>
-                            <button
-                              type="button"
-                              onClick={() => queueRemove(chip)}
-                              class="ml-0.5 hover:text-[var(--color-danger-text,var(--color-text-primary))] transition-colors"
-                              aria-label={`remove ${chip.label}`}
-                            >
-                              <Icon name={IconNames.close} size={10} />
-                            </button>
-                          </span>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-
-                  <TaxonAutocomplete
-                    kindSlug={kind.slug}
-                    excludeIds={excludeIds()}
-                    placeholder={`add ${kind.label || kind.slug}…`}
-                    onSelect={(t) => queueAdd(kind.slug, t)}
-                    onCreate={(label) => handleCreate(kind.slug, label)}
-                  />
-                </div>
-              );
-            }}
-          </For>
-        </div>
+        <TaxonChipsGrid
+          kinds={kindsResource() ?? []}
+          chipsByKind={chipsByKind()}
+          apiClient={clientResource() ?? null}
+          onAdd={(kindSlug, t) => queueAdd(kindSlug, t)}
+          onCreate={(kindSlug, label) => handleCreate(kindSlug, label)}
+          onRemoveChip={(chip) => queueRemove(chip)}
+        />
       </Show>
 
       {/* add-new-kind affordance: lets admins introduce new taxon kinds

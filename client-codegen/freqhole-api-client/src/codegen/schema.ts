@@ -5396,6 +5396,18 @@ export const SetTaxonKindColorRequestSchema = z.object({
 });
 export type SetTaxonKindColorRequest = z.infer<typeof SetTaxonKindColorRequestSchema>;
 
+export const SetTaxonKindLabelRequestSchema = z.object({
+  kind_slug: z.string(),
+  label: z.string()
+});
+export type SetTaxonKindLabelRequest = z.infer<typeof SetTaxonKindLabelRequestSchema>;
+
+export const SetTaxonLabelRequestSchema = z.object({
+  taxon_id: z.string(),
+  label: z.string()
+});
+export type SetTaxonLabelRequest = z.infer<typeof SetTaxonLabelRequestSchema>;
+
 export const SongSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),

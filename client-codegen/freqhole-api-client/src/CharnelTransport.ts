@@ -102,18 +102,12 @@ export class CharnelTransport implements Transport {
   async init(): Promise<void> {
     const inv = await ensureInvoke();
 
-    console.debug(
-      "[P2P] init: checking p2p_is_available for peer",
-      this.peerAddr,
-    );
     const available = (await inv("p2p_is_available")) as boolean;
-    console.debug("[P2P] init: p2p_is_available =", available);
     if (!available) {
       throw new Error("P2P not available - federation endpoint not running");
     }
 
     this.nodeId = (await inv("p2p_get_node_id")) as string;
-    console.debug("[P2P] init: got node_id =", this.nodeId);
   }
 
   /**
@@ -133,25 +127,20 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    try {
-      const result = (await inv("p2p_proxy_request", {
-        peerAddr: this.peerAddr,
-        method,
-        path,
-        body: body ?? null,
-      })) as { status: number; body: string };
+    // intentionally no per-error debug log here: the underlying
+    // p2p_proxy_request command already traces failures on the rust
+    // side, and callers (auth-status, health-check, etc.) decide
+    // whether to surface the error. logging at this layer fires once
+    // per request per failed peer and drowns the console for any
+    // peer that's temporarily unreachable.
+    const result = (await inv("p2p_proxy_request", {
+      peerAddr: this.peerAddr,
+      method,
+      path,
+      body: body ?? null,
+    })) as { status: number; body: string };
 
-      return result;
-    } catch (err) {
-      console.debug(
-        "[P2P] p2p_proxy_request ERROR for",
-        method,
-        path,
-        ":",
-        err,
-      );
-      throw err;
-    }
+    return result;
   }
 
   /**

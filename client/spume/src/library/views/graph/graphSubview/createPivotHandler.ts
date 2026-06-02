@@ -1037,6 +1037,32 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     triggerPivotLoaders(nodeId);
   };
 
+  // clear every internal dedup/cache map that tracks nodes/edges merged
+  // into the worker. called by the host after `walkerClient.init()` (a
+  // full worker reset wipes the merged taxon/era/unassigned/related
+  // overlays — without this, the dedup sets below would still say
+  // "already loaded" and the loaders would never re-emit them).
+  const resetMergedState = () => {
+    eraBinsLoadedByHub.clear();
+    eraBinsFetchPromises.clear();
+    eraBinsByHub.clear();
+    eraBinAlbumsLoadedByHub.clear();
+    eraBinAlbumsFetchPromises.clear();
+    recentlyAddedLoadedByHub.clear();
+    recentlyAddedFetchPromises.clear();
+    unassignedLoadedByHub.clear();
+    unassignedFetchPromises.clear();
+    unassignedPageOffsetsByHub.clear();
+    unassignedPageSizeAnchorByHub.clear();
+    unassignedPageNodeIdsByHub.clear();
+    unassignedExhaustedByHub.clear();
+    relatedArtistsLoadedByPivot.clear();
+    relatedArtistsFetchPromises.clear();
+    entityRelationsLoadedByPivot.clear();
+    taxonFetchPromises.clear();
+    taxonNodeIdsByHub.clear();
+  };
+
   return {
     handlePivot,
     pivotKeepingPanel,
@@ -1045,5 +1071,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
     reloadUnassignedPage,
+    resetMergedState,
   };
 }

@@ -20,6 +20,10 @@ export interface RemoteDetailPopoverProps {
   onCreateKind: (input: { slug: string; label: string; color: string | null }) => void;
   /** navigate to the remote's default browse view (albums). */
   onBrowse?: () => void;
+  /** toggle hierarchy edit mode scoped to this remote. shown when set. */
+  onToggleEdit?: () => void;
+  /** whether edit mode is currently active for this remote. */
+  isEditing?: Accessor<boolean>;
 }
 
 // derive a url-safe slug from a freeform label. matches the
@@ -130,6 +134,23 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
           {/* admin tools */}
           <Show when={props.canEdit()}>
             <div class="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2">
+              {/* edit hierarchy toggle (hard-toggle scoped to this remote) */}
+              <Show when={props.onToggleEdit}>
+                <button
+                  type="button"
+                  class={`w-full py-1.5 px-3 rounded text-xs font-medium border transition-colors cursor-pointer ${
+                    props.isEditing?.()
+                      ? "border-pink-400/40 bg-pink-500/15 hover:bg-pink-500/25 text-pink-100 hover:text-white"
+                      : "border-white/15 bg-white/5 hover:bg-white/10 hover:border-white/25 text-white/80 hover:text-white"
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onToggleEdit?.();
+                  }}
+                >
+                  {props.isEditing?.() ? "exit edit mode" : "edit"}
+                </button>
+              </Show>
               {/* add taxon (requires at least one categorical kind) */}
               <Show when={categoricalKinds().length > 0}>
                 <div class="flex flex-col gap-1.5">

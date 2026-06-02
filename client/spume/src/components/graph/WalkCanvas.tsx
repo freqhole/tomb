@@ -1153,8 +1153,23 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             if (cur.size === 0 && selId) cur.add(selId);
             cur.add(id);
             props.onMultiSelectionChange?.(cur);
+          } else if (
+            role === "relation" ||
+            role === "value" ||
+            role === "group" ||
+            role === "remote"
+          ) {
+            // hub-like nodes: still drill in even in edit mode so the
+            // taxon tree is navigable. otherwise the user can only see
+            // the first-order hubs and has no way to expand them.
+            props.onMultiSelectionChange?.(new Set<string>());
+            props.onSelect?.(id, role);
+            client.expand(id);
+            props.onPivot?.(id);
           } else {
-            // plain click: clear multi, set selected, no pivot
+            // album/artist (or unknown): plain click → select only, no
+            // pivot, so drag/drop and inspection work without losing the
+            // current view.
             props.onMultiSelectionChange?.(new Set<string>());
             props.onSelect?.(id, role ?? "value");
           }

@@ -36,6 +36,13 @@ export interface TaxonDetailPopoverProps {
   onSetKindColor?: (color: string | null) => void;
   /** create a new taxon (prompts for label). only invoked in edit mode. */
   onCreateTaxon?: (label: string) => void;
+  /** rename the current taxon. only invoked when a taxon is selected
+   *  and edit mode is active. resolves once the label/slug have been
+   *  persisted so the popover can drop back to the read-only title. */
+  onRenameTaxon?: (label: string) => Promise<void> | void;
+  /** rename the currently-selected taxon kind (hub mode). slug is
+   *  preserved; only the human-facing label changes. */
+  onRenameKind?: (label: string) => Promise<void> | void;
   /** soft-delete the current taxon. only invoked when a taxon is selected. */
   onDeleteTaxon?: () => void;
   /** current filter query for this hub's children (only meaningful in
@@ -111,6 +118,35 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
     setDraftLabel("");
     setCreating(false);
   };
+  // inline rename state for the currently-selected taxon OR kind hub.
+  const [renaming, setRenaming] = createSignal(false);
+  const [renameDraft, setRenameDraft] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+  const startRename = () => {
+    setRenameDraft(props.taxon()?.label ?? props.kindLabel() ?? "");
+    setRenaming(true);
+  };
+  const cancelRename = () => {
+    setRenaming(false);
+    setRenameDraft("");
+  };
+  const submitRename = async () => {
+    const next = renameDraft().trim();
+    const inHubMode = props.taxon() === null;
+    const cur = (inHubMode ? props.kindLabel() : props.taxon()?.label)?.trim() ?? "";
+    const fn = inHubMode ? props.onRenameKind : props.onRenameTaxon;
+    if (!next || next === cur || !fn) {
+      cancelRename();
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      await fn(next);
+      cancelRename();
+    } finally {
+      setRenameBusy(false);
+    }
+  };
   // prefer the taxon's own color (groups only); fall back to the kind color.
   const swatchColor = () => props.taxon()?.color ?? props.kindColor();
   // kind-only mode (relation hub selected): no taxon, just kind metadata.
@@ -146,7 +182,72 @@ export function TaxonDetailPopover(props: TaxonDetailPopoverProps) {
             />
           </Show>
           <div class="flex-1 min-w-0">
-            <div class="font-semibold text-sm leading-tight truncate">{title()}</div>
+            <Show
+              when={renaming()}
+              fallback={
+                <div class="flex items-center gap-1.5">
+                  <div class="font-semibold text-sm leading-tight truncate flex-1 min-w-0">
+                    {title()}
+                  </div>
+                  <Show
+                    when={
+                      props.canEdit() &&
+                      props.editMode() &&
+                      !isSyntheticHub() &&
+                      ((!isHubMode() && props.onRenameTaxon) || (isHubMode() && props.onRenameKind))
+                    }
+                  >
+                    <button
+                      type="button"
+                      aria-label="rename taxon"
+                      title="rename"
+                      class="flex-shrink-0 text-white/40 hover:text-white/85 cursor-pointer p-0.5 leading-none"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startRename();
+                      }}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                  </Show>
+                </div>
+              }
+            >
+              <input
+                type="text"
+                class="w-full px-2 py-1 rounded text-sm font-semibold bg-white/5 border border-white/25 text-white focus:outline-none focus:border-white/45"
+                value={renameDraft()}
+                disabled={renameBusy()}
+                autofocus
+                onClick={(e) => e.stopPropagation()}
+                onInput={(e) => setRenameDraft((e.currentTarget as HTMLInputElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelRename();
+                  }
+                }}
+                onBlur={() => {
+                  if (!renameBusy()) void submitRename();
+                }}
+              />
+            </Show>
             <Show when={!isHubMode() && props.kindLabel()}>
               <div class="mt-1">
                 <span

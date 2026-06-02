@@ -18,12 +18,12 @@ use crate::music::entities::taxonomy::{
     remove_album_taxon as r_remove_album_taxon, remove_taxon_parent as r_remove_taxon_parent,
     set_album_taxons as r_set_album_taxons, set_scalar_attribute as r_set_scalar_attribute,
     set_taxon_color as r_set_taxon_color, set_taxon_kind_color as r_set_taxon_kind_color,
-    AddAlbumTaxonRequest, AddTaxonParentRequest,
-    CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
-    GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
-    QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest,
-    SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest,
-    SetTaxonKindColorRequest,
+    set_taxon_kind_label as r_set_taxon_kind_label, set_taxon_label as r_set_taxon_label,
+    AddAlbumTaxonRequest, AddTaxonParentRequest, CreateTaxonKindRequest, CreateTaxonRequest,
+    DeleteTaxonRequest, GetAlbumTaxonLinksRequest, GetTaxonRequest, ListTaxonParentsForKindRequest,
+    ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest,
+    RemoveTaxonParentRequest, SetAlbumTaxonsRequest, SetScalarAttributeRequest,
+    SetTaxonColorRequest, SetTaxonKindColorRequest, SetTaxonKindLabelRequest, SetTaxonLabelRequest,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -98,11 +98,29 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
+        name: "set_taxon_label",
+        path: "/api/taxonomy/taxons/set-label",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetTaxonLabelRequest",
+        response_type: "Taxon",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
         name: "set_taxon_kind_color",
         path: "/api/taxonomy/kinds/set-color",
         method: Method::POST,
         domain: Domain::Music,
         request_type: "SetTaxonKindColorRequest",
+        response_type: "TaxonKind",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "set_taxon_kind_label",
+        path: "/api/taxonomy/kinds/set-label",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "SetTaxonKindLabelRequest",
         response_type: "TaxonKind",
         auth: RouteAuth::Role(UserRole::Admin),
     },
@@ -374,12 +392,28 @@ pub async fn set_color(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     to_json(r_set_taxon_color(req).await)
 }
 
+pub async fn set_label(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: SetTaxonLabelRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_req(e),
+    };
+    to_json(r_set_taxon_label(req).await)
+}
+
 pub async fn set_kind_color(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: SetTaxonKindColorRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => return bad_req(e),
     };
     to_json(r_set_taxon_kind_color(req).await)
+}
+
+pub async fn set_kind_label(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: SetTaxonKindLabelRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_req(e),
+    };
+    to_json(r_set_taxon_kind_label(req).await)
 }
 
 pub async fn list_parents_for_kind(

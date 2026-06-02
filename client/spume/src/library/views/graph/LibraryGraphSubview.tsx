@@ -94,6 +94,7 @@ import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopov
 import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
 import { RemoteDetailPopover } from "../../../components/graph/RemoteDetailPopover";
 import { BulkSelectionPopover } from "../../../components/graph/BulkSelectionPopover";
+import { GraphEditPanel } from "./graphSubview/GraphEditPanel";
 import {
   SimTuningOverlay,
   DEFAULT_TUNING,
@@ -628,12 +629,35 @@ function Inner(props: {
     return out;
   });
 
+  // edit mode: when active, lasso selection and modifier-click multi-select
+  // replace normal click-to-pivot behavior. owned by exactly one remote at
+  // a time — entering scopes the canvas to that remote (see scope-lock).
+  // declared here (above buildResult) because buildResult reads it for the
+  // scope-lock narrowing; the memo body runs eagerly on creation so the
+  // signal must exist by then.
+  const [editingRemoteId, setEditingRemoteId] = createSignal<string | null>(null);
+  const editMode = createMemo(() => editingRemoteId() !== null);
+  // back-compat shim for handlers that historically toggled a boolean.
+  // only the exit path (false) is honored — enter must specify a remote id.
+  const setEditMode = (next: boolean) => {
+    if (!next) setEditingRemoteId(null);
+  };
+
   const buildResult = createMemo(() => {
     const byRemote = nodesByRemote();
     // include every selected remote so offline / not-yet-loaded remotes still
     // surface in the graph as remote hubs (dimmed if offline). filtering by
     // data presence would hide them entirely.
-    const remoteIds = props.remotes().map((r) => r.remote_id);
+    // edit-mode scope-lock: when editing, narrow to the active remote only so
+    // the canvas reflects the editing scope and cross-remote clustering is
+    // suppressed (the worker's linkGroup needs >=2 distinct remotes).
+    const active = editingRemoteId();
+    const remoteIds = active
+      ? props
+          .remotes()
+          .filter((r) => r.remote_id === active)
+          .map((r) => r.remote_id)
+      : props.remotes().map((r) => r.remote_id);
     if (remoteIds.length === 0) return null;
     return buildWalkGraph({
       remoteIds,
@@ -675,6 +699,12 @@ function Inner(props: {
   const prevNodeIds = new Set<string>();
   const prevEdgeKeys = new Set<string>();
   let prevRemoteKey = "";
+  // bumped every time the worker is `init()`-reset so loaders that
+  // pushed nodes through `walkerClient.merge` (taxon kind hubs, artist
+  // image overlays, favorites' synthesized edges, etc.) re-fire and
+  // repopulate. without this the scoped subtree in edit mode collapses
+  // to a bare remote hub because every incremental merge was wiped.
+  const [mergeResetTick, setMergeResetTick] = createSignal(0);
 
   createEffect(() => {
     const client = walkerClient();
@@ -682,7 +712,8 @@ function Inner(props: {
     const result = buildResult();
     if (!result || result.graph.nodes.length === 0) return;
 
-    // detect remote-set change (user added/removed a remote) -> full reset
+    // detect remote-set change (user added/removed a remote, or edit-
+    // mode scope-lock collapsed/restored the remote list) -> full reset
     const remoteKey = result.graph.nodes
       .filter((n) => n.role === "remote")
       .map((n) => n.id)
@@ -693,6 +724,10 @@ function Inner(props: {
       hadInit = false;
       prevNodeIds.clear();
       prevEdgeKeys.clear();
+      // worker will be wiped by init() below; lazy taxon caches need to
+      // re-fetch because the value/group nodes they tracked are gone.
+      taxonsLoadedByHub.clear();
+      albumsLoadedByPivot.clear();
     }
 
     const { width, height } = canvasSize();
@@ -701,7 +736,15 @@ function Inner(props: {
       hadInit = true;
       for (const n of result.graph.nodes) prevNodeIds.add(n.id);
       for (const e of result.graph.edges) prevEdgeKeys.add(`${e.source}::${e.target}`);
-      client.init(result.graph, rootId(), width, height);
+      // when entering edit mode the scope-lock leaves a single remote
+      // in the graph; landing the pivot on that remote's hub matches
+      // what the user just clicked into instead of bouncing back to
+      // the global root.
+      const active = editingRemoteId();
+      const initialPivot = active ? remoteHubId(active) : rootId();
+      client.init(result.graph, initialPivot, width, height);
+      // signal merge-based loaders to re-emit (they were wiped by init).
+      setMergeResetTick((n) => n + 1);
     } else {
       const addNodes = result.graph.nodes.filter((n) => !prevNodeIds.has(n.id));
       const addEdges = result.graph.edges.filter(
@@ -845,9 +888,6 @@ function Inner(props: {
     if (!selectedId()) setSelectedTaxonInfo(null);
   });
 
-  // edit mode: when active, lasso selection and modifier-click multi-select
-  // replace normal click-to-pivot behavior.
-  const [editMode, setEditMode] = createSignal(false);
   const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
   // debug sim-tuning overlay (toggle with shift+d). values forwarded
   // to the worker any time they change.
@@ -1110,13 +1150,8 @@ function Inner(props: {
     }
     return curKey;
   }, null);
-  // exit edit mode when the taxon selection is cleared
-  createEffect(() => {
-    if (!selectedTaxonInfo() && editMode()) {
-      setEditMode(false);
-      setMultiSelection(new Set<string>());
-    }
-  });
+  // edit mode persists across selection changes — only explicit toggles,
+  // escape, or the active remote going offline exit it.
   // clear any lingering filter state when no popover is open so the
   // hide set doesn't persist across navigation.
   createEffect(() => {
@@ -1804,6 +1839,7 @@ function Inner(props: {
       if (e.key === "Escape") {
         if (isAnyModalOpen()) return;
         if (editMode()) {
+          setEditingRemoteId(null);
           setMultiSelection(new Set<string>());
         }
         setSelectedId(null);
@@ -1978,6 +2014,7 @@ function Inner(props: {
     maybeLoadAlbumsForPivot,
     maybeLoadRelatedArtistsForPivot,
     reloadUnassignedPage,
+    resetMergedState,
   } = createPivotHandler({
     remotes: () => props.remotes(),
     offlineByRemote,
@@ -2020,6 +2057,19 @@ function Inner(props: {
       }
     },
     queryClient,
+  });
+
+  // worker reset (mergeResetTick advance) wipes every node/edge the
+  // pivot handler had merged in (era bins, recently-added, unassigned
+  // pages, related-artist clusters, taxon value/group nodes). clear its
+  // internal dedup/cache state so the next pivot re-fetches and merges.
+  let pivotHandlerLastResetTick = 0;
+  createEffect(() => {
+    const tick = mergeResetTick();
+    if (tick === pivotHandlerLastResetTick) return;
+    pivotHandlerLastResetTick = tick;
+    if (tick === 0) return;
+    resetMergedState();
   });
 
   // ---- render --------------------------------------------------------
@@ -2073,10 +2123,48 @@ function Inner(props: {
     return props.remotes().filter((r) => off.get(r.remote_id) !== true && act.has(r.remote_id));
   });
 
-  // load song favorites once per online+activated remote. fires whenever
-  // onlineRemotes changes (new remote activated, came back online, etc.).
+  // exit edit mode when the active remote goes offline or is removed.
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const target = editingRemoteId();
+    if (!target) return;
+    const stillOnline = onlineRemotes().some((r) => r.remote_id === target);
+    if (!stillOnline) {
+      setEditingRemoteId(null);
+      setMultiSelection(new Set<string>());
+    }
+  });
+
+  // on entering edit mode, repivot to the active remote's hub so the
+  // canvas reflects the scoped subtree immediately. also drop any
+  // cross-remote lazy nodes so they don't leak into the scoped view,
+  // and activate the remote so its album/artist loaders fire \u2014 click-
+  // to-pivot is suppressed in edit mode, so without this the user
+  // would see only the bare remote hub with no way to populate it.
+  // (no manual repivot call here: the buildResult-watching effect
+  // detects the scope-lock collapse, re-inits the worker, and lands
+  // the pivot directly on the active remote's hub.)
+  createEffect((prev: string | null) => {
+    const cur = editingRemoteId();
+    if (cur && cur !== prev) {
+      activateRemote(cur);
+      setExtraNodesById(new Map());
+    }
+    return cur;
+  }, null);
+
+  // load song favorites once per online+activated remote. fires whenever
+  // onlineRemotes changes (new remote activated, came back online, etc.)
+  // or when the worker was re-init'd (mergeResetTick advances) so we
+  // re-emit favorites' synthesized edges that the wipe took out.
+  let favSongLastResetTick = 0;
+  createEffect(() => {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== favSongLastResetTick) {
+      favSongLastResetTick = tick;
+      for (const r of online) favSongLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (favSongLoadedRemotes.has(remote.remote_id)) continue;
       favSongLoadedRemotes.add(remote.remote_id);
       void loadFavoriteSongsForRemote(remote);
@@ -2087,8 +2175,15 @@ function Inner(props: {
   // graph artist nodes can replace their album-derived placeholders with
   // real artist art (when the remote has any). same activation gate as
   // favorites — paid for only when the user reaches the remote.
+  let artistImagesLastResetTick = 0;
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== artistImagesLastResetTick) {
+      artistImagesLastResetTick = tick;
+      for (const r of online) artistImagesLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (artistImagesLoadedRemotes.has(remote.remote_id)) continue;
       artistImagesLoadedRemotes.add(remote.remote_id);
       void loadArtistImagesForRemote(remote);
@@ -2098,8 +2193,17 @@ function Inner(props: {
   // seed first-order categorical relation hubs from list_taxon_kinds
   // for each online+activated remote (dedup'd by remote). album_count
   // comes from the server so badges render without a lazy round-trip.
+  // also re-fires on worker reset so the merged hubs reappear instead
+  // of leaving a bare remote node with no children.
+  let taxonKindsLastResetTick = 0;
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== taxonKindsLastResetTick) {
+      taxonKindsLastResetTick = tick;
+      for (const r of online) taxonKindsLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (taxonKindsLoadedRemotes.has(remote.remote_id)) continue;
       taxonKindsLoadedRemotes.add(remote.remote_id);
       void loadTaxonKindsForRemote(remote);
@@ -2243,6 +2347,84 @@ function Inner(props: {
     albumIdsForArtist,
   });
 
+  // ---- graph edit panel (edit-mode taxon editor) -------------------------
+  // resolves single or multi selection of albums/artists into a remote
+  // + bare album-id set, drives a single editor in place of the usual
+  // album/artist detail popovers.
+  const editPanelRemote = createMemo<Remote | null>(() => {
+    if (!editMode()) return null;
+    const alb = selectedAlbum();
+    if (alb) return remoteForNode(alb) ?? null;
+    const art = selectedArtist();
+    if (art) return remoteForArtist(art) ?? null;
+    const rid = editingRemoteId();
+    if (!rid) return null;
+    return props.remotes().find((r) => r.remote_id === rid) ?? null;
+  });
+
+  const editPanelAlbumIds = createMemo<string[]>(() => {
+    if (!editMode()) return [];
+    // single album/artist selection
+    const alb = selectedAlbum();
+    if (alb && multiSelection().size === 0) return [bareAlbumId(alb)];
+    const art = selectedArtist();
+    if (art && multiSelection().size === 0) {
+      const rid = art.sourceRemoteIds?.[0] ?? editingRemoteId();
+      if (!rid) return [];
+      return albumIdsForArtist(rid, art.artistId);
+    }
+    // multi selection — collect every album reachable via direct
+    // selection or artist fan-out, ignoring taxon-only selections.
+    const sel = multiSelection();
+    if (sel.size === 0) return [];
+    const editingRid = editingRemoteId();
+    const out = new Set<string>();
+    for (const id of sel) {
+      let parsed: ReturnType<typeof parseNodeId>;
+      try {
+        parsed = parseNodeId(id);
+      } catch {
+        continue;
+      }
+      if (parsed.kind === "album") out.add(parsed.albumId);
+      else if (parsed.kind === "artist") {
+        for (const aid of albumIdsForArtist(parsed.remoteId, parsed.artistId)) out.add(aid);
+      }
+    }
+    // if scope-locked editing remote is set, drop any albums that
+    // somehow leaked from a different remote (defensive).
+    void editingRid;
+    return Array.from(out);
+  });
+
+  const editPanelSummary = createMemo<{ artists: string[]; albums: string[] }>(() => {
+    const out = { artists: [] as string[], albums: [] as string[] };
+    if (!editMode()) return out;
+    const alb = selectedAlbum();
+    if (alb && multiSelection().size === 0) {
+      out.albums.push(alb.title);
+      return out;
+    }
+    const art = selectedArtist();
+    if (art && multiSelection().size === 0) {
+      out.artists.push(art.name);
+      return out;
+    }
+    for (const id of multiSelection()) {
+      const node = lookupNode(id);
+      if (!node) continue;
+      if ("title" in node) out.albums.push((node as AlbumNodeData).title);
+      else if ("name" in node) out.artists.push((node as ArtistNodeData).name);
+    }
+    return out;
+  });
+
+  const editPanelActive = createMemo<boolean>(() => {
+    if (!editMode()) return false;
+    if (!editPanelRemote()) return false;
+    return editPanelAlbumIds().length > 0;
+  });
+
   return (
     <div class="h-full flex flex-col">
       <For each={onlineRemotes()}>
@@ -2320,7 +2502,7 @@ function Inner(props: {
               aria-label="exit edit mode"
               class="text-pink-300/70 hover:text-pink-200 cursor-pointer p-0 leading-none"
               onClick={() => {
-                setEditMode(false);
+                setEditingRemoteId(null);
                 setMultiSelection(new Set<string>());
               }}
             >
@@ -2330,7 +2512,7 @@ function Inner(props: {
         </Show>
 
         {/* album detail popover */}
-        <Show when={selectedAlbum() !== null && !albumPanel.hidden()}>
+        <Show when={selectedAlbum() !== null && !albumPanel.hidden() && !editMode()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -2447,12 +2629,12 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedAlbum() !== null && albumPanel.hidden()}>
+        <Show when={selectedAlbum() !== null && albumPanel.hidden() && !editMode()}>
           <CollapsedAlbumButton album={selectedAlbum()!} onRestore={albumPanel.restore} />
         </Show>
 
         {/* artist detail popover - mutually exclusive with album popover */}
-        <Show when={selectedArtist() !== null && !artistPanel.hidden()}>
+        <Show when={selectedArtist() !== null && !artistPanel.hidden() && !editMode()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -2537,15 +2719,41 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedArtist() !== null && artistPanel.hidden()}>
+        <Show when={selectedArtist() !== null && artistPanel.hidden() && !editMode()}>
           <CollapsedArtistButton
             artist={selectedArtistDisplay()!}
             onRestore={artistPanel.restore}
           />
         </Show>
 
+        {/* graph edit panel — shown in edit mode when selection
+            resolves to one or more albums (directly or via artist
+            fan-out). replaces the album/artist detail popovers. */}
+        <Show when={editPanelActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+            <GraphEditPanel
+              remote={editPanelRemote}
+              albumIds={editPanelAlbumIds}
+              summary={editPanelSummary}
+              onClose={() => {
+                setSelectedId(null);
+                setMultiSelection(new Set<string>());
+              }}
+              onAfterMutate={async () => {
+                // refresh every taxon hub on the active remote so the
+                // graph reflects the new links (counts, edges, etc.).
+                const rid = editPanelRemote()?.remote_id;
+                if (!rid) return;
+                for (const hubId of taxonItemsByHub.keys()) {
+                  if (hubId.startsWith(`${rid}::`)) await refreshHub(hubId);
+                }
+              }}
+            />
+          </div>
+        </Show>
+
         {/* bulk-selection popover — shown in edit mode when multi-select has 2+ */}
-        <Show when={bulkActive()}>
+        <Show when={bulkActive() && !editPanelActive()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(320px,calc(100%-1.5rem))] pointer-events-auto">
             <BulkSelectionPopover
               mode={bulkMode}
@@ -2610,11 +2818,12 @@ function Inner(props: {
               descendants={() => selectedTaxonData()?.descendants ?? []}
               canEdit={() => isRemoteAdmin(selectedTaxonInfo()?.remoteId ?? null)}
               onEditHierarchy={() => {
-                if (editMode()) {
-                  setEditMode(false);
+                const remoteId = selectedTaxonInfo()?.remoteId ?? null;
+                if (editingRemoteId() === remoteId) {
+                  setEditingRemoteId(null);
                   setMultiSelection(new Set<string>());
-                } else {
-                  setEditMode(true);
+                } else if (remoteId) {
+                  setEditingRemoteId(remoteId);
                 }
               }}
               onClose={() => setSelectedId(null)}
@@ -2622,6 +2831,24 @@ function Inner(props: {
               editMode={editMode}
               onCreateTaxon={(label) => {
                 void handleCreateTaxon(label);
+              }}
+              onRenameTaxon={async (label) => {
+                const info = selectedTaxonInfo();
+                if (!info?.taxonId) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                if (!isRemoteAdmin(info.remoteId)) return;
+                try {
+                  const apiClient = await getClientForRemote(remote);
+                  await apiClient.music.set_taxon_label({
+                    taxon_id: info.taxonId,
+                    label,
+                  });
+                  await refreshHub(info.relHubId);
+                } catch (err) {
+                  console.warn("[graph] rename taxon failed", err);
+                  toast.error("failed to rename taxon");
+                }
               }}
               onDeleteTaxon={() => {
                 void handleDeleteTaxon();
@@ -2688,6 +2915,49 @@ function Inner(props: {
                     console.warn("set taxon color failed", { taxonId: info.taxonId, err });
                   }
                 })();
+              }}
+              onRenameKind={async (label) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                if (!isRemoteAdmin(info.remoteId)) return;
+                const kindSlug = info.kindSlug;
+                const relHubId = info.relHubId;
+                try {
+                  const apiClient = await getClientForRemote(remote);
+                  await apiClient.music.set_taxon_kind_label({
+                    kind_slug: kindSlug,
+                    label,
+                  });
+                  // optimistic local label update + hub re-merge so the
+                  // hexagon picks up the new name without a refetch.
+                  const prevMeta = taxonKindMetaByHub.get(relHubId);
+                  if (prevMeta) {
+                    taxonKindMetaByHub.set(relHubId, { ...prevMeta, label });
+                  }
+                  walkerClient()?.merge(
+                    [
+                      {
+                        id: relHubId,
+                        role: "relation",
+                        label,
+                        parentId: remoteHubId(info.remoteId),
+                        childCount: info.albumCount ?? 0,
+                        lazy: true,
+                        tint: prevMeta?.color ?? undefined,
+                      },
+                    ],
+                    []
+                  );
+                  // mirror the new label back into selectedTaxonInfo so the
+                  // popover header reflects the change immediately.
+                  setSelectedTaxonInfo((prev) => (prev ? { ...prev, label } : prev));
+                  toast.success("kind renamed");
+                } catch (err) {
+                  console.warn("[graph] rename taxon kind failed", err);
+                  toast.error("failed to rename kind");
+                }
               }}
               onSetKindColor={(color) => {
                 const info = selectedTaxonInfo();
@@ -2800,6 +3070,20 @@ function Inner(props: {
                 const r = selectedRemote();
                 if (!r) return;
                 navigate(getDefaultRoute(r.remote_id));
+              }}
+              isEditing={() => {
+                const r = selectedRemote();
+                return !!r && editingRemoteId() === r.remote_id;
+              }}
+              onToggleEdit={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                if (editingRemoteId() === r.remote_id) {
+                  setEditingRemoteId(null);
+                  setMultiSelection(new Set<string>());
+                } else {
+                  setEditingRemoteId(r.remote_id);
+                }
               }}
               onCreateTaxon={(kindSlug, label) => {
                 const remote = selectedRemote();

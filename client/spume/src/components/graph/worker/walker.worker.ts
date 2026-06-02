@@ -97,6 +97,12 @@ function indexGraph() {
   for (const n of state.fullGraph.nodes) {
     if (n.role !== "album") continue;
     const parents = parentsOf.get(n.id) ?? [];
+    // skip albums whose parents include an unassigned hub — those should
+    // never participate in cross-remote clustering (the unassigned hub is
+    // strictly per-remote; dashed cross-remote pseudo-children would leak
+    // foreign-remote nodes into it). matches `relation::{remoteId}::unassigned`.
+    const inUnassigned = parents.some((pid) => pid.endsWith("::unassigned"));
+    if (inUnassigned) continue;
     const artistParent = parents
       .map((pid) => nodeMap.get(pid))
       .find((p) => p?.role === "artist");

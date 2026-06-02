@@ -48,17 +48,6 @@ export interface BulkSelectionPopoverProps {
   y?: number;
 }
 
-const COLOR_SWATCHES = [
-  "#e63946",
-  "#f4a261",
-  "#e9c46a",
-  "#2a9d8f",
-  "#264653",
-  "#9b5de5",
-  "#f15bb5",
-  "#00bbf9",
-];
-
 type Flyout = null | "reparent" | "color" | "assign";
 
 export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
@@ -397,22 +386,17 @@ export function BulkSelectionPopover(props: BulkSelectionPopoverProps) {
           </Show>
 
           <Show when={flyout() === "color"}>
-            <div class="flex flex-wrap items-center gap-1.5 p-1">
-              <For each={COLOR_SWATCHES}>
-                {(hex) => (
-                  <button
-                    type="button"
-                    title={hex}
-                    class="w-6 h-6 rounded-sm border-2 border-transparent hover:border-white/60 transition-colors cursor-pointer p-0 flex-shrink-0"
-                    style={{ background: hex }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onSetColor(hex);
-                      setFlyout(null);
-                    }}
-                  />
-                )}
-              </For>
+            <div class="flex items-center gap-2 p-2">
+              <label class="text-[10px] uppercase tracking-wide text-white/40">color</label>
+              <input
+                type="color"
+                value={props.kindColor() ?? "#888888"}
+                class="w-7 h-7 rounded-sm border border-white/15 bg-transparent cursor-pointer p-0"
+                onClick={(e) => e.stopPropagation()}
+                onInput={(e) => {
+                  props.onSetColor((e.currentTarget as HTMLInputElement).value);
+                }}
+              />
               <button
                 type="button"
                 class="text-[10px] leading-none px-1.5 py-0.5 rounded border border-white/15 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 cursor-pointer transition-colors"

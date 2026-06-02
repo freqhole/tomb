@@ -1357,6 +1357,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    set_taxon_label: (params: s.SetTaxonLabelRequest) => {
+      return call(
+        "music",
+        "set_taxon_label",
+        routes.music.set_taxon_label.resp,
+        routes.music.set_taxon_label.req,
+        routes.music.set_taxon_label.method,
+        routes.music.set_taxon_label.path,
+        params,
+      );
+    },
+
     set_taxon_kind_color: (params: s.SetTaxonKindColorRequest) => {
       return call(
         "music",
@@ -1365,6 +1377,18 @@ export function createMusicMethods(call: CallFn) {
         routes.music.set_taxon_kind_color.req,
         routes.music.set_taxon_kind_color.method,
         routes.music.set_taxon_kind_color.path,
+        params,
+      );
+    },
+
+    set_taxon_kind_label: (params: s.SetTaxonKindLabelRequest) => {
+      return call(
+        "music",
+        "set_taxon_kind_label",
+        routes.music.set_taxon_kind_label.resp,
+        routes.music.set_taxon_kind_label.req,
+        routes.music.set_taxon_kind_label.method,
+        routes.music.set_taxon_kind_label.path,
         params,
       );
     },

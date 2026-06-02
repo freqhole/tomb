@@ -261,9 +261,21 @@ pub struct SetTaxonColorRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonLabelRequest {
+    pub taxon_id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct SetTaxonKindColorRequest {
     pub kind_slug: String,
     pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonKindLabelRequest {
+    pub kind_slug: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
