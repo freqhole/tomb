@@ -1,17 +1,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const __wbg_radiohandle_free: (a: number, b: number) => void;
-export const middennode_tune_radio: (a: number, b: number, c: number, d: number, e: number, f: any, g: any, h: any) => any;
-export const radiohandle_leave: (a: number) => void;
 export const __wbg_bistream_free: (a: number, b: number) => void;
 export const __wbg_helloimageresult_free: (a: number, b: number) => void;
 export const __wbg_middennode_free: (a: number, b: number) => void;
 export const bistream_alpn: (a: number) => [number, number];
 export const bistream_close: (a: number) => void;
 export const bistream_peer_node_id: (a: number) => [number, number];
+export const bistream_read_line: (a: number) => any;
 export const bistream_read_message: (a: number) => any;
 export const bistream_read_to_end: (a: number, b: number) => any;
+export const bistream_write_line: (a: number, b: number, c: number) => any;
 export const bistream_write_message: (a: number, b: number, c: number) => any;
 export const bistream_write_raw_and_finish: (a: number, b: number, c: number) => any;
 export const hash_blake3: (a: number, b: number) => [number, number];
@@ -42,6 +41,9 @@ export const middennode_release_blob: (a: number, b: number, c: number) => [numb
 export const middennode_secret_key: (a: number) => any;
 export const middennode_start_blob_server: (a: number) => void;
 export const start: () => void;
+export const __wbg_radiohandle_free: (a: number, b: number) => void;
+export const middennode_tune_radio: (a: number, b: number, c: number, d: number, e: number, f: any, g: any, h: any) => any;
+export const radiohandle_leave: (a: number) => void;
 export const __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
 export const __wbg_intounderlyingsource_free: (a: number, b: number) => void;
 export const intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;

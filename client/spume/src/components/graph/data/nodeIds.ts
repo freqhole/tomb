@@ -51,6 +51,13 @@ export function valueNodeId(remoteId: string, kind: RelationKind, value: string)
   return `value::${remoteId}::${kind}::${slug(value)}`;
 }
 
+/** same encoding as valueNodeId but uses the `group:` prefix for taxons that
+ *  have at least one child in the parent->children map. the renderer uses this
+ *  prefix to draw a 7-sided polygon instead of an octagon. */
+export function groupNodeId(remoteId: string, kind: RelationKind, value: string): string {
+  return `group::${remoteId}::${kind}::${slug(value)}`;
+}
+
 export function artistNodeId(remoteId: string, artistId: string): string {
   // artistId must be a bare local id (e.g. "123"), not the full ArtistNodeData.id
   // (which is "artist::${artistId}"). strip the prefix before calling this.
@@ -75,6 +82,7 @@ export type ParsedNodeId =
   | { kind: "remote"; remoteId: string }
   | { kind: "relation"; remoteId: string; relationKind: RelationKind }
   | { kind: "value"; remoteId: string; relationKind: RelationKind; valueSlug: string }
+  | { kind: "group"; remoteId: string; relationKind: RelationKind; valueSlug: string }
   | { kind: "artist"; remoteId: string; artistId: string }
   | { kind: "album"; remoteId: string; albumId: string }
   | { kind: "ghost_artist"; ghostSlug: string };
@@ -97,6 +105,10 @@ export function parseNodeId(id: string): ParsedNodeId {
     case "value": {
       if (rest.length !== 3) throw new Error(`unparseable node id: ${id}`);
       return { kind: "value", remoteId: rest[0], relationKind: rest[1] as RelationKind, valueSlug: rest[2] };
+    }
+    case "group": {
+      if (rest.length !== 3) throw new Error(`unparseable node id: ${id}`);
+      return { kind: "group", remoteId: rest[0], relationKind: rest[1] as RelationKind, valueSlug: rest[2] };
     }
     case "artist": {
       if (rest.length !== 2) throw new Error(`unparseable node id: ${id}`);

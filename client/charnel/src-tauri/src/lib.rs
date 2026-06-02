@@ -587,29 +587,6 @@ pub fn run() {
                                     }
                                 })
                             }
-                            grimoire::events::GrimoireEvent::JobProgress { session_id, directory, songs_added, jobs_pending, jobs_total } => {
-                                serde_json::json!({
-                                    "type": "job-progress",
-                                    "data": {
-                                        "session_id": session_id,
-                                        "directory": directory,
-                                        "songs_added": songs_added,
-                                        "jobs_pending": jobs_pending,
-                                        "jobs_total": jobs_total
-                                    }
-                                })
-                            }
-                            grimoire::events::GrimoireEvent::JobSessionComplete { session_id, songs_added, albums_added, artists_added } => {
-                                serde_json::json!({
-                                    "type": "job-session-complete",
-                                    "data": {
-                                        "session_id": session_id,
-                                        "songs_added": songs_added,
-                                        "albums_added": albums_added,
-                                        "artists_added": artists_added
-                                    }
-                                })
-                            }
                         };
                         // emit to frontend as tauri event (matching spume's event channel)
                         if let Err(e) = event_handle.emit("freqhole:event", spume_event) {

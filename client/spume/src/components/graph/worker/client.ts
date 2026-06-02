@@ -16,10 +16,35 @@ export type VisibleIdsListener = (ids: string[]) => void;
 export interface WalkerClient {
   init(graph: WalkGraph, pivot: string, width: number, height: number, breadcrumb?: string[]): void;
   expand(nodeId: string): void;
+  /** force-expand a hub's immediate subtree (children + their album
+   *  children for artist children). cleared on the next back(). */
+  expandSubtree(nodeId: string): void;
+  /** clear every eager subtree expansion at once. */
+  collapseSubtrees(): void;
   resize(width: number, height: number): void;
   merge(addNodes: WalkNode[], addEdges: WalkEdge[]): void;
+  remove(nodeIds: string[]): void;
+  /** mark a set of node ids as hidden in the worker. they're skipped
+   *  in the visible set so the sim re-lays out without them. pass an
+   *  empty array to clear. breadcrumb nodes are never hidden. */
+  setHidden(nodeIds: string[]): void;
   repivot(nodeId: string, resetBreadcrumb?: boolean): void;
   setPaused(paused: boolean): void;
+  /** debug overlay — push partial tuning patch to the worker. */
+  setTuning(tuning: Partial<{
+    albumArtistDistance: number;
+    albumArtistStrength: number;
+    relatedArtistDistance: number;
+    relatedArtistStrength: number;
+    artistHubDistance: number;
+    artistHubStrength: number;
+    albumCollide: number;
+    artistCollide: number;
+    clusterCohesion: number;
+    artistCharge: number;
+    albumCharge: number;
+    gravity: number;
+  }>): void;
   back(): void;
   /** point hit-test in WORLD coordinates. `k` is the viewport scale
    *  (defaults to 1) so the worker can apply a 12-screen-px minimum
@@ -87,17 +112,32 @@ export function createWalkerClient(): WalkerClient {
     expand(nodeId) {
       post({ type: "expand", nodeId });
     },
+    expandSubtree(nodeId) {
+      post({ type: "expandSubtree", nodeId });
+    },
+    collapseSubtrees() {
+      post({ type: "collapseSubtrees" });
+    },
     resize(width, height) {
       post({ type: "resize", width, height });
     },
     merge(addNodes, addEdges) {
       post({ type: "merge", addNodes, addEdges });
     },
+    remove(nodeIds) {
+      post({ type: "remove", nodeIds });
+    },
+    setHidden(nodeIds) {
+      post({ type: "setHidden", nodeIds });
+    },
     repivot(nodeId, resetBreadcrumb) {
       post({ type: "repivot", nodeId, resetBreadcrumb });
     },
     setPaused(paused) {
       post({ type: "setPaused", paused });
+    },
+    setTuning(tuning) {
+      post({ type: "setTuning", tuning });
     },
     back() {
       post({ type: "back" });

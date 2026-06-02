@@ -108,6 +108,12 @@ impl EventFilter {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum JobEvent {
     /// in-flight progress update for a job session.
+    ///
+    /// `details` is an open-ended json blob for emit-site-specific
+    /// metadata that consumers may opt-in to consume (e.g. scan-rollup
+    /// fields like `directory`, `songs_added`, `jobs_pending`,
+    /// `jobs_total`). schema is per-topic; consumers should treat
+    /// unknown shapes as opaque.
     Progress {
         session_id: String,
         complete: i64,
@@ -115,6 +121,8 @@ pub enum JobEvent {
         topic: JobType,
         entity_ref: Option<EntityRef>,
         created_by: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
     },
     /// a single job within a session changed lifecycle state.
     /// `from` is best-effort and may be null when the previous state
@@ -156,11 +164,18 @@ pub enum JobEvent {
     /// the entire session has settled (no jobs pending or running).
     /// emitted at-most-once per session in practice (last-job emits it
     /// from the runner); subscribers may dedup.
+    ///
+    /// `details` carries optional topic-specific rollup fields
+    /// (e.g. for scan sessions: `songs_added`, `albums_added`,
+    /// `artists_added`). same opaque-by-default contract as
+    /// `Progress.details`.
     Completed {
         session_id: String,
         topic: JobType,
         entity_ref: Option<EntityRef>,
         created_by: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
     },
 }
 

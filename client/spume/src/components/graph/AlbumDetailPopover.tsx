@@ -10,6 +10,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { MarqueeText } from "../text/MarqueeText";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { RemoteSplitButton, type ContributingRemote } from "./RemoteSplitButton";
+import { formatHumanDuration } from "../../utils/formatDuration";
 // long-press timing — kept in sync with RelationLegend so the gesture
 // feels identical across both surfaces.
 const LONG_PRESS_MS = 450;
@@ -79,13 +80,6 @@ export interface AlbumDetailPopoverProps {
   /** click handler for an album in the sister-albums list — parent
    *  typically focuses the matching album node on the graph. */
   onSelectAlbum?: (album: AlbumNodeData) => void;
-}
-
-function formatDuration(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
 }
 
 export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
@@ -189,7 +183,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
                 <span>· {album()!.trackCount} tracks</span>
               </Show>
               <Show when={album()!.totalDurationSec}>
-                <span>· {formatDuration(album()!.totalDurationSec)}</span>
+                <span>· {formatHumanDuration(album()!.totalDurationSec)}</span>
               </Show>
             </div>
             <Show when={album()!.label}>

@@ -8,6 +8,7 @@ import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
 import { pickDirectory, pickFiles } from "../../utils/filePicker";
+import { getLocalLibraryName } from "../../app/services/storage/db";
 
 export interface AddMusicModalProps {
   /** whether modal is open */
@@ -148,9 +149,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
           <div
             class={`w-full wide:max-w-3xl wide:h-auto wide:max-h-[80dvh] bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg overflow-hidden flex flex-col ${props.class || ""}`}
             style={{
-              height: "calc(100% - env(safe-area-inset-top, 0px))",
-              "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
-              "margin-top": "env(safe-area-inset-top, 0px)",
+              height: "calc(100% - var(--safe-area-top, 0px))",
+              "max-height": "calc(100% - var(--safe-area-top, 0px))",
+              "margin-top": "var(--safe-area-top, 0px)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -160,7 +161,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                 class="heading-5 text-[var(--color-text-primary)] truncate"
                 style={{ "min-width": "0" }}
               >
-                add music to {props.remoteName || "local library"}
+                add music to {props.remoteName || getLocalLibraryName()}
               </h2>
               <IconButton
                 icon="close"
@@ -391,17 +392,36 @@ export function AddMusicModal(props: AddMusicModalProps) {
                             {job.label}
                           </span>
                           {/* status text */}
-                          <span class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)]">
+                          <span
+                            class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
+                            title={
+                              job.status === "failed"
+                                ? (job.errorFull ?? job.error ?? "failed")
+                                : job.status === "polling" && job.stage
+                                  ? job.stage
+                                  : undefined
+                            }
+                          >
                             {job.status === "uploading"
                               ? "uploading..."
                               : job.status === "polling"
-                                ? "processing..."
+                                ? (job.stage ?? "processing...")
                                 : job.status === "completed"
                                   ? "done"
                                   : job.status === "timeout"
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
                           </span>
+                          {/* album link (once import finishes) */}
+                          <Show when={job.status === "completed" && job.albumId}>
+                            <a
+                              class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                              href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}
+                              title="view album"
+                            >
+                              view album
+                            </a>
+                          </Show>
                         </div>
                       )}
                     </For>

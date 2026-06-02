@@ -38,6 +38,13 @@ export class BiStream {
      */
     peer_node_id(): string;
     /**
+     * read a newline-terminated utf-8 line.
+     *
+     * returns the line WITHOUT the trailing `\n`. returns null on clean
+     * stream close (EOF before any bytes). used for ndjson framing.
+     */
+    read_line(): Promise<any>;
+    /**
      * read a length-delimited message.
      *
      * reads a 4-byte big-endian u32 length prefix, then reads that many
@@ -55,6 +62,13 @@ export class BiStream {
      * the message is terminated by the sender calling `finish()`.
      */
     read_to_end(max_size: number): Promise<any>;
+    /**
+     * write a newline-delimited utf-8 line.
+     *
+     * appends `\n` if not already present, then writes. used for the ndjson
+     * framing the `freqhole-events/1` protocol speaks.
+     */
+    write_line(line: string): Promise<void>;
     /**
      * write a length-delimited message.
      *

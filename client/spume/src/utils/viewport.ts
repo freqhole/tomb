@@ -104,7 +104,7 @@ const NAV_HEIGHT = 42;
 
 /**
  * get the nav height to subtract from viewport for content areas.
- * returns NAV_HEIGHT (56px) on narrow/mobile views where nav is fixed,
+ * returns NAV_HEIGHT (42px) on narrow/mobile views where nav is fixed,
  * returns 0 on wide/desktop views where nav is part of the flex layout.
  */
 export function getNavHeight(): number {

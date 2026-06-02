@@ -1,9 +1,8 @@
 import { createSignal, Show, onMount, onCleanup, For } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
 import { resolvePath } from "../util/resolvePath";
-import { listen } from "@tauri-apps/api/event";
 
 // step flow: welcome → config → running → admin → music → done
 type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
@@ -128,28 +127,49 @@ export default function SetupView() {
         return;
       }
 
-      // listen for job progress events
-      unlistenProgress = await listen<{
-        type: string;
-        data: {
-          session_id: string;
-          directory: string;
-          songs_added: number;
-          jobs_pending: number;
-          jobs_total: number;
-        };
-      }>("freqhole:event", (event) => {
-        if (event.payload.type === "job-progress") {
+      // subscribe to job lifecycle events via the typed broker channel
+      const channel = new Channel<{
+        kind: string;
+        evt?: unknown;
+        reason?: unknown;
+      }>();
+      channel.onmessage = (frame) => {
+        if (frame.kind !== "event") return;
+        const evt = frame.evt as
+          | { kind?: string; details?: Record<string, unknown> }
+          | undefined;
+        if (!evt) return;
+        if (
+          evt.kind === "progress" &&
+          evt.details &&
+          typeof evt.details === "object"
+        ) {
+          const d = evt.details as {
+            directory?: string;
+            songs_added?: number;
+            jobs_pending?: number;
+            jobs_total?: number;
+          };
           setJobProgress({
-            directory: event.payload.data.directory,
-            songsAdded: event.payload.data.songs_added,
-            jobsPending: event.payload.data.jobs_pending,
-            jobsTotal: event.payload.data.jobs_total,
+            directory: d.directory ?? "",
+            songsAdded: d.songs_added ?? 0,
+            jobsPending: d.jobs_pending ?? 0,
+            jobsTotal: d.jobs_total ?? 0,
           });
-        } else if (event.payload.type === "job-session-complete") {
+        } else if (evt.kind === "completed") {
           setJobsComplete(true);
         }
+      };
+      const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
+        filter: null,
+        events: channel,
+        targetPeer: null,
       });
+      unlistenProgress = () => {
+        void invoke("jobs_events_unsubscribe", {
+          sessionId: jobEventsSessionId,
+        });
+      };
     } catch (e) {
       console.error("init error:", e);
       setDepCheckLoading(false);

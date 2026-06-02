@@ -22,6 +22,7 @@ import {
   setCurrentRemoteState,
   type CurrentUser,
 } from "./currentState";
+import { patchAuthInfo } from "../../app/services/remotes/authStatusStore";
 
 // re-export from currentState for backward compatibility
 export { getCurrentUser, getCurrentRemote, type CurrentUser };
@@ -93,9 +94,18 @@ export async function useRemoteSource(remote: RemoteRef): Promise<void> {
         username: whoamiResult.data.username,
         role: whoamiResult.data.role as UserRoleName,
       });
+      // mirror into the global auth status store so any view that gates
+      // on admin role (graph viz edit buttons, etc.) sees the freshly
+      // authenticated state without needing its own whoami round-trip.
+      patchAuthInfo(remoteId, {
+        loggedIn: true,
+        username: whoamiResult.data.username,
+        role: whoamiResult.data.role,
+      });
       debug(`authenticated as user: ${whoamiResult.data.username} (${whoamiResult.data.user_id}), role: ${whoamiResult.data.role}`);
     } else {
       setCurrentUserState(null);
+      patchAuthInfo(remoteId, { loggedIn: false });
     }
   } catch {
     setCurrentUserState(null);

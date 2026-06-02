@@ -104,6 +104,23 @@ export interface MsgMerge {
   addEdges: WalkEdge[];
 }
 
+/** drop nodes (and any edges referencing them) from the full graph.
+ *  used by refreshHub to evict stale taxon nodes/edges before re-merge
+ *  so re-parented children don't keep their old hub edge. */
+export interface MsgRemove {
+  type: "remove";
+  nodeIds: string[];
+}
+
+/** mark nodes as hidden without removing them from the full graph.
+ *  hidden nodes are skipped by getVisible() (breadcrumb is exempt) so
+ *  the sim re-lays out the remaining nodes more tightly. used by the
+ *  edit-mode taxon filter. pass an empty array to clear. */
+export interface MsgSetHidden {
+  type: "setHidden";
+  nodeIds: string[];
+}
+
 /** jump to a new pivot; optionally reset breadcrumb instead of pushing */
 export interface MsgRepivot {
   type: "repivot";
@@ -118,16 +135,56 @@ export interface MsgSetPaused {
   paused: boolean;
 }
 
+/** debug overlay — update runtime sim tuning multipliers. partial
+ *  patch: any missing keys keep their current value. */
+export interface MsgSetTuning {
+  type: "setTuning";
+  tuning: Partial<{
+    albumArtistDistance: number;
+    albumArtistStrength: number;
+    relatedArtistDistance: number;
+    relatedArtistStrength: number;
+    artistHubDistance: number;
+    artistHubStrength: number;
+    albumCollide: number;
+    artistCollide: number;
+    clusterCohesion: number;
+    artistCharge: number;
+    albumCharge: number;
+    gravity: number;
+  }>;
+}
+
+/** expand the entire immediate child subtree of a node. for group/value
+ *  hub nodes this surfaces all child taxons + any artist children + each
+ *  artist's albums. cleared on `back`. */
+export interface MsgExpandSubtree {
+  type: "expandSubtree";
+  nodeId: string;
+}
+
+/** clear every eager subtree expansion at once. fired by the host on
+ *  single-selection of an unrelated node so the previously-expanded
+ *  groups collapse back to normal pivot-driven visibility. */
+export interface MsgCollapseSubtrees {
+  type: "collapseSubtrees";
+}
+
 export type MainToWorker =
   | MsgBack
   | MsgExpand
+  | MsgExpandSubtree
+  | MsgCollapseSubtrees
   | MsgGetBounds
   | MsgHitTest
   | MsgInit
   | MsgMerge
+  | MsgRemove
   | MsgRepivot
   | MsgResize
-  | MsgSetPaused;
+  | MsgSetHidden
+  | MsgSetPaused
+  | MsgSetTuning;
 
 // ---- worker → main ---------------------------------------------------------
 

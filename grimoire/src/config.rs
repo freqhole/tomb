@@ -1168,7 +1168,7 @@ fn generate_config_template(
                 value(format!("{} --print-json --no-download", ytdlp_str));
             // fetch_command uses yt-dlp
             fetch_music["fetch_command"] = value(format!(
-                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath",
+                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath",
                 ytdlp_str
             ));
         }

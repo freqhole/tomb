@@ -88,6 +88,7 @@ import {
   onRemoteStatusChange,
   onSwitchToLocal,
   deleteRemote,
+  updateRemote,
 } from "./services/remotes/remoteManager";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
@@ -109,7 +110,13 @@ import {
   showShareModal,
   formatImageCarouselTitle,
 } from "../music/hooks/modals";
-import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
+import {
+  appState,
+  setCurrentSong,
+  setQueueOpen,
+  getLocalLibraryName,
+  setLocalLibraryName,
+} from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import {
   queueHistory,
@@ -122,7 +129,7 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { isCharnelMode, setWindowTitle } from "./services/charnel";
+import { isCharnelMode, setWindowTitle, updateServerInfo } from "./services/charnel";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -531,9 +538,44 @@ export function AppLayout(props: AppLayoutProps) {
     }
   };
 
+  // handle renaming a remote (called from topnav context menu).
+  // rename is only offered for "local library" remotes in topnav:
+  //   - web: synthetic row, routed through onRenameLocalLibrary (not here)
+  //   - charnel (android/desktop): the is_charnel_managed sqlite row;
+  //     its name lives in the freqhole config toml and gets re-seeded on
+  //     every startup by `upsertTauriRemote(config.server_name)`. so for
+  //     these we also update server.name in the config to make the
+  //     rename survive a restart.
+  const handleRenameRemote = async (remoteId: string, newName: string): Promise<void> => {
+    try {
+      await updateRemote(remoteId, { name: newName });
+      if (isCharnelMode()) {
+        const target = await getRemoteById(remoteId);
+        if (target?.is_charnel_managed) {
+          try {
+            await updateServerInfo({ name: newName });
+          } catch (err) {
+            console.error("failed to persist server.name to charnel config:", err);
+            // re-throw so the modal surfaces the failure; the IDB write
+            // above will be undone on next startup anyway when charnel
+            // re-seeds from the (un-updated) toml.
+            throw err;
+          }
+        }
+      }
+      const allRemotes = await getAllRemotes();
+      setRemotes(allRemotes);
+      toast.success("remote renamed");
+    } catch (error) {
+      console.error("failed to rename remote:", error);
+      toast.error("failed to rename remote");
+      throw error;
+    }
+  };
+
   const currentSourceName = createMemo(() => {
     const remote = getCurrentRemote();
-    return remote ? remote.name : "local library";
+    return remote ? remote.name : getLocalLibraryName();
   });
 
   // handle navigate to playlists view
@@ -1141,6 +1183,18 @@ export function AppLayout(props: AppLayoutProps) {
         onRecheckRemote={handleRecheckRemote}
         onAddRemote={() => setIsAddRemoteOpen(true)}
         onDeleteRemote={handleDeleteRemote}
+        onRenameRemote={handleRenameRemote}
+        localLibraryName={getLocalLibraryName()}
+        onRenameLocalLibrary={async (newName) => {
+          try {
+            await setLocalLibraryName(newName);
+            toast.success("local library renamed");
+          } catch (error) {
+            console.error("failed to rename local library:", error);
+            toast.error("failed to rename local library");
+            throw error;
+          }
+        }}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
         recentPlaylists={
@@ -1226,7 +1280,7 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class="flex-1 overflow-hidden flex"
         style={{
-          "padding-top": isNarrow() ? "var(--nav-height, 56px)" : undefined,
+          "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined,
           "padding-bottom": "var(--player-bar-height)",
         }}
       >

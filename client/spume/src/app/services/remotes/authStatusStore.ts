@@ -14,7 +14,7 @@
 // auto-poll.
 
 import { createSignal, type Accessor } from "solid-js";
-import { whoami, whoamiForRemote } from "./authService";
+import { whoamiForRemote } from "./authService";
 import { isHttpRemote, type Remote } from "../storage/types";
 import { getRemoteById, onRemoteStatusChange } from "./remoteManager";
 
@@ -38,6 +38,14 @@ function patch(remoteId: string, entry: AuthEntry): void {
 }
 
 async function resolveOne(remote: Remote): Promise<AuthInfo> {
+  // skip remotes already known to be offline — the whoami call would
+  // just hammer an unreachable peer and eventually fail. callers that
+  // want a fresh check should run a health check first; on the
+  // offline -> online transition the listener at the bottom of this
+  // file refreshes auth automatically.
+  if (remote.is_offline === true) {
+    return { loggedIn: false };
+  }
   // charnel-managed remotes (the tauri sidecar's own owner): query
   // whoami through the charnel local IPC transport. `getClientForRemote`
   // already routes is_charnel_managed remotes to that transport, so
@@ -66,29 +74,17 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
     try {
       const result = await whoamiForRemote(remote);
       if (result.success) {
-        console.log(
-          "[auth-status] p2p whoami succeeded for",
-          remote.remote_id,
-          "role=",
-          result.role,
-        );
         return {
           loggedIn: true,
           username: result.username,
           role: result.role,
         };
       }
-      console.log(
-        "[auth-status] p2p whoami returned not-logged-in for",
-        remote.remote_id,
-      );
       return { loggedIn: false };
-    } catch (err) {
-      console.warn(
-        "[auth-status] p2p whoami threw for",
-        remote.remote_id,
-        err,
-      );
+    } catch {
+      // transport not warm / peer unreachable. callers see
+      // `loggedIn:false` and the offline -> online listener at the
+      // bottom of this file will retry once the peer comes back.
       return { loggedIn: false };
     }
   }
@@ -97,7 +93,12 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
     return { loggedIn: false };
   }
   try {
-    const result = await whoami(remote.base_url);
+    // use whoamiForRemote so the saved Remote's credentials (api_key,
+    // session token, etc.) are carried through `getClientForRemote`.
+    // bare `whoami(base_url)` would synthesise a transient credential-less
+    // remote via `httpRemote(...)`, which is why admin gating used to
+    // silently come back false on every non-charnel http remote.
+    const result = await whoamiForRemote(remote);
     return {
       loggedIn: result.success,
       username: result.username,
@@ -132,10 +133,61 @@ export async function refreshAll(remoteList: Remote[]): Promise<void> {
   );
 }
 
+// in-flight refreshOne promises keyed by remote_id. dedupes concurrent
+// refresh requests so a single `remotes()` accessor churn doesn't fan
+// out into N redundant whoami calls per remote (the AppLayout effect
+// re-fires on every remote-list identity change, and prior to this gate
+// `getAuthInfo !== undefined` returned false until the very first call
+// resolved, leading to pile-ups for offline / slow p2p peers).
+const pendingRefresh = new Map<string, Promise<void>>();
+
 /** refresh a single remote without touching the others. */
 export async function refreshOne(remote: Remote): Promise<void> {
-  const info = await resolveOne(remote);
-  patch(remote.remote_id, info);
+  const existing = pendingRefresh.get(remote.remote_id);
+  if (existing) return existing;
+
+  // mark as in-flight immediately so other callers gating on
+  // `getAuthInfo(id) !== undefined` short-circuit while we resolve.
+  if (authStatus().get(remote.remote_id) === undefined) {
+    patch(remote.remote_id, null);
+  }
+
+  const task = (async () => {
+    let info = await resolveOne(remote);
+    // cold-boot heuristic: if the very first whoami says "logged out"
+    // but we have no prior entry for this remote, retry once after a
+    // short delay. on web browser builds the initial whoami can race
+    // ahead of session cookie hydration / cross-origin cookie attach,
+    // leading to a sticky `loggedIn:false` that survives navigation. a
+    // single retry is cheap and rescues that case without re-querying
+    // on every render. skip the retry for known-offline remotes — the
+    // peer isn't going to magically reappear in 250ms.
+    const prior = authStatus().get(remote.remote_id);
+    const wasUnknown = prior === undefined || prior === null;
+    if (!info.loggedIn && wasUnknown && remote.is_offline !== true) {
+      await new Promise((r) => setTimeout(r, 250));
+      const retry = await resolveOne(remote);
+      if (retry.loggedIn) info = retry;
+    }
+    patch(remote.remote_id, info);
+  })();
+
+  pendingRefresh.set(remote.remote_id, task);
+  try {
+    await task;
+  } finally {
+    pendingRefresh.delete(remote.remote_id);
+  }
+}
+
+/**
+ * imperatively set an AuthInfo entry. used by callers (e.g. data source
+ * switching) that have already performed a whoami via another transport
+ * and want the canonical store to reflect that result without a second
+ * round-trip.
+ */
+export function patchAuthInfo(remoteId: string, info: AuthInfo): void {
+  patch(remoteId, info);
 }
 
 /** mark a remote as logged out without re-querying (for post-logout updates). */

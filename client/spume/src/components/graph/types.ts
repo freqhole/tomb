@@ -232,6 +232,7 @@ export type NodeRole =
   | "remote"
   | "relation"
   | "value"
+  | "group"
   | "artist"
   | "album"
   | "ghost_artist";

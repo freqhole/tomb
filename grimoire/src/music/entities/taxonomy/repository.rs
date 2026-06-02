@@ -7,10 +7,11 @@
 
 use super::models::{
     AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, CreateTaxonKindRequest,
-    CreateTaxonRequest, GetTaxonRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
-    RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, ScalarValueType,
-    SetAlbumTaxonsRequest, SetScalarAttributeRequest, Taxon, TaxonKind, TaxonRef, TaxonWithStats,
-    TaxonsQueryResult,
+    CreateTaxonRequest, GetTaxonRequest, ListTaxonParentsForKindRequest, QueryScalarRangeRequest,
+    QueryTaxonsRequest, RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute,
+    ScalarValueType, SetAlbumTaxonsRequest, SetScalarAttributeRequest, SetTaxonColorRequest,
+    SetTaxonKindColorRequest, SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind,
+    TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
 use crate::database;
 use crate::error::ErrorDetail;
@@ -194,6 +195,49 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         created_at: now,
         album_count: recently_added_count,
     });
+
+    // unassigned: albums with no album_taxonz rows at all (across any
+    // kind). useful for admin triage — surfaces orphan content that
+    // hasn't been tagged yet. only emit the hub when the count is > 0
+    // so a fully-tagged library doesn't show a dead hub.
+    let unassigned_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!"
+           FROM albumz a
+           WHERE a.deleted_at IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM album_taxonz at
+               JOIN taxonz t ON t.id = at.taxon_id
+               WHERE at.album_id = a.id AND t.deleted_at IS NULL
+             )"#
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to count unassigned albums",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if unassigned_count > 0 {
+        kinds.push(TaxonKind {
+            id: "synth::unassigned".to_string(),
+            slug: "unassigned".to_string(),
+            label: "unassigned".to_string(),
+            description: Some("synthesized hub: albums with no taxon assignments".to_string()),
+            color: None,
+            value_type: "categorical".to_string(),
+            unit: None,
+            // sort after recently_added
+            display_order: 9002,
+            is_user_defined: false,
+            created_at: now,
+            album_count: unassigned_count,
+        });
+    }
 
     GrimoireResponse::success("taxon kinds retrieved", kinds)
 }
@@ -460,6 +504,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
             slug            as "slug!",
             label           as "label!",
             description,
+            color,
             is_user_defined as "is_user_defined!: bool",
             created_at      as "created_at!",
             created_by
@@ -481,6 +526,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
                 slug: row.slug,
                 label: row.label,
                 description: row.description,
+                color: row.color,
                 is_user_defined: row.is_user_defined,
                 created_at: row.created_at,
                 created_by: row.created_by,
@@ -497,6 +543,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
              slug            as "slug!",
              label           as "label!",
              description,
+             color,
              is_user_defined as "is_user_defined!: bool",
              created_at      as "created_at!",
              created_by"#,
@@ -522,6 +569,7 @@ pub async fn find_or_create_taxon(kind_slug: &str, label: &str) -> GrimoireRespo
             slug: row.slug,
             label: row.label,
             description: row.description,
+            color: row.color,
             is_user_defined: row.is_user_defined,
             created_at: row.created_at,
             created_by: row.created_by,
@@ -570,6 +618,7 @@ pub async fn get_taxon(req: GetTaxonRequest) -> GrimoireResponse<Taxon> {
             t.slug            as "slug!",
             t.label           as "label!",
             t.description,
+            t.color,
             t.is_user_defined as "is_user_defined!: bool",
             t.created_at      as "created_at!",
             t.created_by
@@ -597,6 +646,7 @@ pub async fn get_taxon(req: GetTaxonRequest) -> GrimoireResponse<Taxon> {
                 slug: r.slug,
                 label: r.label,
                 description: r.description,
+                color: r.color,
                 is_user_defined: r.is_user_defined,
                 created_at: r.created_at,
                 created_by: r.created_by,
@@ -626,6 +676,7 @@ pub async fn list_taxons_by_kind(kind_slug: &str) -> GrimoireResponse<Vec<Taxon>
             t.slug            as "slug!",
             t.label           as "label!",
             t.description,
+            t.color,
             t.is_user_defined as "is_user_defined!: bool",
             t.created_at      as "created_at!",
             t.created_by
@@ -656,6 +707,7 @@ pub async fn list_taxons_by_kind(kind_slug: &str) -> GrimoireResponse<Vec<Taxon>
             slug: r.slug,
             label: r.label,
             description: r.description,
+            color: r.color,
             is_user_defined: r.is_user_defined,
             created_at: r.created_at,
             created_by: r.created_by,
@@ -1364,6 +1416,250 @@ pub async fn query_albums_by_scalar_range(
     GrimoireResponse::success(
         "matching album ids retrieved",
         rows.into_iter().map(|r| r.album_id).collect(),
+    )
+}
+
+/// set (or clear) the color on a taxon. null color is valid and clears
+/// any previously stored value.
+pub async fn set_taxon_color(req: SetTaxonColorRequest) -> GrimoireResponse<Taxon> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxonz SET color = ? WHERE id = ? AND deleted_at IS NULL"#,
+        req.color,
+        req.taxon_id,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon color",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon not found", vec![]);
+    }
+
+    get_taxon(GetTaxonRequest { id: req.taxon_id }).await
+}
+
+/// rename a taxon. updates both `label` and the derived `slug` so the
+/// rename is reflected in URLs, hub matching, and the (kind_id, slug)
+/// uniqueness index. fails if another live taxon in the same kind
+/// already holds the target slug.
+pub async fn set_taxon_label(req: SetTaxonLabelRequest) -> GrimoireResponse<Taxon> {
+    let label = req.label.trim().to_string();
+    if label.is_empty() {
+        return GrimoireResponse::failure("label cannot be empty", vec![]);
+    }
+    let slug = slugify_taxon_label(&label);
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxonz SET label = ?, slug = ? WHERE id = ? AND deleted_at IS NULL"#,
+        label,
+        slug,
+        req.taxon_id,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon label",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon not found", vec![]);
+    }
+
+    get_taxon(GetTaxonRequest { id: req.taxon_id }).await
+}
+
+/// set (or clear) the color on a taxon kind. used by the graph viz
+/// hub-detail popover so admins can re-skin a whole kind's hexagon
+/// hub without touching individual taxons. null clears the value
+/// (falls back to client default).
+pub async fn set_taxon_kind_color(req: SetTaxonKindColorRequest) -> GrimoireResponse<TaxonKind> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let slug = req.kind_slug.trim();
+    if slug.is_empty() {
+        return GrimoireResponse::failure("kind slug is required", vec![]);
+    }
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxon_kindz SET color = ? WHERE slug = ? AND deleted_at IS NULL"#,
+        req.color,
+        slug,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon kind color",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon kind not found", vec![]);
+    }
+
+    // re-read the kind via list + filter (cheaper than a dedicated getter and
+    // matches the album_count enrichment shape returned by list_taxon_kinds).
+    let kinds = list_taxon_kinds().await;
+    if !kinds.success {
+        return GrimoireResponse::failure("color updated but failed to re-read kind", kinds.errors);
+    }
+    match kinds
+        .data
+        .and_then(|all| all.into_iter().find(|k| k.slug == slug))
+    {
+        Some(kind) => GrimoireResponse::success("taxon kind color updated", kind),
+        None => GrimoireResponse::failure("taxon kind disappeared after update", vec![]),
+    }
+}
+
+/// rename a taxon kind's display label. slug is preserved so existing
+/// references (relation hub ids, route slugs, album link rows) keep
+/// working — only the human-facing label changes.
+pub async fn set_taxon_kind_label(req: SetTaxonKindLabelRequest) -> GrimoireResponse<TaxonKind> {
+    let label = req.label.trim().to_string();
+    if label.is_empty() {
+        return GrimoireResponse::failure("label cannot be empty", vec![]);
+    }
+    let slug = req.kind_slug.trim();
+    if slug.is_empty() {
+        return GrimoireResponse::failure("kind slug is required", vec![]);
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows_affected = match sqlx::query!(
+        r#"UPDATE taxon_kindz SET label = ? WHERE slug = ? AND deleted_at IS NULL"#,
+        label,
+        slug,
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(r) => r.rows_affected(),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to set taxon kind label",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if rows_affected == 0 {
+        return GrimoireResponse::failure("taxon kind not found", vec![]);
+    }
+
+    let kinds = list_taxon_kinds().await;
+    if !kinds.success {
+        return GrimoireResponse::failure("label updated but failed to re-read kind", kinds.errors);
+    }
+    match kinds
+        .data
+        .and_then(|all| all.into_iter().find(|k| k.slug == slug))
+    {
+        Some(kind) => GrimoireResponse::success("taxon kind label updated", kind),
+        None => GrimoireResponse::failure("taxon kind disappeared after update", vec![]),
+    }
+}
+
+/// return every `taxon_parentz` row whose child belongs to the given
+/// kind. a single join; no N+1 round-trips.
+pub async fn list_taxon_parents_for_kind(
+    req: ListTaxonParentsForKindRequest,
+) -> GrimoireResponse<Vec<TaxonParentEdge>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let rows = match sqlx::query!(
+        r#"SELECT
+            tp.child_id  as "child_id!",
+            tp.parent_id as "parent_id!"
+           FROM taxon_parentz tp
+           JOIN taxonz t      ON t.id = tp.child_id
+           JOIN taxon_kindz k ON k.id = t.kind_id
+           WHERE k.slug = ? AND t.deleted_at IS NULL"#,
+        req.kind_slug,
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to list taxon parents for kind",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    GrimoireResponse::success(
+        "taxon parent edges retrieved",
+        rows.into_iter()
+            .map(|r| TaxonParentEdge {
+                child_id: r.child_id,
+                parent_id: r.parent_id,
+            })
+            .collect(),
     )
 }
 

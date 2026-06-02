@@ -148,10 +148,14 @@ pub async fn dispatch(
         "/api/music/relations/era-albums" => {
             Some(relations::era_albums(caller, body.clone()).await)
         }
+        "/api/music/relations/unassigned-albums" => {
+            Some(relations::unassigned_albums(caller, body.clone()).await)
+        }
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
         "/api/favorites/list" => Some(favorites::list(caller, body.clone()).await),
+        "/api/favorites/beloved" => Some(favorites::list_beloved(caller, body.clone()).await),
 
         // ratings
         "/api/ratings/set" => Some(ratings::set(caller, body.clone()).await),
@@ -171,18 +175,30 @@ pub async fn dispatch(
         // taxonomy (kinds, taxons, parents, album links, scalar attributes)
         "/api/taxonomy/kinds/list" => Some(taxonomy::list_kinds(caller, body.clone()).await),
         "/api/taxonomy/kinds/create" => Some(taxonomy::create_kind(caller, body.clone()).await),
+        "/api/taxonomy/kinds/set-color" => {
+            Some(taxonomy::set_kind_color(caller, body.clone()).await)
+        }
+        "/api/taxonomy/kinds/set-label" => {
+            Some(taxonomy::set_kind_label(caller, body.clone()).await)
+        }
         "/api/taxonomy/taxons/list-by-kind" => {
             Some(taxonomy::list_taxons_by_kind(caller, body.clone()).await)
         }
         "/api/taxonomy/taxons/query" => Some(taxonomy::query_taxons(caller, body.clone()).await),
         "/api/taxonomy/taxons/get" => Some(taxonomy::get_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/create" => Some(taxonomy::create_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/set-color" => Some(taxonomy::set_color(caller, body.clone()).await),
+        "/api/taxonomy/taxons/set-label" => Some(taxonomy::set_label(caller, body.clone()).await),
+        "/api/taxonomy/taxons/delete" => Some(taxonomy::delete_taxon(caller, body.clone()).await),
         "/api/taxonomy/taxons/ancestors" => Some(taxonomy::ancestors(caller, body.clone()).await),
         "/api/taxonomy/taxons/descendants" => {
             Some(taxonomy::descendants(caller, body.clone()).await)
         }
         "/api/taxonomy/parents/add" => Some(taxonomy::add_parent(caller, body.clone()).await),
         "/api/taxonomy/parents/remove" => Some(taxonomy::remove_parent(caller, body.clone()).await),
+        "/api/taxonomy/parents/list-by-kind" => {
+            Some(taxonomy::list_parents_for_kind(caller, body.clone()).await)
+        }
         "/api/taxonomy/album-links/get" => {
             Some(taxonomy::get_album_links(caller, body.clone()).await)
         }

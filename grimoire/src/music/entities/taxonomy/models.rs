@@ -67,6 +67,7 @@ pub struct Taxon {
     pub slug: String,
     pub label: String,
     pub description: Option<String>,
+    pub color: Option<String>,
     pub is_user_defined: bool,
     pub created_at: i64,
     pub created_by: Option<String>,
@@ -154,6 +155,11 @@ pub struct CreateTaxonRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetTaxonRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteTaxonRequest {
     pub id: String,
 }
 
@@ -246,4 +252,40 @@ pub struct ListTaxonsByKindRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetAlbumTaxonLinksRequest {
     pub album_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonColorRequest {
+    pub taxon_id: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonLabelRequest {
+    pub taxon_id: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonKindColorRequest {
+    pub kind_slug: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SetTaxonKindLabelRequest {
+    pub kind_slug: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListTaxonParentsForKindRequest {
+    pub kind_slug: String,
+}
+
+/// a single parent edge in the taxon DAG (child -> parent).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
+pub struct TaxonParentEdge {
+    pub child_id: String,
+    pub parent_id: String,
 }

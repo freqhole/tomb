@@ -31,8 +31,14 @@ import { toast } from "../feedback/Toast";
 import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import { QrCodeModal } from "../modals/QrCodeModal";
+import { Modal } from "../overlays/Modal";
+import { Button } from "../buttons/Button";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { ViewSelector, type ViewOption } from "./ViewSelector";
+
+// sentinel id used by the shared rename modal to distinguish the local
+// library row from real remote records (which have uuid-shaped ids).
+const LOCAL_LIBRARY_RENAME_ID = "__local_library__";
 
 export interface NavMenuItem {
   /** menu item label */
@@ -125,6 +131,15 @@ export interface TopNavProps {
   onAddRemote?: () => void;
   /** callback to delete a remote */
   onDeleteRemote?: (remoteId: string) => Promise<void> | void;
+  /** callback to rename a remote. omit (or return for charnel-managed
+   *  remotes) to hide the rename menu action. */
+  onRenameRemote?: (remoteId: string, newName: string) => Promise<void> | void;
+  /** display name for the web/indexeddb-backed local library row.
+   *  defaults to "local library" when unset. */
+  localLibraryName?: string;
+  /** callback to rename the local library. omit to hide the inline
+   *  kebab action next to the local library row. */
+  onRenameLocalLibrary?: (newName: string) => Promise<void> | void;
   /** browser storage usage in bytes */
   storageUsage?: number;
   /** browser storage quota in bytes */
@@ -380,6 +395,15 @@ export function TopNav(props: TopNavProps) {
   } | null>(null);
   const [deleting, setDeleting] = createSignal(false);
 
+  // rename modal state for remote rows. charnel-managed remotes are
+  // renamed via the charnel wizard app, so this menu action is hidden
+  // for those in `remoteContextActions` below.
+  const [pendingRename, setPendingRename] = createSignal<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [renameValue, setRenameValue] = createSignal("");
+  const [renaming, setRenaming] = createSignal(false);
   // which remote row currently has its actions menu open (id, or null)
   const [openMenuFor, setOpenMenuFor] = createSignal<string | null>(null);
 
@@ -519,6 +543,21 @@ export function TopNav(props: TopNavProps) {
       });
     }
 
+    // rename is only offered for "local library" remotes — the
+    // charnel-managed (home-icon) row on android. user-added p2p/http
+    // remotes keep their server-side name and are not renamed from here.
+    if (props.onRenameRemote && remote.isCharnelManaged) {
+      if (actions.length > 0) actions.push({ type: "separator" });
+      actions.push({
+        label: "rename",
+        icon: "edit",
+        onClick: () => {
+          setRenameValue(remote.name);
+          setPendingRename({ id: remote.id, name: remote.name });
+        },
+      });
+    }
+
     if (props.onDeleteRemote && !remote.isCharnelManaged) {
       if (actions.length > 0) actions.push({ type: "separator" });
       actions.push({
@@ -544,6 +583,30 @@ export function TopNav(props: TopNavProps) {
     }
   };
 
+  const handleConfirmRename = async () => {
+    const target = pendingRename();
+    const next = renameValue().trim();
+    if (!target) return;
+    if (!next || next === target.name) {
+      setPendingRename(null);
+      return;
+    }
+    const isLocal = target.id === LOCAL_LIBRARY_RENAME_ID;
+    const handler = isLocal ? props.onRenameLocalLibrary : props.onRenameRemote;
+    if (!handler) return;
+    setRenaming(true);
+    try {
+      if (isLocal) {
+        await props.onRenameLocalLibrary!(next);
+      } else {
+        await props.onRenameRemote!(target.id, next);
+      }
+      setPendingRename(null);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   // browser navigation back/forward state.
   // uses the modern Navigation API where available (chromium) for accurate
   // canGoBack/canGoForward tracking. falls back to history.length heuristic
@@ -558,15 +621,18 @@ export function TopNav(props: TopNavProps) {
   // on the radio route — radio has its own list-and-detail layout.
   const isRadioRoute = () => (props.currentPath ?? "").startsWith("/radio");
   const isSharedRoute = () => (props.currentPath ?? "").startsWith("/shared");
-  const isLibraryRoute = () =>
-    (props.currentPath ?? "").startsWith("/explore") ||
-    (props.currentPath ?? "").startsWith("/library");
+  // /library is a legacy redirect to /explore (see LibraryRedirect in routes),
+  // so only /explore can actually be the live path here.
+  const isLibraryRoute = () => (props.currentPath ?? "").startsWith("/explore");
+  // local source is active when there's no remote selected and we're not on
+  // a global root route. uses `currentSourceId == null` instead of matching
+  // the display name so a user-renamed local library still resolves correctly.
   const isLocalSourceActive = () =>
     !isAggregateFeedRoute() &&
     !isRadioRoute() &&
     !isSharedRoute() &&
     !isLibraryRoute() &&
-    (props.currentSourceName === "local library" || !props.currentSourceName);
+    !props.currentSourceId;
   let sortCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let tagCloseTimeout: ReturnType<typeof setTimeout> | undefined;
   let feedFilterCloseTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -820,12 +886,18 @@ export function TopNav(props: TopNavProps) {
         ref={(el) => (navEl = el)}
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
-          // narrow: full-width fixed strip at top
+          // narrow: full-width fixed strip at top; padding-top insets below
+          // system status bar / notch via safe-area env var (works on both
+          // android webview and ios safari with viewport-fit=cover; zero on
+          // desktop so no effect there).
           "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
             isNarrow(),
           // wide: fixed top-left floating element, doesn't push content
           "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
+        }}
+        style={{
+          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
         }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
@@ -1053,35 +1125,69 @@ export function TopNav(props: TopNavProps) {
                         <div class="space-y-1">
                           {/* local library option - hidden in tauri mode */}
                           <Show when={!isCharnelMode()}>
-                            <button
-                              class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
-                              classList={{
-                                "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
-                                  isLocalSourceActive(),
-                                "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
-                                  isAggregateFeedRoute() ||
-                                  isRadioRoute() ||
-                                  isSharedRoute() ||
-                                  isLibraryRoute() ||
-                                  (!!props.currentSourceName &&
-                                    props.currentSourceName !== "local library"),
-                              }}
-                              disabled={!!isLocalSourceActive()}
-                              onClick={() => {
-                                closeTopNavMenu();
-                                props.onSwitchToLocal?.();
-                              }}
-                            >
-                              <Show
-                                when={isLocalSourceActive()}
-                                fallback={
-                                  <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
-                                }
+                            <div class="relative flex items-center gap-1">
+                              <button
+                                class="flex-1 min-w-0 px-3 py-2 text-left text-sm flex items-center gap-2 rounded transition-colors border-none bg-transparent"
+                                classList={{
+                                  "text-[var(--color-text-primary)] bg-[var(--color-accent-500)]/10 cursor-default":
+                                    isLocalSourceActive(),
+                                  "text-[var(--color-text-secondary)] cursor-pointer hover:bg-[var(--color-accent-500)]/10":
+                                    isAggregateFeedRoute() ||
+                                    isRadioRoute() ||
+                                    isSharedRoute() ||
+                                    isLibraryRoute() ||
+                                    !!props.currentSourceId,
+                                }}
+                                disabled={!!isLocalSourceActive()}
+                                onClick={() => {
+                                  closeTopNavMenu();
+                                  props.onSwitchToLocal?.();
+                                }}
                               >
-                                <Icon name="check" size={14} color="var(--color-accent-500)" />
+                                <Show
+                                  when={isLocalSourceActive()}
+                                  fallback={
+                                    <span class="w-2 h-2 rounded-full bg-[var(--color-accent-primary)]" />
+                                  }
+                                >
+                                  <Icon name="check" size={14} color="var(--color-accent-500)" />
+                                </Show>
+                                <span class="truncate">
+                                  {props.localLibraryName ?? "local library"}
+                                </span>
+                                <Icon
+                                  name="home"
+                                  size={14}
+                                  color="var(--color-text-muted)"
+                                  className="flex-shrink-0 ml-1"
+                                />
+                              </button>
+                              <Show when={props.onRenameLocalLibrary}>
+                                <RowActionsMenu
+                                  actions={[
+                                    {
+                                      label: "rename",
+                                      icon: "edit",
+                                      onClick: () => {
+                                        const current =
+                                          props.localLibraryName ?? "local library";
+                                        setRenameValue(current);
+                                        setPendingRename({
+                                          id: LOCAL_LIBRARY_RENAME_ID,
+                                          name: current,
+                                        });
+                                      },
+                                    },
+                                  ]}
+                                  isOpen={openMenuFor() === LOCAL_LIBRARY_RENAME_ID}
+                                  onToggle={() => {
+                                    const opening = openMenuFor() !== LOCAL_LIBRARY_RENAME_ID;
+                                    setOpenMenuFor(opening ? LOCAL_LIBRARY_RENAME_ID : null);
+                                  }}
+                                  onClose={() => setOpenMenuFor(null)}
+                                />
                               </Show>
-                              <span>local library</span>
-                            </button>
+                            </div>
                           </Show>
 
                           {/* remote sources */}
@@ -1697,7 +1803,7 @@ export function TopNav(props: TopNavProps) {
              *  pageInfo.statusFilterOptions. used by the library/table
              *  view for `mb_lookup_status`; other views can opt in by
              *  setting the same fields. */}
-            <Show when={info().statusFilterOptions?.length && (!isNarrow() || !searchExpanded())}>
+            <Show when={info().statusFilterOptions?.length && !searchExpanded()}>
               <div
                 class="relative flex-shrink-0 order-2"
                 onMouseEnter={() => {
@@ -1954,6 +2060,64 @@ export function TopNav(props: TopNavProps) {
         loading={deleting()}
         alertVariant="warning"
       />
+
+      {/* rename remote / local library modal */}
+      <Modal
+        isOpen={pendingRename() !== null}
+        onClose={() => {
+          if (!renaming()) setPendingRename(null);
+        }}
+        title={
+          pendingRename()?.id === LOCAL_LIBRARY_RENAME_ID
+            ? "rename local library"
+            : "rename remote"
+        }
+        size="sm"
+      >
+        <form
+          class="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleConfirmRename();
+          }}
+        >
+          <label class="block">
+            <span class="block text-xs text-[var(--color-text-muted)] mb-1">
+              display name
+            </span>
+            <input
+              type="text"
+              class="w-full px-3 py-2 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-500)]"
+              value={renameValue()}
+              onInput={(e) => setRenameValue(e.currentTarget.value)}
+              autofocus
+              maxLength={120}
+              disabled={renaming()}
+            />
+          </label>
+          <div class="flex gap-3 justify-end">
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setPendingRename(null)}
+              disabled={renaming()}
+            >
+              cancel
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={
+                renaming() ||
+                !renameValue().trim() ||
+                renameValue().trim() === (pendingRename()?.name ?? "")
+              }
+            >
+              {renaming() ? "renaming..." : "rename"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }

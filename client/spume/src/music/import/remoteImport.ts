@@ -1,10 +1,12 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
 import { createStore, produce } from "solid-js/store";
+import type { FreqholeClient } from "freqhole-api-client";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
+import { warn as logWarn } from "../../utils/logger";
 
 // known error types from the server for structured error handling
 const ERROR_TYPE = {
@@ -29,10 +31,20 @@ export interface UploadJob {
   status: UploadJobStatus;
   /** server job id (set after upload succeeds) */
   jobId?: string;
-  /** error message if failed */
+  /** short, human-readable error if failed */
   error?: string;
+  /** full server detail (for tooltip / debug) */
+  errorFull?: string;
+  /** latest concise stage message from the server (e.g. "2/7: track title") */
+  stage?: string;
   /** timestamp when job was created */
   createdAt: number;
+  /** remote id this job ran against (for navigation) */
+  remoteId?: string;
+  /** populated after completion: ids of the entities the import produced */
+  albumId?: string;
+  artistId?: string;
+  songId?: string;
 }
 
 // reactive store for all tracked upload jobs
@@ -74,7 +86,7 @@ function addTrackedJob(label: string, type: UploadJobType): string {
 function updateJobStatus(
   id: string,
   status: UploadJobStatus,
-  extra?: { jobId?: string; error?: string }
+  extra?: { jobId?: string; error?: string; errorFull?: string }
 ) {
   setUploadJobs(
     (j) => j.id === id,
@@ -82,8 +94,148 @@ function updateJobStatus(
       j.status = status;
       if (extra?.jobId) j.jobId = extra.jobId;
       if (extra?.error) j.error = extra.error;
+      if (extra?.errorFull) j.errorFull = extra.errorFull;
     })
   );
+}
+
+// update a tracked job's stage label (concise human-readable line).
+function updateJobStage(id: string, stage: string | undefined) {
+  setUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.stage = stage;
+    })
+  );
+}
+
+// merge entity ids onto a tracked job once we've resolved them from the
+// server-side job result.
+function updateJobEntities(
+  id: string,
+  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string }
+) {
+  setUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      if (ids.albumId) j.albumId = ids.albumId;
+      if (ids.artistId) j.artistId = ids.artistId;
+      if (ids.songId) j.songId = ids.songId;
+      if (ids.remoteId) j.remoteId = ids.remoteId;
+    })
+  );
+}
+
+// fetch a job's result JSON from the server and resolve its produced
+// entity ids. for ImportMusic the result already contains album/artist/
+// song ids. for FetchMedia (url fetch) the parent has none, so we list
+// child jobs by session_id and pick the first ImportMusic with a result.
+async function resolveJobEntities(
+  client: FreqholeClient,
+  jobId: string
+): Promise<{ albumId?: string; artistId?: string; songId?: string } | null> {
+  try {
+    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
+    if (!statusResp.success || !statusResp.data) return null;
+    const row = statusResp.data.jobs[jobId];
+    if (!row) return null;
+    const fromResult = parseJobResult(row.result ?? null);
+    if (fromResult.albumId || fromResult.songId || fromResult.artistId) {
+      return fromResult;
+    }
+    // FetchMedia parent path: walk children via session_id
+    if (row.session_id) {
+      try {
+        const listResp = await client.music.listJobs({
+          session_id: row.session_id,
+          status: "Completed",
+        });
+        if (listResp.success && listResp.data) {
+          for (const child of listResp.data) {
+            if (child.id === jobId) continue;
+            const childIds = parseJobResult(child.result ?? null);
+            if (childIds.albumId || childIds.songId) return childIds;
+          }
+        }
+      } catch (e) {
+        logWarn("remoteImport", `list_jobs for session ${row.session_id} failed: ${String(e)}`);
+      }
+    }
+    return null;
+  } catch (e) {
+    logWarn("remoteImport", `resolveJobEntities(${jobId}) failed: ${String(e)}`);
+    return null;
+  }
+}
+
+function parseJobResult(
+  raw: string | null | undefined
+): { albumId?: string; artistId?: string; songId?: string } {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    const get = (k: string) =>
+      typeof v[k] === "string" ? (v[k] as string) : undefined;
+    return {
+      albumId: get("album_id"),
+      artistId: get("artist_id"),
+      songId: get("song_id"),
+    };
+  } catch {
+    return {};
+  }
+}
+
+// translate a server `Stage` event into a short human-readable line.
+// returns undefined for stages we don't want to surface.
+function formatStage(stage: string, message: string | undefined): string | undefined {
+  switch (stage) {
+    case "precheck_started":
+      return "checking source\u2026";
+    case "item_started":
+      return message ? `downloading ${message}` : "downloading\u2026";
+    case "item_complete":
+      return message ? `downloaded ${message}` : "downloaded";
+    case "postprocess":
+      return message ?? "converting\u2026";
+    default:
+      return message;
+  }
+}
+
+// turn a raw server failure into a short, user-friendly line. the full
+// detail is kept available via the `fullError` field for tooltip / debug.
+export interface FriendlyError {
+  short: string;
+  full: string;
+}
+function humanizeJobError(
+  message: string | undefined,
+  errorType: string | undefined
+): FriendlyError {
+  const full = message?.trim() || errorType || "failed";
+  if (errorType === ERROR_TYPE.DUPLICATE_SONG) {
+    return { short: "song already exists", full };
+  }
+  const m = (message ?? "").toLowerCase();
+  if (m.startsWith("file does not exist") || m.includes("downloaded file"))
+    return { short: "downloaded file vanished before processing", full };
+  if (m.includes("no files were downloaded") || m.includes("nothing downloaded"))
+    return { short: "source returned no files", full };
+  if (m.includes("invalid url") || m.includes("unsupported url"))
+    return { short: "unsupported or invalid URL", full };
+  if (m.includes("connection") || m.includes("network") || m.includes("dns"))
+    return { short: "network error", full };
+  if (m.includes("permission denied") || m.includes("forbidden"))
+    return { short: "permission denied", full };
+  if (m.includes("timeout") || m.includes("timed out"))
+    return { short: "timed out", full };
+  if (m.includes("unsupported format") || m.includes("unknown format"))
+    return { short: "unsupported audio format", full };
+  // short message: keep as-is. long message: truncate.
+  const cleaned = full.replace(/\s+/g, " ");
+  const short = cleaned.length > 80 ? cleaned.slice(0, 77) + "\u2026" : cleaned;
+  return { short, full };
 }
 
 // ============================================================================
@@ -116,6 +268,7 @@ export async function uploadFilesToRemote(
 
   for (const file of fileArray) {
     const trackId = addTrackedJob(file.name, "file");
+    updateJobEntities(trackId, { remoteId: remote.remote_id });
 
     // fire off each upload + poll chain without blocking the others
     (async () => {
@@ -133,31 +286,37 @@ export async function uploadFilesToRemote(
         updateJobStatus(trackId, "polling", { jobId });
 
         // register with batch poller (120s timeout)
-        const pollResult = await poller.waitForJob(jobId, 120_000);
+        const pollResult = await poller.waitForJob(jobId, 120_000, {
+          onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
+        });
         if (pollResult.status === "completed") {
+          const ids = await resolveJobEntities(client, jobId);
+          if (ids) updateJobEntities(trackId, ids);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          // partial work may have landed server-side; refresh queries.
+          onJobComplete?.();
           toast.info(`upload of ${file.name} is still processing — check back later`, {
             title: "processing queued",
           });
         } else {
-          // check if the error is a duplicate using structured error_type
-          const isDuplicate = pollResult.errors?.some(
-            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
           );
-          if (isDuplicate) {
-            updateJobStatus(trackId, "failed", { error: "song already exists" });
-          } else {
-            updateJobStatus(trackId, "failed", {
-              error: pollResult.errorMessage || "processing failed",
-            });
-          }
+          updateJobStatus(trackId, "failed", {
+            error: friendly.short,
+            errorFull: friendly.full,
+          });
+          // a failed import can still create partial entities; refresh.
+          onJobComplete?.();
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        updateJobStatus(trackId, "failed", { error: msg });
+        const friendly = humanizeJobError(msg, undefined);
+        updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
   }
@@ -185,6 +344,7 @@ export async function uploadPathsToRemote(
     // use filename as label
     const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
     const trackId = addTrackedJob(filename, "file");
+    updateJobEntities(trackId, { remoteId: remote.remote_id });
 
     // fire off each upload + poll chain without blocking the others
     (async () => {
@@ -201,31 +361,35 @@ export async function uploadPathsToRemote(
         updateJobStatus(trackId, "polling", { jobId });
 
         // register with batch poller (120s timeout)
-        const pollResult = await poller.waitForJob(jobId, 120_000);
+        const pollResult = await poller.waitForJob(jobId, 120_000, {
+          onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
+        });
         if (pollResult.status === "completed") {
+          const ids = await resolveJobEntities(client, jobId);
+          if (ids) updateJobEntities(trackId, ids);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          onJobComplete?.();
           toast.info(`upload of ${filename} is still processing — check back later`, {
             title: "processing queued",
           });
         } else {
-          // check if the error is a duplicate using structured error_type
-          const isDuplicate = pollResult.errors?.some(
-            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
           );
-          if (isDuplicate) {
-            updateJobStatus(trackId, "failed", { error: "song already exists" });
-          } else {
-            updateJobStatus(trackId, "failed", {
-              error: pollResult.errorMessage || "processing failed",
-            });
-          }
+          updateJobStatus(trackId, "failed", {
+            error: friendly.short,
+            errorFull: friendly.full,
+          });
+          onJobComplete?.();
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        updateJobStatus(trackId, "failed", { error: msg });
+        const friendly = humanizeJobError(msg, undefined);
+        updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
   }
@@ -263,6 +427,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
     }
 
     const trackId = addTrackedJob(label, "url");
+    updateJobEntities(trackId, { remoteId: remote.remote_id });
 
     (async () => {
       try {
@@ -281,31 +446,35 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         updateJobStatus(trackId, "polling", { jobId });
 
         // register with batch poller (5 min timeout for fetches)
-        const pollResult = await poller.waitForJob(jobId, 300_000);
+        const pollResult = await poller.waitForJob(jobId, 300_000, {
+          onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
+        });
         if (pollResult.status === "completed") {
+          const ids = await resolveJobEntities(client, jobId);
+          if (ids) updateJobEntities(trackId, ids);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          onJobComplete?.();
           toast.info(`download is still processing — check back later`, {
             title: "processing queued",
           });
         } else {
-          // check if the error is a duplicate using structured error_type
-          const isDuplicate = pollResult.errors?.some(
-            (e) => e.error_type === ERROR_TYPE.DUPLICATE_SONG
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
           );
-          if (isDuplicate) {
-            updateJobStatus(trackId, "failed", { error: "song already exists" });
-          } else {
-            updateJobStatus(trackId, "failed", {
-              error: pollResult.errorMessage || "fetch failed",
-            });
-          }
+          updateJobStatus(trackId, "failed", {
+            error: friendly.short,
+            errorFull: friendly.full,
+          });
+          onJobComplete?.();
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        updateJobStatus(trackId, "failed", { error: msg });
+        const friendly = humanizeJobError(msg, undefined);
+        updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
   }

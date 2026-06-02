@@ -23,6 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { getRemoteClient } from "../../music/data";
+import type { ApiClient } from "../../app/api/client";
 import type { TaxonRef } from "../../music/data/types";
 import { Icon, IconNames } from "../icons/registry";
 
@@ -32,6 +33,11 @@ export interface TaxonAutocompleteProps {
   kindSlug?: string;
   /** ids to hide from results — typically the chips already shown. */
   excludeIds?: string[];
+  /** explicit api client to query against. when omitted, falls back to
+   *  the current global active remote via `getRemoteClient()`. callers
+   *  that operate on a specific remote (e.g. the graph edit panel)
+   *  must pass this — the global active remote is otherwise null. */
+  apiClient?: ApiClient | null;
   /** invoked when the user picks an existing taxon. */
   onSelect: (taxon: TaxonRef) => void;
   /** invoked when the user hits enter on a label that has no exact
@@ -69,9 +75,14 @@ export function TaxonAutocomplete(props: TaxonAutocompleteProps) {
   // async-fetch matching taxons. resource refetches whenever the
   // debounced query or kindSlug changes.
   const [results] = createResource(
-    () => ({ q: debounced(), kind: props.kindSlug, limit: props.limit ?? DEFAULT_LIMIT }),
-    async ({ q, kind, limit }) => {
-      const client = await getRemoteClient();
+    () => ({
+      q: debounced(),
+      kind: props.kindSlug,
+      limit: props.limit ?? DEFAULT_LIMIT,
+      explicit: props.apiClient,
+    }),
+    async ({ q, kind, limit, explicit }) => {
+      const client = explicit ?? (await getRemoteClient());
       if (!client) return [] as TaxonRef[];
       const resp = await client.music.queryTaxons({
         kind_slug: kind,

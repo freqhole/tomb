@@ -95,7 +95,9 @@ export function adaptAlbum(summary: AlbumSummary, opts: AdaptAlbumOpts): AlbumNo
     label: labelFromTaxon ?? summary.label ?? null,
     era: eraFromTaxon ?? yearBucketEra(summary.year),
     trackCount: summary.song_count ?? 0,
-    totalDurationSec: summary.total_duration ?? 0,
+    // album_total_duration sums songz.duration (stored in ms). convert
+    // to seconds so it matches the field name + shared formatters.
+    totalDurationSec: Math.round((summary.total_duration ?? 0) / 1000),
     rating: summary.user_rating ?? null,
     isFavorite: summary.is_favorite ?? false,
     sourceRemoteId: opts.remoteId,

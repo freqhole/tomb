@@ -2,15 +2,12 @@
 //!
 //! mirrors `radio_commands.rs` shape: a `Channel<JobEvent>` per
 //! subscription, sessions tracked in a process-local map, and
-//! `unsubscribe` aborts the spawned forwarder. this is the *local*
-//! shortcut — when charnel is talking to the in-process grimoire
-//! server it skips the iroh `freqhole-events/1` hop entirely.
+//! `unsubscribe` aborts the spawned forwarder.
 //!
-//! the remote path (open an `EVENTS_ALPN` bistream against a peer
-//! and forward frames into the same tauri channel) is intentionally
-//! deferred to a follow-up: it shares the wire protocol from
-//! `grimoire::federation::transport::events_protocol` but needs the
-//! "currently-targeted remote peer" wiring that p6 introduces.
+//! when `target_peer` is `None`, routes through the in-process broker
+//! (skips the iroh hop entirely). when `target_peer` is `Some(peer_addr)`,
+//! dials the remote peer via `grimoire::federation::transport::events_client`
+//! using the `freqhole-events/1` ALPN.
 
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -21,6 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::ipc::Channel;
 use tokio::task::JoinHandle;
 
+use grimoire::federation::transport::EventsServerMsg;
 use grimoire::jobs::job_events::{self, CloseReason, EventFilter, JobEvent, JobStateSnapshot};
 
 use crate::commands::get_caller_from_app_config;
@@ -72,19 +70,32 @@ fn drop_session(session_id: &str) {
 }
 
 /// one-shot snapshot of currently-active jobs matching `filter` and
-/// visible to the logged-in caller. no subscription is opened.
+/// visible to the logged-in caller (or caller on the remote peer).
+/// when `target_peer` is provided, fetches from that peer via iroh.
 #[tauri::command]
 pub async fn jobs_events_snapshot(
     app_handle: tauri::AppHandle,
     filter: Option<EventFilter>,
+    target_peer: Option<String>,
 ) -> Result<Vec<JobStateSnapshot>, String> {
-    let caller = get_caller_from_app_config(&app_handle)?;
     let filter = filter.unwrap_or_default();
+
+    if let Some(peer_addr) = target_peer {
+        return grimoire::federation::transport::snapshot_events_remote(&peer_addr, filter)
+            .await
+            .map_err(|e| e.to_string());
+    }
+
+    let caller = get_caller_from_app_config(&app_handle)?;
     Ok(job_events::snapshot(&filter, &caller).await)
 }
 
-/// open a subscription against the in-process broker. returns an
-/// opaque `session_id` the caller passes to `jobs_events_unsubscribe`.
+/// open a subscription. returns an opaque `session_id` the caller passes
+/// to `jobs_events_unsubscribe`.
+///
+/// when `target_peer` is `Some(peer_addr)`, dials the remote peer via
+/// `freqhole-events/1` and forwards frames into `events`. when `None`,
+/// routes through the in-process broker.
 ///
 /// the spawned task forwards each broker event into `events` as a
 /// `JobsEventsFrame::Event { evt }`. on broker-side close (lag, etc.)
@@ -95,11 +106,57 @@ pub async fn jobs_events_subscribe(
     app_handle: tauri::AppHandle,
     filter: Option<EventFilter>,
     events: Channel<JobsEventsFrame>,
+    target_peer: Option<String>,
 ) -> Result<String, String> {
-    let caller = get_caller_from_app_config(&app_handle)?;
     let filter = filter.unwrap_or_default();
-
     let session_id = next_session_id();
+
+    if let Some(peer_addr) = target_peer {
+        tracing::info!(
+            session = %session_id,
+            peer = %peer_addr,
+            "[jobs-events-charnel] subscribing (remote)"
+        );
+
+        let mut stream =
+            grimoire::federation::transport::subscribe_events_remote(&peer_addr, filter)
+                .await
+                .map_err(|e| e.to_string())?;
+
+        let handle = tokio::spawn(async move {
+            loop {
+                match stream.next_frame().await {
+                    Some(EventsServerMsg::Event { evt, .. }) => {
+                        if events.send(JobsEventsFrame::Event { evt }).is_err() {
+                            break;
+                        }
+                    }
+                    Some(EventsServerMsg::Close { reason, .. }) => {
+                        let _ = events.send(JobsEventsFrame::Closed { reason });
+                        break;
+                    }
+                    // consume the initial snapshot frame silently
+                    Some(EventsServerMsg::Snapshot { .. }) => {}
+                    None => {
+                        let _ = events.send(JobsEventsFrame::Closed {
+                            reason: CloseReason::Internal("remote stream ended".to_string()),
+                        });
+                        break;
+                    }
+                }
+            }
+        });
+
+        sessions()
+            .as_mut()
+            .unwrap()
+            .insert(session_id.clone(), Session { handle });
+
+        return Ok(session_id);
+    }
+
+    let caller = get_caller_from_app_config(&app_handle)?;
+
     tracing::info!(
         session = %session_id,
         user = %caller.username,

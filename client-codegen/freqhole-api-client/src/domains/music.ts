@@ -681,6 +681,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    listBeloved: (params: s.ListBelovedRequest = {}) => {
+      return call(
+        "music",
+        "list_beloved",
+        routes.music.list_beloved.resp,
+        routes.music.list_beloved.req,
+        routes.music.list_beloved.method,
+        routes.music.list_beloved.path,
+        params,
+      );
+    },
+
     // analytics
     recordPlay: (params: s.RecordPlayRequest) => {
       return call(
@@ -1225,6 +1237,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    deleteTaxon: (params: s.DeleteTaxonRequest) => {
+      return call(
+        "music",
+        "delete_taxon",
+        routes.music.delete_taxon.resp,
+        routes.music.delete_taxon.req,
+        routes.music.delete_taxon.method,
+        routes.music.delete_taxon.path,
+        params,
+      );
+    },
+
     addTaxonParent: (params: s.AddTaxonParentRequest) => {
       return call(
         "music",
@@ -1233,6 +1257,18 @@ export function createMusicMethods(call: CallFn) {
         routes.music.add_taxon_parent.req,
         routes.music.add_taxon_parent.method,
         routes.music.add_taxon_parent.path,
+        params,
+      );
+    },
+
+    listTaxonParentsForKind: (params: s.ListTaxonParentsForKindRequest) => {
+      return call(
+        "music",
+        "list_taxon_parents_for_kind",
+        routes.music.list_taxon_parents_for_kind.resp,
+        routes.music.list_taxon_parents_for_kind.req,
+        routes.music.list_taxon_parents_for_kind.method,
+        routes.music.list_taxon_parents_for_kind.path,
         params,
       );
     },
@@ -1317,6 +1353,54 @@ export function createMusicMethods(call: CallFn) {
         routes.music.set_album_taxons.req,
         routes.music.set_album_taxons.method,
         routes.music.set_album_taxons.path,
+        params,
+      );
+    },
+
+    set_taxon_color: (params: s.SetTaxonColorRequest) => {
+      return call(
+        "music",
+        "set_taxon_color",
+        routes.music.set_taxon_color.resp,
+        routes.music.set_taxon_color.req,
+        routes.music.set_taxon_color.method,
+        routes.music.set_taxon_color.path,
+        params,
+      );
+    },
+
+    set_taxon_label: (params: s.SetTaxonLabelRequest) => {
+      return call(
+        "music",
+        "set_taxon_label",
+        routes.music.set_taxon_label.resp,
+        routes.music.set_taxon_label.req,
+        routes.music.set_taxon_label.method,
+        routes.music.set_taxon_label.path,
+        params,
+      );
+    },
+
+    set_taxon_kind_color: (params: s.SetTaxonKindColorRequest) => {
+      return call(
+        "music",
+        "set_taxon_kind_color",
+        routes.music.set_taxon_kind_color.resp,
+        routes.music.set_taxon_kind_color.req,
+        routes.music.set_taxon_kind_color.method,
+        routes.music.set_taxon_kind_color.path,
+        params,
+      );
+    },
+
+    set_taxon_kind_label: (params: s.SetTaxonKindLabelRequest) => {
+      return call(
+        "music",
+        "set_taxon_kind_label",
+        routes.music.set_taxon_kind_label.resp,
+        routes.music.set_taxon_kind_label.req,
+        routes.music.set_taxon_kind_label.method,
+        routes.music.set_taxon_kind_label.path,
         params,
       );
     },
@@ -1598,6 +1682,23 @@ export function createMusicMethods(call: CallFn) {
         routes.music.era_albums.req,
         routes.music.era_albums.method,
         routes.music.era_albums.path,
+        params,
+      );
+    },
+
+    // fan-out the synthesized "unassigned" hub to its member albums.
+    // when kind_slug is null/empty, returns albums with no taxon
+    // assignments of any kind (fully untagged); otherwise restricts
+    // the missing-check to the given kind only. paged (default 100,
+    // max 500).
+    unassignedAlbums: (params: s.UnassignedAlbumsRequest) => {
+      return call(
+        "music",
+        "unassigned_albums",
+        routes.music.unassigned_albums.resp,
+        routes.music.unassigned_albums.req,
+        routes.music.unassigned_albums.method,
+        routes.music.unassigned_albums.path,
         params,
       );
     },

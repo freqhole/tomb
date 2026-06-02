@@ -31,19 +31,31 @@ import {
 import { useNavigate } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
-import { useLibraryAlbumsQuery } from "../../queries/useLibraryAlbums";
 import { useTopNavSlots } from "../../../app/shell/topNavSlots";
-import { adaptAlbum } from "./adaptAlbum";
 import { deriveArtistNodes } from "./deriveArtistNodes";
+import { RemoteAlbumsLoader } from "./graphSubview/RemoteAlbumsLoader";
+import { pickPrimaryImage, buildImageUrls, fetchAlbumSongs } from "./graphSubview/helpers";
+import { useArtistClusterIndex } from "./graphSubview/useArtistClusterIndex";
+import {
+  CollapsedAlbumButton,
+  CollapsedArtistButton,
+  CollapsedTaxonButton,
+  CollapsedRemoteButton,
+} from "./graphSubview/CollapsedPanels";
+import { createSelectedArtistDisplay } from "./graphSubview/useSelectedArtistDisplay";
+import { createContributingRemotes } from "./graphSubview/useContributingRemotes";
+import { createCrossRemoteLazyLoading } from "./graphSubview/useCrossRemoteLazyLoading";
+import { createPivotHandler } from "./graphSubview/createPivotHandler";
+import { createEditModeHandlers } from "./graphSubview/editModeHandlers";
+import { createBulkHandlers } from "./graphSubview/bulkHandlers";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
-import { routes } from "../../../music/utils/routing";
+import { routes, getDefaultRoute } from "../../../music/utils/routing";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
 import { toast } from "../../../components/feedback/Toast";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
 import type { AlbumNodeData, ArtistNodeData } from "../../../components/graph/types";
-import { getAuthStatus, getAuthInfo } from "../../../app/services/remotes/authStatusStore";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { useRemoteIsAdminMulti } from "../../hooks/useRemoteRole";
 import {
   showAlbumEditor,
   showArtistEditor,
@@ -51,11 +63,7 @@ import {
   showImageCarousel,
   formatImageCarouselTitle,
 } from "../../../music/hooks/modals";
-import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
-import { usesBlobResolver } from "../../../music/services/storage/transportCache";
-import { resolveLocalBlobUrl } from "../../../music/utils/images";
 import { getArtistAbbreviation } from "../../../music/utils/format";
-import { useArtistQuery } from "../../../music/queries/songs";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import WalkCanvas from "../../../components/graph/WalkCanvas";
 import type { WalkApi } from "../../../components/graph/WalkCanvas";
@@ -69,8 +77,8 @@ import {
   remoteHubId,
   relationHubId,
   valueNodeId,
+  groupNodeId,
   artistNodeId,
-  ghostArtistId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
 import type { WalkNode, WalkEdge } from "../../../components/graph/types";
@@ -80,11 +88,19 @@ import {
   onRemoteStatusChange,
   getRemoteById,
 } from "../../../app/services/remotes/remoteManager";
-import { adaptApiImage, adaptApiUrls } from "../../../music/data/remote/adapters";
-import type { AlbumSummary } from "../../../music/data/types";
+import { adaptApiImage } from "../../../music/data/remote/adapters";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
-import type { ContributingRemote } from "../../../components/graph/RemoteSplitButton";
+import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
+import { RemoteDetailPopover } from "../../../components/graph/RemoteDetailPopover";
+import { BulkSelectionPopover } from "../../../components/graph/BulkSelectionPopover";
+import { GraphEditPanel } from "./graphSubview/GraphEditPanel";
+import {
+  SimTuningOverlay,
+  DEFAULT_TUNING,
+  type SimTuningValues,
+} from "../../../components/graph/SimTuningOverlay";
+import type { TaxonRef, TaxonKind as TaxonKindType } from "freqhole-api-client";
 import { Icon } from "../../../components/icons/registry";
 
 // ---- public props -----------------------------------------------------------
@@ -130,63 +146,6 @@ export function LibraryGraphSubview(props: LibraryGraphSubviewProps) {
   );
 }
 
-// ---- per-remote loader ------------------------------------------------------
-
-/** mounts one infinite query per remote, emits adapted album nodes
- *  back via onNodes as pages stream in. */
-function RemoteAlbumsLoader(props: {
-  remote: Remote;
-  search: () => string;
-  onNodes: (remoteId: string, nodes: AlbumNodeData[]) => void;
-  onFetchingChange?: (remoteId: string, fetching: boolean) => void;
-}) {
-  // 2026-05-26: lazy-load phase 1. previously this loader auto-paginated
-  // the entire album catalogue per remote to populate relation hubs.
-  // now we only fetch page 1 (a sample sized for first-render usefulness)
-  // and rely on per-pivot query_taxons / query_albums calls to fill in
-  // the rest on demand. ramp-up + fetchNextPage loop removed.
-  const PAGE_SIZE = 200;
-
-  const albumsQuery = useLibraryAlbumsQuery({
-    remote: () => props.remote,
-    search: () => props.search() || undefined,
-    pageSize: PAGE_SIZE,
-    disablePolling: true,
-  });
-
-  // report in-flight status. only the first page now, so this clears as
-  // soon as that single fetch settles.
-  createEffect(() => {
-    const q = albumsQuery;
-    const fetching = q.isFetching;
-    props.onFetchingChange?.(props.remote.remote_id, fetching);
-  });
-  onCleanup(() => {
-    props.onFetchingChange?.(props.remote.remote_id, false);
-  });
-
-  // emit adapted nodes per page (only fires when page count/total changes)
-  let lastPages = -1;
-  let lastCount = -1;
-  createEffect(() => {
-    const pages = albumsQuery.data?.pages ?? [];
-    if (pages.length === 0) return;
-    const id = props.remote.remote_id;
-    const out: AlbumNodeData[] = [];
-    for (const page of pages) {
-      for (const summary of page.items) {
-        out.push(adaptAlbum(summary, { remoteId: id }));
-      }
-    }
-    if (pages.length === lastPages && out.length === lastCount) return;
-    lastPages = pages.length;
-    lastCount = out.length;
-    props.onNodes(id, out);
-  });
-
-  return null;
-}
-
 // ---- inner component --------------------------------------------------------
 
 function Inner(props: {
@@ -203,18 +162,13 @@ function Inner(props: {
   // search query (phase 6 wires it to topnav search)
   const [searchQuery] = createSignal("");
 
-  // admin state drives edit buttons in popovers
-  const authStatus = getAuthStatus();
-  const isRemoteAdmin = (remoteId: string | null | undefined): boolean => {
-    if (!remoteId) return false;
-    const entry = authStatus().get(remoteId) ?? getAuthInfo(remoteId);
-    if (!entry || !entry.loggedIn || !entry.role) return false;
-    return permissions.isAdmin(entry.role as UserRoleName);
-  };
-  const isAnyRemoteAdmin = (): boolean => {
-    for (const r of props.remotes()) if (isRemoteAdmin(r.remote_id)) return true;
-    return false;
-  };
+  // admin state drives edit buttons in popovers. delegated to the
+  // canonical multi-remote hook so this view stays in sync with
+  // anywhere else that gates on admin role.
+  const { isAdmin: isRemoteAdmin, isAnyAdmin: isAnyRemoteAdminMemo } = useRemoteIsAdminMulti(() =>
+    props.remotes()
+  );
+  const isAnyRemoteAdmin = (): boolean => isAnyRemoteAdminMemo();
 
   // ---- per-remote album store + rAF batcher ---------------------------
 
@@ -243,6 +197,11 @@ function Inner(props: {
   const [favSongAlbumIds, setFavSongAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
   const [favSongArtistIds, setFavSongArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
   const favSongLoadedRemotes = new Set<string>();
+  // per-remote "beloved" (all-users favorites aggregate) ids — fetched
+  // via listBeloved(). drives the pink beloved hub in buildWalkGraph.
+  const [belovedAlbumIds, setBelovedAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const [belovedArtistIds, setBelovedArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const belovedLoadedRemotes = new Set<string>();
   // per-remote artist-image cache: artist_id -> primary ImageMetadata.
   // populated lazily on first activation via query_artists; lets the
   // artist graph nodes (deriveArtistNodes only sees albums) and the
@@ -259,22 +218,49 @@ function Inner(props: {
   // relation hubs whose query_taxons fetch has settled (success OR error).
   // prevents re-firing on every pivot revisit.
   const taxonsLoadedByHub = new Set<string>();
-  // shared in-flight taxon fetches keyed by relation-hub id. lets the
-  // value-pivot album loader await the parent hub's fetch without
-  // duplicating the request when both fire on the same gesture.
-  const taxonFetchPromises = new Map<string, Promise<void>>();
   // value/artist pivots whose lazy album fetch has been issued. dedup
   // guard for query_albums calls in maybeLoadAlbumsForPivot.
   const albumsLoadedByPivot = new Set<string>();
-  // taxon metadata by parent relation hub id -> slug -> { id, label }.
+  // taxon metadata by parent relation hub id -> slug -> { id, label, albumCount }.
   // populated by maybeLoadTaxonsForPivot; used by value-pivot album
   // fetch to look up the original label / taxon id for filter shaping.
-  const taxonItemsByHub = new Map<string, Map<string, { id: string; label: string }>>();
+  const taxonItemsByHub = new Map<
+    string,
+    Map<string, { id: string; label: string; albumCount: number }>
+  >();
+  // parent edges per relation hub: child_taxon_id -> parent_taxon_id.
+  // populated by maybeLoadTaxonsForPivot; consulted by edit-mode drag
+  // handlers to know which existing parent link to remove on re-parent.
+  const taxonParentsByHub = new Map<string, Map<string, string>>();
+  // labels per relation hub: taxon_id -> label. lets edit-mode handlers
+  // resolve a taxon id back to the value/group node id without a
+  // full refetch.
+  const taxonLabelsByHub = new Map<string, Map<string, string>>();
+  // kind metadata by relation hub id -> { label, color }. populated in
+  // loadTaxonKindsForRemote for the taxon detail popover kind chip.
+  const taxonKindMetaByHub = new Map<string, { label: string; color: string | null }>();
+  // full taxon kind list per remote (categorical + scalar, empty
+  // included). populated by loadTaxonKindsForRemote and consumed by
+  // the remote detail popover for the "add taxon" kind dropdown.
+  const [taxonKindsByRemote, setTaxonKindsByRemote] = createSignal<Map<string, TaxonKindType[]>>(
+    new Map()
+  );
   const [extraNodesById, setExtraNodesById] = createSignal<
     Map<string, AlbumNodeData | ArtistNodeData>
   >(new Map());
   type LookupState = "loading" | "loaded" | "absent";
   const crossRemoteLookups = new Map<string, LookupState>();
+
+  const setFetchingNodeFlag = (nodeId: string, fetching: boolean) => {
+    setFetchingByNode((prev) => {
+      const cur = prev.get(nodeId) ?? false;
+      if (cur === fetching) return prev;
+      const next = new Map(prev);
+      if (fetching) next.set(nodeId, true);
+      else next.delete(nodeId);
+      return next;
+    });
+  };
 
   const setFetchingFor = (remoteId: string, fetching: boolean) => {
     setFetchingByRemote((prev) => {
@@ -407,6 +393,16 @@ function Inner(props: {
       const remoteId = parts[1];
       if (remoteId && !active.has(remoteId)) taxonItemsByHub.delete(hubId);
     }
+    for (const hubId of [...taxonParentsByHub.keys()]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonParentsByHub.delete(hubId);
+    }
+    for (const hubId of [...taxonLabelsByHub.keys()]) {
+      const parts = hubId.split("::");
+      const remoteId = parts[1];
+      if (remoteId && !active.has(remoteId)) taxonLabelsByHub.delete(hubId);
+    }
   });
 
   // seed offline flags from Remote.is_offline and run a fresh health check
@@ -436,24 +432,6 @@ function Inner(props: {
       void runHealthCheck(r.remote_id);
     }
   });
-
-  // pick the "best" artist image for avatar/glyph display. priority:
-  //   1. is_primary === true (user/server flagged as featured)
-  //   2. blob_type === "original" (full-res over thumbnail)
-  //   3. first available
-  // waveforms are filtered out — they're audio peak data, not visual
-  // art. returns null when the list is empty or contains only
-  // waveforms, so the caller can fall back to an album cover.
-  const pickPrimaryImage = (images: ImageMetadata[] | null | undefined): ImageMetadata | null => {
-    if (!images || images.length === 0) return null;
-    const visual = images.filter((i) => i.blob_type !== "waveform");
-    if (visual.length === 0) return null;
-    const primary = visual.find((i) => i.is_primary === true);
-    if (primary) return primary;
-    const original = visual.find((i) => i.blob_type === "original");
-    if (original) return original;
-    return visual[0] ?? null;
-  };
 
   // fetch all artists for a remote and cache each one's primary image
   // (per pickPrimaryImage). only the chosen image is stored — the full
@@ -535,6 +513,45 @@ function Inner(props: {
     }
   };
 
+  // fetch "beloved" (all-users favorites aggregate) ids for a remote.
+  // backend returns the distinct union of album/artist ids favorited
+  // by any user (direct + song-derived). drives the pink beloved hub.
+  const loadBelovedForRemote = async (remote: Remote): Promise<void> => {
+    if (belovedLoadedRemotes.has(remote.remote_id)) return;
+    belovedLoadedRemotes.add(remote.remote_id);
+    console.log("[beloved] loadBelovedForRemote start", { remoteId: remote.remote_id });
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.listBeloved({});
+      console.log("[beloved] listBeloved result", {
+        remoteId: remote.remote_id,
+        success: result.success,
+        data: (result as any).data,
+        error: (result as any).error,
+      });
+      if (!result.success || !result.data) return;
+      const albumIds = new Set<string>(result.data.album_ids);
+      const artistIds = new Set<string>(result.data.artist_ids);
+      console.log("[beloved] populating signals", {
+        remoteId: remote.remote_id,
+        albums: albumIds.size,
+        artists: artistIds.size,
+      });
+      setBelovedAlbumIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, albumIds);
+        return next;
+      });
+      setBelovedArtistIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, artistIds);
+        return next;
+      });
+    } catch (err) {
+      console.warn("beloved fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
   // fetch taxon kinds for a remote and seed first-order relation hub
   // nodes (one per categorical user-defined kind). favorites is still
   // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
@@ -545,8 +562,16 @@ function Inner(props: {
       const result = await client.music.listTaxonKinds();
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
+      // stash the full kind list (categorical + scalar, empties
+      // included) so the remote detail popover can drive its "add
+      // taxon" kind dropdown without an extra round-trip.
+      setTaxonKindsByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, result.data ?? []);
+        return next;
+      });
       const rhId = remoteHubId(remoteId);
-      const SKIP_SLUGS = new Set(["favorite", "favorites"]);
+      const SKIP_SLUGS = new Set(["favorite", "favorites", "beloved"]);
       const addNodes: WalkNode[] = [];
       const addEdges: WalkEdge[] = [];
       for (const kind of result.data) {
@@ -568,6 +593,11 @@ function Inner(props: {
           tint: kind.color ?? undefined,
         });
         addEdges.push({ source: rhId, target: id });
+        taxonKindMetaByHub.set(id, {
+          label:
+            kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
+          color: kind.color ?? null,
+        });
       }
       if (addNodes.length > 0 || addEdges.length > 0) {
         walkerClient()?.merge(addNodes, addEdges);
@@ -643,12 +673,35 @@ function Inner(props: {
     return out;
   });
 
+  // edit mode: when active, lasso selection and modifier-click multi-select
+  // replace normal click-to-pivot behavior. owned by exactly one remote at
+  // a time — entering scopes the canvas to that remote (see scope-lock).
+  // declared here (above buildResult) because buildResult reads it for the
+  // scope-lock narrowing; the memo body runs eagerly on creation so the
+  // signal must exist by then.
+  const [editingRemoteId, setEditingRemoteId] = createSignal<string | null>(null);
+  const editMode = createMemo(() => editingRemoteId() !== null);
+  // back-compat shim for handlers that historically toggled a boolean.
+  // only the exit path (false) is honored — enter must specify a remote id.
+  const setEditMode = (next: boolean) => {
+    if (!next) setEditingRemoteId(null);
+  };
+
   const buildResult = createMemo(() => {
     const byRemote = nodesByRemote();
     // include every selected remote so offline / not-yet-loaded remotes still
     // surface in the graph as remote hubs (dimmed if offline). filtering by
     // data presence would hide them entirely.
-    const remoteIds = props.remotes().map((r) => r.remote_id);
+    // edit-mode scope-lock: when editing, narrow to the active remote only so
+    // the canvas reflects the editing scope and cross-remote clustering is
+    // suppressed (the worker's linkGroup needs >=2 distinct remotes).
+    const active = editingRemoteId();
+    const remoteIds = active
+      ? props
+          .remotes()
+          .filter((r) => r.remote_id === active)
+          .map((r) => r.remote_id)
+      : props.remotes().map((r) => r.remote_id);
     if (remoteIds.length === 0) return null;
     return buildWalkGraph({
       remoteIds,
@@ -656,12 +709,15 @@ function Inner(props: {
       artistsByRemote: artistsByRemote(),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
+      belovedAlbumIdsByRemote: belovedAlbumIds(),
+      belovedArtistIdsByRemote: belovedArtistIds(),
       charnelManagedRemoteIds: new Set(
         props
           .remotes()
           .filter((r) => !!r.is_charnel_managed)
           .map((r) => r.remote_id)
       ),
+      remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -689,6 +745,12 @@ function Inner(props: {
   const prevNodeIds = new Set<string>();
   const prevEdgeKeys = new Set<string>();
   let prevRemoteKey = "";
+  // bumped every time the worker is `init()`-reset so loaders that
+  // pushed nodes through `walkerClient.merge` (taxon kind hubs, artist
+  // image overlays, favorites' synthesized edges, etc.) re-fire and
+  // repopulate. without this the scoped subtree in edit mode collapses
+  // to a bare remote hub because every incremental merge was wiped.
+  const [mergeResetTick, setMergeResetTick] = createSignal(0);
 
   createEffect(() => {
     const client = walkerClient();
@@ -696,7 +758,8 @@ function Inner(props: {
     const result = buildResult();
     if (!result || result.graph.nodes.length === 0) return;
 
-    // detect remote-set change (user added/removed a remote) -> full reset
+    // detect remote-set change (user added/removed a remote, or edit-
+    // mode scope-lock collapsed/restored the remote list) -> full reset
     const remoteKey = result.graph.nodes
       .filter((n) => n.role === "remote")
       .map((n) => n.id)
@@ -707,6 +770,10 @@ function Inner(props: {
       hadInit = false;
       prevNodeIds.clear();
       prevEdgeKeys.clear();
+      // worker will be wiped by init() below; lazy taxon caches need to
+      // re-fetch because the value/group nodes they tracked are gone.
+      taxonsLoadedByHub.clear();
+      albumsLoadedByPivot.clear();
     }
 
     const { width, height } = canvasSize();
@@ -715,7 +782,15 @@ function Inner(props: {
       hadInit = true;
       for (const n of result.graph.nodes) prevNodeIds.add(n.id);
       for (const e of result.graph.edges) prevEdgeKeys.add(`${e.source}::${e.target}`);
-      client.init(result.graph, rootId(), width, height);
+      // when entering edit mode the scope-lock leaves a single remote
+      // in the graph; landing the pivot on that remote's hub matches
+      // what the user just clicked into instead of bouncing back to
+      // the global root.
+      const active = editingRemoteId();
+      const initialPivot = active ? remoteHubId(active) : rootId();
+      client.init(result.graph, initialPivot, width, height);
+      // signal merge-based loaders to re-emit (they were wiped by init).
+      setMergeResetTick((n) => n + 1);
     } else {
       const addNodes = result.graph.nodes.filter((n) => !prevNodeIds.has(n.id));
       const addEdges = result.graph.edges.filter(
@@ -735,11 +810,27 @@ function Inner(props: {
     client.setPaused(!props.isActive());
   });
 
+  // mirror the worker's visible-ids stream into a signal so other
+  // memos (e.g. the smart-filter scope inference) can react to what
+  // is actually on-screen rather than re-deriving from buildResult.
+  const [visibleIds, setVisibleIds] = createSignal<string[]>([]);
   // subscribe to visible-ids to trigger cross-remote artist lookups
   createEffect(() => {
     const client = walkerClient();
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
+      setVisibleIds(ids);
+      // when any group has been eagerly expanded, drive album loading
+      // for every visible value/group so the worker's subtree DFS can
+      // surface the resulting artist + album nodes on the next pass.
+      // maybeLoadAlbumsForPivot dedupes via albumsLoadedByPivot.
+      if (eagerHubIds().size > 0) {
+        for (const id of ids) {
+          if (id.startsWith("value::") || id.startsWith("group::")) {
+            void maybeLoadAlbumsForPivot(id);
+          }
+        }
+      }
       // prefetch related-artist edges for every visible artist node so
       // the lavender wires appear as soon as the node renders rather
       // than waiting for the user to pivot. the fetcher dedupes via
@@ -828,12 +919,316 @@ function Inner(props: {
 
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
 
+  // taxon selection state — populated async when a value/group node is clicked.
+  // for relation hubs, taxonId is null and the popover renders kind-level info only.
+  const [selectedTaxonInfo, setSelectedTaxonInfo] = createSignal<{
+    taxonId: string | null;
+    remoteId: string;
+    kindSlug: string;
+    relHubId: string;
+    albumCount: number | undefined;
+    label: string;
+  } | null>(null);
+  // clear taxon selection when the global selection is cleared (e.g. Escape key).
+  createEffect(() => {
+    if (!selectedId()) setSelectedTaxonInfo(null);
+  });
+
+  const [multiSelection, setMultiSelection] = createSignal<Set<string>>(new Set());
+  // debug sim-tuning overlay (toggle with shift+d). values forwarded
+  // to the worker any time they change.
+  const [tuningOverlayOpen, setTuningOverlayOpen] = createSignal(false);
+  const [simTuning, setSimTuning] = createSignal<SimTuningValues>({ ...DEFAULT_TUNING });
+  createEffect(() => {
+    walkerClient()?.setTuning(simTuning());
+  });
+  // in edit mode, a single value/group taxon selected via plain click
+  // should still surface the bulk popover (nest/color/delete). this wrap
+  // is what the bulk handlers see, so they auto-activate without us
+  // having to mutate the real multiSelection signal.
+  const effectiveMultiSelection = createMemo<Set<string>>(() => {
+    const base = multiSelection();
+    if (!editMode()) return base;
+    const sid = selectedId();
+    if (!sid || base.has(sid)) return base;
+    try {
+      const p = parseNodeId(sid);
+      if (p && (p.kind === "value" || p.kind === "group")) {
+        const next = new Set(base);
+        next.add(sid);
+        return next;
+      }
+    } catch {
+      // ignore unparseable ids
+    }
+    return base;
+  });
+  const setEffectiveMultiSelection = (next: Set<string>) => {
+    setMultiSelection(next);
+    if (next.size === 0) setSelectedId(null);
+  };
+  // per-hub filter query for taxon children. only one hub is visible at a
+  // time (the one in the open popover) so a flat map by hub id is fine.
+  // when a query is set, non-matching value/group node ids under that hub
+  // are sent to the worker via setHidden so the sim re-clusters around
+  // the matches; everything else stays in the full graph.
+  const [taxonFilterByHub, setTaxonFilterByHub] = createSignal<Map<string, string>>(new Map());
+  // per-hub filter scope: when true, the filter only acts on octagons
+  // (leaf value taxons) and leaves 7-sided group taxons visible so the
+  // user can see the intermediate parents while corralling matches.
+  // default true since that's the common case for re-parenting.
+  const [taxonFilterValuesOnlyByHub, setTaxonFilterValuesOnlyByHub] = createSignal<
+    Map<string, boolean>
+  >(new Map());
+  const activeHubFilterValuesOnly = createMemo<boolean>(() => {
+    const info = selectedTaxonInfo();
+    if (!info) return true;
+    return taxonFilterValuesOnlyByHub().get(info.relHubId) ?? true;
+  });
+  // bumped by createPivotHandler every time a hub's taxon cache is
+  // re-merged (e.g. after a re-parent drop). hubFilterIds depends on it
+  // so the hide set is re-derived from the fresh taxonItemsByHub and the
+  // worker keeps hiding the right nodes across edits.
+  const [hubRefreshTick, setHubRefreshTick] = createSignal(0);
+  // group node ids whose subtree has been eagerly expanded via long-press
+  // or the detail-panel button. used to drive album/artist loading for
+  // every visible descendant value/group, and to label the toggle button.
+  const [eagerHubIds, setEagerHubIds] = createSignal<Set<string>>(new Set());
+  const toggleEagerHub = (id: string) => {
+    setEagerHubIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  // unassigned hub pager state. page size is one of UNASSIGNED_PAGE_SIZES;
+  // page index is clamped client-side once the total album count comes
+  // back from the server. info map captures the last-known server
+  // response (total + hasNext) so prev/next can be disabled correctly.
+  const UNASSIGNED_PAGE_SIZES = [4, 8, 12, 16, 24, 32, 48, 64];
+  const UNASSIGNED_DEFAULT_PAGE_SIZE = 16;
+  const [unassignedPageIndexByHub, setUnassignedPageIndexByHub] = createSignal<Map<string, number>>(
+    new Map()
+  );
+  const [unassignedPageSizeByHub, setUnassignedPageSizeByHub] = createSignal<Map<string, number>>(
+    new Map()
+  );
+  const [unassignedInfoByHub, setUnassignedInfoByHub] = createSignal<
+    Map<
+      string,
+      { total: number; pageIndex: number; pageSize: number; consumed: number; hasNext: boolean }
+    >
+  >(new Map());
+  const getUnassignedPageIndex = (hubId: string) => unassignedPageIndexByHub().get(hubId) ?? 0;
+  const getUnassignedPageSize = (hubId: string) =>
+    unassignedPageSizeByHub().get(hubId) ?? UNASSIGNED_DEFAULT_PAGE_SIZE;
+  // builds the pager bundle shared between the expanded popover and the
+  // collapsed taxon button. returns undefined unless the currently-
+  // selected hub is `relation::*::unassigned`.
+  const buildUnassignedPager = () => {
+    const info = selectedTaxonInfo();
+    if (info?.kindSlug !== "unassigned") return undefined;
+    const hubId = info.relHubId;
+    return {
+      pageIndex: () => getUnassignedPageIndex(hubId),
+      pageSize: () => getUnassignedPageSize(hubId),
+      pageSizes: UNASSIGNED_PAGE_SIZES,
+      total: () => unassignedInfoByHub().get(hubId)?.total ?? 0,
+      consumed: () => unassignedInfoByHub().get(hubId)?.consumed ?? 0,
+      canPrev: () => getUnassignedPageIndex(hubId) > 0,
+      canNext: () => unassignedInfoByHub().get(hubId)?.hasNext ?? false,
+      onPrev: () => {
+        const cur = getUnassignedPageIndex(hubId);
+        if (cur <= 0) return;
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, cur - 1);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+      onNext: () => {
+        if (!(unassignedInfoByHub().get(hubId)?.hasNext ?? false)) return;
+        const cur = getUnassignedPageIndex(hubId);
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, cur + 1);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+      onPageSizeChange: (size: number) => {
+        if (size === getUnassignedPageSize(hubId)) return;
+        setUnassignedPageSizeByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, size);
+          return next;
+        });
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(hubId, 0);
+          return next;
+        });
+        void reloadUnassignedPage(hubId);
+      },
+    };
+  };
+  // unified key used to scope the filter query / scope override / values-
+  // only sub-toggle across whichever popover is currently open. covers
+  // relation, value, and group selections via their parent kind hub id,
+  // and remote root selections via a synthetic `remote::{id}` key.
+  const filterContextKey = createMemo<string | null>(() => {
+    const info = selectedTaxonInfo();
+    if (info) return info.relHubId;
+    return null;
+  });
+  const activeHubFilterQuery = createMemo(() => {
+    const key = filterContextKey();
+    if (!key) return "";
+    return taxonFilterByHub().get(key) ?? "";
+  });
+  // per-hub manual override for filter scope. when absent the scope
+  // is inferred from visible context (see inferredFilterScope below).
+  const [taxonFilterScopeByHub, setTaxonFilterScopeByHub] = createSignal<
+    Map<string, "taxons" | "entities">
+  >(new Map());
+  // infer whether the filter input should match taxon labels (values +
+  // groups) or entity labels (artists + albums) based on what's
+  // currently visible. taxon scope only ever applies to a relation hub
+  // selection (and even then `unassigned` always forces entities since
+  // it only contains orphan albums). value / group / remote selections
+  // always default to entities — their interesting children are
+  // artists and albums, not sibling taxons.
+  const inferredFilterScope = createMemo<"taxons" | "entities">(() => {
+    const info = selectedTaxonInfo();
+    if (info && info.taxonId !== null) return "entities";
+    if (info && info.kindSlug === "unassigned") return "entities";
+    if (!info) return "taxons";
+    let taxonCount = 0;
+    let entityCount = 0;
+    for (const id of visibleIds()) {
+      if (id.startsWith("value::") || id.startsWith("group::")) taxonCount++;
+      else if (id.startsWith("artist::") || id.startsWith("album::")) entityCount++;
+    }
+    return entityCount > taxonCount ? "entities" : "taxons";
+  });
+  const activeFilterScope = createMemo<"taxons" | "entities">(() => {
+    const key = filterContextKey();
+    if (!key) return inferredFilterScope();
+    return taxonFilterScopeByHub().get(key) ?? inferredFilterScope();
+  });
+  // compute matching + non-matching node ids for the currently-open
+  // selection. matches feed the "select matches" multi-select shortcut;
+  // non-matches become the worker hide set.
+  const hubFilterIds = createMemo<{ matchIds: Set<string>; hideIds: Set<string> }>(() => {
+    // subscribe to the refresh tick so this re-runs after refreshHub
+    // repopulates taxonItemsByHub (e.g. post re-parent drop).
+    hubRefreshTick();
+    const info = selectedTaxonInfo();
+    const key = filterContextKey();
+    const query = activeHubFilterQuery().trim().toLowerCase();
+    const matchIds = new Set<string>();
+    const hideIds = new Set<string>();
+    if (!key || !query) return { matchIds, hideIds };
+    const scope = activeFilterScope();
+    // taxon scope requires a relation-hub selection — only then do we
+    // know which kind's children to enumerate from taxonItemsByHub.
+    if (scope === "taxons" && info && info.taxonId === null) {
+      const items = taxonItemsByHub.get(info.relHubId);
+      if (!items) return { matchIds, hideIds };
+      const parsed = parseNodeId(info.relHubId);
+      if (!parsed || parsed.kind !== "relation") return { matchIds, hideIds };
+      const remoteId = parsed.remoteId;
+      const kind = parsed.relationKind;
+      const childIdSet = new Set<string>();
+      const parents = taxonParentsByHub.get(info.relHubId);
+      if (parents) for (const pid of parents.values()) childIdSet.add(pid);
+      for (const meta of items.values()) {
+        const isGroup = childIdSet.has(meta.id);
+        // values-only scope: skip group taxons so they remain visible
+        // and don't pollute the hide set.
+        if (isGroup && activeHubFilterValuesOnly()) continue;
+        const nodeId = isGroup
+          ? groupNodeId(remoteId, kind, meta.label)
+          : valueNodeId(remoteId, kind, meta.label);
+        if (meta.label.toLowerCase().includes(query)) matchIds.add(nodeId);
+        else hideIds.add(nodeId);
+      }
+      return { matchIds, hideIds };
+    }
+    // entity scope: scan currently-visible artist + album nodes and
+    // match against their names / titles. relies on the worker's
+    // hide-set semantics so hidden artists fade off-screen without
+    // tearing down their edges.
+    for (const id of visibleIds()) {
+      if (!id.startsWith("artist::") && !id.startsWith("album::")) continue;
+      const node = lookupNode(id);
+      if (!node) continue;
+      let label = "";
+      if ("title" in node) label = (node as AlbumNodeData).title ?? "";
+      else if ("name" in node) label = (node as ArtistNodeData).name ?? "";
+      if (!label) {
+        hideIds.add(id);
+        continue;
+      }
+      if (label.toLowerCase().includes(query)) matchIds.add(id);
+      else hideIds.add(id);
+    }
+    return { matchIds, hideIds };
+  });
+  // push the hide set to the worker whenever it changes. clears when
+  // no filter is active or no taxon hub is open.
+  createEffect(() => {
+    const client = walkerClient();
+    if (!client) return;
+    const { hideIds } = hubFilterIds();
+    client.setHidden(Array.from(hideIds));
+  });
+  // clear the filter for a context when its popover closes / swaps.
+  createEffect((prevKey: string | null) => {
+    const curKey = filterContextKey();
+    if (prevKey && prevKey !== curKey) {
+      const next = new Map(taxonFilterByHub());
+      if (next.delete(prevKey)) setTaxonFilterByHub(next);
+      const nextScope = new Map(taxonFilterScopeByHub());
+      if (nextScope.delete(prevKey)) setTaxonFilterScopeByHub(nextScope);
+    }
+    return curKey;
+  }, null);
+  // edit mode persists across selection changes — only explicit toggles,
+  // escape, or the active remote going offline exit it.
+  // clear any lingering filter state when no popover is open so the
+  // hide set doesn't persist across navigation.
+  createEffect(() => {
+    if (!filterContextKey() && taxonFilterByHub().size > 0) {
+      setTaxonFilterByHub(new Map());
+    }
+    if (!filterContextKey() && taxonFilterScopeByHub().size > 0) {
+      setTaxonFilterScopeByHub(new Map());
+    }
+  });
+
   const selectedAlbum = createMemo<AlbumNodeData | null>(() => {
     const id = selectedId();
     if (!id) return null;
     const node = lookupNode(id);
     if (!node || !("title" in node)) return null;
     return node as AlbumNodeData;
+  });
+
+  // remote hub selection: derived from selectedId when the node is a
+  // root remote hub. drives the RemoteDetailPopover.
+  const selectedRemote = createMemo<Remote | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    try {
+      const parsed = parseNodeId(id);
+      if (parsed.kind !== "remote") return null;
+      return props.remotes().find((r) => r.remote_id === parsed.remoteId) ?? null;
+    } catch {
+      return null;
+    }
   });
 
   const selectedArtist = createMemo<ArtistNodeData | null>(() => {
@@ -850,9 +1245,11 @@ function Inner(props: {
     return node as ArtistNodeData;
   });
 
-  // keep album + artist popovers in a shared minimized state so once
-  // the user collapses details, all subsequent detail popovers stay
-  // collapsed until explicitly expanded again.
+  // single shared minimized flag for ALL detail panels (album, artist,
+  // taxon/hub). once the user collapses any one of them, all subsequent
+  // selections render in the collapsed state — only an explicit
+  // chevron-up restores. global by design so navigating between an
+  // album, an artist, and a taxon doesn't keep popping panels back open.
   const [detailPanelsHidden, setDetailPanelsHidden] = createSignal(false);
   const albumPanel = {
     hidden: detailPanelsHidden,
@@ -864,6 +1261,8 @@ function Inner(props: {
     hide: () => setDetailPanelsHidden(true),
     restore: () => setDetailPanelsHidden(false),
   };
+  const taxonPanelHidden = detailPanelsHidden;
+  const setTaxonPanelHidden = setDetailPanelsHidden;
 
   const selectedArtistAlbums = createMemo<AlbumNodeData[]>(() => {
     const artist = selectedArtist();
@@ -900,57 +1299,11 @@ function Inner(props: {
   });
 
   // ---- cross-remote artist cluster index ------------------------------
-  //
-  // each remote keeps its own per-remote artist node
-  // (`artist::{remoteId}::{artistId}`) with a remote-specific artistId.
-  // the worker visually collapses same-name artists across remotes into
-  // a single rendered glyph (the cluster "leader"), but the leader's id
-  // is arbitrary \u2014 it can belong to any contributing remote. when the
-  // user clicks the leader, selectedId() returns that arbitrary remote's
-  // id, which is wrong for two reasons:
-  //   1. the user walked the graph from a specific remote hub
-  //      (root \u2192 remote::X \u2192 ...); they expect data from X.
-  //   2. artist ids aren't portable across remotes, so querying the
-  //      "wrong" remote with the leader's artistId returns no bio.
-  //
-  // we rebuild a per-name index of every loaded artist node (across all
-  // remotes) keyed by slug(name). selectedArtistRemote / artistQuery
-  // then look up the cluster, pick the member whose remote matches the
-  // breadcrumb's `remote::*`, and query THAT member's (remoteId, artistId).
-  type ClusterMember = {
-    nodeId: string; // full graph key, `artist::{remoteId}::{artistId}`
-    remoteId: string;
-    data: ArtistNodeData;
-  };
-  const artistClusterByNameSlug = createMemo<Map<string, ClusterMember[]>>(() => {
-    const out = new Map<string, ClusterMember[]>();
-    const ingest = (id: string, n: AlbumNodeData | ArtistNodeData) => {
-      if (!("artistId" in n)) return;
-      // restrict to true artist graph keys (skip ghost_artist::, etc).
-      let parsed: ReturnType<typeof parseNodeId>;
-      try {
-        parsed = parseNodeId(id);
-      } catch {
-        return;
-      }
-      if (parsed.kind !== "artist") return;
-      const a = n as ArtistNodeData;
-      const key = slug(a.name);
-      if (!key) return;
-      let arr = out.get(key);
-      if (!arr) {
-        arr = [];
-        out.set(key, arr);
-      }
-      // dedupe by remoteId so a re-merged map entry doesn't pile up.
-      if (arr.some((m) => m.remoteId === parsed.remoteId)) return;
-      arr.push({ nodeId: id, remoteId: parsed.remoteId, data: a });
-    };
-    const main = buildResult()?.nodesById;
-    if (main) for (const [id, n] of main) ingest(id, n);
-    for (const [id, n] of extraNodesById()) ingest(id, n);
-    return out;
-  });
+
+  const artistClusterByNameSlug = useArtistClusterIndex(
+    () => buildResult()?.nodesById,
+    extraNodesById
+  );
 
   // the "primary remote" for the current walk: scan the breadcrumb for
   // a `remote::*` id and decode it. when the user navigates
@@ -969,179 +1322,6 @@ function Inner(props: {
       }
     }
     return null;
-  });
-
-  // user-driven override for the popover's data-source remote. when set,
-  // selectedArtistMember picks this remote instead of the breadcrumb's
-  // primary. cleared whenever the selected artist's name slug changes
-  // (so picking a remote on artist A doesn't carry over to artist B).
-  const [dataSourceRemoteOverride, setDataSourceRemoteOverride] = createSignal<{
-    artistSlug: string;
-    remoteId: string;
-  } | null>(null);
-
-  // clear the manual override when the selected artist changes.
-  createEffect(() => {
-    const a = selectedArtist();
-    if (!a) {
-      setDataSourceRemoteOverride(null);
-      return;
-    }
-    const ov = dataSourceRemoteOverride();
-    if (ov && ov.artistSlug !== slug(a.name)) {
-      setDataSourceRemoteOverride(null);
-    }
-  });
-
-  // for the currently-selected artist, find the cluster member that
-  // should drive the popover. preference order:
-  //   1. user override (data-source picker in the popover).
-  //   2. cluster member matching primaryWalkRemoteId (the remote the
-  //      user walked out from).
-  //   3. cluster member matching parseNodeId(selectedId).remoteId (the
-  //      leader's own remote).
-  //   4. fallback: the selected node itself as a one-member cluster.
-  const selectedArtistMember = createMemo<ClusterMember | null>(() => {
-    const a = selectedArtist();
-    if (!a) return null;
-    const graphId = selectedId();
-    if (!graphId) return null;
-    const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
-    const override = dataSourceRemoteOverride();
-    if (override && override.artistSlug === slug(a.name)) {
-      const match = cluster.find((m) => m.remoteId === override.remoteId);
-      if (match) return match;
-    }
-    const primary = primaryWalkRemoteId();
-    if (primary) {
-      const match = cluster.find((m) => m.remoteId === primary);
-      if (match) return match;
-    }
-    let leaderRemote: string | null = null;
-    try {
-      const parsed = parseNodeId(graphId);
-      if (parsed.kind === "artist") leaderRemote = parsed.remoteId;
-    } catch {
-      // ignore
-    }
-    if (leaderRemote) {
-      const match = cluster.find((m) => m.remoteId === leaderRemote);
-      if (match) return match;
-    }
-    // last-resort one-member "cluster" from whatever we have selected.
-    if (leaderRemote) {
-      return { nodeId: graphId, remoteId: leaderRemote, data: a };
-    }
-    return null;
-  });
-
-  // resolve the authoritative remote for the currently-selected artist.
-  // uses the breadcrumb-derived primary first (so "the remote you walked
-  // out from" wins over the cluster leader's arbitrary remote), then
-  // falls back to the leader's own remote, then sourceRemoteIds, then
-  // the first remote in the picker.
-  const selectedArtistRemote = createMemo<Remote | undefined>(() => {
-    const member = selectedArtistMember();
-    if (member) {
-      const found = props.remotes().find((r) => r.remote_id === member.remoteId);
-      if (found) return found;
-    }
-    const a = selectedArtist();
-    if (!a) return undefined;
-    const fallback = a.sourceRemoteIds?.[0];
-    if (fallback) {
-      const found = props.remotes().find((r) => r.remote_id === fallback);
-      if (found) return found;
-    }
-    return props.remotes()[0];
-  });
-
-  // log the artist detail fetch context so we can see which remote the
-  // bio/image data is actually coming from versus which remote owns
-  // the selected graph node and which remote the user walked out from.
-  createEffect(() => {
-    const a = selectedArtist();
-    if (!a) return;
-    const r = selectedArtistRemote();
-    const member = selectedArtistMember();
-    console.info("[graph] artist detail source", {
-      selectedGraphId: selectedId(),
-      nodeIdField: a.id,
-      selectedArtistId: a.artistId,
-      selectedName: a.name,
-      sourceRemoteIds: a.sourceRemoteIds,
-      primaryWalkRemoteId: primaryWalkRemoteId(),
-      resolvedRemoteId: r?.remote_id,
-      resolvedRemoteName: r?.name,
-      resolvedMemberArtistId: member?.data.artistId,
-      clusterMembers:
-        artistClusterByNameSlug()
-          .get(slug(a.name))
-          ?.map((m) => ({ remoteId: m.remoteId, artistId: m.data.artistId })) ?? [],
-    });
-  });
-
-  const artistQuery = useArtistQuery(
-    () => selectedArtistMember()?.data.artistId ?? selectedArtist()?.artistId ?? undefined,
-    () => selectedArtistRemote()
-  );
-
-  // the artist object actually rendered in the popover. starts from the
-  // cluster member (correct for the chosen remote: name + albumCount +
-  // taxonomy reflect that remote's view), then overlays a best-effort
-  // image:
-  //   1. the member's own ArtistNodeData.image (derived from one of its
-  //      albums in deriveArtistNodes.ts).
-  //   2. the first ImageMetadata returned by the artist detail query
-  //      \u2014 these are actual artist images (vs album cover fallbacks).
-  //   3. any cluster member's image (cross-remote fallback so a remote
-  //      without artist art can still show an avatar from a peer).
-  // imageUrl is overlaid the same way as a legacy fallback for
-  // pre-resolved url paths.
-  const selectedArtistDisplay = createMemo<ArtistNodeData | null>(() => {
-    const a = selectedArtist();
-    if (!a) return null;
-    const member = selectedArtistMember();
-    const base = member?.data ?? a;
-    let image = base.image ?? null;
-    let imageUrl = base.imageUrl ?? null;
-    // 2. promote artist-detail query images when available + matching.
-    const q = artistQuery.data;
-    const memberArtistId = member?.data.artistId ?? a.artistId;
-    if (!image && q && q.artist_id === memberArtistId && q.images?.length) {
-      image = pickPrimaryImage(q.images);
-    }
-    // 3. cluster-wide cross-remote fallback.
-    if (!image) {
-      const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
-      for (const m of cluster) {
-        if (m.data.image) {
-          image = m.data.image;
-          break;
-        }
-      }
-    }
-    if (!imageUrl) {
-      const cluster = artistClusterByNameSlug().get(slug(a.name)) ?? [];
-      for (const m of cluster) {
-        if (m.data.imageUrl) {
-          imageUrl = m.data.imageUrl;
-          break;
-        }
-      }
-    }
-    if (image === base.image && imageUrl === base.imageUrl) return base;
-    return { ...base, image, imageUrl };
-  });
-
-  // contributing-remote list specifically for the data-source picker:
-  // marks the member matching the current selected remote so the popover
-  // can highlight it. parent of contributingRemotesForArtist already
-  // sorts charnel-managed first; reuse that ordering.
-  const dataSourceRemotesForSelected = createMemo<ContributingRemote[]>(() => {
-    const a = selectedArtist();
-    if (!a) return [];
-    return contributingRemotesForArtist(a);
   });
 
   // bidirectional client-side index of related-artist relations as we
@@ -1479,6 +1659,38 @@ function Inner(props: {
     return { artists, meta };
   });
 
+  // taxon detail data for the currently-selected taxon node.
+  // fetches full Taxon, ancestors, and descendants in parallel.
+  const [selectedTaxonData] = createResource(
+    () => selectedTaxonInfo(),
+    async (info) => {
+      // relation hub: no single taxon to fetch; popover renders kind-only.
+      if (!info.taxonId) return null;
+      const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+      if (!remote) return null;
+      try {
+        const client = await getClientForRemote(remote);
+        const [taxonRes, ancestorsRes, descendantsRes] = await Promise.all([
+          client.music.getTaxon({ id: info.taxonId }),
+          client.music.getTaxonAncestors({ id: info.taxonId }),
+          client.music.getTaxonDescendants({ id: info.taxonId }),
+        ]);
+        return {
+          taxon: taxonRes.success && taxonRes.data ? taxonRes.data : null,
+          ancestors: (ancestorsRes.success && ancestorsRes.data
+            ? ancestorsRes.data
+            : []) as TaxonRef[],
+          descendants: (descendantsRes.success && descendantsRes.data
+            ? descendantsRes.data
+            : []) as TaxonRef[],
+        };
+      } catch (err) {
+        console.warn("taxon detail fetch failed", { taxonId: info.taxonId, err });
+        return null;
+      }
+    }
+  );
+
   // per-id image lookup for WalkCanvas artwork rendering (per S1/S11).
   // for artist nodes we additionally fall back across the cross-remote
   // cluster: if the leader's own remote has no image, we scan the
@@ -1489,6 +1701,31 @@ function Inner(props: {
   const getImage = (
     id: string
   ): import("../../../music/services/storage/types").ImageMetadata | null => {
+    // remote hub nodes aren't in `nodesById` / `extraNodesById` (those
+    // only carry artists + albums). resolve their avatar directly from
+    // the Remote record so the graph can paint hub artwork when present.
+    if (id.startsWith("remote::")) {
+      const remoteId = id.slice("remote::".length);
+      const r = props.remotes().find((x) => x.remote_id === remoteId);
+      if (!r) return null;
+      const raw = r.image_url ?? undefined;
+      const baseUrl = (r as { base_url?: string }).base_url ?? "";
+      const remoteUrl = raw
+        ? raw.startsWith("asset://") || raw.startsWith("http://") || raw.startsWith("https://")
+          ? raw
+          : baseUrl
+            ? `${baseUrl}${raw}`
+            : undefined
+        : undefined;
+      if (!r.image_blob_id && !remoteUrl) return null;
+      return {
+        remote_blob_id: r.image_blob_id ?? undefined,
+        remote_server_id: r.remote_id,
+        remote_url: remoteUrl,
+        blob_type: "thumbnail",
+        is_primary: true,
+      };
+    }
     const direct = lookupNode(id)?.image ?? null;
     if (direct) return direct;
     // only artist nodes get the cluster-fallback treatment; albums are
@@ -1553,87 +1790,33 @@ function Inner(props: {
   // loaded remote (mirrors the worker's cluster algorithm in
   // walker.worker.ts phase 3). sorted with charnel-managed first, then
   // by remote name.
-  const toContributingRemote = (r: Remote): ContributingRemote => ({
-    id: r.remote_id,
-    name: r.name,
-    isCharnelManaged: !!r.is_charnel_managed,
-    imageUrl: r.image_url ?? null,
+  const {
+    contributingRemotesForArtist,
+    contributingRemotesForAlbum,
+    resolvePickedRemote,
+    artistForRemote,
+    albumForRemote,
+  } = createContributingRemotes({
+    remotes: () => props.remotes(),
+    artistsByRemote,
+    nodesByRemote,
   });
-  const sortContributingRemotes = (refs: ContributingRemote[]): ContributingRemote[] =>
-    [...refs].sort((a, b) => {
-      if (!!a.isCharnelManaged !== !!b.isCharnelManaged) {
-        return a.isCharnelManaged ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-  const contributingRemotesForArtist = (artist: ArtistNodeData): ContributingRemote[] => {
-    const target = slug(artist.name);
-    if (!target) return [];
-    const out: ContributingRemote[] = [];
-    const byRemote = artistsByRemote();
-    for (const r of props.remotes()) {
-      const list = byRemote.get(r.remote_id) ?? [];
-      if (list.some((a) => slug(a.name) === target)) {
-        out.push(toContributingRemote(r));
-      }
-    }
-    return sortContributingRemotes(out);
-  };
-  const contributingRemotesForAlbum = (album: AlbumNodeData): ContributingRemote[] => {
-    const targetTitle = slug(album.title);
-    const targetArtist = slug(album.artistName ?? "");
-    if (!targetTitle) return [];
-    const out: ContributingRemote[] = [];
-    const byRemote = nodesByRemote();
-    for (const r of props.remotes()) {
-      const list = byRemote.get(r.remote_id) ?? [];
-      if (
-        list.some((a) => slug(a.title) === targetTitle && slug(a.artistName ?? "") === targetArtist)
-      ) {
-        out.push(toContributingRemote(r));
-      }
-    }
-    return sortContributingRemotes(out);
-  };
-  const resolvePickedRemote = (
-    picked: string | undefined,
-    fallback: Remote | undefined
-  ): Remote | undefined => {
-    if (picked) {
-      const match = props.remotes().find((r) => r.remote_id === picked);
-      if (match) return match;
-    }
-    return fallback;
-  };
 
-  // find the artist record on `remote` that corresponds to `artist`
-  // (matched on name slug). cluster-leader nodes carry the id of
-  // whichever remote contributed the leader, so when the user picks a
-  // different remote from the split-button flyout we must look up the
-  // picked-remote's own id for the same artist before opening the
-  // editor or navigating. returns the original artist when no match
-  // is found so callers can still attempt the action.
-  const artistForRemote = (artist: ArtistNodeData, remoteId: string): ArtistNodeData => {
-    const target = slug(artist.name);
-    if (!target) return artist;
-    const list = artistsByRemote().get(remoteId);
-    if (!list) return artist;
-    const found = list.find((a) => slug(a.name) === target);
-    return found ?? artist;
-  };
-
-  // same idea for albums: match on (title, artistName) slug pair.
-  const albumForRemote = (album: AlbumNodeData, remoteId: string): AlbumNodeData => {
-    const targetTitle = slug(album.title);
-    const targetArtist = slug(album.artistName ?? "");
-    if (!targetTitle) return album;
-    const list = nodesByRemote().get(remoteId);
-    if (!list) return album;
-    const found = list.find(
-      (a) => slug(a.title) === targetTitle && slug(a.artistName ?? "") === targetArtist
-    );
-    return found ?? album;
-  };
+  const {
+    setDataSourceRemoteOverride,
+    selectedArtistMember,
+    selectedArtistRemote,
+    selectedArtistDisplay,
+    dataSourceRemotesForSelected,
+    artistQuery,
+  } = createSelectedArtistDisplay({
+    selectedArtist,
+    selectedId,
+    artistClusterByNameSlug,
+    primaryWalkRemoteId,
+    remotes: () => props.remotes(),
+    contributingRemotesForArtist,
+  });
 
   /** select a node and pan the canvas to it without resetting the
    *  breadcrumb. used by detail popover links (album row, relation chip,
@@ -1641,48 +1824,6 @@ function Inner(props: {
   const selectAndPanTo = (nodeId: string) => {
     setSelectedId(nodeId);
     walkerClient()?.repivot(nodeId, false);
-  };
-
-  const fetchAlbumSongs = async (remote: Remote, albumId: string) => {
-    const { RemoteMusicDataSource } = await import("../../../music/data/remote/remoteSource");
-    const ds = new RemoteMusicDataSource(remote);
-    const resp = await ds.getAlbumSongs(albumId);
-    return resp.items;
-  };
-
-  const buildImageUrls = async (
-    image: ImageMetadata | null | undefined,
-    imageUrl: string | null | undefined,
-    fallbackRemoteId?: string | null
-  ): Promise<string[]> => {
-    const urls: string[] = [];
-    const add = (u: string | null | undefined) => {
-      if (!u || urls.includes(u)) return;
-      urls.push(u);
-    };
-    add(imageUrl);
-    if (image) {
-      add(image.remote_url);
-      const blobId = image.remote_blob_id || image.local_blob_id;
-      const serverId = image.remote_server_id || fallbackRemoteId;
-      if (blobId && serverId) {
-        try {
-          if (await usesBlobResolver(serverId)) {
-            add(await resolveBlobUrl(blobId, serverId, "image"));
-          }
-        } catch {
-          // best-effort
-        }
-      }
-      if (image.local_blob_id && !image.remote_server_id) {
-        try {
-          add(await resolveLocalBlobUrl(image.local_blob_id));
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    return urls;
   };
 
   const openAlbumCarousel = async (album: AlbumNodeData) => {
@@ -1713,178 +1854,15 @@ function Inner(props: {
 
   // ---- cross-remote lazy loading -------------------------------------
 
-  // batched cross-remote lookup: takes a map of slug→artistName for one
-  // remote, fires a single queryAlbums call using the artist_names
-  // filter, then merges all matching artist+album nodes in one pass.
-  // each candidate slug is then marked "loaded" if any albums matched,
-  // or "absent" otherwise.
-  const batchLookupAndMerge = async (otherRemoteId: string, candidates: Map<string, string>) => {
-    if (candidates.size === 0) return;
-    const remote = props.remotes().find((r) => r.remote_id === otherRemoteId);
-    if (!remote) {
-      for (const slugKey of candidates.keys()) {
-        crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "absent");
-      }
-      return;
-    }
-    // re-check offline at fire time (the dispatch loop also checks,
-    // but the remote may have flipped between scheduling and firing).
-    if (offlineByRemote().get(otherRemoteId) === true) {
-      for (const slugKey of candidates.keys()) {
-        crossRemoteLookups.delete(`${otherRemoteId}::${slugKey}`);
-      }
-      return;
-    }
-
-    const names = Array.from(candidates.values());
-    const fetchKey = `xremote-batch::${otherRemoteId}::${Array.from(candidates.keys()).sort().join(",")}`;
-    try {
-      setFetchingByRemote((prev) => {
-        const next = new Map(prev);
-        next.set(fetchKey, true);
-        return next;
-      });
-      const summaries = await queryClient.fetchQuery({
-        queryKey: ["xremote-artist-batch", otherRemoteId, ...names.slice().sort()] as const,
-        queryFn: async () => {
-          const client = await getClientForRemote(remote);
-          const resp = await client.music.queryAlbums({
-            q: null,
-            search_fields: null,
-            filters: { artist_names: names },
-            sort_by: null,
-            sort_direction: null,
-            limit: 1000,
-            offset: 0,
-            user_id: null,
-            favorites_only: null,
-            min_rating: null,
-          });
-          if (!resp.success || !resp.data) throw new Error("xremote album query failed");
-          const baseUrl = (remote as { base_url?: string }).base_url ?? "";
-          const rid = remote.remote_id;
-          return resp.data.items.map(
-            (item): AlbumSummary => ({
-              album_id: item.album.id,
-              title: item.album.title,
-              artist_id: item.artist?.id ?? "",
-              artist_name: item.artist?.name ?? "unknown artist",
-              album_type: item.album.album_type,
-              year: undefined,
-              release_date: item.album.release_date ?? undefined,
-              label: item.album.label ?? undefined,
-              genres: item.album.genres ?? undefined,
-              song_count: item.album.song_count,
-              total_duration: item.album.total_duration,
-              images: item.images?.length
-                ? item.images.map((img) => adaptApiImage(img, baseUrl, rid))
-                : undefined,
-              urls: adaptApiUrls(item.album.urls),
-              is_favorite: item.is_favorite ?? undefined,
-              user_rating: item.rating ?? undefined,
-              tags: item.album_tags ?? undefined,
-              created_at: item.album.created_at,
-              updated_at: item.album.updated_at,
-              created_by_username: item.album.created_by_username ?? undefined,
-              updated_by_username: item.album.updated_by_username ?? undefined,
-              metadata: item.album.metadata ?? null,
-              mb_lookup_status: item.album.mb_lookup_status ?? null,
-              mb_lookup_at: item.album.mb_lookup_at ?? null,
-              mb_lookup_by: item.album.mb_lookup_by ?? null,
-            })
-          );
-        },
-        staleTime: 60_000,
-      });
-
-      const albums = summaries.map((s) => adaptAlbum(s, { remoteId: otherRemoteId }));
-      // bucket matched albums by candidate slug
-      const matchesBySlug = new Map<string, typeof albums>();
-      for (const a of albums) {
-        const s = slug(a.artistName);
-        if (!candidates.has(s)) continue;
-        if (!matchesBySlug.has(s)) matchesBySlug.set(s, []);
-        matchesBySlug.get(s)!.push(a);
-      }
-
-      // mark absent for any candidate that produced no matches
-      for (const slugKey of candidates.keys()) {
-        if (!matchesBySlug.has(slugKey)) {
-          crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "absent");
-        }
-      }
-
-      const allMatches = albums.filter((a) => candidates.has(slug(a.artistName)));
-      if (allMatches.length === 0) return;
-
-      const artistNodes = deriveArtistNodes(allMatches, new Set());
-      const slice = buildWalkGraph({
-        remoteIds: [otherRemoteId],
-        albumsByRemote: new Map([[otherRemoteId, allMatches]]),
-        artistsByRemote: new Map([[otherRemoteId, artistNodes]]),
-        charnelManagedRemoteIds: new Set(
-          props
-            .remotes()
-            .filter((r) => !!r.is_charnel_managed)
-            .map((r) => r.remote_id)
-        ),
-      });
-
-      // include only the artist + album nodes and the edges directly
-      // connecting them. skip relation/value hubs — they'd be orphans
-      // unless the other remote is already fully loaded, in which case
-      // they're already present.
-      const sliceArtistIds = new Set(
-        slice.graph.nodes
-          .filter((n) => n.id.startsWith(`artist::${otherRemoteId}::`))
-          .map((n) => n.id)
-      );
-      const sliceAlbumIds = new Set(
-        slice.graph.nodes
-          .filter((n) => n.id.startsWith(`album::${otherRemoteId}::`))
-          .map((n) => n.id)
-      );
-      const addNodes = slice.graph.nodes.filter(
-        (n) => sliceArtistIds.has(n.id) || sliceAlbumIds.has(n.id)
-      );
-      const addEdges = slice.graph.edges.filter(
-        (e) =>
-          (sliceArtistIds.has(e.source) && sliceAlbumIds.has(e.target)) ||
-          // keep remote-hub → artist edge so the worker can place the artist
-          // in the tree; if the hub doesn't exist the edge is a no-op.
-          (e.source === `remote::${otherRemoteId}` && sliceArtistIds.has(e.target))
-      );
-
-      // augment extraNodesById so popovers work for cross-remote nodes
-      setExtraNodesById((prev) => {
-        const next = new Map(prev);
-        for (const [id, node] of slice.nodesById) next.set(id, node);
-        return next;
-      });
-
-      walkerClient()?.merge(addNodes, addEdges);
-
-      for (const slugKey of matchesBySlug.keys()) {
-        crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "loaded");
-      }
-    } catch (err) {
-      console.warn("cross-remote batch lookup failed", {
-        otherRemoteId,
-        candidateCount: candidates.size,
-        err,
-      });
-      // drop the "loading" slots so a future trigger can retry
-      for (const slugKey of candidates.keys()) {
-        crossRemoteLookups.delete(`${otherRemoteId}::${slugKey}`);
-      }
-    } finally {
-      setFetchingByRemote((prev) => {
-        const next = new Map(prev);
-        next.delete(fetchKey);
-        return next;
-      });
-    }
-  };
+  const { batchLookupAndMerge } = createCrossRemoteLazyLoading({
+    remotes: () => props.remotes(),
+    offlineByRemote,
+    crossRemoteLookups,
+    setFetchingByRemote,
+    queryClient,
+    setExtraNodesById,
+    walkerClient,
+  });
 
   // ---- pageInfo ------------------------------------------------------
 
@@ -1906,6 +1884,10 @@ function Inner(props: {
       if (!props.isActive()) return;
       if (e.key === "Escape") {
         if (isAnyModalOpen()) return;
+        if (editMode()) {
+          setEditingRemoteId(null);
+          setMultiSelection(new Set<string>());
+        }
         setSelectedId(null);
         return;
       }
@@ -1917,6 +1899,11 @@ function Inner(props: {
       if (e.key === "f" || e.key === "r") {
         e.preventDefault();
         walkerClient()?.repivot(rootId(), true);
+      }
+      // shift + d: toggle debug sim-tuning overlay
+      if (e.shiftKey && (e.key === "D" || e.key === "d")) {
+        e.preventDefault();
+        setTuningOverlayOpen(!tuningOverlayOpen());
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -1988,924 +1975,148 @@ function Inner(props: {
 
   // ---- event handlers ------------------------------------------------
 
+  // async handler for taxon (value/group) node selection. ensures the
+  // parent hub is loaded, then resolves the taxon id from the cache and
+  // sets selectedTaxonInfo so the detail resource can fire.
+  const loadTaxonInfoForNode = async (nodeId: string): Promise<void> => {
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    if (parsed.kind !== "value" && parsed.kind !== "group") {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    const { remoteId, relationKind, valueSlug } = parsed;
+    const relHubId = relationHubId(remoteId, relationKind);
+    // ensure hub taxons are loaded (no-op if already done; deduped internally).
+    await maybeLoadTaxonsForPivot(relHubId);
+    // abort if the user selected a different node while we were waiting.
+    if (selectedId() !== nodeId) return;
+    const meta = taxonItemsByHub.get(relHubId)?.get(valueSlug);
+    if (!meta) {
+      setSelectedTaxonInfo(null);
+      return;
+    }
+    setSelectedTaxonInfo({
+      taxonId: meta.id,
+      remoteId,
+      kindSlug: relationKind,
+      relHubId,
+      albumCount: meta.albumCount,
+      label: meta.label,
+    });
+  };
+
   const handleSelect = (nodeId: string, _role: string) => {
+    // single-selection of any node other than a currently-eager-expanded
+    // group collapses every previously-expanded subtree back to its
+    // normal pivot-driven visibility. shift / cmd / ctrl multi-select
+    // routes through onMultiSelectionChange and never reaches here, so
+    // those gestures preserve the expansion.
+    {
+      const cur = eagerHubIds();
+      if (cur.size > 0 && !cur.has(nodeId)) {
+        setEagerHubIds(new Set<string>());
+        walkerClient()?.collapseSubtrees();
+      }
+    }
     setSelectedId(nodeId);
+    try {
+      const parsed = parseNodeId(nodeId);
+      if (parsed.kind === "value" || parsed.kind === "group") {
+        void loadTaxonInfoForNode(nodeId);
+      } else if (parsed.kind === "relation") {
+        // relation hub: kind-level popover; no per-taxon fetch needed.
+        const relHubId = relationHubId(parsed.remoteId, parsed.relationKind);
+        const meta = taxonKindMetaByHub.get(relHubId);
+        setSelectedTaxonInfo({
+          taxonId: null,
+          remoteId: parsed.remoteId,
+          kindSlug: parsed.relationKind,
+          relHubId,
+          albumCount: undefined,
+          label: meta?.label ?? parsed.relationKind,
+        });
+      } else {
+        setSelectedTaxonInfo(null);
+      }
+    } catch {
+      setSelectedTaxonInfo(null);
+    }
   };
 
   // fan out every lazy-load hook that should fire when a node becomes
   // the pivot. shared between handlePivot (real canvas pivot) and
   // pivotKeepingPanel (relation chip "expand without dismissing panel").
-  const triggerPivotLoaders = (nodeId: string) => {
-    // lazy taxon expansion: when the user pivots into a relation hub,
-    // fetch every taxon of that kind from the remote and merge missing
-    // value nodes + edges into the worker graph. eager page-1 album
-    // fetch only surfaces taxons referenced by those albums; this fills
-    // in the long tail without paginating the entire catalogue.
-    void maybeLoadTaxonsForPivot(nodeId);
-    // lazy era binning: era is synthesized server-side via
-    // `list_era_bins`. fetch on pivot and merge the bins as value nodes
-    // under the era hub, then attach value->album edges by classifying
-    // in-memory album years into the bin ranges.
-    void maybeLoadEraBinsForPivot(nodeId);
-    // lazy era-bin album expansion: when the pivot is an era bin value
-    // node, fetch all albums whose year falls inside its range so the
-    // bin fans out into real content.
-    void maybeLoadAlbumsForEraBin(nodeId);
-    // lazy recently-added expansion: pull the top-N most recently added
-    // albums and attach them as direct children of the recently_added
-    // hub. flat (no value tier).
-    void maybeLoadRecentlyAddedForPivot(nodeId);
-    // lazy album expansion: when the pivot is a value (taxon) or an
-    // artist, fetch only the albums belonging to that subtree. results
-    // append into nodesByRemote and propagate through buildResult ->
-    // incremental client.merge.
-    void maybeLoadAlbumsForPivot(nodeId);
-    // lazy related-artists expansion: when the pivot is an artist,
-    // fetch rows from related_artistz for that artist and emit
-    // related-artist edges to any in-library counterparts.
-    void maybeLoadRelatedArtistsForPivot(nodeId);
-    // lazy relation fan-out: when the pivot is an artist or album,
-    // ensure every relation hub's taxons are loaded and synthesize
-    // value->entity edges from the entity's unioned taxon fields so
-    // all relevant taxons render around the pivot.
-    void maybeLoadRelationsForEntityPivot(nodeId);
-  };
-
-  const handlePivot = (nodeId: string) => {
-    // hub pivots (not a real entity node) clear selection; entity pivots
-    // (artist/album, including cross-remote leaders that only live in
-    // extraNodesById) keep the current selection so the detail popover
-    // opens on the first click. previously this only checked
-    // buildResult().nodesById which caused a two-click race for cluster
-    // leaders + cross-remote merged nodes.
-    if (!lookupNode(nodeId)) {
-      setSelectedId(null);
-    }
-    triggerPivotLoaders(nodeId);
-  };
-
-  /** mirror a canvas click on `nodeId` (worker expand + lazy loaders)
-   *  WITHOUT touching selection or restoring panels. used by the relation
-   *  chip clicks in the album/artist detail popovers so the panel stays
-   *  open while the value node fans out its related entities. */
-  const pivotKeepingPanel = (nodeId: string) => {
-    walkerClient()?.expand(nodeId);
-    triggerPivotLoaders(nodeId);
-  };
-
-  // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
-  // flag. "era" and "recently_added" are now synthesized in list_taxon_kinds
-  // so they render as first-class hubs, but they still have no queryable
-  // taxonz rows — pivot drill-in is handled by maybeLoadEraBinsForPivot and
-  // maybeLoadRecentlyAddedForPivot. keep them in the filter so the generic
-  // queryTaxons lazy-loader skips them and doesn't fire a wasted request.
-  const NON_TAXON_KINDS = new Set<string>(["favorites", "era", "recently_added"]);
-
-  // pivot-loader dedup sets for synthesized hubs.
-  const eraBinsLoadedByHub = new Set<string>();
-  const eraBinsFetchPromises = new Map<string, Promise<void>>();
-  const recentlyAddedLoadedByHub = new Set<string>();
-  const recentlyAddedFetchPromises = new Map<string, Promise<void>>();
-  // related-artists pivot dedup: keyed by the full artist node id
-  // (`artist::{remoteId}::{artistId}`). populated after a successful fetch
-  // so subsequent pivots on the same artist don't re-issue the call.
-  const relatedArtistsLoadedByPivot = new Set<string>();
-  const relatedArtistsFetchPromises = new Map<string, Promise<void>>();
-  // entity-relation fan-out dedup: keyed by full artist/album node id.
-  // populated after emitting value->entity edges for that pivot.
-  const entityRelationsLoadedByPivot = new Set<string>();
-  // era bin metadata per era hub id, keyed by value_norm slug. used to
-  // re-classify newly-arrived albums into existing bins and to shape
-  // future filter requests if/when server-side year-range filters land.
-  type EraBinMeta = {
-    value_norm: string;
-    label: string;
-    min_year: number | null;
-    max_year: number | null;
-  };
-  const eraBinsByHub = new Map<string, EraBinMeta[]>();
-
-  const setFetchingNodeFlag = (nodeId: string, fetching: boolean) => {
-    setFetchingByNode((prev) => {
-      const cur = prev.get(nodeId) ?? false;
-      if (cur === fetching) return prev;
-      const next = new Map(prev);
-      if (fetching) next.set(nodeId, true);
-      else next.delete(nodeId);
-      return next;
-    });
-  };
-
-  const maybeLoadTaxonsForPivot = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    if (parsed.kind !== "relation") return;
-    if (NON_TAXON_KINDS.has(parsed.relationKind)) return;
-    if (taxonsLoadedByHub.has(nodeId)) return;
-    const inFlight = taxonFetchPromises.get(nodeId);
-    if (inFlight) return inFlight;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
-    if (!remote) return;
-    const promise = (async () => {
-      setFetchingNodeFlag(nodeId, true);
-      try {
-        const client = await getClientForRemote(remote);
-        const result = await client.music.queryTaxons({
-          kind_slug: parsed.relationKind,
-          q: null,
-          // large enough to cover most libraries in one shot; if any kind
-          // grows past this we'll need to wire pagination here.
-          limit: 1000,
-          offset: 0,
-        });
-        if (!result.success || !result.data) return;
-        const remoteId = parsed.remoteId;
-        const kind = parsed.relationKind;
-        const relHubId = relationHubId(remoteId, kind);
-        // populate label-keyed taxon cache for downstream value-pivot lookups
-        // (need taxon.id for genre_id filter, taxon.label for include_tags).
-        // key MUST be slug(item.label) so it matches both the value node id
-        // (which embeds slug(item.label)) AND the entity-side relation
-        // synthesis path (which only knows the label, not the taxon id).
-        // detail-panel relation clicks also compute valueNodeId(_, _, label)
-        // and rely on this same id form.
-        let cache = taxonItemsByHub.get(relHubId);
-        if (!cache) {
-          cache = new Map();
-          taxonItemsByHub.set(relHubId, cache);
-        }
-        const addNodes: WalkNode[] = [];
-        const addEdges: WalkEdge[] = [];
-        for (const item of result.data.items) {
-          // key by slug(item.label) so cache.get(parsed.valueSlug) matches
-          // what valueNodeId(_, _, item.label) embeds.
-          cache.set(slug(item.label), { id: item.id, label: item.label });
-          // skip empty taxons — no albums means no traversable subtree.
-          if (item.album_count <= 0) continue;
-          const valId = valueNodeId(remoteId, kind, item.label);
-          addNodes.push({
-            id: valId,
-            role: "value",
-            label:
-              item.label && item.label.trim().length > 0
-                ? item.label
-                : (item.slug ?? item.id).replace(/_/g, " "),
-            parentId: relHubId,
-            // eager count from query_taxons so the badge is correct
-            // before albums for this value have been lazy-loaded.
-            childCount: item.album_count,
-            // mark lazy so the value renders even before any albums
-            // for this taxon have been loaded (worker visibility
-            // filter hides value nodes with childCount === 0 unless
-            // lazy). album fanout is fetched on-demand via
-            // maybeLoadAlbumsForPivot when the user pivots in.
-            lazy: true,
-          });
-          addEdges.push({ source: relHubId, target: valId });
-        }
-        // worker merge dedupes by id + edge key, so re-adding nodes already
-        // synthesised from page-1 albums is a no-op.
-        walkerClient()?.merge(addNodes, addEdges);
-        taxonsLoadedByHub.add(nodeId);
-      } catch (err) {
-        console.warn("lazy taxon fetch failed", { nodeId, err });
-        // leave taxonsLoadedByHub unset so a future pivot retries
-      } finally {
-        setFetchingNodeFlag(nodeId, false);
-        taxonFetchPromises.delete(nodeId);
-      }
-    })();
-    taxonFetchPromises.set(nodeId, promise);
-    return promise;
-  };
-
-  // lazy era binning. triggered when the user pivots into a
-  // `relation::{remoteId}::era` hub. fetches server-side decade-aware
-  // bins via `client.music.eraBins(...)` and merges one value node per
-  // bin into the worker graph. then classifies every known album in
-  // the remote by its `year` field into the matching bin and emits
-  // value->album edges so the bin fans out into real content. the bin
-  // table is cached in eraBinsByHub so future album loads (e.g. from
-  // other pivots) can be classified retroactively, but for v1 we only
-  // run the album classification pass once at fetch time.
-  const maybeLoadEraBinsForPivot = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    // accepted triggers:
-    //  - direct pivot on the era hub (`relation::{remoteId}::era`)
-    //  - pivot on the parent remote (`remote::{remoteId}`), used to
-    //    eager-seed the era hub with its real count before the user
-    //    has to click into it.
-    let remoteId: string;
-    if (parsed.kind === "relation" && parsed.relationKind === "era") {
-      remoteId = parsed.remoteId;
-    } else if (parsed.kind === "remote") {
-      remoteId = parsed.remoteId;
-    } else {
-      return;
-    }
-    const relHubId = relationHubId(remoteId, "era");
-    // dedup is keyed on the hub id so both trigger paths share state.
-    if (eraBinsLoadedByHub.has(relHubId)) return;
-    const inFlight = eraBinsFetchPromises.get(relHubId);
-    if (inFlight) return inFlight;
-    if (offlineByRemote().get(remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === remoteId);
-    if (!remote) return;
-    const promise = (async () => {
-      setFetchingNodeFlag(relHubId, true);
-      try {
-        const client = await getClientForRemote(remote);
-        const result = await client.music.eraBins({
-          target_min: null,
-          target_max: null,
-        });
-        if (!result.success || !result.data) return;
-        const bins: EraBinMeta[] = [];
-        const addNodes: WalkNode[] = [];
-        const addEdges: WalkEdge[] = [];
-        // pre-filter to live bins so we can decide whether to emit the
-        // era hub at all (skip when every bin is empty — e.g. no albums
-        // have year metadata).
-        const liveBins = result.data.bins.filter((b) => b.count > 0);
-        if (liveBins.length === 0) {
-          // mark loaded so we don't refetch on every remote pivot, even
-          // though no hub was emitted. an albums-added later won't
-          // surface an era hub until the user reloads the view; that's
-          // acceptable for now.
-          eraBinsLoadedByHub.add(relHubId);
-          return;
-        }
-        // emit the era hub itself (not in buildWalkGraph anymore) with
-        // the live bin count baked in so the hexagon shows a real
-        // number on first paint.
-        const rhId = remoteHubId(remoteId);
-        const totalEraAlbums = liveBins.reduce((s, b) => s + b.count, 0);
-        addNodes.push({
-          id: relHubId,
-          role: "relation",
-          label: "era",
-          parentId: rhId,
-          childCount: totalEraAlbums,
-          lazy: true,
-        });
-        addEdges.push({ source: rhId, target: relHubId });
-        for (const bin of liveBins) {
-          const valId = valueNodeId(remoteId, "era", bin.value_norm);
-          addNodes.push({
-            id: valId,
-            role: "value",
-            label: bin.label,
-            parentId: relHubId,
-            childCount: bin.count,
-            // mark lazy so the bin renders even before any albums for
-            // this remote have been loaded (worker visibility filter
-            // hides value nodes with childCount === 0 unless lazy).
-            // album-fanout is fetched on-demand via
-            // maybeLoadAlbumsForEraBin when the user pivots into the bin.
-            lazy: true,
-          });
-          addEdges.push({ source: relHubId, target: valId });
-          bins.push({
-            value_norm: bin.value_norm,
-            label: bin.label,
-            min_year: bin.min_year ?? null,
-            max_year: bin.max_year ?? null,
-          });
-        }
-        eraBinsByHub.set(relHubId, bins);
-
-        // classify known in-memory albums into bins by year and attach
-        // value->album edges. classification is a linear scan per album
-        // (bins are typically <= ~30 so this is fine).
-        const albums = nodesByRemote().get(remoteId) ?? [];
-        for (const album of albums) {
-          if (album.year == null) continue;
-          const bin = bins.find(
-            (b) =>
-              b.min_year != null &&
-              b.max_year != null &&
-              album.year! >= b.min_year &&
-              album.year! <= b.max_year
-          );
-          if (!bin) continue;
-          const valId = valueNodeId(remoteId, "era", bin.value_norm);
-          // album id in the graph is `album::${remoteId}::${bareAlbumId}`.
-          // AlbumNodeData.id is `${remoteId}::${albumId}`; strip prefix.
-          const prefix = `${remoteId}::`;
-          const bareAlbumId = album.id.startsWith(prefix)
-            ? album.id.slice(prefix.length)
-            : album.id;
-          addEdges.push({
-            source: valId,
-            target: `album::${remoteId}::${bareAlbumId}`,
-          });
-        }
-
-        walkerClient()?.merge(addNodes, addEdges);
-        eraBinsLoadedByHub.add(relHubId);
-      } catch (err) {
-        console.warn("lazy era-bins fetch failed", { nodeId, err });
-      } finally {
-        setFetchingNodeFlag(relHubId, false);
-        eraBinsFetchPromises.delete(relHubId);
-      }
-    })();
-    eraBinsFetchPromises.set(relHubId, promise);
-    return promise;
-  };
-
-  // dedup state for per-bin album lazy fetches.
-  const eraBinAlbumsLoadedByHub = new Set<string>();
-  const eraBinAlbumsFetchPromises = new Map<string, Promise<void>>();
-
-  // lazy era-bin album expansion. triggered on pivot into a
-  // `value::{remoteId}::era::{value_norm}` node. fetches all albums
-  // whose release_date year falls inside the bin's [min_year, max_year]
-  // via `client.music.eraAlbums(...)`, appends them to nodesByRemote
-  // (so artists derive normally), and merges direct value->album edges
-  // so the bin fans out immediately.
-  const maybeLoadAlbumsForEraBin = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    if (parsed.kind !== "value" || parsed.relationKind !== "era") return;
-    if (eraBinAlbumsLoadedByHub.has(nodeId)) return;
-    const inFlight = eraBinAlbumsFetchPromises.get(nodeId);
-    if (inFlight) return inFlight;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
-    if (!remote) return;
-    // bin metadata must be present — populated by maybeLoadEraBinsForPivot.
-    const relHubId = relationHubId(parsed.remoteId, "era");
-    const bins = eraBinsByHub.get(relHubId);
-    const bin = bins?.find((b) => b.value_norm === parsed.valueSlug);
-    if (!bin || bin.min_year == null || bin.max_year == null) return;
-    const promise = (async () => {
-      setFetchingNodeFlag(nodeId, true);
-      try {
-        const client = await getClientForRemote(remote);
-        const result = await client.music.eraAlbums({
-          min_year: bin.min_year!,
-          max_year: bin.max_year!,
-          limit: null,
-          offset: null,
-        });
-        if (!result.success || !result.data) return;
-        const remoteId = parsed.remoteId;
-        const adapted: AlbumNodeData[] = result.data.albums.map((item) =>
-          adaptQueryAlbumItem(item, remote)
-        );
-        appendAlbumsToRemote(remoteId, adapted);
-        // attach value->album AND value->artist edges so the bin fans
-        // out into both albums and their owning artists without waiting
-        // for buildResult's pass to classify in-memory albums.
-        const addEdges: WalkEdge[] = [];
-        const prefix = `${remoteId}::`;
-        const seenArtists = new Set<string>();
-        for (const album of adapted) {
-          const bareAlbumId = album.id.startsWith(prefix)
-            ? album.id.slice(prefix.length)
-            : album.id;
-          addEdges.push({
-            source: nodeId,
-            target: `album::${remoteId}::${bareAlbumId}`,
-          });
-          if (album.artistId && !seenArtists.has(album.artistId)) {
-            seenArtists.add(album.artistId);
-            addEdges.push({
-              source: nodeId,
-              target: `artist::${remoteId}::${album.artistId}`,
-            });
-          }
-        }
-        walkerClient()?.merge([], addEdges);
-        eraBinAlbumsLoadedByHub.add(nodeId);
-      } catch (err) {
-        console.warn("lazy era-bin albums fetch failed", { nodeId, err });
-      } finally {
-        setFetchingNodeFlag(nodeId, false);
-        eraBinAlbumsFetchPromises.delete(nodeId);
-      }
-    })();
-    eraBinAlbumsFetchPromises.set(nodeId, promise);
-    return promise;
-  };
-
-  // lazy recently-added expansion. triggered on pivot into a
-  // `relation::{remoteId}::recently_added` hub. fetches the top-N most
-  // recently added albums via `client.music.recentlyAddedAlbums(...)`,
-  // appends them to nodesByRemote (so they flow through buildResult
-  // into the normal artist/album taxonomy), and merges direct edges
-  // from the hub to each album so the hub fans out immediately.
-  const maybeLoadRecentlyAddedForPivot = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    // accepted triggers: pivot on the recently_added hub OR on the
-    // parent remote (eager seed before the user clicks the hub).
-    let remoteId: string;
-    if (parsed.kind === "relation" && parsed.relationKind === "recently_added") {
-      remoteId = parsed.remoteId;
-    } else if (parsed.kind === "remote") {
-      remoteId = parsed.remoteId;
-    } else {
-      return;
-    }
-    const relHubId = relationHubId(remoteId, "recently_added");
-    if (recentlyAddedLoadedByHub.has(relHubId)) return;
-    const inFlight = recentlyAddedFetchPromises.get(relHubId);
-    if (inFlight) return inFlight;
-    if (offlineByRemote().get(remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === remoteId);
-    if (!remote) return;
-    const promise = (async () => {
-      setFetchingNodeFlag(relHubId, true);
-      try {
-        const client = await getClientForRemote(remote);
-        const result = await client.music.recentlyAddedAlbums({ limit: null });
-        if (!result.success || !result.data) return;
-        // skip emitting the hub entirely when the library has no
-        // recently-added albums (e.g. brand-new remote, all-empty
-        // catalogue). matches the era-hub behaviour: no count, no hub.
-        if (result.data.albums.length === 0) {
-          recentlyAddedLoadedByHub.add(relHubId);
-          return;
-        }
-        const adapted: AlbumNodeData[] = result.data.albums.map((item) =>
-          adaptQueryAlbumItem(item, remote)
-        );
-        // append into the per-remote signal first so buildResult ->
-        // incremental client.merge picks up the album nodes (and any
-        // new artist nodes derived from them).
-        appendAlbumsToRemote(remoteId, adapted);
-        // emit the recently_added hub itself (not in buildWalkGraph
-        // anymore) with the true count baked in, plus the hub->album
-        // and hub->artist edges. the album/artist nodes themselves
-        // arrive via the rAF-batched buildResult merge; the worker
-        // dedupes edges by `${source}::${target}` so this is safe to
-        // issue before/after the node merge.
-        const rhId = remoteHubId(remoteId);
-        const addNodes: WalkNode[] = [
-          {
-            id: relHubId,
-            role: "relation",
-            label: "recently added",
-            parentId: rhId,
-            childCount: adapted.length,
-            lazy: true,
-          },
-        ];
-        const addEdges: WalkEdge[] = [{ source: rhId, target: relHubId }];
-        const prefix = `${remoteId}::`;
-        const seenArtists = new Set<string>();
-        for (const album of adapted) {
-          const bareAlbumId = album.id.startsWith(prefix)
-            ? album.id.slice(prefix.length)
-            : album.id;
-          addEdges.push({
-            source: relHubId,
-            target: `album::${remoteId}::${bareAlbumId}`,
-          });
-          if (album.artistId && !seenArtists.has(album.artistId)) {
-            seenArtists.add(album.artistId);
-            addEdges.push({
-              source: relHubId,
-              target: `artist::${remoteId}::${album.artistId}`,
-            });
-          }
-        }
-        walkerClient()?.merge(addNodes, addEdges);
-        recentlyAddedLoadedByHub.add(relHubId);
-      } catch (err) {
-        console.warn("lazy recently-added fetch failed", { nodeId, err });
-      } finally {
-        setFetchingNodeFlag(relHubId, false);
-        recentlyAddedFetchPromises.delete(relHubId);
-      }
-    })();
-    recentlyAddedFetchPromises.set(relHubId, promise);
-    return promise;
-  };
-
-  // build a query_albums filter for a value pivot. returns null if the
-  // relation kind has no usable server-side filter (mood/style/era/label
-  // aren't first-class filters today — they'll fall back to whatever
-  // page-1 produced until we add filter support server-side).
-  const filterForValuePivot = (
-    relHubId: string,
-    relationKind: RelationKind,
-    valueSlug: string
-  ): Record<string, unknown> | null => {
-    const taxon = taxonItemsByHub.get(relHubId)?.get(valueSlug);
-    if (!taxon) return null;
-    switch (relationKind) {
-      case "genre":
-        return { genre_id: taxon.id };
-      case "tag":
-        return { include_tags: [taxon.label] };
-      case "era":
-      case "recently_added":
-      case "favorites":
-        // synthesised hubs — handled by dedicated loaders, not query_albums.
-        return null;
-      case "mood":
-      case "style":
-      case "label":
-      default:
-        // taxon-backed kind — filter albums by taxon id.
-        return { taxon_ids: [taxon.id] };
-    }
-  };
-
-  // adapt the raw query_albums item shape into an AlbumSummary, then into
-  // an AlbumNodeData. mirrors the inline mapping in useLibraryAlbums.
-  const adaptQueryAlbumItem = (
-    // typing the wire shape loosely keeps this isolated from codegen
-    // drift; the fields read here are all stable.
-    item: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-    remote: Remote
-  ): AlbumNodeData => {
-    const baseUrl = (remote as { base_url?: string }).base_url ?? "";
-    const remoteId = remote.remote_id;
-    const summary: AlbumSummary = {
-      album_id: item.album.id,
-      title: item.album.title,
-      artist_id: item.artist?.id ?? "",
-      artist_name: item.artist?.name ?? "unknown artist",
-      album_type: item.album.album_type,
-      year: undefined,
-      release_date: item.album.release_date ?? undefined,
-      label: item.album.label ?? undefined,
-      genres: item.album.genres ?? undefined,
-      song_count: item.album.song_count,
-      total_duration: item.album.total_duration,
-      images:
-        item.images && item.images.length > 0
-          ? item.images.map((img: unknown) => adaptApiImage(img as never, baseUrl, remoteId))
-          : undefined,
-      urls: adaptApiUrls(item.album.urls),
-      is_favorite: item.is_favorite ?? undefined,
-      user_rating: item.rating ?? undefined,
-      tags: item.album_tags ?? undefined,
-      created_at: item.album.created_at,
-      updated_at: item.album.updated_at,
-      created_by_username: item.album.created_by_username ?? undefined,
-      updated_by_username: item.album.updated_by_username ?? undefined,
-      metadata: item.album.metadata ?? null,
-      mb_lookup_status: item.album.mb_lookup_status ?? null,
-      mb_lookup_at: item.album.mb_lookup_at ?? null,
-      mb_lookup_by: item.album.mb_lookup_by ?? null,
-    };
-    return adaptAlbum(summary, { remoteId });
-  };
-
-  const maybeLoadAlbumsForPivot = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    if (parsed.kind !== "value" && parsed.kind !== "artist") return;
-    if (albumsLoadedByPivot.has(nodeId)) return;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
-    if (!remote) return;
-
-    // resolve filter shape per pivot kind.
-    let filters: Record<string, unknown> | null = null;
-    if (parsed.kind === "value") {
-      // ensure parent hub's taxons are loaded so we have id + label to
-      // shape the filter. shares any in-flight fetch via the promise map.
-      const relHubId = relationHubId(parsed.remoteId, parsed.relationKind);
-      if (!taxonItemsByHub.has(relHubId)) {
-        await maybeLoadTaxonsForPivot(relHubId);
-      }
-      filters = filterForValuePivot(relHubId, parsed.relationKind, parsed.valueSlug);
-      // unsupported kind (mood/style/era/label) or taxon not found —
-      // leave the subtree to whatever page-1 already surfaced.
-      if (!filters) return;
-    } else {
-      filters = { artist_id: parsed.artistId };
-    }
-
-    albumsLoadedByPivot.add(nodeId);
-    setFetchingNodeFlag(nodeId, true);
-    try {
-      const client = await getClientForRemote(remote);
-      const result = await client.music.queryAlbums({
-        q: null,
-        search_fields: null,
-        filters,
-        sort_by: null,
-        sort_direction: null,
-        // single-shot cap. popular genres on huge libraries can exceed
-        // this; pagination is a follow-up if needed.
-        limit: 500,
-        offset: 0,
-        user_id: null,
-        favorites_only: null,
-        min_rating: null,
+  const {
+    handlePivot,
+    pivotKeepingPanel,
+    findArtistNodeId,
+    maybeLoadTaxonsForPivot,
+    maybeLoadAlbumsForPivot,
+    maybeLoadRelatedArtistsForPivot,
+    reloadUnassignedPage,
+    resetMergedState,
+  } = createPivotHandler({
+    remotes: () => props.remotes(),
+    offlineByRemote,
+    walkerClient,
+    buildResult,
+    extraNodesById,
+    lookupNode,
+    setSelectedId,
+    nodesByRemote,
+    appendAlbumsToRemote,
+    setFetchingByRemote,
+    setFetchingNodeFlag,
+    recordRelatedEdge,
+    taxonsLoadedByHub,
+    taxonItemsByHub,
+    taxonParentsByHub,
+    taxonLabelsByHub,
+    albumsLoadedByPivot,
+    editMode,
+    onHubRefreshed: (_relHubId) => setHubRefreshTick((n) => n + 1),
+    getUnassignedPagerState: (relHubId) => ({
+      pageIndex: getUnassignedPageIndex(relHubId),
+      pageSize: getUnassignedPageSize(relHubId),
+    }),
+    onUnassignedPageInfo: (relHubId, info) => {
+      setUnassignedInfoByHub((prev) => {
+        const next = new Map(prev);
+        next.set(relHubId, info);
+        return next;
       });
-      if (!result.success || !result.data) return;
-      const adapted: AlbumNodeData[] = [];
-      for (const item of result.data.items) {
-        adapted.push(adaptQueryAlbumItem(item, remote));
-      }
-      // append to nodesByRemote — buildResult re-runs and the incremental
-      // merge effect picks up the new albums/artists/edges automatically.
-      appendAlbumsToRemote(remote.remote_id, adapted);
-      // for value pivots: buildResult only wires album↔artist edges, not
-      // value→album/artist. emit those directly so the value node fans
-      // out into its matched albums (and their owning artists) the same
-      // way era-bin pivots do. artist pivots already have proper edges
-      // from buildResult so we skip in that case.
-      if (parsed.kind === "value") {
-        const remoteId = parsed.remoteId;
-        const prefix = `${remoteId}::`;
-        const addEdges: WalkEdge[] = [];
-        const seenArtists = new Set<string>();
-        for (const album of adapted) {
-          const bareAlbumId = album.id.startsWith(prefix)
-            ? album.id.slice(prefix.length)
-            : album.id;
-          addEdges.push({
-            source: nodeId,
-            target: `album::${remoteId}::${bareAlbumId}`,
-          });
-          if (album.artistId && !seenArtists.has(album.artistId)) {
-            seenArtists.add(album.artistId);
-            addEdges.push({
-              source: nodeId,
-              target: `artist::${remoteId}::${album.artistId}`,
-            });
-          }
-        }
-        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
-      }
-    } catch (err) {
-      console.warn("lazy album fetch failed", { nodeId, err });
-      // allow retry on next pivot
-      albumsLoadedByPivot.delete(nodeId);
-    } finally {
-      setFetchingNodeFlag(nodeId, false);
-    }
-  };
-
-  const findArtistNodeId = (artistId: string): string | null => {
-    for (const map of [buildResult()?.nodesById, extraNodesById()] as const) {
-      if (!map) continue;
-      for (const [id, node] of map) {
-        if ("artistId" in node && (node as ArtistNodeData).artistId === artistId) return id;
-      }
-    }
-    return null;
-  };
-
-  // lazy related-artists expansion. triggered on pivot into an
-  // `artist::{remoteId}::{artistId}` node. fetches rows from the remote's
-  // related_artistz table via `client.music.listRelatedArtists` and
-  // merges related-artist edges (flagged `isRelatedArtist: true`) for any
-  // row whose `related_artist_id` resolves to an artist node already in
-  // (or later merged into) the same remote's library. external-only rows
-  // (no in-library counterpart) are skipped for v1; future work could
-  // synthesize ghost artist nodes for them.
-  const maybeLoadRelatedArtistsForPivot = async (nodeId: string): Promise<void> => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    if (parsed.kind !== "artist") return;
-    if (relatedArtistsLoadedByPivot.has(nodeId)) return;
-    const inFlight = relatedArtistsFetchPromises.get(nodeId);
-    if (inFlight) return inFlight;
-    if (offlineByRemote().get(parsed.remoteId) === true) return;
-    const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
-    if (!remote) return;
-    const promise = (async () => {
-      setFetchingNodeFlag(nodeId, true);
-      try {
-        const client = await getClientForRemote(remote);
-        const result = await client.music.listRelatedArtists({
-          artist_id: parsed.artistId,
-          include_pending: true,
-          include_incoming: true,
+      // clamp host page index if server returned earlier than requested
+      // (e.g. asked for page 3 but cursors only go up to page 1 because
+      // the page size changed).
+      if (info.pageIndex !== getUnassignedPageIndex(relHubId)) {
+        setUnassignedPageIndexByHub((prev) => {
+          const next = new Map(prev);
+          next.set(relHubId, info.pageIndex);
+          return next;
         });
-        if (!result.success || !result.data) return;
-        const remoteId = parsed.remoteId;
-        // build a one-shot name-slug -> nodeId index over loaded artists
-        // on the SAME REMOTE as the pivot, so we can resolve related-artist
-        // rows whose related_artist_id is null (api couldn't auto-link)
-        // but whose name matches an artist we already know about on this
-        // remote. cross-remote name matching is intentionally NOT done:
-        // we want the graph walk to stay scoped to the remote the user
-        // started on, otherwise clicking a "matched" related artist
-        // would query the wrong remote (which doesn't have that artist
-        // id and so returns no bio / no related-artists).
-        const byNameSameRemote = new Map<string, string>();
-        const sameRemotePrefix = `artist::${remoteId}::`;
-        const maps = [buildResult()?.nodesById, extraNodesById()] as const;
-        for (const map of maps) {
-          if (!map) continue;
-          for (const [id, n] of map) {
-            if (!("artistId" in n)) continue;
-            // trust the graph key (which always carries the remote)
-            // over ArtistNodeData.sourceRemoteIds (which can be empty
-            // or stale for nodes synthesized via cross-remote merges).
-            if (!id.startsWith(sameRemotePrefix)) continue;
-            const a = n as ArtistNodeData;
-            const k = slug(a.name);
-            if (!k) continue;
-            if (!byNameSameRemote.has(k)) byNameSameRemote.set(k, id);
-          }
-        }
-        const addNodes: WalkNode[] = [];
-        const addEdges: WalkEdge[] = [];
-        const seen = new Set<string>();
-        const pushEdge = (targetId: string, isPending: boolean) => {
-          if (targetId === nodeId) return;
-          const key = `${nodeId}::${targetId}`;
-          if (seen.has(key)) return;
-          seen.add(key);
-          addEdges.push({ source: nodeId, target: targetId, isRelatedArtist: true, isPending });
-          // record bidirectionally so the popover for either endpoint
-          // can surface this relation even if its own remote returned
-          // no rows (typical when the row was stored as name-only).
-          // ghosts are excluded because the popover can't show them
-          // as proper artist entries.
-          if (!targetId.startsWith("ghost_artist::")) {
-            recordRelatedEdge(nodeId, targetId, isPending ? "pending" : "accepted");
-          }
-        };
-        for (const row of result.data.items) {
-          const nameKey = slug(row.related_name ?? "");
-          const isPending = row.status === "pending";
-          // 1. preferred: explicit in-library link via related_artist_id.
-          if (row.in_library && row.related_artist_id) {
-            const explicit = artistNodeId(remoteId, row.related_artist_id);
-            // only use explicit id if a node actually exists for it;
-            // otherwise fall through to name-match so the edge isn't
-            // a phantom (worker skips edges with unknown endpoints).
-            const existsExplicit =
-              buildResult()?.nodesById.has(explicit) === true || extraNodesById().has(explicit);
-            if (existsExplicit) {
-              pushEdge(explicit, isPending);
-              continue;
-            }
-          }
-          // 2. name-slug fallback: match a loaded artist on the SAME
-          //    remote only. cross-remote name matches would attach
-          //    edges to the wrong remote's artist node, causing the
-          //    popover to query the wrong remote (see the cluster /
-          //    primaryWalkRemoteId logic above).
-          if (nameKey) {
-            const matched = byNameSameRemote.get(nameKey);
-            if (matched) {
-              pushEdge(matched, isPending);
-              continue;
-            }
-          }
-          // 3. external: synthesize a ghost-artist node so the user
-          //    still sees the relation. ghost nodes render as small
-          //    italic labels and have no drill-in.
-          if (nameKey && row.related_name) {
-            const ghostId = ghostArtistId(row.related_name);
-            if (ghostId === nodeId) continue;
-            // emit ghost node once; merge dedupes by id.
-            addNodes.push({
-              id: ghostId,
-              role: "ghost_artist",
-              label: row.related_name,
-              parentId: nodeId,
-              childCount: 0,
-            });
-            pushEdge(ghostId, isPending);
-          }
-        }
-        if (addNodes.length > 0 || addEdges.length > 0) {
-          walkerClient()?.merge(addNodes, addEdges);
-        }
-        console.info("[graph] related-artists merged", {
-          pivot: nodeId,
-          totalRows: result.data.items.length,
-          addedNodes: addNodes.length,
-          addedEdges: addEdges.length,
-        });
-        relatedArtistsLoadedByPivot.add(nodeId);
-      } catch (err) {
-        console.warn("lazy related-artists fetch failed", { nodeId, err });
-        // allow retry on next pivot
-      } finally {
-        setFetchingNodeFlag(nodeId, false);
-        relatedArtistsFetchPromises.delete(nodeId);
       }
-    })();
-    relatedArtistsFetchPromises.set(nodeId, promise);
-    return promise;
-  };
+    },
+    queryClient,
+  });
 
-  // lazy relation fan-out for artist / album pivots. when the user
-  // pivots into an entity node we want every relation taxon the entity
-  // belongs to to render around it (genre / tag / mood / style / label /
-  // era / customTaxons). buildWalkGraph doesn't emit value->entity edges
-  // and per-hub loaders only emit hub->value edges, so on its own the
-  // pivot has no taxon connections. this loader:
-  //   1. reads the unioned taxon fields off the entity node data
-  //      (set by deriveArtistNodes / adaptAlbum).
-  //   2. fires `maybeLoadTaxonsForPivot(relHubId)` in parallel for every
-  //      kind the entity has values for so the value nodes get loaded.
-  //   3. synthesizes value->entity edges using `slug(label)` to match
-  //      the same id scheme that `maybeLoadTaxonsForPivot` produces
-  //      (matches the lookup pattern used by detail panels).
-  //
-  // edges land in the worker via the normal merge path; the worker
-  // dedupes and only renders the ones whose endpoints are both visible.
-  // value nodes arriving later will activate the previously-queued
-  // edges automatically.
-  const maybeLoadRelationsForEntityPivot = (nodeId: string): void => {
-    let parsed: ReturnType<typeof parseNodeId>;
-    try {
-      parsed = parseNodeId(nodeId);
-    } catch {
-      return;
-    }
-    if (parsed.kind !== "artist" && parsed.kind !== "album") return;
-    if (entityRelationsLoadedByPivot.has(nodeId)) return;
-    const node = lookupNode(nodeId);
-    if (!node) return;
-    const remoteId = parsed.remoteId;
-    // collect (kind, label) pairs from the unioned taxon fields. the
-    // well-known kinds map to specific field names; customTaxons carries
-    // the long tail under user-defined kind slugs.
-    const pairs: Array<{ kind: RelationKind; label: string }> = [];
-    const pushAll = (kind: RelationKind, labels: readonly string[] | undefined) => {
-      if (!labels) return;
-      for (const l of labels) {
-        if (l && l.trim().length > 0) pairs.push({ kind, label: l });
-      }
-    };
-    pushAll("genre", node.genres);
-    pushAll("mood", node.moods);
-    pushAll("style", node.styles);
-    // tags carry { label, weight }; reduce to labels.
-    if (node.tags) {
-      for (const t of node.tags) {
-        if (t.label && t.label.trim().length > 0) pairs.push({ kind: "tag", label: t.label });
-      }
-    }
-    if (node.label) pushAll("label", [node.label]);
-    if (node.era) pushAll("era", [node.era]);
-    if (node.customTaxons) {
-      for (const [kindSlug, labels] of Object.entries(node.customTaxons)) {
-        pushAll(kindSlug as RelationKind, labels);
-      }
-    }
-    if (pairs.length === 0) {
-      entityRelationsLoadedByPivot.add(nodeId);
-      return;
-    }
-    // kick off taxon loads in parallel for every kind we need values
-    // for. fire-and-forget; the worker activates edges once both
-    // endpoints are visible.
-    const seenKinds = new Set<RelationKind>();
-    for (const { kind } of pairs) {
-      if (seenKinds.has(kind)) continue;
-      seenKinds.add(kind);
-      void maybeLoadTaxonsForPivot(relationHubId(remoteId, kind));
-    }
-    // synthesize value->entity edges. dedup at the edge-key level so a
-    // tag appearing on multiple albums of a pivoted artist still only
-    // produces one edge.
-    const addEdges: WalkEdge[] = [];
-    const seenEdges = new Set<string>();
-    for (const { kind, label } of pairs) {
-      const valId = valueNodeId(remoteId, kind, slug(label));
-      const key = `${valId}::${nodeId}`;
-      if (seenEdges.has(key)) continue;
-      seenEdges.add(key);
-      addEdges.push({ source: valId, target: nodeId });
-    }
-    if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
-    entityRelationsLoadedByPivot.add(nodeId);
-  };
+  // worker reset (mergeResetTick advance) wipes every node/edge the
+  // pivot handler had merged in (era bins, recently-added, unassigned
+  // pages, related-artist clusters, taxon value/group nodes). clear its
+  // internal dedup/cache state so the next pivot re-fetches and merges.
+  let pivotHandlerLastResetTick = 0;
+  createEffect(() => {
+    const tick = mergeResetTick();
+    if (tick === pivotHandlerLastResetTick) return;
+    pivotHandlerLastResetTick = tick;
+    if (tick === 0) return;
+    resetMergedState();
+  });
 
   // ---- render --------------------------------------------------------
 
@@ -2958,13 +2169,53 @@ function Inner(props: {
     return props.remotes().filter((r) => off.get(r.remote_id) !== true && act.has(r.remote_id));
   });
 
-  // load song favorites once per online+activated remote. fires whenever
-  // onlineRemotes changes (new remote activated, came back online, etc.).
+  // exit edit mode when the active remote goes offline or is removed.
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const target = editingRemoteId();
+    if (!target) return;
+    const stillOnline = onlineRemotes().some((r) => r.remote_id === target);
+    if (!stillOnline) {
+      setEditingRemoteId(null);
+      setMultiSelection(new Set<string>());
+    }
+  });
+
+  // on entering edit mode, repivot to the active remote's hub so the
+  // canvas reflects the scoped subtree immediately. also drop any
+  // cross-remote lazy nodes so they don't leak into the scoped view,
+  // and activate the remote so its album/artist loaders fire \u2014 click-
+  // to-pivot is suppressed in edit mode, so without this the user
+  // would see only the bare remote hub with no way to populate it.
+  // (no manual repivot call here: the buildResult-watching effect
+  // detects the scope-lock collapse, re-inits the worker, and lands
+  // the pivot directly on the active remote's hub.)
+  createEffect((prev: string | null) => {
+    const cur = editingRemoteId();
+    if (cur && cur !== prev) {
+      activateRemote(cur);
+      setExtraNodesById(new Map());
+    }
+    return cur;
+  }, null);
+
+  // load song favorites once per online+activated remote. fires whenever
+  // onlineRemotes changes (new remote activated, came back online, etc.)
+  // or when the worker was re-init'd (mergeResetTick advances) so we
+  // re-emit favorites' synthesized edges that the wipe took out.
+  let favSongLastResetTick = 0;
+  createEffect(() => {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== favSongLastResetTick) {
+      favSongLastResetTick = tick;
+      for (const r of online) favSongLoadedRemotes.delete(r.remote_id);
+      for (const r of online) belovedLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (favSongLoadedRemotes.has(remote.remote_id)) continue;
       favSongLoadedRemotes.add(remote.remote_id);
       void loadFavoriteSongsForRemote(remote);
+      void loadBelovedForRemote(remote);
     }
   });
 
@@ -2972,8 +2223,15 @@ function Inner(props: {
   // graph artist nodes can replace their album-derived placeholders with
   // real artist art (when the remote has any). same activation gate as
   // favorites — paid for only when the user reaches the remote.
+  let artistImagesLastResetTick = 0;
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== artistImagesLastResetTick) {
+      artistImagesLastResetTick = tick;
+      for (const r of online) artistImagesLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (artistImagesLoadedRemotes.has(remote.remote_id)) continue;
       artistImagesLoadedRemotes.add(remote.remote_id);
       void loadArtistImagesForRemote(remote);
@@ -2983,8 +2241,17 @@ function Inner(props: {
   // seed first-order categorical relation hubs from list_taxon_kinds
   // for each online+activated remote (dedup'd by remote). album_count
   // comes from the server so badges render without a lazy round-trip.
+  // also re-fires on worker reset so the merged hubs reappear instead
+  // of leaving a bare remote node with no children.
+  let taxonKindsLastResetTick = 0;
   createEffect(() => {
-    for (const remote of onlineRemotes()) {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== taxonKindsLastResetTick) {
+      taxonKindsLastResetTick = tick;
+      for (const r of online) taxonKindsLoadedRemotes.delete(r.remote_id);
+    }
+    for (const remote of online) {
       if (taxonKindsLoadedRemotes.has(remote.remote_id)) continue;
       taxonKindsLoadedRemotes.add(remote.remote_id);
       void loadTaxonKindsForRemote(remote);
@@ -3066,6 +2333,146 @@ function Inner(props: {
     return fetchingByRemote().get(parsed.remoteId) === true;
   };
 
+  // ---- edit-mode mutation handlers (phase 4b) -----------------------------
+  // these run when the user drags a node onto another node (handleDrop) or
+  // right-clicks an edge (handleEdgeRightClick) while editing. all routes are
+  // admin-gated server-side; ui only invokes from edit mode + isRemoteAdmin.
+
+  const {
+    handleDrop,
+    handleEdgeRightClick,
+    handleCreateTaxon,
+    handleDeleteTaxon,
+    taxonIdForNode,
+    refreshHub,
+    albumIdsForArtist,
+  } = createEditModeHandlers({
+    remotes: () => props.remotes(),
+    isRemoteAdmin,
+    selectedTaxonInfo,
+    setEditMode,
+    setMultiSelection,
+    setSelectedId,
+    taxonItemsByHub,
+    taxonParentsByHub,
+    taxonsLoadedByHub,
+    maybeLoadTaxonsForPivot,
+    buildResult,
+  });
+
+  // ---- bulk (multi-selection) actions (phase 4c) --------------------------
+  // shown via BulkSelectionPopover when multiSelection has 2+ nodes in edit
+  // mode. fan out the same per-item mutations used by drag-drop.
+
+  const {
+    bulkCounts,
+    bulkMode,
+    bulkRelHubId,
+    bulkAllGroups,
+    bulkCandidateParents,
+    bulkAvailableTaxons,
+    bulkCurrentTaxons,
+    bulkCanEdit,
+    bulkActive,
+    handleBulkReparent,
+    handleBulkSetColor,
+    handleBulkDeleteTaxons,
+    handleBulkAssignTaxon,
+    handleBulkRemoveTaxon,
+    handleBulkGroupSelection,
+  } = createBulkHandlers({
+    remotes: () => props.remotes(),
+    isRemoteAdmin,
+    editMode,
+    multiSelection: effectiveMultiSelection,
+    setMultiSelection: setEffectiveMultiSelection,
+    setSelectedId,
+    taxonItemsByHub,
+    taxonParentsByHub,
+    taxonKindMetaByHub,
+    taxonIdForNode,
+    refreshHub,
+    albumIdsForArtist,
+  });
+
+  // ---- graph edit panel (edit-mode taxon editor) -------------------------
+  // resolves single or multi selection of albums/artists into a remote
+  // + bare album-id set, drives a single editor in place of the usual
+  // album/artist detail popovers.
+  const editPanelRemote = createMemo<Remote | null>(() => {
+    if (!editMode()) return null;
+    const alb = selectedAlbum();
+    if (alb) return remoteForNode(alb) ?? null;
+    const art = selectedArtist();
+    if (art) return remoteForArtist(art) ?? null;
+    const rid = editingRemoteId();
+    if (!rid) return null;
+    return props.remotes().find((r) => r.remote_id === rid) ?? null;
+  });
+
+  const editPanelAlbumIds = createMemo<string[]>(() => {
+    if (!editMode()) return [];
+    // single album/artist selection
+    const alb = selectedAlbum();
+    if (alb && multiSelection().size === 0) return [bareAlbumId(alb)];
+    const art = selectedArtist();
+    if (art && multiSelection().size === 0) {
+      const rid = art.sourceRemoteIds?.[0] ?? editingRemoteId();
+      if (!rid) return [];
+      return albumIdsForArtist(rid, art.artistId);
+    }
+    // multi selection — collect every album reachable via direct
+    // selection or artist fan-out, ignoring taxon-only selections.
+    const sel = multiSelection();
+    if (sel.size === 0) return [];
+    const editingRid = editingRemoteId();
+    const out = new Set<string>();
+    for (const id of sel) {
+      let parsed: ReturnType<typeof parseNodeId>;
+      try {
+        parsed = parseNodeId(id);
+      } catch {
+        continue;
+      }
+      if (parsed.kind === "album") out.add(parsed.albumId);
+      else if (parsed.kind === "artist") {
+        for (const aid of albumIdsForArtist(parsed.remoteId, parsed.artistId)) out.add(aid);
+      }
+    }
+    // if scope-locked editing remote is set, drop any albums that
+    // somehow leaked from a different remote (defensive).
+    void editingRid;
+    return Array.from(out);
+  });
+
+  const editPanelSummary = createMemo<{ artists: string[]; albums: string[] }>(() => {
+    const out = { artists: [] as string[], albums: [] as string[] };
+    if (!editMode()) return out;
+    const alb = selectedAlbum();
+    if (alb && multiSelection().size === 0) {
+      out.albums.push(alb.title);
+      return out;
+    }
+    const art = selectedArtist();
+    if (art && multiSelection().size === 0) {
+      out.artists.push(art.name);
+      return out;
+    }
+    for (const id of multiSelection()) {
+      const node = lookupNode(id);
+      if (!node) continue;
+      if ("title" in node) out.albums.push((node as AlbumNodeData).title);
+      else if ("name" in node) out.artists.push((node as ArtistNodeData).name);
+    }
+    return out;
+  });
+
+  const editPanelActive = createMemo<boolean>(() => {
+    if (!editMode()) return false;
+    if (!editPanelRemote()) return false;
+    return editPanelAlbumIds().length > 0;
+  });
+
   return (
     <div class="h-full flex flex-col">
       <For each={onlineRemotes()}>
@@ -3104,10 +2511,56 @@ function Inner(props: {
           isOfflineNode={isOfflineNode}
           isLoadingNode={isLoadingNode}
           interceptClick={interceptClick}
+          editMode={editMode}
+          multiSelection={multiSelection}
+          onMultiSelectionChange={(ids) => setMultiSelection(ids)}
+          onDrop={(sourceIds, targetId) => {
+            void handleDrop([...sourceIds], targetId);
+          }}
+          onEdgeRightClick={(srcId, tgtId) => {
+            void handleEdgeRightClick(srcId, tgtId);
+          }}
+          onExpandSubtree={(id) => toggleEagerHub(id)}
         />
 
+        {/* debug sim-tuning overlay (toggle with shift+d) */}
+        <Show when={tuningOverlayOpen()}>
+          <SimTuningOverlay
+            values={simTuning}
+            onChange={(next) => setSimTuning(next)}
+            onClose={() => setTuningOverlayOpen(false)}
+          />
+        </Show>
+
+        {/* edit-mode badge */}
+        <Show when={editMode()}>
+          {/* subtle pink edge-glow overlay so it's unambiguous the canvas is in edit mode */}
+          <div
+            class="absolute inset-0 pointer-events-none z-[5]"
+            style={{
+              "box-shadow": "inset 0 0 24px 4px rgba(244,114,182,0.18)",
+              "border-radius": "0",
+            }}
+          />
+          <div class="absolute top-3 right-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-pink-500/40 bg-[rgba(50,0,25,0.85)] backdrop-blur-sm text-[11px] text-pink-300 pointer-events-auto select-none">
+            <span>editing hierarchy</span>
+            <span class="text-pink-300/50 text-[10px]">(esc)</span>
+            <button
+              type="button"
+              aria-label="exit edit mode"
+              class="text-pink-300/70 hover:text-pink-200 cursor-pointer p-0 leading-none"
+              onClick={() => {
+                setEditingRemoteId(null);
+                setMultiSelection(new Set<string>());
+              }}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        </Show>
+
         {/* album detail popover */}
-        <Show when={selectedAlbum() !== null && !albumPanel.hidden()}>
+        <Show when={selectedAlbum() !== null && !albumPanel.hidden() && !editMode()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -3224,20 +2677,12 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedAlbum() !== null && albumPanel.hidden()}>
-          <button
-            type="button"
-            onClick={albumPanel.restore}
-            title="show details"
-            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
-          >
-            <Icon name="chevronUp" size={12} />
-            <span class="text-white/60">album - show details</span>
-          </button>
+        <Show when={selectedAlbum() !== null && albumPanel.hidden() && !editMode()}>
+          <CollapsedAlbumButton album={selectedAlbum()!} onRestore={albumPanel.restore} />
         </Show>
 
         {/* artist detail popover - mutually exclusive with album popover */}
-        <Show when={selectedArtist() !== null && !artistPanel.hidden()}>
+        <Show when={selectedArtist() !== null && !artistPanel.hidden() && !editMode()}>
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -3322,16 +2767,446 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedArtist() !== null && artistPanel.hidden()}>
-          <button
-            type="button"
-            onClick={artistPanel.restore}
-            title="show details"
-            class="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-[11px] text-white/80 hover:text-white hover:border-white/30 cursor-pointer pointer-events-auto"
-          >
-            <Icon name="chevronUp" size={12} />
-            <span class="text-white/60">artist - show details</span>
-          </button>
+        <Show when={selectedArtist() !== null && artistPanel.hidden() && !editMode()}>
+          <CollapsedArtistButton
+            artist={selectedArtistDisplay()!}
+            onRestore={artistPanel.restore}
+          />
+        </Show>
+
+        {/* graph edit panel — shown in edit mode when selection
+            resolves to one or more albums (directly or via artist
+            fan-out). replaces the album/artist detail popovers. */}
+        <Show when={editPanelActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+            <GraphEditPanel
+              remote={editPanelRemote}
+              albumIds={editPanelAlbumIds}
+              summary={editPanelSummary}
+              onClose={() => {
+                setSelectedId(null);
+                setMultiSelection(new Set<string>());
+              }}
+              onAfterMutate={async () => {
+                // refresh every taxon hub on the active remote so the
+                // graph reflects the new links (counts, edges, etc.).
+                const rid = editPanelRemote()?.remote_id;
+                if (!rid) return;
+                for (const hubId of taxonItemsByHub.keys()) {
+                  if (hubId.startsWith(`${rid}::`)) await refreshHub(hubId);
+                }
+              }}
+            />
+          </div>
+        </Show>
+
+        {/* bulk-selection popover — shown in edit mode when multi-select has 2+ */}
+        <Show when={bulkActive() && !editPanelActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(320px,calc(100%-1.5rem))] pointer-events-auto">
+            <BulkSelectionPopover
+              mode={bulkMode}
+              counts={bulkCounts}
+              allGroups={bulkAllGroups}
+              kindLabel={() => {
+                const hub = bulkRelHubId();
+                return hub ? taxonKindMetaByHub.get(hub)?.label : undefined;
+              }}
+              kindColor={() => {
+                const hub = bulkRelHubId();
+                return hub ? (taxonKindMetaByHub.get(hub)?.color ?? undefined) : undefined;
+              }}
+              candidateParents={bulkCandidateParents}
+              availableTaxons={bulkAvailableTaxons}
+              currentTaxons={bulkCurrentTaxons}
+              canEdit={bulkCanEdit}
+              onReparentTo={(pid) => {
+                void handleBulkReparent(pid);
+              }}
+              onSetColor={(c) => {
+                void handleBulkSetColor(c);
+              }}
+              onDeleteTaxons={() => {
+                void handleBulkDeleteTaxons();
+              }}
+              onAssignTaxon={(tid) => {
+                void handleBulkAssignTaxon(tid);
+              }}
+              onRemoveTaxon={(tid) => {
+                void handleBulkRemoveTaxon(tid);
+              }}
+              onGroupSelected={(label) => {
+                void handleBulkGroupSelection(label);
+              }}
+              onClose={() => setMultiSelection(new Set<string>())}
+            />
+          </div>
+        </Show>
+
+        {/* taxon detail popover — shown when a value or group node is selected */}
+        <Show when={selectedTaxonInfo() !== null && !taxonPanelHidden() && !bulkActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setTaxonPanelHidden(true)}
+              title="hide details"
+              aria-label="hide details"
+              class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+            <TaxonDetailPopover
+              taxon={() => selectedTaxonData()?.taxon ?? null}
+              kindLabel={() => taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.label}
+              kindSlug={() => selectedTaxonInfo()?.kindSlug}
+              kindColor={() =>
+                taxonKindMetaByHub.get(selectedTaxonInfo()?.relHubId ?? "")?.color ?? undefined
+              }
+              albumCount={() => selectedTaxonInfo()?.albumCount}
+              parents={() => selectedTaxonData()?.ancestors ?? []}
+              descendants={() => selectedTaxonData()?.descendants ?? []}
+              canEdit={() => isRemoteAdmin(selectedTaxonInfo()?.remoteId ?? null)}
+              onEditHierarchy={() => {
+                const remoteId = selectedTaxonInfo()?.remoteId ?? null;
+                if (editingRemoteId() === remoteId) {
+                  setEditingRemoteId(null);
+                  setMultiSelection(new Set<string>());
+                } else if (remoteId) {
+                  setEditingRemoteId(remoteId);
+                }
+              }}
+              onClose={() => setSelectedId(null)}
+              isGroup={() => (selectedTaxonData()?.descendants?.length ?? 0) > 0}
+              editMode={editMode}
+              onCreateTaxon={(label) => {
+                void handleCreateTaxon(label);
+              }}
+              onRenameTaxon={async (label) => {
+                const info = selectedTaxonInfo();
+                if (!info?.taxonId) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                if (!isRemoteAdmin(info.remoteId)) return;
+                try {
+                  const apiClient = await getClientForRemote(remote);
+                  await apiClient.music.set_taxon_label({
+                    taxon_id: info.taxonId,
+                    label,
+                  });
+                  await refreshHub(info.relHubId);
+                } catch (err) {
+                  console.warn("[graph] rename taxon failed", err);
+                  toast.error("failed to rename taxon");
+                }
+              }}
+              onDeleteTaxon={() => {
+                void handleDeleteTaxon();
+              }}
+              filterQuery={activeHubFilterQuery}
+              onFilterChange={(query) => {
+                const key = filterContextKey();
+                if (!key) return;
+                const next = new Map(taxonFilterByHub());
+                if (query.length === 0) next.delete(key);
+                else next.set(key, query);
+                setTaxonFilterByHub(next);
+              }}
+              matchCount={() => hubFilterIds().matchIds.size}
+              onSelectMatches={() => {
+                const ids = hubFilterIds().matchIds;
+                if (ids.size === 0) return;
+                setMultiSelection(new Set(ids));
+              }}
+              filterValuesOnly={activeHubFilterValuesOnly}
+              onFilterValuesOnlyChange={(valuesOnly) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const next = new Map(taxonFilterValuesOnlyByHub());
+                next.set(info.relHubId, valuesOnly);
+                setTaxonFilterValuesOnlyByHub(next);
+              }}
+              filterScope={activeFilterScope}
+              inferredFilterScope={inferredFilterScope}
+              onFilterScopeChange={(scope) => {
+                const key = filterContextKey();
+                if (!key) return;
+                const next = new Map(taxonFilterScopeByHub());
+                if (scope === null) next.delete(key);
+                else next.set(key, scope);
+                setTaxonFilterScopeByHub(next);
+              }}
+              onExpandSubtree={() => {
+                const id = selectedId();
+                if (!id) return;
+                const parsed = parseNodeId(id);
+                if (parsed.kind !== "group") return;
+                toggleEagerHub(id);
+                walkerClient()?.expandSubtree(id);
+              }}
+              isExpanded={() => {
+                const id = selectedId();
+                return id ? eagerHubIds().has(id) : false;
+              }}
+              unassignedPager={buildUnassignedPager()}
+              onSetColor={(color) => {
+                const info = selectedTaxonInfo();
+                if (!info?.taxonId) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    await apiClient.music.set_taxon_color({
+                      taxon_id: info.taxonId!,
+                      color: color ?? null,
+                    });
+                  } catch (err) {
+                    console.warn("set taxon color failed", { taxonId: info.taxonId, err });
+                  }
+                })();
+              }}
+              onRenameKind={async (label) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                if (!isRemoteAdmin(info.remoteId)) return;
+                const kindSlug = info.kindSlug;
+                const relHubId = info.relHubId;
+                try {
+                  const apiClient = await getClientForRemote(remote);
+                  await apiClient.music.set_taxon_kind_label({
+                    kind_slug: kindSlug,
+                    label,
+                  });
+                  // optimistic local label update + hub re-merge so the
+                  // hexagon picks up the new name without a refetch.
+                  const prevMeta = taxonKindMetaByHub.get(relHubId);
+                  if (prevMeta) {
+                    taxonKindMetaByHub.set(relHubId, { ...prevMeta, label });
+                  }
+                  walkerClient()?.merge(
+                    [
+                      {
+                        id: relHubId,
+                        role: "relation",
+                        label,
+                        parentId: remoteHubId(info.remoteId),
+                        childCount: info.albumCount ?? 0,
+                        lazy: true,
+                        tint: prevMeta?.color ?? undefined,
+                      },
+                    ],
+                    []
+                  );
+                  // mirror the new label back into selectedTaxonInfo so the
+                  // popover header reflects the change immediately.
+                  setSelectedTaxonInfo((prev) => (prev ? { ...prev, label } : prev));
+                  toast.success("kind renamed");
+                } catch (err) {
+                  console.warn("[graph] rename taxon kind failed", err);
+                  toast.error("failed to rename kind");
+                }
+              }}
+              onSetKindColor={(color) => {
+                const info = selectedTaxonInfo();
+                if (!info) return;
+                const remote = props.remotes().find((r) => r.remote_id === info.remoteId);
+                if (!remote) return;
+                const kindSlug = info.kindSlug;
+                const relHubId = info.relHubId;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const result = await apiClient.music.set_taxon_kind_color({
+                      kind_slug: kindSlug,
+                      color: color ?? null,
+                    });
+                    // optimistic local update so the hexagon re-tints
+                    // without waiting for a refetch.
+                    const prevMeta = taxonKindMetaByHub.get(relHubId);
+                    if (prevMeta) {
+                      taxonKindMetaByHub.set(relHubId, {
+                        ...prevMeta,
+                        color: color ?? null,
+                      });
+                    }
+                    // re-merge the hub node so WalkCanvas picks up the new tint.
+                    walkerClient()?.merge(
+                      [
+                        {
+                          id: relHubId,
+                          role: "relation",
+                          label: prevMeta?.label ?? kindSlug,
+                          parentId: remoteHubId(info.remoteId),
+                          childCount: info.albumCount ?? 0,
+                          lazy: true,
+                          tint: color ?? undefined,
+                        },
+                      ],
+                      []
+                    );
+                    toast.success(color ? `kind color set to ${color}` : "kind color cleared");
+                    void result;
+                  } catch (err) {
+                    console.warn("set taxon kind color failed", {
+                      kindSlug,
+                      err,
+                    });
+                    toast.error("failed to set kind color");
+                  }
+                })();
+              }}
+            />
+          </div>
+        </Show>
+
+        <Show when={selectedTaxonInfo() !== null && taxonPanelHidden() && !bulkActive()}>
+          {(() => {
+            const info = selectedTaxonInfo();
+            const taxon = selectedTaxonData()?.taxon ?? null;
+            const kindColor = taxonKindMetaByHub.get(info?.relHubId ?? "")?.color ?? null;
+            const swatch = taxon?.color ?? kindColor;
+            const label = info?.label ?? taxon?.label ?? "taxon";
+            return (
+              <CollapsedTaxonButton
+                label={label}
+                swatch={swatch ?? null}
+                onRestore={() => setTaxonPanelHidden(false)}
+                pager={(() => {
+                  const pg = buildUnassignedPager();
+                  if (!pg) return undefined;
+                  const pageCount = () => {
+                    const t = pg.total();
+                    const ps = pg.pageSize();
+                    if (t <= 0 || ps <= 0) return 1;
+                    return Math.max(1, Math.ceil(t / ps));
+                  };
+                  return {
+                    pageIndex: pg.pageIndex,
+                    pageCount,
+                    consumed: pg.consumed,
+                    total: pg.total,
+                    canPrev: pg.canPrev,
+                    canNext: pg.canNext,
+                    onPrev: pg.onPrev,
+                    onNext: pg.onNext,
+                  };
+                })()}
+              />
+            );
+          })()}
+        </Show>
+
+        {/* remote root detail popover — shown when a remote hub is selected */}
+        <Show when={selectedRemote() !== null && !taxonPanelHidden() && !bulkActive()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setTaxonPanelHidden(true)}
+              title="hide details"
+              aria-label="hide details"
+              class="absolute -top-2 -right-2 z-10 w-6 h-6 inline-flex items-center justify-center rounded-full border border-white/15 bg-[var(--color-bg-elevated)]/90 backdrop-blur-sm text-white/70 hover:text-white hover:border-white/30 cursor-pointer p-0"
+            >
+              <Icon name="chevronDown" size={12} />
+            </button>
+            <RemoteDetailPopover
+              remote={selectedRemote}
+              canEdit={() => isRemoteAdmin(selectedRemote()?.remote_id ?? null)}
+              taxonKinds={() => taxonKindsByRemote().get(selectedRemote()?.remote_id ?? "") ?? []}
+              onClose={() => setSelectedId(null)}
+              onBrowse={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                navigate(getDefaultRoute(r.remote_id));
+              }}
+              isEditing={() => {
+                const r = selectedRemote();
+                return !!r && editingRemoteId() === r.remote_id;
+              }}
+              onToggleEdit={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                if (editingRemoteId() === r.remote_id) {
+                  setEditingRemoteId(null);
+                  setMultiSelection(new Set<string>());
+                } else {
+                  setEditingRemoteId(r.remote_id);
+                }
+              }}
+              onCreateTaxon={(kindSlug, label) => {
+                const remote = selectedRemote();
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const created = await apiClient.music.createTaxon({
+                      kind_slug: kindSlug,
+                      label,
+                    });
+                    if (!created.success || !created.data) {
+                      toast.error("failed to create taxon");
+                      return;
+                    }
+                    toast.success(`taxon '${label}' created`);
+                    // re-fetch kinds so the hub list + counts pick up
+                    // the newly-created taxon's parent kind and so the
+                    // relation hub appears if it was previously empty.
+                    taxonKindsLoadedRemotes.delete(remote.remote_id);
+                    await loadTaxonKindsForRemote(remote);
+                    taxonKindsLoadedRemotes.add(remote.remote_id);
+                    // invalidate cached taxon items for this kind so a
+                    // subsequent pivot re-fetches and the new taxon
+                    // shows up as a value node.
+                    const relHubId = relationHubId(remote.remote_id, kindSlug);
+                    taxonsLoadedByHub.delete(relHubId);
+                  } catch (err) {
+                    console.warn("create taxon failed", { kindSlug, label, err });
+                    toast.error("failed to create taxon");
+                  }
+                })();
+              }}
+              onCreateKind={(input) => {
+                const remote = selectedRemote();
+                if (!remote) return;
+                void (async () => {
+                  try {
+                    const apiClient = await getClientForRemote(remote);
+                    const created = await apiClient.music.createTaxonKind({
+                      slug: input.slug,
+                      label: input.label,
+                      description: null,
+                      color: input.color,
+                      value_type: null,
+                      unit: null,
+                      display_order: null,
+                    });
+                    if (!created.success) {
+                      toast.error(`failed to create kind '${input.slug}'`);
+                      return;
+                    }
+                    toast.success(`kind '${input.label}' created`);
+                    // re-fetch kinds so the new kind shows up in the
+                    // chip list. note: empty kinds aren't seeded as
+                    // hub nodes (loadTaxonKindsForRemote skips when
+                    // album_count <= 0), so no walker merge here.
+                    taxonKindsLoadedRemotes.delete(remote.remote_id);
+                    await loadTaxonKindsForRemote(remote);
+                    taxonKindsLoadedRemotes.add(remote.remote_id);
+                  } catch (err) {
+                    console.warn("create taxon kind failed", { input, err });
+                    toast.error(`failed to create kind '${input.slug}'`);
+                  }
+                })();
+              }}
+            />
+          </div>
+        </Show>
+
+        <Show when={selectedRemote() !== null && taxonPanelHidden() && !bulkActive()}>
+          <CollapsedRemoteButton
+            label={selectedRemote()?.name ?? "remote"}
+            onRestore={() => setTaxonPanelHidden(false)}
+          />
         </Show>
       </div>
     </div>

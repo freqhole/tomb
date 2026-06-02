@@ -13,8 +13,6 @@ import {
   type ScanCompleteEvent,
   type KnockCreatedEvent,
   type PeerOfflineEvent,
-  type JobProgressEvent,
-  type JobSessionCompleteEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -122,36 +120,6 @@ export async function onPeerOffline(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "peer-offline") {
-      callback(event);
-    }
-  });
-}
-
-/**
- * listen specifically for job-progress events
- *
- * fired after each import job completes, with session progress info.
- */
-export async function onJobProgress(
-  callback: (event: JobProgressEvent) => void
-): Promise<UnlistenFn> {
-  return onEvent((event) => {
-    if (event.type === "job-progress") {
-      callback(event);
-    }
-  });
-}
-
-/**
- * listen specifically for job-session-complete events
- *
- * fired when all jobs in a session have finished processing.
- */
-export async function onJobSessionComplete(
-  callback: (event: JobSessionCompleteEvent) => void
-): Promise<UnlistenFn> {
-  return onEvent((event) => {
-    if (event.type === "job-session-complete") {
       callback(event);
     }
   });

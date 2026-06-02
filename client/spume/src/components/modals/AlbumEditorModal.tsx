@@ -562,10 +562,55 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     }
   };
   createEffect(() => {
-    if (!props.albumId) return;
+    const albumId = props.albumId;
+    if (!albumId) return;
+
+    // initial fetch so the badges are populated before any event fires.
     refreshEnrichmentProgress();
-    const id = window.setInterval(refreshEnrichmentProgress, 5000);
-    onCleanup(() => window.clearInterval(id));
+
+    // live-refresh via the job-events broker: any enrichment-related job
+    // for this album triggers a re-snapshot. covers individual source
+    // lookups, the orchestrator pipeline, and the auto-apply path.
+    const remote = currentRemote();
+    if (!remote) return;
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const client = await getClientForRemote(remote);
+        for await (const evt of client.jobs.events.subscribe(
+          {
+            kinds: [
+              "MbAlbumSearch",
+              "MbAlbumDetail",
+              "LastFmAlbumDetail",
+              "AudioDbAlbumDetail",
+              "AlbumEnrichmentPipeline",
+              "AutoApplyAlbumEnrichment",
+            ],
+            entity_refs: [{ kind: "album", id: albumId }],
+          },
+          controller.signal
+        )) {
+          // only refresh on terminal transitions or explicit failure
+          // frames — progress/stage chatter doesn't change the badges.
+          if (
+            (evt.kind === "status_changed" &&
+              (evt.to === "completed" || evt.to === "failed" || evt.to === "cancelled")) ||
+            evt.kind === "failed"
+          ) {
+            refreshEnrichmentProgress();
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (typeof console !== "undefined") {
+          console.debug("enrichment events subscribe ended:", err);
+        }
+      }
+    })();
+
+    onCleanup(() => controller.abort());
   });
 
   const handleReset = () => {
@@ -661,7 +706,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       const remote = currentRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) =>
+            setProcessingJob({ status: "processing", message: message ?? "processing image..." }),
+        });
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);

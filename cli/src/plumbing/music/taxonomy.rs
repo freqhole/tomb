@@ -74,6 +74,19 @@ pub enum TaxonomyAction {
         #[arg(long, value_delimiter = ',')]
         parent_ids: Option<Vec<String>>,
     },
+    /// set (or clear) a taxon's color (hex string, e.g. `#9b5de5`)
+    SetTaxonColor {
+        #[arg(long)]
+        taxon_id: String,
+        /// hex color; omit to clear
+        #[arg(long)]
+        color: Option<String>,
+    },
+    /// soft-delete a taxon by id
+    DeleteTaxon {
+        #[arg(long)]
+        id: String,
+    },
 
     // ---- parents (DAG) ----
     /// add a parent edge (cycle-checked)
@@ -89,6 +102,11 @@ pub enum TaxonomyAction {
         child_id: String,
         #[arg(long)]
         parent_id: String,
+    },
+    /// list every parent edge whose child has the given kind (full DAG dump)
+    ListParentsForKind {
+        #[arg(long)]
+        kind_slug: String,
     },
     /// list ancestors of a taxon (transitive)
     Ancestors {
@@ -238,6 +256,16 @@ pub async fn handle_command(action: TaxonomyAction) -> CommandOutput<serde_json:
             )
             .await
         }
+        TaxonomyAction::SetTaxonColor { taxon_id, color } => {
+            dispatch_to_offal(
+                "/api/taxonomy/taxons/set-color",
+                json!({ "taxon_id": taxon_id, "color": color }),
+            )
+            .await
+        }
+        TaxonomyAction::DeleteTaxon { id } => {
+            dispatch_to_offal("/api/taxonomy/taxons/delete", json!({ "id": id })).await
+        }
 
         TaxonomyAction::AddParent {
             child_id,
@@ -256,6 +284,13 @@ pub async fn handle_command(action: TaxonomyAction) -> CommandOutput<serde_json:
             dispatch_to_offal(
                 "/api/taxonomy/parents/remove",
                 json!({ "child_id": child_id, "parent_id": parent_id }),
+            )
+            .await
+        }
+        TaxonomyAction::ListParentsForKind { kind_slug } => {
+            dispatch_to_offal(
+                "/api/taxonomy/parents/list-by-kind",
+                json!({ "kind_slug": kind_slug }),
             )
             .await
         }

@@ -49,8 +49,7 @@ type JobState =
     }
   | { kind: "error"; message: string };
 
-const POLL_INTERVAL_MS = 1500;
-const POLL_MAX_TICKS = 60; // ~90s
+const POLL_TIMEOUT_MS = 90_000;
 
 function sourceLabel(s: EnrichmentReviewSource): string {
   return s === "lastfm" ? "last.fm" : "audiodb";
@@ -72,11 +71,11 @@ export function EnrichmentReviewPanel(props: EnrichmentReviewPanelProps) {
 
   const [state, setState] = createSignal<JobState>({ kind: "idle" });
 
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollAbort: AbortController | null = null;
   const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
+    if (pollAbort) {
+      pollAbort.abort();
+      pollAbort = null;
     }
   };
   onCleanup(stopPolling);
@@ -92,52 +91,77 @@ export function EnrichmentReviewPanel(props: EnrichmentReviewPanelProps) {
     return s.kind === "enqueuing" || s.kind === "polling";
   };
 
+  // wait for terminal via the typed event broker, then do a one-shot
+  // `getJobStatus` to pull the `result` payload + error_message (which
+  // aren't carried on JobEvent::Completed/Failed).
   const startPolling = (jobId: string) => {
     stopPolling();
     setState({ kind: "polling", jobId, status: "queued", ticks: 0 });
-    pollTimer = setInterval(async () => {
+    const ac = new AbortController();
+    pollAbort = ac;
+
+    const timeoutId = setTimeout(() => {
+      if (ac.signal.aborted) return;
+      ac.abort();
+      pollAbort = null;
+      setState({
+        kind: "error",
+        message: `timed out after ${POLL_TIMEOUT_MS / 1000}s`,
+      });
+    }, POLL_TIMEOUT_MS);
+
+    (async () => {
       try {
         const client = await getClientForRemote(props.remote);
-        const resp = await client.music.getJobStatus({ job_ids: [jobId] });
+        let terminalStatus: string | null = null;
+        for await (const evt of client.jobs.events.subscribe({ job_ids: [jobId] }, ac.signal)) {
+          if (evt.kind === "status_changed" && evt.job_id === jobId) {
+            const s = state();
+            const ticks = s.kind === "polling" ? s.ticks + 1 : 1;
+            setState({ kind: "polling", jobId, status: evt.to, ticks });
+            if (evt.to === "completed" || evt.to === "failed" || evt.to === "cancelled") {
+              terminalStatus = evt.to;
+              break;
+            }
+          }
+        }
+        if (ac.signal.aborted) return;
+        clearTimeout(timeoutId);
+
+        if (!terminalStatus) {
+          pollAbort = null;
+          setState({ kind: "error", message: "subscription ended before terminal status" });
+          return;
+        }
+
+        // fetch the final result + error_message in one shot.
+        const client2 = await getClientForRemote(props.remote);
+        const resp = await client2.music.getJobStatus({ job_ids: [jobId] });
+        pollAbort = null;
         if (!resp.success) {
-          stopPolling();
           setState({ kind: "error", message: resp.error.message });
           return;
         }
         const job = resp.data.jobs[jobId];
         if (!job) {
-          stopPolling();
           setState({ kind: "error", message: "job not found in status response" });
           return;
         }
-        const cur = state();
-        const ticks = cur.kind === "polling" ? cur.ticks + 1 : 1;
-        if (job.status === "Completed" || job.status === "Failed" || job.status === "Cancelled") {
-          stopPolling();
-          invalidateAlbums();
-          setState({
-            kind: "done",
-            jobId,
-            status: job.status,
-            resultJson: job.result ?? null,
-            errorMessage: job.error_message ?? null,
-          });
-          return;
-        }
-        if (ticks > POLL_MAX_TICKS) {
-          stopPolling();
-          setState({
-            kind: "error",
-            message: `timed out after ${POLL_MAX_TICKS} ticks (last status: ${job.status})`,
-          });
-          return;
-        }
-        setState({ kind: "polling", jobId, status: job.status, ticks });
+        invalidateAlbums();
+        setState({
+          kind: "done",
+          jobId,
+          status: job.status,
+          resultJson: job.result ?? null,
+          errorMessage: job.error_message ?? null,
+        });
       } catch (e) {
-        stopPolling();
+        if (ac.signal.aborted) return;
+        clearTimeout(timeoutId);
+        pollAbort = null;
         setState({ kind: "error", message: (e as Error).message });
       }
-    }, POLL_INTERVAL_MS);
+    })();
   };
 
   const onEnqueue = async () => {
@@ -222,8 +246,8 @@ export function EnrichmentReviewPanel(props: EnrichmentReviewPanelProps) {
               return (
                 <div class="flex items-center gap-2 text-blue-300">
                   <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                  job <code class="text-[10px]">{s.jobId.slice(0, 8)}</code> — {s.status} (tick{" "}
-                  {s.ticks}/{POLL_MAX_TICKS})
+                  job <code class="text-[10px]">{s.jobId.slice(0, 8)}</code> — {s.status} (event{" "}
+                  {s.ticks})
                 </div>
               );
             })()}

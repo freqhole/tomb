@@ -3,7 +3,9 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::users::{FavoritesService, SetFavoriteRequest};
-use crate::music::{query_favorites, ListFavoritesRequest, ListFavoritesResponse};
+use crate::music::{
+    query_favorites, ListBelovedResponse, ListFavoritesRequest, ListFavoritesResponse,
+};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
@@ -28,6 +30,15 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "ListFavoritesRequest",
         response_type: "ListFavoritesResponse",
         auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "list_beloved",
+        path: "/api/favorites/beloved",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "ListBelovedRequest",
+        response_type: "ListBelovedResponse",
+        auth: RouteAuth::Authenticated,
     },
 ];
 
@@ -98,6 +109,25 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                 })
                 .unwrap(),
             )
+        }
+        None => GrimoireResponse::failure(&response.message, response.errors),
+    }
+}
+
+/// list "beloved" album + artist ids — favorited by any user on this
+/// remote (direct favorites unioned with song-favorite-derived ids).
+pub async fn list_beloved(
+    _caller: &Caller,
+    _body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let response = FavoritesService::new().list_beloved_ids().await;
+    match response.data {
+        Some((album_ids, artist_ids)) => {
+            let payload = ListBelovedResponse {
+                album_ids,
+                artist_ids,
+            };
+            GrimoireResponse::success(&response.message, serde_json::to_value(payload).unwrap())
         }
         None => GrimoireResponse::failure(&response.message, response.errors),
     }

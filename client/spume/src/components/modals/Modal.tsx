@@ -107,9 +107,9 @@ export function Modal(props: ModalProps) {
               props.class ?? ""
             }`}
             style={{
-              "margin-top": "env(safe-area-inset-top, 0px)",
-              height: props.fitContent ? undefined : "calc(100% - env(safe-area-inset-top, 0px))",
-              "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
+              "margin-top": "var(--safe-area-top, 0px)",
+              height: props.fitContent ? undefined : "calc(100% - var(--safe-area-top, 0px))",
+              "max-height": "calc(100% - var(--safe-area-top, 0px))",
             }}
             onClick={(e) => e.stopPropagation()}
           >

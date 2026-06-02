@@ -16,7 +16,6 @@ use super::service::{
     mark_job_failed, peek_pending_jobs, try_claim_pending_job,
 };
 use crate::error::ErrorDetail;
-use crate::events::{emit, GrimoireEvent};
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
 use std::collections::{HashMap, HashSet};
@@ -159,17 +158,19 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 let _ = delete_job(&job.id).await;
             }
 
-            // phase 9.0 — typed job-lifecycle emit. fires for every
-            // session-bound job (the import/scan world also benefits;
-            // the legacy `GrimoireEvent::JobProgress` block below stays
-            // for backwards-compat with the add-music modal until
-            // phase 9.8 swaps that consumer over).
-            if let Some(session_id) = &job.session_id {
+            // typed job-lifecycle emit. fires for every job; the
+            // status-change and per-session rollup are decoupled so
+            // session-less jobs (e.g. ConvertWebp from /api/upload/image)
+            // still deliver a terminal `StatusChanged` to subscribers
+            // filtered by `job_ids`. scan-rollup metadata is carried by
+            // the `is_badge_progress_job` block below via `details`.
+            {
                 let topic = job_type.clone();
                 let entity_ref = job_events::entity_ref_for_job(&job);
                 let created_by = job.created_by.clone();
+                let session_id_str = job.session_id.clone().unwrap_or_default();
                 job_events::emit(JobEvent::StatusChanged {
-                    session_id: session_id.clone(),
+                    session_id: session_id_str,
                     job_id: job.id.clone(),
                     from: Some(JobStatusWire::Running),
                     to: JobStatusWire::Completed,
@@ -177,6 +178,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                     entity_ref: entity_ref.clone(),
                     created_by: created_by.clone(),
                 });
+            }
+            if let Some(session_id) = &job.session_id {
+                let topic = job_type.clone();
+                let created_by = job.created_by.clone();
                 if let Some(counts) = get_session_job_counts(session_id).await.data {
                     let total = counts.total as i64;
                     let complete = (counts.completed + counts.failed) as i64;
@@ -187,6 +192,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         topic: topic.clone(),
                         entity_ref: None,
                         created_by: created_by.clone(),
+                        details: None,
                     });
                     if counts.pending == 0 && counts.running == 0 {
                         job_events::emit(JobEvent::Completed {
@@ -194,6 +200,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             topic,
                             entity_ref: None,
                             created_by,
+                            details: None,
                         });
                     }
                 }
@@ -246,21 +253,34 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             directory = "enrich://".to_string();
                         }
 
-                        emit(GrimoireEvent::JobProgress {
+                        let rollup = serde_json::json!({
+                            "directory": directory,
+                            "songs_added": completed_so_far,
+                            "jobs_pending": in_flight,
+                            "jobs_total": session_total,
+                        });
+                        job_events::emit(JobEvent::Progress {
                             session_id: session_id.clone(),
-                            directory,
-                            songs_added: completed_so_far,
-                            jobs_pending: in_flight,
-                            jobs_total: session_total,
+                            complete: completed_so_far as i64,
+                            total: session_total as i64,
+                            topic: job_type.clone(),
+                            entity_ref: None,
+                            created_by: job.created_by.clone(),
+                            details: Some(rollup),
                         });
 
                         // emit session complete when all jobs done
                         if counts.pending == 0 && counts.running == 0 {
-                            emit(GrimoireEvent::JobSessionComplete {
+                            job_events::emit(JobEvent::Completed {
                                 session_id: session_id.clone(),
-                                songs_added: completed_so_far,
-                                albums_added: 0,  // TODO: track these
-                                artists_added: 0, // TODO: track these
+                                topic: job_type.clone(),
+                                entity_ref: None,
+                                created_by: job.created_by.clone(),
+                                details: Some(serde_json::json!({
+                                    "songs_added": completed_so_far,
+                                    "albums_added": 0,
+                                    "artists_added": 0,
+                                })),
                             });
                         }
                     }
@@ -290,8 +310,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // when retryable, mark_job_failed pushes the row back to
             // Pending so we emit StatusChanged { to: Pending } and skip
             // the Failed event; only emit Failed when the job has truly
-            // exhausted retries.
-            if let Some(session_id) = &job.session_id {
+            // exhausted retries. session-less jobs (e.g. ConvertWebp)
+            // still emit StatusChanged/Failed so subscribers filtered
+            // by `job_ids` receive a terminal event.
+            {
                 let to_status = if is_retryable {
                     JobStatusWire::Pending
                 } else {
@@ -300,8 +322,9 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 let topic = job_type.clone();
                 let entity_ref = job_events::entity_ref_for_job(&job);
                 let created_by = job.created_by.clone();
+                let session_id_str = job.session_id.clone().unwrap_or_default();
                 job_events::emit(JobEvent::StatusChanged {
-                    session_id: session_id.clone(),
+                    session_id: session_id_str.clone(),
                     job_id: job.id.clone(),
                     from: Some(JobStatusWire::Running),
                     to: to_status,
@@ -311,7 +334,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 });
                 if !is_retryable {
                     job_events::emit(JobEvent::Failed {
-                        session_id: session_id.clone(),
+                        session_id: session_id_str,
                         job_id: job.id.clone(),
                         error_type: error_detail.error_type.clone(),
                         message: error_detail.detail.clone(),
@@ -320,6 +343,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         created_by: created_by.clone(),
                     });
                 }
+            }
+            if let Some(session_id) = &job.session_id {
+                let topic = job_type.clone();
+                let created_by = job.created_by.clone();
                 if let Some(counts) = get_session_job_counts(session_id).await.data {
                     let total = counts.total as i64;
                     let complete = (counts.completed + counts.failed) as i64;
@@ -330,6 +357,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         topic: topic.clone(),
                         entity_ref: None,
                         created_by: created_by.clone(),
+                        details: None,
                     });
                     if counts.pending == 0 && counts.running == 0 {
                         job_events::emit(JobEvent::Completed {
@@ -337,6 +365,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             topic,
                             entity_ref: None,
                             created_by,
+                            details: None,
                         });
                     }
                 }
@@ -378,21 +407,34 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         if is_enrichment_job(&job_type) {
                             directory = "enrich://".to_string();
                         }
-                        emit(GrimoireEvent::JobProgress {
+                        let rollup = serde_json::json!({
+                            "directory": directory,
+                            "songs_added": completed_so_far,
+                            "jobs_pending": in_flight,
+                            "jobs_total": session_total,
+                        });
+                        job_events::emit(JobEvent::Progress {
                             session_id: session_id.clone(),
-                            directory,
-                            songs_added: completed_so_far,
-                            jobs_pending: in_flight,
-                            jobs_total: session_total,
+                            complete: completed_so_far as i64,
+                            total: session_total as i64,
+                            topic: job_type.clone(),
+                            entity_ref: None,
+                            created_by: job.created_by.clone(),
+                            details: Some(rollup),
                         });
                         // session is "done" when nothing is in flight,
                         // regardless of whether trailing jobs failed.
                         if counts.pending == 0 && counts.running == 0 {
-                            emit(GrimoireEvent::JobSessionComplete {
+                            job_events::emit(JobEvent::Completed {
                                 session_id: session_id.clone(),
-                                songs_added: completed_so_far,
-                                albums_added: 0,
-                                artists_added: 0,
+                                topic: job_type.clone(),
+                                entity_ref: None,
+                                created_by: job.created_by.clone(),
+                                details: Some(serde_json::json!({
+                                    "songs_added": completed_so_far,
+                                    "albums_added": 0,
+                                    "artists_added": 0,
+                                })),
                             });
                         }
                     }
@@ -614,8 +656,30 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
         }
         JobType::ProcessFile => {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
-            let path = params.get("file_path")?.as_str()?.to_string();
-            Some((JobType::ProcessFile, path))
+            // prefer an explicit grouping key (set by fetch jobs etc. so
+            // all sibling ProcessFile children serialize through one
+            // worker, avoiding races in find_or_create_artist /
+            // find_or_create_album_for_artist). fall back to the parent
+            // directory of the file so plain imports from one dir also
+            // serialize. last resort: the file path itself.
+            let key = params
+                .get("serialization_group")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    let path = params.get("file_path")?.as_str()?;
+                    std::path::Path::new(path)
+                        .parent()
+                        .and_then(|p| p.to_str())
+                        .map(str::to_string)
+                })
+                .or_else(|| {
+                    params
+                        .get("file_path")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })?;
+            Some((JobType::ProcessFile, key))
         }
         JobType::ProcessDirectory => {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;

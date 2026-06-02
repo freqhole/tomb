@@ -50,8 +50,13 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // verify file exists
     if !file_path.exists() {
+        // don't leak the full local path into the broadcast error.
+        let basename = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<unknown>");
         return Err(JobError::ProcessingFailed {
-            reason: format!("file does not exist: {}", params.file_path),
+            reason: format!("file does not exist: {}", basename),
         });
     }
 
