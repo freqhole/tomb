@@ -142,11 +142,11 @@ pub mod type_registry {
         DeleteArtistRequest, DeleteArtistResponse, DeleteSongRequest, DeleteSongResponse,
         FavoriteAlbumResult, FavoriteArtistResult, FavoriteItem, FavoritePlaylistResult,
         FavoriteSongResult, GetAlbumRequest, GetArtistRequest, GetRatingStatsRequest,
-        ListFavoritesRequest, ListFavoritesResponse, PlaylistQueryResult, PlaylistSongResult,
-        PlaylistSongsQueryResult, PlaylistsQueryResult, QueryParams, QueryPlaylistSongsRequest,
-        RatingStats, RecentSongsRequest, RemoveRatingRequest, RemoveRatingResponse,
-        SetFavoriteResponse, SetRatingResponse, SongQueryResult, SongUpdateError, SongsQueryResult,
-        UpdateSongsRequest, UpdateSongsResult,
+        ListBelovedRequest, ListBelovedResponse, ListFavoritesRequest, ListFavoritesResponse,
+        PlaylistQueryResult, PlaylistSongResult, PlaylistSongsQueryResult, PlaylistsQueryResult,
+        QueryParams, QueryPlaylistSongsRequest, RatingStats, RecentSongsRequest,
+        RemoveRatingRequest, RemoveRatingResponse, SetFavoriteResponse, SetRatingResponse,
+        SongQueryResult, SongUpdateError, SongsQueryResult, UpdateSongsRequest, UpdateSongsResult,
     };
 
     // upload types
@@ -1095,6 +1095,12 @@ pub mod type_registry {
 
         gen.add_schema::<ListFavoritesResponse>("ListFavoritesResponse");
         registered.insert("ListFavoritesResponse".to_string());
+
+        gen.add_schema::<ListBelovedRequest>("ListBelovedRequest");
+        registered.insert("ListBelovedRequest".to_string());
+
+        gen.add_schema::<ListBelovedResponse>("ListBelovedResponse");
+        registered.insert("ListBelovedResponse".to_string());
 
         gen.add_schema::<FavoriteItem>("FavoriteItem");
         registered.insert("FavoriteItem".to_string());

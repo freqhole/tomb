@@ -942,6 +942,19 @@ pub struct ListFavoritesResponse {
     pub limit: i64,
 }
 
+/// request for listing "beloved" ids — favorited by any user on this
+/// remote. no params for v1.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListBelovedRequest {}
+
+/// response for listing beloved ids. union of direct album/artist
+/// favorites with album/artist ids derived from song favorites.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListBelovedResponse {
+    pub album_ids: Vec<String>,
+    pub artist_ids: Vec<String>,
+}
+
 // ============================================================================
 // Ratings API Types
 // ============================================================================

@@ -3009,6 +3009,17 @@ export const LastFmAlbumDetailResultSchema = z.object({
 });
 export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSchema>;
 
+export const ListBelovedRequestSchema = z.object({
+
+});
+export type ListBelovedRequest = z.infer<typeof ListBelovedRequestSchema>;
+
+export const ListBelovedResponseSchema = z.object({
+  album_ids: z.array(z.string()),
+  artist_ids: z.array(z.string())
+});
+export type ListBelovedResponse = z.infer<typeof ListBelovedResponseSchema>;
+
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")]).nullish(),

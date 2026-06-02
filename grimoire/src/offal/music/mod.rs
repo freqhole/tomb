@@ -155,6 +155,7 @@ pub async fn dispatch(
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
         "/api/favorites/list" => Some(favorites::list(caller, body.clone()).await),
+        "/api/favorites/beloved" => Some(favorites::list_beloved(caller, body.clone()).await),
 
         // ratings
         "/api/ratings/set" => Some(ratings::set(caller, body.clone()).await),

@@ -21,6 +21,10 @@ export interface BuildWalkGraphInput {
   favoriteSongAlbumIds?: Map<string, Set<string>>;
   /** bare artist ids (from song favorites) per remote, unioned with artist.isFavorite */
   favoriteSongArtistIds?: Map<string, Set<string>>;
+  /** bare album ids "beloved" by any user on this remote (server-side aggregate). */
+  belovedAlbumIdsByRemote?: Map<string, Set<string>>;
+  /** bare artist ids "beloved" by any user on this remote (server-side aggregate). */
+  belovedArtistIdsByRemote?: Map<string, Set<string>>;
   /** which remoteIds correspond to the local charnel-managed sidecar.
    *  the renderer draws a home-icon glyph next to those remote-hub labels. */
   charnelManagedRemoteIds?: Set<string>;
@@ -137,6 +141,33 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         }
         for (const bareAlbumId of favAlbumIds) {
           edges.push({ source: favHubId, target: albumNodeId(remoteId, bareAlbumId) });
+        }
+      }
+    }
+
+    // ---- beloved hub (all-users favorites aggregate) -----------------------
+    // server-side endpoint `/api/favorites/beloved` returns the distinct
+    // union of album/artist ids favorited by any user on this remote
+    // (direct + song-derived). emit only when at least one id is known.
+    {
+      const belovedAlbums = input.belovedAlbumIdsByRemote?.get(remoteId) ?? new Set<string>();
+      const belovedArtists = input.belovedArtistIdsByRemote?.get(remoteId) ?? new Set<string>();
+      console.log("[beloved] buildWalkGraph emit", { remoteId, albums: belovedAlbums.size, artists: belovedArtists.size, hasAlbumMap: !!input.belovedAlbumIdsByRemote, hasArtistMap: !!input.belovedArtistIdsByRemote });
+      if (belovedAlbums.size > 0 || belovedArtists.size > 0) {
+        const belHubId = relationHubId(remoteId, "beloved");
+        nodes.push({
+          id: belHubId,
+          role: "relation",
+          label: "beloved",
+          parentId: rhId,
+          childCount: belovedAlbums.size + belovedArtists.size,
+        });
+        edges.push({ source: rhId, target: belHubId });
+        for (const bareArtistId of belovedArtists) {
+          edges.push({ source: belHubId, target: artistNodeId(remoteId, bareArtistId) });
+        }
+        for (const bareAlbumId of belovedAlbums) {
+          edges.push({ source: belHubId, target: albumNodeId(remoteId, bareAlbumId) });
         }
       }
     }

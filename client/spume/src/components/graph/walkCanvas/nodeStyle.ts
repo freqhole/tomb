@@ -36,6 +36,9 @@ export function nodeFillColor(n: VisibleNode): string {
     const parts = n.id.split("::");
     // relation::{remoteId}::favorites
     if (parts[0] === "relation" && parts[2] === "favorites") return "#dc2626";
+    // relation::{remoteId}::beloved — pink for the all-users
+    // favorites aggregate, distinct from per-user favorites red.
+    if (parts[0] === "relation" && parts[2] === "beloved") return "#ec4899";
     // relation::{remoteId}::unassigned — neutral gray so the orphan
     // hub reads as "no taxonomy here" rather than another kind.
     if (parts[0] === "relation" && parts[2] === "unassigned") return "#6b7280";

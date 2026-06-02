@@ -197,6 +197,11 @@ function Inner(props: {
   const [favSongAlbumIds, setFavSongAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
   const [favSongArtistIds, setFavSongArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
   const favSongLoadedRemotes = new Set<string>();
+  // per-remote "beloved" (all-users favorites aggregate) ids — fetched
+  // via listBeloved(). drives the pink beloved hub in buildWalkGraph.
+  const [belovedAlbumIds, setBelovedAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const [belovedArtistIds, setBelovedArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
+  const belovedLoadedRemotes = new Set<string>();
   // per-remote artist-image cache: artist_id -> primary ImageMetadata.
   // populated lazily on first activation via query_artists; lets the
   // artist graph nodes (deriveArtistNodes only sees albums) and the
@@ -508,6 +513,45 @@ function Inner(props: {
     }
   };
 
+  // fetch "beloved" (all-users favorites aggregate) ids for a remote.
+  // backend returns the distinct union of album/artist ids favorited
+  // by any user (direct + song-derived). drives the pink beloved hub.
+  const loadBelovedForRemote = async (remote: Remote): Promise<void> => {
+    if (belovedLoadedRemotes.has(remote.remote_id)) return;
+    belovedLoadedRemotes.add(remote.remote_id);
+    console.log("[beloved] loadBelovedForRemote start", { remoteId: remote.remote_id });
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.listBeloved({});
+      console.log("[beloved] listBeloved result", {
+        remoteId: remote.remote_id,
+        success: result.success,
+        data: (result as any).data,
+        error: (result as any).error,
+      });
+      if (!result.success || !result.data) return;
+      const albumIds = new Set<string>(result.data.album_ids);
+      const artistIds = new Set<string>(result.data.artist_ids);
+      console.log("[beloved] populating signals", {
+        remoteId: remote.remote_id,
+        albums: albumIds.size,
+        artists: artistIds.size,
+      });
+      setBelovedAlbumIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, albumIds);
+        return next;
+      });
+      setBelovedArtistIds((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, artistIds);
+        return next;
+      });
+    } catch (err) {
+      console.warn("beloved fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
   // fetch taxon kinds for a remote and seed first-order relation hub
   // nodes (one per categorical user-defined kind). favorites is still
   // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
@@ -527,7 +571,7 @@ function Inner(props: {
         return next;
       });
       const rhId = remoteHubId(remoteId);
-      const SKIP_SLUGS = new Set(["favorite", "favorites"]);
+      const SKIP_SLUGS = new Set(["favorite", "favorites", "beloved"]);
       const addNodes: WalkNode[] = [];
       const addEdges: WalkEdge[] = [];
       for (const kind of result.data) {
@@ -665,6 +709,8 @@ function Inner(props: {
       artistsByRemote: artistsByRemote(),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
+      belovedAlbumIdsByRemote: belovedAlbumIds(),
+      belovedArtistIdsByRemote: belovedArtistIds(),
       charnelManagedRemoteIds: new Set(
         props
           .remotes()
@@ -2163,11 +2209,13 @@ function Inner(props: {
     if (tick !== favSongLastResetTick) {
       favSongLastResetTick = tick;
       for (const r of online) favSongLoadedRemotes.delete(r.remote_id);
+      for (const r of online) belovedLoadedRemotes.delete(r.remote_id);
     }
     for (const remote of online) {
       if (favSongLoadedRemotes.has(remote.remote_id)) continue;
       favSongLoadedRemotes.add(remote.remote_id);
       void loadFavoriteSongsForRemote(remote);
+      void loadBelovedForRemote(remote);
     }
   });
 

@@ -681,6 +681,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    listBeloved: (params: s.ListBelovedRequest = {}) => {
+      return call(
+        "music",
+        "list_beloved",
+        routes.music.list_beloved.resp,
+        routes.music.list_beloved.req,
+        routes.music.list_beloved.method,
+        routes.music.list_beloved.path,
+        params,
+      );
+    },
+
     // analytics
     recordPlay: (params: s.RecordPlayRequest) => {
       return call(

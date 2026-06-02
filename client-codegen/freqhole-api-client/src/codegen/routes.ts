@@ -119,6 +119,7 @@ export const routes = {
     image_candidates_for_album: { method: 'POST', path: '/api/music/albums/image-candidates', req: s.AlbumImageCandidatesRequestSchema, resp: s.AlbumImageCandidatesResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     image_candidates_for_artist: { method: 'POST', path: '/api/artists/image-candidates', req: s.ArtistImageCandidatesRequestSchema, resp: s.ArtistImageCandidatesResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     ingest_remote_image: { method: 'POST', path: '/api/music/images/ingest', req: s.IngestRemoteImageRequestSchema, resp: s.IngestRemoteImageResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    list_beloved: { method: 'POST', path: '/api/favorites/beloved', req: s.ListBelovedRequestSchema, resp: s.ListBelovedResponseSchema, auth: { type: 'authenticated' } as const },
     list_favorites: { method: 'POST', path: '/api/favorites/list', req: s.ListFavoritesRequestSchema, resp: s.ListFavoritesResponseSchema, auth: { type: 'role', role: 'member' } as const },
     list_jobs: { method: 'POST', path: '/api/jobs/list', req: s.ListJobsRequestSchema, resp: s.JobResponseSchema.array(), auth: { type: 'authenticated' } as const },
     list_listen_sessions: { method: 'POST', path: '/api/analytics/sessions/list', req: s.ListListenSessionsRequestSchema, resp: s.ListListenSessionsResponseSchema, auth: { type: 'authenticated' } as const },
