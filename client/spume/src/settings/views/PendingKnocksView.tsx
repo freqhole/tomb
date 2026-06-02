@@ -8,7 +8,7 @@ import { createResource, For, Show } from "solid-js";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { getAuthInfo } from "../../app/services/remotes/authStatusStore";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
-import { adminClientFor } from "../../app/api/adminClient";
+import { adminClientFor, getLocalAdminClient } from "../../app/api/adminClient";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
 import { AdminClient } from "freqhole-api-client";
 import { KnocksSection } from "./knocks/KnocksSection";
@@ -38,7 +38,13 @@ async function loadAdminRemotes(): Promise<AdminRemote[]> {
           role = me.success ? me.role : undefined;
         }
         if (role !== "admin") return;
-        const client = await adminClientFor(remote);
+        // charnel-managed self uses the in-process admin transport — p2p
+        // self-dispatch via `admin_dispatch_remote` doesn't reliably work
+        // for the local node, so prefer the local client.
+        const client = remote.is_charnel_managed
+          ? getLocalAdminClient()
+          : await adminClientFor(remote);
+        if (!client) return;
         out.push({ remote, client });
       } catch {
         // remote unreachable / no admin client — skip.

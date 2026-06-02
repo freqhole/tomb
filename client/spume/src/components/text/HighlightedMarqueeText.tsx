@@ -1,13 +1,5 @@
 // highlighted marquee text component - supports HTML highlights with marquee on hover
-import {
-  createEffect,
-  createSignal,
-  For,
-  JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createEffect, createSignal, For, JSX, onCleanup, onMount, Show } from "solid-js";
 
 interface HighlightedMarqueeTextProps {
   /** text content to display */
@@ -18,12 +10,12 @@ interface HighlightedMarqueeTextProps {
   class?: string;
   /** whether currently hovering (controlled by parent) */
   isHovering?: boolean;
+  /** optional title attribute override (defaults to text) */
+  title?: string;
 }
 
 // parse html string to extract text and mark segments
-function parseHighlight(
-  html: string,
-): Array<{ text: string; marked: boolean }> {
+function parseHighlight(html: string): Array<{ text: string; marked: boolean }> {
   const parts: Array<{ text: string; marked: boolean }> = [];
   const markRegex = /<mark>(.*?)<\/mark>/g;
   let lastIndex = 0;
@@ -47,16 +39,13 @@ function parseHighlight(
   return parts;
 }
 
-export function HighlightedMarqueeText(
-  props: HighlightedMarqueeTextProps,
-): JSX.Element {
+export function HighlightedMarqueeText(props: HighlightedMarqueeTextProps): JSX.Element {
   const [needsMarquee, setNeedsMarquee] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
   let measureRef: HTMLDivElement | undefined;
 
   const textToDisplay = () => props.highlight || props.text;
-  const hasHighlight = () =>
-    props.highlight && props.highlight.includes("<mark>");
+  const hasHighlight = () => props.highlight && props.highlight.includes("<mark>");
   const parts = () => (hasHighlight() ? parseHighlight(textToDisplay()) : []);
 
   // render text content with highlights
@@ -126,7 +115,7 @@ export function HighlightedMarqueeText(
     <div
       ref={containerRef}
       class={`relative overflow-hidden ${props.class || ""}`}
-      title={props.text}
+      title={props.title ?? props.text}
     >
       {/* measurement element - invisible but rendered for accurate scrollWidth */}
       <div

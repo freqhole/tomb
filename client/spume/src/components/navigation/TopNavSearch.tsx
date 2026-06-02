@@ -1,5 +1,5 @@
 // top nav search — expands on hover/click, shows suggestions, navigates on selection
-import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
@@ -23,6 +23,20 @@ export interface TopNavSearchProps {
   onExpandedChange?: (expanded: boolean) => void;
   /** whether the parent nav is being hovered */
   navHovered?: boolean;
+  /**
+   * optional resolver: given a suggestion, return the remoteId it belongs
+   * to. when set, navigation uses `routes.*On(remoteId, ...)` so the
+   * router's RemoteContextHandler switches the active source on its own.
+   * may return a promise so the resolver can prompt the user (e.g. when
+   * the suggestion was contributed by multiple remotes). returning
+   * `undefined` (sync or async) falls back to current-remote-relative
+   * navigation; returning `null` aborts navigation entirely.
+   */
+  remoteIdFor?: (
+    s: SearchSuggestion
+  ) => string | null | undefined | Promise<string | null | undefined>;
+  /** optional content rendered at the bottom of the dropdown */
+  footerContent?: JSX.Element;
 }
 
 // filterable route keys — used for the "press return to filter X" hint
@@ -245,28 +259,47 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   // --- selection (row click or keyboard Enter on highlighted item) ---
 
-  const handleSelect = (suggestion: SearchSuggestion) => {
+  const handleSelect = async (suggestion: SearchSuggestion) => {
     if (!suggestion?.data) return;
 
     const s = suggestion.data as APISuggestion;
     const meta = s.metadata as any;
+    let remoteId: string | null | undefined;
+    try {
+      remoteId = await props.remoteIdFor?.(suggestion);
+    } catch (err) {
+      console.error("remoteIdFor failed:", err);
+      return;
+    }
+    // explicit null = user cancelled remote choice; abort navigation.
+    if (remoteId === null) return;
 
-    // navigate based on type
+    // navigate based on type. when remoteIdFor returns an id, use the
+    // *On(remoteId, ...) variants so the router's RemoteContextHandler
+    // switches the active data source on the :remoteId param change.
     switch (s.suggestion_type) {
       case "song":
         if (meta?.album_id) {
           setHighlightedSongId(s.entity_id);
-          props.onNavigate?.(routes.album(meta.album_id));
+          props.onNavigate?.(
+            remoteId ? routes.albumOn(remoteId, meta.album_id) : routes.album(meta.album_id)
+          );
         }
         break;
       case "artist":
-        props.onNavigate?.(routes.artist(s.entity_id));
+        props.onNavigate?.(
+          remoteId ? routes.artistOn(remoteId, s.entity_id) : routes.artist(s.entity_id)
+        );
         break;
       case "album":
-        props.onNavigate?.(routes.album(s.entity_id));
+        props.onNavigate?.(
+          remoteId ? routes.albumOn(remoteId, s.entity_id) : routes.album(s.entity_id)
+        );
         break;
       case "playlist":
-        props.onNavigate?.(routes.playlist(s.entity_id));
+        props.onNavigate?.(
+          remoteId ? routes.playlistOn(remoteId, s.entity_id) : routes.playlist(s.entity_id)
+        );
         break;
     }
 
@@ -385,9 +418,10 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onKeyDown={handleKeyDown}
             onBlur={handleBlur}
             onEndReached={handleEndReached}
-            loadingMore={props.isLoadingSuggestions}
+            loadingMore={!!props.hasMoreSuggestions && !!props.isLoadingSuggestions}
             hintMessage={hintMessage()}
             onHintClick={submitFilter}
+            footerContent={props.footerContent}
             class="w-64"
             variant="filled"
           />

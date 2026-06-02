@@ -131,7 +131,8 @@ export function showKnockCreatedToast(username: string, message?: string): void 
               onClick={() => {
                 toaster.dismiss(props.toastId);
                 markNoticeHidden(NOTICE_KNOCK_CREATED);
-                void openSetupWizard("/federation");
+                // HashRouter — set hash to route in-app.
+                window.location.hash = "/settings/admin-knocks";
               }}
             >
               view request
@@ -452,13 +453,9 @@ export async function checkPendingKnocks(): Promise<void> {
     const total = counts.reduce((a, b) => a + b, 0);
 
     showKnockRequestsToast(total, () => {
-      const target = "/settings/admin-knocks";
-      try {
-        window.history.pushState({}, "", target);
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      } catch {
-        window.location.href = target;
-      }
+      // app uses HashRouter — set the hash so the router actually navigates.
+      // pushState to a non-hash path doesn't notify HashRouter.
+      window.location.hash = "/settings/admin-knocks";
       dismissKnockRequestsToast();
     });
   } catch (error) {

@@ -12,6 +12,7 @@ import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
+import { RemotePickerModal } from "../components/modals/RemotePickerModal";
 import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
@@ -871,6 +872,8 @@ export function App() {
           setIsAddRemoteOpen(true);
         }}
       />
+
+      <RemotePickerModal />
 
       <Show when={useSongEditorState()()}>
         {(state) => (

@@ -1,6 +1,6 @@
 // search input with dropdown suggestions
 // plain input + custom dropdown — no kobalte, no pointer-drift bugs
-import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
@@ -13,6 +13,8 @@ export interface SearchSuggestion {
   id: string;
   text: string;
   category?: string;
+  /** small second line under the category badge (e.g. originating remote) */
+  categoryDetail?: { label: string; title?: string };
   highlight?: string;
   images?: ImageMetadata[];
   isFavorite?: boolean;
@@ -50,6 +52,8 @@ export interface SearchInputProps {
   /** hint text shown between input and flyout (e.g., "press return to filter songs") */
   hintMessage?: string | null;
   onHintClick?: () => void;
+  /** optional content rendered at the bottom of the dropdown (status, hints) */
+  footerContent?: JSX.Element;
 }
 
 export function SearchInput(props: SearchInputProps) {
@@ -296,6 +300,12 @@ export function SearchInput(props: SearchInputProps) {
                   no suggestions found
                 </div>
               </Show>
+
+              <Show when={props.footerContent}>
+                <div class="border-t border-[var(--color-border-subtle)]">
+                  {props.footerContent}
+                </div>
+              </Show>
             </div>
           </Show>
         </Portal>
@@ -378,8 +388,19 @@ function SuggestionRow(props: {
 
       {/* category badge */}
       <Show when={props.suggestion.category}>
-        <div class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]">
-          {props.suggestion.category}
+        <div class="px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] flex flex-col items-end leading-tight max-w-[140px]">
+          <span>{props.suggestion.category}</span>
+          <Show when={props.suggestion.categoryDetail}>
+            <div class="text-[9px] opacity-70 w-full">
+              <HighlightedMarqueeText
+                text={props.suggestion.categoryDetail!.label}
+                title={
+                  props.suggestion.categoryDetail!.title ?? props.suggestion.categoryDetail!.label
+                }
+                isHovering={props.highlighted}
+              />
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
