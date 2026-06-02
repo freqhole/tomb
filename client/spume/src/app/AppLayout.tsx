@@ -28,6 +28,7 @@ import { TopNav } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
   topNavSecondaryRowContent,
+  topNavSearchContent,
   topNavHideSearch,
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
@@ -1214,6 +1215,7 @@ export function AppLayout(props: AppLayoutProps) {
         viewOptions={viewOptions()}
         rightContent={topNavRightContent()}
         secondaryRowContent={topNavSecondaryRowContent()}
+        searchComponent={topNavSearchContent()}
         hideSearch={topNavHideSearch()}
         mainNavSections={[
           {

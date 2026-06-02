@@ -69,6 +69,7 @@ import WalkCanvas from "../../../components/graph/WalkCanvas";
 import type { WalkApi } from "../../../components/graph/WalkCanvas";
 import type { WalkerClient } from "../../../components/graph/worker/client";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
+import { GraphTopNavSearch } from "./GraphTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
 import {
   rootId,
@@ -1969,8 +1970,15 @@ function Inner(props: {
       slots.setSecondaryRowContent(undefined);
     }
 
-    // search input has no meaning in the graph viz for now; hide it.
-    slots.setHideSearch(true);
+    // mount the cross-remote graph search container into the topnav's
+    // search slot. milestone A: aggregated suggestions across every
+    // online remote with per-remote loading indicators. milestone B
+    // (pending): on enter, swap the graph data for a synthetic search
+    // subgraph. see docs/explore-search-and-fixes-plan.md.
+    slots.setHideSearch(false);
+    slots.setSearchContent(
+      <GraphTopNavSearch remotes={() => props.remotes()} onNavigate={(path) => navigate(path)} />
+    );
   });
 
   // ---- event handlers ------------------------------------------------

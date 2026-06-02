@@ -85,6 +85,7 @@ import {
   getAllRemotes,
   getRemoteByPeerAddr,
   markRemoteOffline,
+  onRemoteStatusChange,
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
@@ -577,9 +578,11 @@ export function App() {
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);
 
-      // check for pending knock requests (tauri only, non-blocking)
-      // shows persistent toast if there are access requests waiting
-      void checkPendingKnocks();
+      // check for pending knock requests across every admin remote.
+      // delayed slightly so the auth-status store + p2p transports have a
+      // chance to warm up; also re-runs whenever a remote transitions
+      // offline -> online.
+      setTimeout(() => void checkPendingKnocks(), 3000);
     } finally {
       clearTimeout(loadingTimer);
       setIsInitializing(false);
@@ -587,9 +590,24 @@ export function App() {
     }
   });
 
+  // re-check pending knocks whenever a remote transitions offline -> online,
+  // so admins are notified about requests waiting on remotes that were
+  // unreachable at startup. coalesce bursts so several remotes coming
+  // online together only trigger one rescan.
+  let knockReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const unsubKnocksReconnect = onRemoteStatusChange((_remoteId, isOffline) => {
+    if (isOffline) return;
+    if (knockReconnectTimer !== null) clearTimeout(knockReconnectTimer);
+    knockReconnectTimer = setTimeout(() => {
+      knockReconnectTimer = null;
+      void checkPendingKnocks();
+    }, 1500);
+  });
+
   // cleanup cache network handlers and tauri listeners on unmount
   onCleanup(() => {
     cleanupCacheNetworkHandlers();
+    unsubKnocksReconnect();
     // cleanup tauri event listeners to prevent accumulation on HMR
     tauriUnlisteners.forEach((unlisten) => unlisten());
     tauriUnlisteners = [];

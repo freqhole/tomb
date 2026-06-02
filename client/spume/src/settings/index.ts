@@ -6,4 +6,5 @@ export { RemoteAdminView } from "./views/RemoteAdminView";
 export { RadioSettingsView } from "./views/RadioSettingsView";
 export { RadioAdminView } from "./views/RadioAdminView";
 export { LogzSettingsView } from "./views/LogzSettingsView";
+export { PendingKnocksView } from "./views/PendingKnocksView";
 export { SettingsLayout } from "./layouts/SettingsLayout";

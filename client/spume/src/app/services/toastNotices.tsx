@@ -345,10 +345,10 @@ export function dismissKnockRequestsToast(): void {
 }
 
 // ============================================================================
-// knock requests check (tauri only)
+// knock requests check (all admin remotes)
 // ============================================================================
 
-// response shape from api_call for knock list
+// response shape from api_call for knock list (tauri-local fallback path)
 interface KnockApiResponse {
   success: boolean;
   message: string;
@@ -364,44 +364,104 @@ interface KnockApiResponse {
   }>;
 }
 
-/**
- * check for pending knock requests and show toast if any exist.
- * only works in Tauri mode (calls the local API via IPC).
- * call this on app startup to notify admin of pending access requests.
- */
-export async function checkPendingKnocks(): Promise<void> {
-  if (!isCharnelMode()) {
-    return;
-  }
+interface KnockRowLite {
+  id: string;
+  status: string;
+}
 
+async function countLocalCharnelPending(): Promise<number> {
   try {
-    // dynamically import tauri invoke
     const { invoke } = await import("@tauri-apps/api/core");
-
-    // call /api/admin/knocks via local dispatch (pending only by default)
     const response = (await invoke("api_call", {
       path: "/api/admin/knocks",
       body: {},
     })) as KnockApiResponse;
+    if (!response.success || !response.data) return 0;
+    return response.data.filter((k) => k.status === "pending").length;
+  } catch (e) {
+    console.debug("[toastNotices] local knock check failed:", e);
+    return 0;
+  }
+}
 
-    if (!response.success || !response.data) {
-      return;
+async function countPendingForRemote(remote: {
+  remote_id: string;
+  is_charnel_managed?: boolean;
+}): Promise<number> {
+  // dynamic imports to avoid pulling p2p admin transport into every entry
+  // (and to keep this module's existing tauri-only dynamic-import style).
+  try {
+    const { getRemoteById } = await import("./remotes/remoteManager");
+    const { whoamiForRemote } = await import("./remotes/authService");
+    const { adminClientFor } = await import("../api/adminClient");
+    const { getAuthInfo } = await import("./remotes/authStatusStore");
+
+    const r = await getRemoteById(remote.remote_id);
+    if (!r || r.is_offline === true) return 0;
+
+    // prefer cached role; fall back to whoami if not yet populated.
+    let role = getAuthInfo(r.remote_id)?.role;
+    if (!role) {
+      const me = await whoamiForRemote(r);
+      role = me.success ? me.role : undefined;
+    }
+    if (role !== "admin") return 0;
+
+    const client = await adminClientFor(r);
+    const rows = (await client.dispatchOrThrow("knocks_list", undefined)) as
+      | KnockRowLite[]
+      | undefined;
+    if (!Array.isArray(rows)) return 0;
+    return rows.filter((k) => k.status === "pending").length;
+  } catch (e) {
+    console.debug(`[toastNotices] knock check failed for ${remote.remote_id}:`, e);
+    return 0;
+  }
+}
+
+/**
+ * check for pending knock requests across every admin remote and show a
+ * single aggregated toast if any exist. clicking through navigates to the
+ * cross-remote `/settings/admin-knocks` view.
+ *
+ * runs the tauri-local check too (when in charnel mode) so the embedded
+ * owner remote is covered without needing the p2p admin transport.
+ */
+export async function checkPendingKnocks(): Promise<void> {
+  try {
+    const tasks: Promise<number>[] = [];
+
+    if (isCharnelMode()) {
+      tasks.push(countLocalCharnelPending());
     }
 
-    // filter to pending only (status === "pending")
-    const pendingKnocks = response.data.filter((k) => k.status === "pending");
-    const count = pendingKnocks.length;
-
-    if (count > 0) {
-      console.log(`[toastNotices] found ${count} pending knock request(s)`);
-      showKnockRequestsToast(count, () => {
-        // open wizard federation view
-        void openSetupWizard("/federation");
-        dismissKnockRequestsToast();
-      });
+    try {
+      const { getAllRemotes } = await import("./remotes/remoteManager");
+      const all = await getAllRemotes();
+      for (const r of all) {
+        // charnel-managed entries are already covered by countLocalCharnelPending
+        if (r.is_charnel_managed) continue;
+        if (r.is_offline === true) continue;
+        tasks.push(countPendingForRemote(r));
+      }
+    } catch (e) {
+      console.debug("[toastNotices] failed to enumerate remotes for knock check:", e);
     }
+
+    const counts = await Promise.all(tasks);
+    const total = counts.reduce((a, b) => a + b, 0);
+
+    showKnockRequestsToast(total, () => {
+      const target = "/settings/admin-knocks";
+      try {
+        window.history.pushState({}, "", target);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      } catch {
+        window.location.href = target;
+      }
+      dismissKnockRequestsToast();
+    });
   } catch (error) {
-    // silently fail - not critical, may not be admin or server not ready
-    console.debug("[toastNotices] failed to check pending knocks:", error);
+    console.debug("[toastNotices] checkPendingKnocks failed:", error);
   }
 }
