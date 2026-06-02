@@ -520,24 +520,12 @@ function Inner(props: {
   const loadBelovedForRemote = async (remote: Remote): Promise<void> => {
     if (belovedLoadedRemotes.has(remote.remote_id)) return;
     belovedLoadedRemotes.add(remote.remote_id);
-    console.log("[beloved] loadBelovedForRemote start", { remoteId: remote.remote_id });
     try {
       const client = await getClientForRemote(remote);
       const result = await client.music.listBeloved({});
-      console.log("[beloved] listBeloved result", {
-        remoteId: remote.remote_id,
-        success: result.success,
-        data: (result as any).data,
-        error: (result as any).error,
-      });
       if (!result.success || !result.data) return;
       const albumIds = new Set<string>(result.data.album_ids);
       const artistIds = new Set<string>(result.data.artist_ids);
-      console.log("[beloved] populating signals", {
-        remoteId: remote.remote_id,
-        albums: albumIds.size,
-        artists: artistIds.size,
-      });
       setBelovedAlbumIds((prev) => {
         const next = new Map(prev);
         next.set(remote.remote_id, albumIds);

@@ -91,15 +91,6 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     // reactive remote list and `runSearch` re-runs on the next query.
     wakeAllRemotes();
 
-    console.debug("[graph-search] fan out", {
-      query: q,
-      remotes: remotes.map((r) => ({
-        id: r.remote_id,
-        name: r.name,
-        charnel: !!r.is_charnel_managed,
-      })),
-    });
-
     const initial = new Map<string, RemoteStatus>();
     for (const r of remotes) initial.set(r.remote_id, "loading");
     setStatuses(initial);
@@ -127,9 +118,6 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           });
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
-          console.debug(
-            `[graph-search] ${r.name ?? r.remote_id} -> ${suggestions.length} suggestions (page 1, hasNext=${res.has_next})`
-          );
           setResultsByRemote((prev) => {
             const next = new Map(prev);
             next.set(r.remote_id, suggestions);
@@ -207,9 +195,6 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           });
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
-          console.debug(
-            `[graph-search] ${r.name ?? r.remote_id} -> +${suggestions.length} (page ${nextPage}, hasNext=${res.has_next})`
-          );
           setResultsByRemote((prev) => {
             const next = new Map(prev);
             const existing = next.get(r.remote_id) ?? [];
