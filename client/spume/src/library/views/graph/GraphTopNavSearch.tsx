@@ -44,6 +44,10 @@ export interface GraphTopNavSearchProps {
     primaryRemoteId: string,
     all: Array<{ s: APISuggestion; remoteId: string }>
   ) => boolean | Promise<boolean>;
+  /** fires when the query input transitions from non-empty to empty
+   *  (user cleared it via backspace, escape-clear, or collapse). lets
+   *  the parent reset graph state (drop pins, repivot to root, etc.). */
+  onSearchCleared?: () => void;
 }
 
 interface AggSuggestion {
@@ -67,6 +71,19 @@ interface RemotePageState {
 
 export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   const [query, setQuery] = createSignal("");
+
+  // fire onSearchCleared when query goes from non-empty to empty.
+  // skips the initial "" so we don't trigger a reset on mount.
+  let lastQueryNonEmpty = false;
+  createEffect(() => {
+    const q = query();
+    if (q.length > 0) {
+      lastQueryNonEmpty = true;
+    } else if (lastQueryNonEmpty) {
+      lastQueryNonEmpty = false;
+      props.onSearchCleared?.();
+    }
+  });
   const [statuses, setStatuses] = createSignal<Map<string, RemoteStatus>>(new Map());
   const [resultsByRemote, setResultsByRemote] = createSignal<Map<string, APISuggestion[]>>(
     new Map()

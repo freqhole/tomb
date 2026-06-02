@@ -1967,11 +1967,16 @@ function Inner(props: {
     } else {
       slots.setSecondaryRowContent(undefined);
     }
+  });
 
-    // mount the cross-remote graph search container into the topnav's
-    // search slot. aggregates suggestions across every online remote;
-    // a row click / enter pivots the library walker to the picked hit
-    // via `handlePivotToSuggestion`.
+  // mount the cross-remote graph search container into the topnav's
+  // search slot exactly once. kept out of the tools/secondary-row effect
+  // above so reactive deps there (breadcrumbDepth, isRefetching,
+  // bulkTagMode) don't remount this component and blow away its internal
+  // searchValue signal on every pivot. aggregates suggestions across
+  // every online remote; a row click / enter pivots the library walker
+  // to the picked hit via `handlePivotToSuggestion`.
+  createEffect(() => {
     slots.setHideSearch(false);
     slots.setSearchContent(
       <GraphTopNavSearch
@@ -1981,6 +1986,10 @@ function Inner(props: {
         onPivotToSuggestion={(s, primaryRemoteId, all) =>
           handlePivotToSuggestion(s, primaryRemoteId, all)
         }
+        onSearchCleared={() => {
+          walkerClient()?.setPinned([]);
+          walkApi()?.resetWalk();
+        }}
       />
     );
   });
