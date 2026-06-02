@@ -30,6 +30,7 @@ import {
   topNavSecondaryRowContent,
   topNavSearchContent,
   topNavHideSearch,
+  topNavSearchExpanded,
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
@@ -1236,6 +1237,7 @@ export function AppLayout(props: AppLayoutProps) {
         rightContent={topNavRightContent()}
         secondaryRowContent={topNavSecondaryRowContent()}
         searchComponent={topNavSearchContent()}
+        externalSearchExpanded={topNavSearchExpanded()}
         hideSearch={topNavHideSearch()}
         mainNavSections={[
           {

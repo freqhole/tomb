@@ -39,7 +39,15 @@ export interface PivotHandlerDeps {
   taxonParentsByHub: Map<string, Map<string, string>>;
   taxonLabelsByHub: Map<string, Map<string, string>>;
   albumsLoadedByPivot: Set<string>;
-  /** when true, empty leaf taxons (no albums + no children) are still
+  /** when true (search-mode active), autonomous loaders that fan out
+   *  the full library context for a pivoted node are suppressed. the
+   *  search subgraph is intentionally a curated subset; firing the
+   *  library's taxon/era/related-artist loaders on a search pivot
+   *  drowns the user's filtered results in unrelated sibling nodes
+   *  ("the graph just reset"). value-pivot album drill-in still
+   *  runs because it's scoped to the clicked node. */
+  searchMode?: () => boolean;
+  /** when set, empty leaf taxons (no albums + no children) are still
    *  surfaced so admins can see + work with placeholders they just
    *  created. when false (default), they're filtered out to keep the
    *  graph readable. */
@@ -79,6 +87,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
+    searchMode,
     onHubRefreshed,
     getUnassignedPagerState,
     onUnassignedPageInfo,
@@ -1004,6 +1013,14 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   };
 
   const triggerPivotLoaders = (nodeId: string) => {
+    if (searchMode?.()) {
+      // in search-mode the only loader we want is the value-pivot album
+      // drill-in (scoped to the clicked node). every other loader fans
+      // out full library context that wasn't part of the search hit set
+      // and would visually "reset" the curated subgraph.
+      void maybeLoadAlbumsForPivot(nodeId);
+      return;
+    }
     void maybeLoadTaxonsForPivot(nodeId);
     void maybeLoadEraBinsForPivot(nodeId);
     void maybeLoadAlbumsForEraBin(nodeId);

@@ -153,6 +153,11 @@ export interface TopNavProps {
   secondaryRowContent?: JSX.Element;
   /** custom search component (optional - if not provided, uses TopNavSearchContainer) */
   searchComponent?: JSX.Element;
+  /** when a `searchComponent` is supplied, the host can publish that
+   *  component's expanded/collapsed state here so TopNav still hides
+   *  neighbouring icon buttons on narrow viewports. ignored when the
+   *  default `TopNavSearchContainer` is used. */
+  externalSearchExpanded?: boolean;
   /** when true, suppress the topnav search input entirely. used by
    *  views (e.g. library graph viz) where search has no meaning. */
   hideSearch?: boolean;
@@ -368,7 +373,12 @@ export function TopNav(props: TopNavProps) {
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
   const iconBtnSize = () => (isNarrow() ? 22 : 16);
-  const [searchExpanded, setSearchExpanded] = createSignal(false);
+  const [searchExpandedInternal, setSearchExpanded] = createSignal(false);
+  // OR together the built-in search input's expansion state with the
+  // one published by any custom `searchComponent` so the "hide other
+  // top-nav buttons when narrow + search is expanded" gates work
+  // regardless of which search is mounted.
+  const searchExpanded = () => searchExpandedInternal() || !!props.externalSearchExpanded;
   const [sortOpen, setSortOpen] = createSignal(false);
   const [sortLocked, setSortLocked] = createSignal(false);
   const [tagOpen, setTagOpen] = createSignal(false);
@@ -1169,8 +1179,7 @@ export function TopNav(props: TopNavProps) {
                                       label: "rename",
                                       icon: "edit",
                                       onClick: () => {
-                                        const current =
-                                          props.localLibraryName ?? "local library";
+                                        const current = props.localLibraryName ?? "local library";
                                         setRenameValue(current);
                                         setPendingRename({
                                           id: LOCAL_LIBRARY_RENAME_ID,
@@ -2068,9 +2077,7 @@ export function TopNav(props: TopNavProps) {
           if (!renaming()) setPendingRename(null);
         }}
         title={
-          pendingRename()?.id === LOCAL_LIBRARY_RENAME_ID
-            ? "rename local library"
-            : "rename remote"
+          pendingRename()?.id === LOCAL_LIBRARY_RENAME_ID ? "rename local library" : "rename remote"
         }
         size="sm"
       >
@@ -2082,9 +2089,7 @@ export function TopNav(props: TopNavProps) {
           }}
         >
           <label class="block">
-            <span class="block text-xs text-[var(--color-text-muted)] mb-1">
-              display name
-            </span>
+            <span class="block text-xs text-[var(--color-text-muted)] mb-1">display name</span>
             <input
               type="text"
               class="w-full px-3 py-2 rounded border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-accent-500)]"

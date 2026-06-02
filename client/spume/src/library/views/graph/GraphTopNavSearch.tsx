@@ -410,15 +410,13 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     return false;
   });
 
-  /** unified entry point for Enter + footer button. exits search-mode
-   *  if currently active (toggle), otherwise hands the snapshot to the
-   *  parent. */
+  /** unified entry point for Enter + row-click. always replaces the
+   *  parent's search-mode snapshot with the latest results, so
+   *  re-typing + Enter while already in search-mode swaps the graph
+   *  in one keystroke instead of two. explicit exit is handled by
+   *  the hint click + clear-input effect below. */
   const triggerShowInGraph = (): boolean => {
     if (query().length < 2) return false;
-    if (props.isShowingInGraph?.()) {
-      props.onExitGraphSearch?.();
-      return true;
-    }
     if (!hasAnyResults()) return false;
     props.onShowInGraph?.(captureSnapshot());
     return true;
@@ -466,7 +464,11 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
         ? "← exit search graph (or clear input)"
         : "press return (or click) to explore results in graph →",
       onClick: () => {
-        triggerShowInGraph();
+        if (props.isShowingInGraph?.()) {
+          props.onExitGraphSearch?.();
+        } else {
+          triggerShowInGraph();
+        }
       },
     };
   };

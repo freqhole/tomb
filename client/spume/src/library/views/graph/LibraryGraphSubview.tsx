@@ -590,7 +590,12 @@ function Inner(props: {
         });
       }
       if (addNodes.length > 0 || addEdges.length > 0) {
-        walkerClient()?.merge(addNodes, addEdges);
+        // skip merging into the synthetic search subgraph — the search
+        // build owns its own topology and a library-kind hub appearing
+        // mid-render looks like a "reset" to the user.
+        if (!isShowingSearchInGraph()) {
+          walkerClient()?.merge(addNodes, addEdges);
+        }
       }
     } catch (err) {
       console.warn("taxon kinds fetch failed", { remoteId: remote.remote_id, err });
@@ -695,6 +700,12 @@ function Inner(props: {
       remoteIds: snap.remoteIds,
       resultsByRemote: snap.resultsByRemote,
       remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
+      remoteBaseUrlsById: new Map(
+        props
+          .remotes()
+          .filter((r) => !!(r as { base_url?: string }).base_url)
+          .map((r) => [r.remote_id, (r as { base_url?: string }).base_url as string])
+      ),
       charnelManagedRemoteIds: new Set(
         props
           .remotes()
@@ -704,15 +715,39 @@ function Inner(props: {
     });
   });
 
+  // seed search-mode taxon entries into the shared `taxonItemsByHub`
+  // cache so value-pivot drill-in resolves `valueSlug -> taxon id`
+  // without calling `maybeLoadTaxonsForPivot` (which would merge the
+  // full sibling taxon set and reparent our root-flattened value nodes
+  // off root, blowing up the search view). albumCount is unknown for
+  // search hits so we stub it as 0 — the field is only used by edit-
+  // mode UI, not by `filterForValuePivot`.
+  createEffect(() => {
+    const sr = searchBuildResult();
+    if (!sr) return;
+    for (const [relHubId, items] of sr.searchTaxonsByHub) {
+      let bucket = taxonItemsByHub.get(relHubId);
+      if (!bucket) {
+        bucket = new Map();
+        taxonItemsByHub.set(relHubId, bucket);
+      }
+      for (const [valueSlug, entry] of items) {
+        if (!bucket.has(valueSlug)) {
+          bucket.set(valueSlug, { id: entry.id, label: entry.label, albumCount: 0 });
+        }
+      }
+    }
+  });
+
   const buildResult = createMemo(() => {
     // search-mode short-circuit: when active, the canvas is fed the
-    // synthetic search subgraph and the normal catalogue build skips.
-    // `nodesById` stays empty in this mode — search nodes don't have
-    // AlbumNodeData/ArtistNodeData payloads, so popover hydration and
-    // image overlays don't fire (they bail on `lookupNode === null`).
+    // synthetic search subgraph. `nodesById` is populated from
+    // suggestion metadata so popovers + image overlays hydrate; taxon
+    // search nodes are intentionally absent (milestone c-4 handles
+    // their drill path separately).
     const sr = searchBuildResult();
     if (sr) {
-      return { graph: sr.graph, nodesById: new Map<string, AlbumNodeData | ArtistNodeData>() };
+      return { graph: sr.graph, nodesById: sr.nodesById };
     }
 
     const byRemote = nodesByRemote();
@@ -790,8 +825,11 @@ function Inner(props: {
     // search-mode is prefixed into the key so flipping in/out of the
     // synthetic search subgraph triggers a full walker init() even
     // when the contributing remote set is identical to the library
-    // graph (very common case).
-    const modePrefix = isShowingSearchInGraph() ? "search:" : "lib:";
+    // graph (very common case). also include the search query so
+    // re-submitting after editing the input fully resets the graph
+    // instead of merging stale match nodes from the previous query.
+    const searchSnap = searchModeData();
+    const modePrefix = searchSnap ? `search:${searchSnap.query}:` : "lib:";
     const remoteKey =
       modePrefix +
       result.graph.nodes
@@ -808,15 +846,6 @@ function Inner(props: {
       // re-fetch because the value/group nodes they tracked are gone.
       taxonsLoadedByHub.clear();
       albumsLoadedByPivot.clear();
-      console.log("[graph-search] remoteKey changed, resetting", {
-        remoteKey,
-        nodeCount: result.graph.nodes.length,
-        edgeCount: result.graph.edges.length,
-        roles: result.graph.nodes.reduce<Record<string, number>>((acc, n) => {
-          acc[n.role] = (acc[n.role] ?? 0) + 1;
-          return acc;
-        }, {}),
-      });
     }
 
     const { width, height } = canvasSize();
@@ -832,11 +861,6 @@ function Inner(props: {
       const active = editingRemoteId();
       const initialPivot = active ? remoteHubId(active) : rootId();
       client.init(result.graph, initialPivot, width, height);
-      console.log("[graph-search] client.init called", {
-        initialPivot,
-        nodes: result.graph.nodes.length,
-        edges: result.graph.edges.length,
-      });
       // signal merge-based loaders to re-emit (they were wiped by init).
       setMergeResetTick((n) => n + 1);
     } else {
@@ -868,6 +892,11 @@ function Inner(props: {
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
       setVisibleIds(ids);
+      // search-mode owns its own topology; the catalogue-driven loaders
+      // below (eager-album fanout, related-artist edges, cross-remote
+      // artist batch lookup) would all push library nodes into the
+      // synthetic search subgraph and "reset" the user's view.
+      if (isShowingSearchInGraph()) return;
       // when any group has been eagerly expanded, drive album loading
       // for every visible value/group so the worker's subtree DFS can
       // surface the resulting artist + album nodes on the next pass.
@@ -2028,6 +2057,7 @@ function Inner(props: {
       <GraphTopNavSearch
         remotes={() => props.remotes()}
         onNavigate={(path) => navigate(path)}
+        onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
         isShowingInGraph={isShowingSearchInGraph}
         onShowInGraph={(snapshot) => {
           // entering search-mode forcibly exits edit-mode so the user's
@@ -2037,14 +2067,6 @@ function Inner(props: {
           // root cleanly. (the buildResult-watching effect's
           // remote-set-changed branch will fire a full init.)
           setSelectedId(null);
-          console.log("[graph-search] enter", {
-            q: snapshot.query,
-            remoteIds: snapshot.remoteIds,
-            perRemoteCount: Array.from(snapshot.resultsByRemote.entries()).map(([id, list]) => ({
-              id,
-              count: list.length,
-            })),
-          });
           setSearchModeData(snapshot);
         }}
         onExitGraphSearch={() => {
@@ -2066,15 +2088,22 @@ function Inner(props: {
               nodeId = `s_album::${slug(suggestion.display)}`;
               break;
             case "song": {
-              const albumId = (suggestion.metadata as { album_id?: string } | undefined)?.album_id;
-              if (albumId) nodeId = `s_song_album::${primaryRemoteId}::${albumId}`;
+              // songs collapse onto their album anchor (title-slugged,
+              // cross-remote dedup). matches buildSearchGraph.
+              const meta = suggestion.metadata as { album_title?: string } | undefined;
+              if (meta?.album_title) nodeId = `s_album::${slug(meta.album_title)}`;
               break;
             }
             case "playlist":
               return false; // playlists not surfaced in search graph (v1)
             default: {
-              const kind = suggestion.suggestion_type ?? "taxon";
-              nodeId = `s_taxon::${primaryRemoteId}::${kind}::${slug(suggestion.display)}`;
+              // taxons live at real library ids in search-mode (see
+              // buildSearchGraph c-4 notes). kind_slug from metadata
+              // when the backend supplied it (c-1 added it for genre),
+              // otherwise fall back to suggestion_type.
+              const meta = suggestion.metadata as { kind_slug?: string } | undefined;
+              const kind = meta?.kind_slug ?? suggestion.suggestion_type ?? "taxon";
+              nodeId = `value::${primaryRemoteId}::${kind}::${slug(suggestion.display)}`;
               break;
             }
           }
@@ -2197,6 +2226,7 @@ function Inner(props: {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
+    searchMode: isShowingSearchInGraph,
     onHubRefreshed: (_relHubId) => setHubRefreshTick((n) => n + 1),
     getUnassignedPagerState: (relHubId) => ({
       pageIndex: getUnassignedPageIndex(relHubId),
@@ -2364,6 +2394,9 @@ function Inner(props: {
   createEffect(() => {
     const tick = mergeResetTick();
     const online = onlineRemotes();
+    // skip the load entirely while the synthetic search subgraph is
+    // active — its hubs come from buildSearchGraph, not the library.
+    if (isShowingSearchInGraph()) return;
     if (tick !== taxonKindsLastResetTick) {
       taxonKindsLastResetTick = tick;
       for (const r of online) taxonKindsLoadedRemotes.delete(r.remote_id);
