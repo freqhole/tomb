@@ -69,8 +69,9 @@ import WalkCanvas from "../../../components/graph/WalkCanvas";
 import type { WalkApi } from "../../../components/graph/WalkCanvas";
 import type { WalkerClient } from "../../../components/graph/worker/client";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
-import { GraphTopNavSearch } from "./GraphTopNavSearch";
+import { GraphTopNavSearch, type GraphSearchResultsSnapshot } from "./GraphTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
+import { buildSearchGraph } from "./buildSearchGraph";
 import {
   rootId,
   parseNodeId,
@@ -676,7 +677,44 @@ function Inner(props: {
     if (!next) setEditingRemoteId(null);
   };
 
+  // ---- search-mode (milestone B) ----------------------------------------
+  // when set, `buildResult` swaps to `buildSearchGraph` so the walker
+  // renders the cross-remote search hits as a synthetic subgraph
+  // instead of the default library catalogue. cleared on input clear,
+  // exit-button click, or when the user explicitly leaves the view.
+  // mutually exclusive with edit-mode (entering one exits the other).
+  const [searchModeData, setSearchModeData] = createSignal<GraphSearchResultsSnapshot | null>(null);
+  const isShowingSearchInGraph = () => searchModeData() !== null;
+  // built lazily so we don't re-walk the suggestion lists on unrelated
+  // re-renders. cached side-tables (primaryRemoteByNodeId, contributors,
+  // entityIdByNodeAndRemote) feed the row-click handler.
+  const searchBuildResult = createMemo(() => {
+    const snap = searchModeData();
+    if (!snap) return null;
+    return buildSearchGraph({
+      remoteIds: snap.remoteIds,
+      resultsByRemote: snap.resultsByRemote,
+      remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
+      charnelManagedRemoteIds: new Set(
+        props
+          .remotes()
+          .filter((r) => !!r.is_charnel_managed)
+          .map((r) => r.remote_id)
+      ),
+    });
+  });
+
   const buildResult = createMemo(() => {
+    // search-mode short-circuit: when active, the canvas is fed the
+    // synthetic search subgraph and the normal catalogue build skips.
+    // `nodesById` stays empty in this mode — search nodes don't have
+    // AlbumNodeData/ArtistNodeData payloads, so popover hydration and
+    // image overlays don't fire (they bail on `lookupNode === null`).
+    const sr = searchBuildResult();
+    if (sr) {
+      return { graph: sr.graph, nodesById: new Map<string, AlbumNodeData | ArtistNodeData>() };
+    }
+
     const byRemote = nodesByRemote();
     // include every selected remote so offline / not-yet-loaded remotes still
     // surface in the graph as remote hubs (dimmed if offline). filtering by
@@ -748,12 +786,19 @@ function Inner(props: {
     if (!result || result.graph.nodes.length === 0) return;
 
     // detect remote-set change (user added/removed a remote, or edit-
-    // mode scope-lock collapsed/restored the remote list) -> full reset
-    const remoteKey = result.graph.nodes
-      .filter((n) => n.role === "remote")
-      .map((n) => n.id)
-      .sort()
-      .join("|");
+    // mode scope-lock collapsed/restored the remote list) -> full reset.
+    // search-mode is prefixed into the key so flipping in/out of the
+    // synthetic search subgraph triggers a full walker init() even
+    // when the contributing remote set is identical to the library
+    // graph (very common case).
+    const modePrefix = isShowingSearchInGraph() ? "search:" : "lib:";
+    const remoteKey =
+      modePrefix +
+      result.graph.nodes
+        .filter((n) => n.role === "remote")
+        .map((n) => n.id)
+        .sort()
+        .join("|");
     if (remoteKey !== prevRemoteKey) {
       prevRemoteKey = remoteKey;
       hadInit = false;
@@ -763,6 +808,15 @@ function Inner(props: {
       // re-fetch because the value/group nodes they tracked are gone.
       taxonsLoadedByHub.clear();
       albumsLoadedByPivot.clear();
+      console.log("[graph-search] remoteKey changed, resetting", {
+        remoteKey,
+        nodeCount: result.graph.nodes.length,
+        edgeCount: result.graph.edges.length,
+        roles: result.graph.nodes.reduce<Record<string, number>>((acc, n) => {
+          acc[n.role] = (acc[n.role] ?? 0) + 1;
+          return acc;
+        }, {}),
+      });
     }
 
     const { width, height } = canvasSize();
@@ -778,6 +832,11 @@ function Inner(props: {
       const active = editingRemoteId();
       const initialPivot = active ? remoteHubId(active) : rootId();
       client.init(result.graph, initialPivot, width, height);
+      console.log("[graph-search] client.init called", {
+        initialPivot,
+        nodes: result.graph.nodes.length,
+        edges: result.graph.edges.length,
+      });
       // signal merge-based loaders to re-emit (they were wiped by init).
       setMergeResetTick((n) => n + 1);
     } else {
@@ -1960,12 +2019,74 @@ function Inner(props: {
 
     // mount the cross-remote graph search container into the topnav's
     // search slot. milestone A: aggregated suggestions across every
-    // online remote with per-remote loading indicators. milestone B
-    // (pending): on enter, swap the graph data for a synthetic search
-    // subgraph. see docs/explore-search-and-fixes-plan.md.
+    // online remote with per-remote loading indicators. milestone B:
+    // on submit / footer-button click, swap the canvas data for a
+    // synthetic search subgraph (see docs/explore-search-and-fixes-
+    // plan.md).
     slots.setHideSearch(false);
     slots.setSearchContent(
-      <GraphTopNavSearch remotes={() => props.remotes()} onNavigate={(path) => navigate(path)} />
+      <GraphTopNavSearch
+        remotes={() => props.remotes()}
+        onNavigate={(path) => navigate(path)}
+        isShowingInGraph={isShowingSearchInGraph}
+        onShowInGraph={(snapshot) => {
+          // entering search-mode forcibly exits edit-mode so the user's
+          // scope-lock doesn't fight the synthetic graph reset.
+          if (editingRemoteId() !== null) setEditingRemoteId(null);
+          // clear any selection/breadcrumb so the walker reset lands on
+          // root cleanly. (the buildResult-watching effect's
+          // remote-set-changed branch will fire a full init.)
+          setSelectedId(null);
+          console.log("[graph-search] enter", {
+            q: snapshot.query,
+            remoteIds: snapshot.remoteIds,
+            perRemoteCount: Array.from(snapshot.resultsByRemote.entries()).map(([id, list]) => ({
+              id,
+              count: list.length,
+            })),
+          });
+          setSearchModeData(snapshot);
+        }}
+        onExitGraphSearch={() => {
+          setSearchModeData(null);
+          setSelectedId(null);
+        }}
+        onSelectInGraph={(suggestion, primaryRemoteId) => {
+          // map the picked suggestion back to its synthetic node id
+          // and repivot the walker there. mirrors the id scheme in
+          // buildSearchGraph.nodeIdFor.
+          const sr = searchBuildResult();
+          if (!sr) return false;
+          let nodeId: string | null = null;
+          switch (suggestion.suggestion_type) {
+            case "artist":
+              nodeId = `s_artist::${slug(suggestion.display)}`;
+              break;
+            case "album":
+              nodeId = `s_album::${slug(suggestion.display)}`;
+              break;
+            case "song": {
+              const albumId = (suggestion.metadata as { album_id?: string } | undefined)?.album_id;
+              if (albumId) nodeId = `s_song_album::${primaryRemoteId}::${albumId}`;
+              break;
+            }
+            case "playlist":
+              return false; // playlists not surfaced in search graph (v1)
+            default: {
+              const kind = suggestion.suggestion_type ?? "taxon";
+              nodeId = `s_taxon::${primaryRemoteId}::${kind}::${slug(suggestion.display)}`;
+              break;
+            }
+          }
+          if (!nodeId) return false;
+          // confirm the id is actually in the graph (defensive: a stale
+          // suggestion could outlive its snapshot if the user types fast).
+          if (!sr.graph.nodes.some((n) => n.id === nodeId)) return false;
+          setSelectedId(nodeId);
+          walkerClient()?.repivot(nodeId, false);
+          return true;
+        }}
+      />
     );
   });
 

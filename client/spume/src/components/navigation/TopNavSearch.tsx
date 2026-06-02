@@ -37,6 +37,29 @@ export interface TopNavSearchProps {
   ) => string | null | undefined | Promise<string | null | undefined>;
   /** optional content rendered at the bottom of the dropdown */
   footerContent?: JSX.Element;
+  /**
+   *  optional intercept for row selection. when set, the parent owns the
+   *  click/Enter-on-highlight handling (e.g. graph search-mode repivots
+   *  to the matching node instead of route-navigating). returning `true`
+   *  short-circuits the default `routes.*` navigation; returning `false`
+   *  or `undefined` falls through to the default flow.
+   */
+  onSelectOverride?: (s: SearchSuggestion) => boolean | void | Promise<boolean | void>;
+  /**
+   *  optional intercept for Enter-without-highlight. when set AND the
+   *  current route is not in `FILTERABLE_KEYS` (so `submitFilter` is a
+   *  no-op anyway), this is invoked with the current query string.
+   *  return `true` to declare the submission handled (suppresses the
+   *  default no-op filter path entirely; the caller is expected to do
+   *  whatever rendering they need).
+   */
+  onSubmit?: (q: string) => boolean | void;
+  /** optional override for the hint message rendered between the input
+   *  field and the suggestions flyout. when present, replaces the
+   *  default "press return to filter X" hint. used by graph-search to
+   *  surface a clickable "explore in graph" affordance in the same
+   *  visual slot as the default hint. */
+  hintOverride?: () => { message: string; onClick?: () => void } | null;
 }
 
 // filterable route keys — used for the "press return to filter X" hint
@@ -71,12 +94,24 @@ export function TopNavSearch(props: TopNavSearchProps) {
     return key && FILTERABLE_KEYS.has(key) ? key : null;
   });
 
-  // hint message — focused + filterable route, nothing else
+  // hint message — overridden by parent if `hintOverride` provided,
+  // else the default "press return to filter X" focus hint.
   const hintMessage = createMemo(() => {
+    const override = props.hintOverride?.();
+    if (override) return override.message;
     const view = filterableView();
     if (!view || !isFocused()) return null;
     return `press return to filter ${view}`;
   });
+
+  const hintClick = () => {
+    const override = props.hintOverride?.();
+    if (override?.onClick) {
+      override.onClick();
+      return;
+    }
+    submitFilter();
+  };
 
   // initialize search value from ?q= query param (e.g., on page reload)
   createEffect(
@@ -189,8 +224,13 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
-      // "enter" with no highlighted suggestion → filter current view
+      // "enter" with no highlighted suggestion → either parent-provided
+      // submit handler (graph search-mode) or default route-filter path.
+      // SearchInput swallows Enter when a row is highlighted, so this
+      // branch is safe to use for non-row submissions.
       setSuggestionsOpen(false);
+      const handled = props.onSubmit?.(searchValue());
+      if (handled === true) return;
       submitFilter();
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -261,6 +301,22 @@ export function TopNavSearch(props: TopNavSearchProps) {
 
   const handleSelect = async (suggestion: SearchSuggestion) => {
     if (!suggestion?.data) return;
+
+    // give the parent a chance to fully intercept selection (e.g. graph
+    // search-mode repivots the walker instead of navigating routes).
+    if (props.onSelectOverride) {
+      try {
+        const handled = await props.onSelectOverride(suggestion);
+        if (handled === true) {
+          setSuggestionsOpen(false);
+          setIsFocused(false);
+          return;
+        }
+      } catch (err) {
+        console.error("onSelectOverride failed:", err);
+        return;
+      }
+    }
 
     const s = suggestion.data as APISuggestion;
     const meta = s.metadata as any;
@@ -420,7 +476,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onEndReached={handleEndReached}
             loadingMore={!!props.hasMoreSuggestions && !!props.isLoadingSuggestions}
             hintMessage={hintMessage()}
-            onHintClick={submitFilter}
+            onHintClick={hintClick}
             footerContent={props.footerContent}
             class="w-64"
             variant="filled"

@@ -91,6 +91,7 @@ import {
   deleteRemote,
   updateRemote,
 } from "./services/remotes/remoteManager";
+import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
@@ -380,6 +381,25 @@ export function AppLayout(props: AppLayoutProps) {
     } catch (error) {
       console.error("failed to load remotes:", error);
     }
+
+    // seed the reactive `isOnline(id)` map and fire a background wake-up
+    // probe for every offline remote. dedupe + backoff lives in
+    // remoteHealth so it's safe to call this freely.
+    void seedOnlineMap();
+    wakeAllRemotes();
+
+    // re-probe when the tab/window becomes visible again — covers the
+    // "laptop woke from sleep / switched back to tab" case where
+    // stale-offline flags are common.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") wakeAllRemotes();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onVisibility);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onVisibility);
+    });
 
     // listen for remote status changes (offline/online) and refresh remotes list
     const unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {

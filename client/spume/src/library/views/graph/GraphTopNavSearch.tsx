@@ -27,12 +27,36 @@ import { wakeAllRemotes } from "../../../app/services/remotes/remoteHealth";
 
 type RemoteStatus = "idle" | "loading" | "loaded" | "error";
 
+export interface GraphSearchResultsSnapshot {
+  query: string;
+  remoteIds: string[];
+  resultsByRemote: Map<string, APISuggestion[]>;
+}
+
 export interface GraphTopNavSearchProps {
   remotes: () => Remote[];
   onNavigate?: (path: string) => void;
   currentPath?: string;
   navHovered?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /** is the parent currently rendering this query as a search subgraph?
+   *  controls (a) the footer button label ("showing in graph" vs "press
+   *  return to explore") and (b) whether row clicks repivot the walker
+   *  instead of route-navigating. when undefined, treated as false. */
+  isShowingInGraph?: () => boolean;
+  /** called when the user asks to render the current per-remote suggestion
+   *  results as a synthetic graph (via Enter or the footer button). the
+   *  parent owns the search-mode lifecycle; this just hands it the
+   *  latest snapshot. returning true / void is fine — no return contract. */
+  onShowInGraph?: (snapshot: GraphSearchResultsSnapshot) => void;
+  /** called when the user clears the input or asks to leave search-mode.
+   *  the parent should drop the search subgraph and restore the default
+   *  library graph. */
+  onExitGraphSearch?: () => void;
+  /** row-click interceptor used while `isShowingInGraph()` is true. the
+   *  parent maps the suggestion to a node id and repivots the walker.
+   *  returning true tells TopNavSearch to suppress its default route nav. */
+  onSelectInGraph?: (s: APISuggestion, primaryRemoteId: string) => boolean | Promise<boolean>;
 }
 
 interface AggSuggestion {
@@ -360,6 +384,93 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     return picked ? picked.remote_id : null;
   };
 
+  // ---- search-mode handoff ----------------------------------------------
+
+  /** snapshot the current per-remote results into the shape
+   *  buildSearchGraph expects. computed lazily on submit so we don't
+   *  pay for it on every keystroke. */
+  const captureSnapshot = (): GraphSearchResultsSnapshot => {
+    const q = query();
+    const map = new Map<string, APISuggestion[]>();
+    const ids: string[] = [];
+    for (const r of onlineRemotes()) {
+      const list = resultsByRemote().get(r.remote_id);
+      if (list && list.length > 0) {
+        ids.push(r.remote_id);
+        map.set(r.remote_id, list);
+      }
+    }
+    return { query: q, remoteIds: ids, resultsByRemote: map };
+  };
+
+  const hasAnyResults = createMemo(() => {
+    for (const list of resultsByRemote().values()) {
+      if (list.length > 0) return true;
+    }
+    return false;
+  });
+
+  /** unified entry point for Enter + footer button. exits search-mode
+   *  if currently active (toggle), otherwise hands the snapshot to the
+   *  parent. */
+  const triggerShowInGraph = (): boolean => {
+    if (query().length < 2) return false;
+    if (props.isShowingInGraph?.()) {
+      props.onExitGraphSearch?.();
+      return true;
+    }
+    if (!hasAnyResults()) return false;
+    props.onShowInGraph?.(captureSnapshot());
+    return true;
+  };
+
+  /** when search-mode is active, intercept row clicks and let the
+   *  parent repivot the walker. when search-mode is NOT active, a
+   *  row click (or Enter on a highlighted row) instead transitions
+   *  into search-mode — same effect as clicking the hint or pressing
+   *  Enter without a highlight. consistent UX across all three
+   *  entry points. */
+  const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
+    if (!props.isShowingInGraph?.()) {
+      return triggerShowInGraph();
+    }
+    const data = s.data as APISuggestion | undefined;
+    if (!data) return false;
+    const primary = (s.id ?? "").split("::")[0];
+    if (!primary) return false;
+    return Boolean(await props.onSelectInGraph?.(data, primary));
+  };
+
+  // exit search-mode when the input is cleared. the parent gets a
+  // chance to restore the default library graph without an extra
+  // re-render cycle.
+  createEffect(
+    on(
+      () => query(),
+      (q) => {
+        if (q.length < 2 && props.isShowingInGraph?.()) {
+          props.onExitGraphSearch?.();
+        }
+      }
+    )
+  );
+
+  // hint shown between the input and the suggestions flyout (same
+  // visual slot as other search inputs' "press return to filter X"
+  // hint). clicking it has the same effect as Enter / footer button.
+  const hintOverride = () => {
+    if (query().length < 2) return null;
+    if (!hasAnyResults()) return null;
+    return {
+      message: props.isShowingInGraph?.()
+        ? "← exit search graph (or clear input)"
+        : "press return (or click) to explore results in graph →",
+      onClick: () => {
+        triggerShowInGraph();
+      },
+    };
+  };
+
   return (
     <TopNavSearch
       placeholder="search across remotes..."
@@ -373,6 +484,9 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
       hasMoreSuggestions={hasMoreAcrossRemotes()}
       onLoadMoreSuggestions={loadMore}
       remoteIdFor={remoteIdFor}
+      onSelectOverride={onSelectOverride}
+      onSubmit={() => triggerShowInGraph()}
+      hintOverride={hintOverride}
       footerContent={
         <Show when={statusHint()}>
           <PerRemoteStatusRow
