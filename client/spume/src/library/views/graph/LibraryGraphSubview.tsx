@@ -67,11 +67,11 @@ import { getArtistAbbreviation } from "../../../music/utils/format";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import WalkCanvas from "../../../components/graph/WalkCanvas";
 import type { WalkApi } from "../../../components/graph/WalkCanvas";
-import type { WalkerClient } from "../../../components/graph/worker/client";
+import type { GraphDriver } from "../../../components/graph/drivers/GraphDriver";
+import { createWalkerDriver } from "../../../components/graph/drivers/GraphDriver";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
-import { GraphTopNavSearch, type GraphSearchResultsSnapshot } from "./GraphTopNavSearch";
+import { GraphTopNavSearch } from "./GraphTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
-import { buildSearchGraph } from "./buildSearchGraph";
 import {
   rootId,
   parseNodeId,
@@ -81,6 +81,7 @@ import {
   valueNodeId,
   groupNodeId,
   artistNodeId,
+  albumNodeId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
 import type { WalkNode, WalkEdge } from "../../../components/graph/types";
@@ -590,12 +591,7 @@ function Inner(props: {
         });
       }
       if (addNodes.length > 0 || addEdges.length > 0) {
-        // skip merging into the synthetic search subgraph — the search
-        // build owns its own topology and a library-kind hub appearing
-        // mid-render looks like a "reset" to the user.
-        if (!isShowingSearchInGraph()) {
-          walkerClient()?.merge(addNodes, addEdges);
-        }
+        walkerClient()?.merge(addNodes, addEdges);
       }
     } catch (err) {
       console.warn("taxon kinds fetch failed", { remoteId: remote.remote_id, err });
@@ -682,74 +678,7 @@ function Inner(props: {
     if (!next) setEditingRemoteId(null);
   };
 
-  // ---- search-mode (milestone B) ----------------------------------------
-  // when set, `buildResult` swaps to `buildSearchGraph` so the walker
-  // renders the cross-remote search hits as a synthetic subgraph
-  // instead of the default library catalogue. cleared on input clear,
-  // exit-button click, or when the user explicitly leaves the view.
-  // mutually exclusive with edit-mode (entering one exits the other).
-  const [searchModeData, setSearchModeData] = createSignal<GraphSearchResultsSnapshot | null>(null);
-  const isShowingSearchInGraph = () => searchModeData() !== null;
-  // built lazily so we don't re-walk the suggestion lists on unrelated
-  // re-renders. cached side-tables (primaryRemoteByNodeId, contributors,
-  // entityIdByNodeAndRemote) feed the row-click handler.
-  const searchBuildResult = createMemo(() => {
-    const snap = searchModeData();
-    if (!snap) return null;
-    return buildSearchGraph({
-      remoteIds: snap.remoteIds,
-      resultsByRemote: snap.resultsByRemote,
-      remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
-      remoteBaseUrlsById: new Map(
-        props
-          .remotes()
-          .filter((r) => !!(r as { base_url?: string }).base_url)
-          .map((r) => [r.remote_id, (r as { base_url?: string }).base_url as string])
-      ),
-      charnelManagedRemoteIds: new Set(
-        props
-          .remotes()
-          .filter((r) => !!r.is_charnel_managed)
-          .map((r) => r.remote_id)
-      ),
-    });
-  });
-
-  // seed search-mode taxon entries into the shared `taxonItemsByHub`
-  // cache so value-pivot drill-in resolves `valueSlug -> taxon id`
-  // without calling `maybeLoadTaxonsForPivot` (which would merge the
-  // full sibling taxon set and reparent our root-flattened value nodes
-  // off root, blowing up the search view). albumCount is unknown for
-  // search hits so we stub it as 0 — the field is only used by edit-
-  // mode UI, not by `filterForValuePivot`.
-  createEffect(() => {
-    const sr = searchBuildResult();
-    if (!sr) return;
-    for (const [relHubId, items] of sr.searchTaxonsByHub) {
-      let bucket = taxonItemsByHub.get(relHubId);
-      if (!bucket) {
-        bucket = new Map();
-        taxonItemsByHub.set(relHubId, bucket);
-      }
-      for (const [valueSlug, entry] of items) {
-        if (!bucket.has(valueSlug)) {
-          bucket.set(valueSlug, { id: entry.id, label: entry.label, albumCount: 0 });
-        }
-      }
-    }
-  });
-
   const buildResult = createMemo(() => {
-    // search-mode short-circuit: when active, the canvas is fed the
-    // synthetic search subgraph. `nodesById` is populated from
-    // suggestion metadata so popovers + image overlays hydrate; taxon
-    // search nodes are intentionally absent (milestone c-4 handles
-    // their drill path separately).
-    const sr = searchBuildResult();
-    if (sr) {
-      return { graph: sr.graph, nodesById: sr.nodesById };
-    }
-
     const byRemote = nodesByRemote();
     // include every selected remote so offline / not-yet-loaded remotes still
     // surface in the graph as remote hubs (dimmed if offline). filtering by
@@ -786,13 +715,24 @@ function Inner(props: {
   // merges added during the session.
   const lookupNode = (id: string): AlbumNodeData | ArtistNodeData | null =>
     buildResult()?.nodesById.get(id) ?? extraNodesById().get(id) ?? null;
-  // ---- walker client lifecycle ----------------------------------------
+  // ---- graph driver lifecycle ----------------------------------------
   //
-  // WalkCanvas creates and owns the worker. we get a reference via
-  // onClientReady, then manage incremental init/merge from here so
-  // streaming page loads don't restart the sim.
+  // two drivers, eagerly constructed:
+  //   - walkerDriver: worker-backed sim for library mode
+  //     (breadcrumb + one-hub-at-a-time visibility).
+  //   - searchDriver: in-thread d3-force for search mode
+  //     (everything visible; click = pivot ring only).
+  //
+  // ---- driver ------------------------------------------------------
+  // single library walker driver. search hits seed pivots into this
+  // graph by activating the suggestion's remote, ensuring the relation
+  // hub is loaded (for taxon hits), and calling `walkerDriver.repivot`.
 
-  const [walkerClient, setWalkerClient] = createSignal<WalkerClient | null>(null);
+  const walkerDriver: GraphDriver = createWalkerDriver();
+  const walkerClient = (): GraphDriver => walkerDriver;
+  onCleanup(() => {
+    walkerDriver.dispose();
+  });
   const [walkApi, setWalkApi] = createSignal<WalkApi | null>(null);
   const [breadcrumbDepth, setBreadcrumbDepth] = createSignal(1);
   // current breadcrumb id set (root..pivot, unordered). populated by
@@ -822,21 +762,11 @@ function Inner(props: {
 
     // detect remote-set change (user added/removed a remote, or edit-
     // mode scope-lock collapsed/restored the remote list) -> full reset.
-    // search-mode is prefixed into the key so flipping in/out of the
-    // synthetic search subgraph triggers a full walker init() even
-    // when the contributing remote set is identical to the library
-    // graph (very common case). also include the search query so
-    // re-submitting after editing the input fully resets the graph
-    // instead of merging stale match nodes from the previous query.
-    const searchSnap = searchModeData();
-    const modePrefix = searchSnap ? `search:${searchSnap.query}:` : "lib:";
-    const remoteKey =
-      modePrefix +
-      result.graph.nodes
-        .filter((n) => n.role === "remote")
-        .map((n) => n.id)
-        .sort()
-        .join("|");
+    const remoteKey = result.graph.nodes
+      .filter((n) => n.role === "remote")
+      .map((n) => n.id)
+      .sort()
+      .join("|");
     if (remoteKey !== prevRemoteKey) {
       prevRemoteKey = remoteKey;
       hadInit = false;
@@ -875,11 +805,9 @@ function Inner(props: {
     }
   });
 
-  // pause/resume when this subview is hidden
+  // pause/resume when this subview is hidden.
   createEffect(() => {
-    const client = walkerClient();
-    if (!client) return;
-    client.setPaused(!props.isActive());
+    walkerDriver.setPaused(!props.isActive());
   });
 
   // mirror the worker's visible-ids stream into a signal so other
@@ -892,11 +820,6 @@ function Inner(props: {
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
       setVisibleIds(ids);
-      // search-mode owns its own topology; the catalogue-driven loaders
-      // below (eager-album fanout, related-artist edges, cross-remote
-      // artist batch lookup) would all push library nodes into the
-      // synthetic search subgraph and "reset" the user's view.
-      if (isShowingSearchInGraph()) return;
       // when any group has been eagerly expanded, drive album loading
       // for every visible value/group so the worker's subtree DFS can
       // surface the resulting artist + album nodes on the next pass.
@@ -980,7 +903,6 @@ function Inner(props: {
   });
 
   onCleanup(() => {
-    setWalkerClient(null);
     hadInit = false;
     prevNodeIds.clear();
     prevEdgeKeys.clear();
@@ -2047,74 +1969,18 @@ function Inner(props: {
     }
 
     // mount the cross-remote graph search container into the topnav's
-    // search slot. milestone A: aggregated suggestions across every
-    // online remote with per-remote loading indicators. milestone B:
-    // on submit / footer-button click, swap the canvas data for a
-    // synthetic search subgraph (see docs/explore-search-and-fixes-
-    // plan.md).
+    // search slot. aggregates suggestions across every online remote;
+    // a row click / enter pivots the library walker to the picked hit
+    // via `handlePivotToSuggestion`.
     slots.setHideSearch(false);
     slots.setSearchContent(
       <GraphTopNavSearch
         remotes={() => props.remotes()}
         onNavigate={(path) => navigate(path)}
         onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
-        isShowingInGraph={isShowingSearchInGraph}
-        onShowInGraph={(snapshot) => {
-          // entering search-mode forcibly exits edit-mode so the user's
-          // scope-lock doesn't fight the synthetic graph reset.
-          if (editingRemoteId() !== null) setEditingRemoteId(null);
-          // clear any selection/breadcrumb so the walker reset lands on
-          // root cleanly. (the buildResult-watching effect's
-          // remote-set-changed branch will fire a full init.)
-          setSelectedId(null);
-          setSearchModeData(snapshot);
-        }}
-        onExitGraphSearch={() => {
-          setSearchModeData(null);
-          setSelectedId(null);
-        }}
-        onSelectInGraph={(suggestion, primaryRemoteId) => {
-          // map the picked suggestion back to its synthetic node id
-          // and repivot the walker there. mirrors the id scheme in
-          // buildSearchGraph.nodeIdFor.
-          const sr = searchBuildResult();
-          if (!sr) return false;
-          let nodeId: string | null = null;
-          switch (suggestion.suggestion_type) {
-            case "artist":
-              nodeId = `s_artist::${slug(suggestion.display)}`;
-              break;
-            case "album":
-              nodeId = `s_album::${slug(suggestion.display)}`;
-              break;
-            case "song": {
-              // songs collapse onto their album anchor (title-slugged,
-              // cross-remote dedup). matches buildSearchGraph.
-              const meta = suggestion.metadata as { album_title?: string } | undefined;
-              if (meta?.album_title) nodeId = `s_album::${slug(meta.album_title)}`;
-              break;
-            }
-            case "playlist":
-              return false; // playlists not surfaced in search graph (v1)
-            default: {
-              // taxons live at real library ids in search-mode (see
-              // buildSearchGraph c-4 notes). kind_slug from metadata
-              // when the backend supplied it (c-1 added it for genre),
-              // otherwise fall back to suggestion_type.
-              const meta = suggestion.metadata as { kind_slug?: string } | undefined;
-              const kind = meta?.kind_slug ?? suggestion.suggestion_type ?? "taxon";
-              nodeId = `value::${primaryRemoteId}::${kind}::${slug(suggestion.display)}`;
-              break;
-            }
-          }
-          if (!nodeId) return false;
-          // confirm the id is actually in the graph (defensive: a stale
-          // suggestion could outlive its snapshot if the user types fast).
-          if (!sr.graph.nodes.some((n) => n.id === nodeId)) return false;
-          setSelectedId(nodeId);
-          walkerClient()?.repivot(nodeId, false);
-          return true;
-        }}
+        onPivotToSuggestion={(s, primaryRemoteId, all) =>
+          handlePivotToSuggestion(s, primaryRemoteId, all)
+        }
       />
     );
   });
@@ -2226,7 +2092,6 @@ function Inner(props: {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
-    searchMode: isShowingSearchInGraph,
     onHubRefreshed: (_relHubId) => setHubRefreshTick((n) => n + 1),
     getUnassignedPagerState: (relHubId) => ({
       pageIndex: getUnassignedPageIndex(relHubId),
@@ -2264,6 +2129,231 @@ function Inner(props: {
     if (tick === 0) return;
     resetMergedState();
   });
+
+  // search hit -> library walker seed.
+  //
+  // every hit in the current aggregated suggestion list is merged into
+  // the walker with its full ancestor chain (root -> remote -> [relation
+  // -> value] | artist | album) AND pinned via `setPinned` so the whole
+  // set stays visible regardless of where the user navigates to next.
+  // pinned ancestors are walked in by the worker, so we only ship the
+  // leaf ids.
+  //
+  // the picked hit additionally pivots — the walker's normal breadcrumb
+  // / loader behaviour then drives fanout when the user clicks any
+  // visible node (search result or otherwise). collapse + sibling-pivot
+  // semantics are the worker's normal behaviour; pinning just guarantees
+  // the search results don't fall off-screen as the user explores.
+  //
+  // returning true tells the topnav input to suppress its default
+  // route-nav. returning false lets the input fall back (only happens
+  // when we can't map the picked suggestion to a graph node).
+  const ensureTaxonKindsLoaded = async (remoteId: string): Promise<void> => {
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
+    if (!remote) return;
+    if (offlineByRemote().get(remoteId) === true) return;
+    if (taxonKindsLoadedRemotes.has(remoteId)) return;
+    taxonKindsLoadedRemotes.add(remoteId);
+    try {
+      await loadTaxonKindsForRemote(remote);
+    } catch (err) {
+      taxonKindsLoadedRemotes.delete(remoteId);
+      throw err;
+    }
+  };
+
+  // per-suggestion plan: leaf id, ancestor chain (for breadcrumb walk
+  // of the picked hit), and any side-effect inputs (stub nodes/edges
+  // for artist/album hits; taxon-hub id for taxon hits).
+  type SeedPlan = {
+    nodeId: string;
+    ancestors: string[]; // [remoteHub, ..., nodeId]
+    taxonRelHubId: string | null;
+    stubNodes: WalkNode[];
+    stubEdges: WalkEdge[];
+  };
+
+  const planForSuggestion = (
+    s: import("../../../music/data/types").SearchSuggestion,
+    remoteId: string
+  ): SeedPlan | null => {
+    const rHub = remoteHubId(remoteId);
+    const meta = (s.metadata ?? {}) as {
+      kind_slug?: string;
+      artist_id?: string;
+      artist_ids?: string;
+      artist_name?: string;
+      album_id?: string;
+      album_title?: string;
+    };
+
+    if (s.suggestion_type === "playlist") return null;
+
+    if (s.suggestion_type === "artist") {
+      if (!s.entity_id) return null;
+      const aId = artistNodeId(remoteId, s.entity_id);
+      return {
+        nodeId: aId,
+        ancestors: [rHub, aId],
+        taxonRelHubId: null,
+        stubNodes: [{ id: aId, role: "artist", label: s.display, parentId: rHub, childCount: 0 }],
+        stubEdges: [{ source: rHub, target: aId }],
+      };
+    }
+
+    if (s.suggestion_type === "album" || s.suggestion_type === "song") {
+      const bareAlbumId = s.suggestion_type === "album" ? s.entity_id : (meta.album_id ?? null);
+      if (!bareAlbumId) return null;
+      const bareArtistId =
+        meta.artist_id ??
+        (typeof meta.artist_ids === "string"
+          ? (() => {
+              try {
+                const arr = JSON.parse(meta.artist_ids) as unknown;
+                return Array.isArray(arr) && typeof arr[0] === "string" ? arr[0] : null;
+              } catch {
+                return null;
+              }
+            })()
+          : null);
+      const albumId = albumNodeId(remoteId, bareAlbumId);
+      const albumLabel = s.suggestion_type === "song" ? (meta.album_title ?? s.display) : s.display;
+      const stubNodes: WalkNode[] = [];
+      const stubEdges: WalkEdge[] = [];
+      let parentId: string = rHub;
+      const ancestors: string[] = [rHub];
+      if (bareArtistId) {
+        const artId = artistNodeId(remoteId, bareArtistId);
+        stubNodes.push({
+          id: artId,
+          role: "artist",
+          label: meta.artist_name ?? "unknown artist",
+          parentId: rHub,
+          childCount: 1,
+        });
+        stubEdges.push({ source: rHub, target: artId });
+        parentId = artId;
+        ancestors.push(artId);
+      }
+      stubNodes.push({
+        id: albumId,
+        role: "album",
+        label: albumLabel,
+        parentId,
+        childCount: 0,
+      });
+      stubEdges.push({ source: parentId, target: albumId });
+      ancestors.push(albumId);
+      return { nodeId: albumId, ancestors, taxonRelHubId: null, stubNodes, stubEdges };
+    }
+
+    // taxon
+    const kind = (meta.kind_slug ?? s.suggestion_type ?? "tag") as RelationKind;
+    const relHub = relationHubId(remoteId, kind);
+    const valId = valueNodeId(remoteId, kind, s.display);
+    return {
+      nodeId: valId,
+      ancestors: [rHub, relHub, valId],
+      taxonRelHubId: relHub,
+      stubNodes: [],
+      stubEdges: [],
+    };
+  };
+
+  const handlePivotToSuggestion = async (
+    picked: import("../../../music/data/types").SearchSuggestion,
+    pickedRemoteId: string,
+    all: Array<{
+      s: import("../../../music/data/types").SearchSuggestion;
+      remoteId: string;
+    }>
+  ): Promise<boolean> => {
+    if (!pickedRemoteId) return false;
+    if (!props.remotes().some((r) => r.remote_id === pickedRemoteId)) return false;
+    if (editingRemoteId() !== null) setEditingRemoteId(null);
+
+    // activate every contributing remote so loaders mount + each
+    // remote's relation hubs become available for taxon parent edges.
+    const remoteIds = new Set<string>([pickedRemoteId]);
+    for (const entry of all) remoteIds.add(entry.remoteId);
+    for (const rid of remoteIds) activateRemote(rid);
+
+    await Promise.all(
+      Array.from(remoteIds).map((rid) =>
+        ensureTaxonKindsLoaded(rid).catch((err) =>
+          console.warn("[searchPivot] taxon-kinds load failed", { rid, err })
+        )
+      )
+    );
+
+    // per-hit plans. plans that can't be mapped (playlist, missing
+    // entity_id) drop out.
+    const plans: Array<{ plan: SeedPlan; isPicked: boolean }> = [];
+    let pickedPlan: SeedPlan | null = null;
+    for (const entry of all) {
+      const plan = planForSuggestion(entry.s, entry.remoteId);
+      if (!plan) continue;
+      const isPicked = entry.s === picked && entry.remoteId === pickedRemoteId;
+      plans.push({ plan, isPicked });
+      if (isPicked) pickedPlan = plan;
+    }
+    if (!pickedPlan) {
+      // picked hit may have been collapsed out of `all` by the topnav's
+      // aggregation; add it explicitly so we still pivot to it.
+      const plan = planForSuggestion(picked, pickedRemoteId);
+      if (!plan) return false;
+      plans.push({ plan, isPicked: true });
+      pickedPlan = plan;
+    }
+
+    // batch merge of stub nodes/edges across all hits.
+    const allStubNodes: WalkNode[] = [];
+    const allStubEdges: WalkEdge[] = [];
+    for (const { plan } of plans) {
+      allStubNodes.push(...plan.stubNodes);
+      allStubEdges.push(...plan.stubEdges);
+    }
+    if (allStubNodes.length > 0 || allStubEdges.length > 0) {
+      walkerClient()?.merge(allStubNodes, allStubEdges);
+    }
+
+    // taxon hits need the relation-hub loader to merge the value::
+    // node + its parent edge. dedup identical relHub ids.
+    const taxonHubs = new Set<string>();
+    for (const { plan } of plans) {
+      if (plan.taxonRelHubId) taxonHubs.add(plan.taxonRelHubId);
+    }
+    await Promise.all(
+      Array.from(taxonHubs).map((relHubId) =>
+        maybeLoadTaxonsForPivot(relHubId).catch((err) =>
+          console.warn("[searchPivot] taxons load failed", { relHubId, err })
+        )
+      )
+    );
+
+    // pin every leaf id; worker walks ancestor chains automatically.
+    const pinIds = plans.map((p) => p.plan.nodeId);
+    walkerClient()?.setPinned(pinIds);
+
+    // breadcrumb-walk the picked hit's ancestor chain so the pivot
+    // lands on the picked node. expand() is idempotent on nodes
+    // already on breadcrumb.
+    const client = walkerClient();
+    if (client) {
+      for (const id of pickedPlan.ancestors) client.expand(id);
+    }
+
+    setSelectedId(pickedPlan.nodeId);
+
+    console.log("[searchPivot] seeded", {
+      pickedRemoteId,
+      pickedNodeId: pickedPlan.nodeId,
+      hitCount: plans.length,
+      pinIds,
+      taxonHubsLoaded: Array.from(taxonHubs),
+    });
+    return true;
+  };
 
   // ---- render --------------------------------------------------------
 
@@ -2394,9 +2484,6 @@ function Inner(props: {
   createEffect(() => {
     const tick = mergeResetTick();
     const online = onlineRemotes();
-    // skip the load entirely while the synthetic search subgraph is
-    // active — its hubs come from buildSearchGraph, not the library.
-    if (isShowingSearchInGraph()) return;
     if (tick !== taxonKindsLastResetTick) {
       taxonKindsLastResetTick = tick;
       for (const r of online) taxonKindsLoadedRemotes.delete(r.remote_id);
@@ -2648,7 +2735,7 @@ function Inner(props: {
           initialPivot={rootId()}
           width={canvasSize().width}
           height={canvasSize().height}
-          onClientReady={(c) => setWalkerClient(c)}
+          driver={walkerDriver}
           onReady={(api) => setWalkApi(api)}
           onBreadcrumbChange={(depth, ids) => {
             setBreadcrumbDepth(depth);

@@ -1,8 +1,7 @@
 import type { QueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../../app/services/storage/schemas/remote";
 import type { AlbumNodeData, ArtistNodeData } from "../../../../components/graph/types";
-import type { AlbumSummary } from "../../../../music/data/types";
-import type { WalkerClient } from "../../../../components/graph/worker/client";
+import type { GraphDriver } from "../../../../components/graph/drivers/GraphDriver";
 import type { WalkNode, WalkEdge } from "../../../../components/graph/types";
 import {
   parseNodeId,
@@ -16,13 +15,12 @@ import {
   type RelationKind,
 } from "../../../../components/graph/data/nodeIds";
 import { getClientForRemote } from "../../../../app/api/client";
-import { adaptApiImage, adaptApiUrls } from "../../../../music/data/remote/adapters";
-import { adaptAlbum } from "../adaptAlbum";
+import { adaptQueryAlbumItem } from "../adaptQueryAlbumItem";
 
 export interface PivotHandlerDeps {
   remotes: () => Remote[];
   offlineByRemote: () => Map<string, boolean>;
-  walkerClient: () => WalkerClient | null;
+  walkerClient: () => GraphDriver | null;
   buildResult: () => { nodesById: Map<string, AlbumNodeData | ArtistNodeData> } | null;
   extraNodesById: () => Map<string, AlbumNodeData | ArtistNodeData>;
   lookupNode: (id: string) => AlbumNodeData | ArtistNodeData | null;
@@ -39,14 +37,6 @@ export interface PivotHandlerDeps {
   taxonParentsByHub: Map<string, Map<string, string>>;
   taxonLabelsByHub: Map<string, Map<string, string>>;
   albumsLoadedByPivot: Set<string>;
-  /** when true (search-mode active), autonomous loaders that fan out
-   *  the full library context for a pivoted node are suppressed. the
-   *  search subgraph is intentionally a curated subset; firing the
-   *  library's taxon/era/related-artist loaders on a search pivot
-   *  drowns the user's filtered results in unrelated sibling nodes
-   *  ("the graph just reset"). value-pivot album drill-in still
-   *  runs because it's scoped to the clicked node. */
-  searchMode?: () => boolean;
   /** when set, empty leaf taxons (no albums + no children) are still
    *  surfaced so admins can see + work with placeholders they just
    *  created. when false (default), they're filtered out to keep the
@@ -87,7 +77,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     taxonLabelsByHub,
     albumsLoadedByPivot,
     editMode,
-    searchMode,
     onHubRefreshed,
     getUnassignedPagerState,
     onUnassignedPageInfo,
@@ -723,45 +712,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     }
   };
 
-  const adaptQueryAlbumItem = (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    item: any,
-    remote: Remote
-  ): AlbumNodeData => {
-    const baseUrl = (remote as { base_url?: string }).base_url ?? "";
-    const remoteId = remote.remote_id;
-    const summary: AlbumSummary = {
-      album_id: item.album.id,
-      title: item.album.title,
-      artist_id: item.artist?.id ?? "",
-      artist_name: item.artist?.name ?? "unknown artist",
-      album_type: item.album.album_type,
-      year: undefined,
-      release_date: item.album.release_date ?? undefined,
-      label: item.album.label ?? undefined,
-      genres: item.album.genres ?? undefined,
-      song_count: item.album.song_count,
-      total_duration: item.album.total_duration,
-      images:
-        item.images && item.images.length > 0
-          ? item.images.map((img: unknown) => adaptApiImage(img as never, baseUrl, remoteId))
-          : undefined,
-      urls: adaptApiUrls(item.album.urls),
-      is_favorite: item.is_favorite ?? undefined,
-      user_rating: item.rating ?? undefined,
-      tags: item.album_tags ?? undefined,
-      created_at: item.album.created_at,
-      updated_at: item.album.updated_at,
-      created_by_username: item.album.created_by_username ?? undefined,
-      updated_by_username: item.album.updated_by_username ?? undefined,
-      metadata: item.album.metadata ?? null,
-      mb_lookup_status: item.album.mb_lookup_status ?? null,
-      mb_lookup_at: item.album.mb_lookup_at ?? null,
-      mb_lookup_by: item.album.mb_lookup_by ?? null,
-    };
-    return adaptAlbum(summary, { remoteId });
-  };
-
   const maybeLoadAlbumsForPivot = async (nodeId: string): Promise<void> => {
     let parsed: ReturnType<typeof parseNodeId>;
     try {
@@ -1013,14 +963,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   };
 
   const triggerPivotLoaders = (nodeId: string) => {
-    if (searchMode?.()) {
-      // in search-mode the only loader we want is the value-pivot album
-      // drill-in (scoped to the clicked node). every other loader fans
-      // out full library context that wasn't part of the search hit set
-      // and would visually "reset" the curated subgraph.
-      void maybeLoadAlbumsForPivot(nodeId);
-      return;
-    }
     void maybeLoadTaxonsForPivot(nodeId);
     void maybeLoadEraBinsForPivot(nodeId);
     void maybeLoadAlbumsForEraBin(nodeId);

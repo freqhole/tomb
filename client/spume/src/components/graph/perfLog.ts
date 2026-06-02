@@ -133,7 +133,7 @@ function flush() {
     }
   }
   // eslint-disable-next-line no-console
-  console.debug("[graph-perf]", parts.join(" "));
+  // console.debug("[graph-perf]", parts.join(" "));
 }
 
 function ensureTimer() {
@@ -143,9 +143,9 @@ function ensureTimer() {
   if (on && !flushTimer) {
     flushTimer = setInterval(flush, FLUSH_MS);
     // eslint-disable-next-line no-console
-    console.debug(
-      "[graph-perf] streaming on. silence: window.__GRAPH_PERF__=false. history: window.__graphPerfHistory"
-    );
+    // console.debug(
+    //   "[graph-perf] streaming on. silence: window.__GRAPH_PERF__=false. history: window.__graphPerfHistory"
+    // );
   } else if (!on && flushTimer) {
     clearInterval(flushTimer);
     flushTimer = null;
@@ -251,6 +251,6 @@ if (typeof window !== "undefined") {
       gauges.clear();
       gaugesDirty = false;
       // eslint-disable-next-line no-console
-      console.info("[graph-perf] history + counters reset");
+      // console.info("[graph-perf] history + counters reset");
     };
 }

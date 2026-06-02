@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../../app/services/storage/schemas/remote";
 import type { AlbumNodeData, ArtistNodeData } from "../../../../components/graph/types";
 import type { AlbumSummary } from "../../../../music/data/types";
-import type { WalkerClient } from "../../../../components/graph/worker/client";
+import type { GraphDriver } from "../../../../components/graph/drivers/GraphDriver";
 import { adaptAlbum } from "../adaptAlbum";
 import { deriveArtistNodes } from "../deriveArtistNodes";
 import { buildWalkGraph } from "../../../../components/graph/data/buildWalkGraph";
@@ -23,7 +23,7 @@ export interface CrossRemoteLazyLoadingDeps {
   setExtraNodesById: (
     updater: (prev: Map<string, AlbumNodeData | ArtistNodeData>) => Map<string, AlbumNodeData | ArtistNodeData>
   ) => void;
-  walkerClient: () => WalkerClient | null;
+  walkerClient: () => GraphDriver | null;
 }
 
 export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {

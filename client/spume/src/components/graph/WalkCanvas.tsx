@@ -4,10 +4,11 @@
 import { createEffect, createSignal, onCleanup, onMount, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { WalkGraph, NodeRole } from "./types";
-import { createWalkerClient } from "./worker/client";
+import type { GraphDriver } from "./drivers/GraphDriver";
 import type { VisibleNode, TopologyEdge } from "./worker/messages";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getNodeImage } from "./render/imageAtlas";
+import { nodeDisplayRadius as sharedNodeDisplayRadius } from "./nodeRadius";
 
 /** imperative api for controlling the walk canvas from outside. obtained via onReady prop. */
 export interface WalkApi {
@@ -39,9 +40,10 @@ export interface WalkCanvasProps {
   onPivot?: (nodeId: string) => void;
   /** controlled selection ring, distinct from the pivot ring */
   selectedId?: string | null;
-  /** fires once after onMount, with the internal WalkerClient.
-   *  callers can capture this to drive incremental merge/init externally. */
-  onClientReady?: (client: import("./worker/client").WalkerClient) => void;
+  /** required: host-owned driver. host is responsible for `dispose()`
+   *  in its own onCleanup. currently always a `WalkerDriver`
+   *  (worker-backed). */
+  driver: GraphDriver;
   /** fires once after onMount, with the curated WalkApi for fit/reset/back.
    *  prefer this over onClientReady for ui-level concerns. */
   onReady?: (api: WalkApi) => void;
@@ -223,10 +225,12 @@ export default function WalkCanvas(props: WalkCanvasProps) {
   let userPanned = false;
   let lastPivotId: string | null = null;
 
-  const client = createWalkerClient();
+  // host owns the driver lifecycle (creation + disposal). we never
+  // dispose here; the host's onCleanup does that. this lets the host
+  // keep a reference for merge/setHidden/etc. calls.
+  const client = props.driver;
   onCleanup(() => {
     cancelAnimationFrame(rafId);
-    client.dispose();
     window.removeEventListener("resize", onWindowResize);
   });
 
@@ -857,12 +861,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       }
     });
 
-    // notify caller so it can drive incremental init/merge externally.
-    // fires after listeners are registered so the first topology/frame
-    // events won't be missed.
-    props.onClientReady?.(client);
-
-    // curated imperative api — built after onClientReady so the client is ready.
+    // curated imperative api built once the driver + listeners are wired.
     // S24: getBounds returns node centers; pad by 40px to keep largest nodes in frame.
     const FIT_MARGIN = 40;
     const api: WalkApi = {
@@ -1341,22 +1340,5 @@ export default function WalkCanvas(props: WalkCanvasProps) {
 // ---- helpers ----------------------------------------------------------------
 
 function nodeDisplayRadius(n: VisibleNode): number {
-  switch (n.role) {
-    case "root":
-      return 14;
-    case "remote":
-      return 28 + Math.min(Math.sqrt(n.childCount) * 3, 16);
-    case "relation":
-      return 20 + Math.min(Math.sqrt(n.childCount) * 4, 20);
-    case "value":
-      return 14 + Math.min(Math.sqrt(n.childCount) * 3, 16);
-    case "group":
-      return 24 + Math.min(Math.sqrt(n.childCount) * 3.5, 22);
-    case "artist":
-      return 27;
-    case "album":
-      return 16;
-    default:
-      return 14;
-  }
+  return sharedNodeDisplayRadius(n.role, n.childCount);
 }
