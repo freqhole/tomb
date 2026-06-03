@@ -173,13 +173,21 @@ export function TopNavSearch(props: TopNavSearchProps) {
   };
 
   const handleIconClick = () => {
-    if (isExpanded() && isLocked()) {
+    // any click on the icon while the input is visible collapses it.
+    // ignoring isLocked here matters on touch: tapping the icon fires a
+    // synthetic mouseenter first (sets expanded but not locked), so the
+    // tap-to-close path used to land on the else-branch and re-lock
+    // instead of collapsing.
+    if (isExpanded()) {
       collapse();
-    } else {
-      setIsExpanded(true);
-      setIsLocked(true);
-      requestAnimationFrame(() => inputRef?.focus());
+      return;
     }
+    setIsExpanded(true);
+    setIsLocked(true);
+    // focus synchronously inside the gesture handler. wrapping this in
+    // requestAnimationFrame breaks the user-activation chain on ios
+    // safari, so the soft keyboard never appears on first tap.
+    inputRef?.focus();
   };
 
   // --- cmd+k and / shortcuts ---

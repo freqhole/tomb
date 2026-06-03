@@ -94,19 +94,44 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   // generation counter so stale responses can't overwrite newer state.
   let gen = 0;
 
-  // local (`is_charnel_managed`) remote is in-process and shouldn't be
-  // skipped by the offline flag — keep it in the fan-out unconditionally
-  // so the user always sees their local library in cross-remote results.
-  const onlineRemotes = createMemo(() =>
-    props.remotes().filter((r) => r.is_charnel_managed || r.is_offline !== true)
-  );
+  // per-remote search timeout. dead/stuck remotes shouldn't hold up the
+  // ui indefinitely, but warming-up peers need enough budget to respond
+  // on first hit. 8s is the rough p2p cold-handshake worst case before
+  // we mark "error" and move on.
+  const SEARCH_TIMEOUT_MS = 8_000;
 
-  // fan-out fetcher: kicks off one searchSuggestions per online remote, marks
+  // race a promise against a timeout. if the timeout wins, the original
+  // promise is abandoned (its result is ignored). used to bound per-
+  // remote search latency so a single slow peer can't stall the ui.
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("search timed out")), ms);
+      p.then(
+        (v) => {
+          clearTimeout(t);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(t);
+          reject(e);
+        }
+      );
+    });
+  }
+
+  // every non-local remote is a fan-out target, regardless of its
+  // last-known is_offline flag. truly dead peers are bounded by the
+  // per-request timeout below; a warming-up peer gets a real chance
+  // to answer the first query instead of being pre-filtered out.
+  // local (is_charnel_managed) stays in-process and is always included.
+  const searchableRemotes = createMemo(() => props.remotes());
+
+  // fan-out fetcher: kicks off one searchSuggestions per remote, marks
   // each as loading/loaded/error independently and renders partial state.
   const runSearch = (q: string) => {
     gen++;
     const myGen = gen;
-    const remotes = onlineRemotes();
+    const remotes = searchableRemotes();
 
     if (q.length < 2) {
       setStatuses(new Map());
@@ -116,9 +141,10 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     }
 
     // opportunistic wake-up: any remote currently flagged offline gets a
-    // background probe with backoff/dedupe. results flow into the
-    // reactive remote list and `runSearch` re-runs on the next query.
-    wakeAllRemotes();
+    // forced probe so its is_offline flag clears as soon as it answers.
+    // does not block this search — we already include offline remotes in
+    // the fan-out and let the per-request timeout bound stuck peers.
+    wakeAllRemotes({ force: true });
 
     const initial = new Map<string, RemoteStatus>();
     for (const r of remotes) initial.set(r.remote_id, "loading");
@@ -139,12 +165,15 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
             });
             return;
           }
-          const res = await ds.searchSuggestions({
-            field: "all",
-            partial: q,
-            page: 1,
-            page_size: PAGE_SIZE,
-          });
+          const res = await withTimeout(
+            ds.searchSuggestions({
+              field: "all",
+              partial: q,
+              page: 1,
+              page_size: PAGE_SIZE,
+            }),
+            SEARCH_TIMEOUT_MS
+          );
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
           setResultsByRemote((prev) => {
@@ -190,7 +219,7 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     const q = query();
     if (q.length < 2) return;
     const myGen = gen;
-    const remotes = onlineRemotes();
+    const remotes = searchableRemotes();
     const pages = pageState();
 
     const candidates = remotes.filter((r) => {
@@ -216,12 +245,15 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
       void (async () => {
         try {
           if (!ds.searchSuggestions) return;
-          const res = await ds.searchSuggestions({
-            field: "all",
-            partial: q,
-            page: nextPage,
-            page_size: PAGE_SIZE,
-          });
+          const res = await withTimeout(
+            ds.searchSuggestions({
+              field: "all",
+              partial: q,
+              page: nextPage,
+              page_size: PAGE_SIZE,
+            }),
+            SEARCH_TIMEOUT_MS
+          );
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
           setResultsByRemote((prev) => {
@@ -280,7 +312,7 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   const aggregatedSuggestions = createMemo<AggSuggestion[]>(() => {
     const byKey = new Map<string, AggSuggestion>();
     const ordered: AggSuggestion[] = [];
-    for (const r of onlineRemotes()) {
+    for (const r of searchableRemotes()) {
       const list = resultsByRemote().get(r.remote_id) ?? [];
       for (const s of list) {
         // dedup key: aggregate songs/artists/albums/playlists by display slug;
@@ -417,7 +449,7 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
    *  something useful instead of nothing. */
   const topSuggestion = (): { s: APISuggestion; remoteId: string } | null => {
     let best: { s: APISuggestion; remoteId: string } | null = null;
-    for (const r of onlineRemotes()) {
+    for (const r of searchableRemotes()) {
       const list = resultsByRemote().get(r.remote_id);
       if (!list) continue;
       for (const s of list) {
@@ -515,7 +547,7 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
       footerContent={
         <Show when={statusHint()}>
           <PerRemoteStatusRow
-            remotes={onlineRemotes()}
+            remotes={searchableRemotes()}
             statuses={statuses()}
             summary={statusHint()!}
           />

@@ -223,11 +223,20 @@ export function SearchInput(props: SearchInputProps) {
       {/* portal: hint + flyout rendered outside overflow-hidden parents */}
       <Show when={props.hintMessage || (isOpen() && (suggestions().length > 0 || props.loading))}>
         <Portal>
-          {/* backdrop — only when flyout is open */}
+          {/* backdrop — only when flyout is open. starts below the topnav
+              so taps on the search-icon button always reach the topnav's
+              own click handler instead of being eaten by the backdrop. */}
           <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
             <div
               class="bg-black/10"
-              style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1001 }}
+              style={{
+                position: "fixed",
+                top: "var(--nav-height, 56px)",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                "z-index": 1001,
+              }}
               onClick={() => props.onOpenChange?.(false)}
             />
           </Show>
