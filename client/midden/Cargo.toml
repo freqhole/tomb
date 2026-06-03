@@ -1,6 +1,6 @@
 [package]
 name = "midden"
-version = "0.1.25"
+version = "0.1.26"
 edition = "2021"
 description = "WASM bindings for freqhole P2P client (iroh-based)"
 
