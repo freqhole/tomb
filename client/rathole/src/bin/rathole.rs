@@ -20,6 +20,32 @@ async fn main() -> color_eyre::Result<()> {
 
     grimoire::config::init_config(config.clone())
         .map_err(|e| color_eyre::eyre::eyre!("failed to initialize config: {e}"))?;
+
+    // silently upgrade freqhole-config.toml if the version has changed.
+    // mirrors what charnel does on startup. best-effort: failures are
+    // logged but do not prevent launch.
+    if let Some(config_path) = grimoire::config::get_config_path() {
+        match grimoire::config::config_needs_upgrade(&config_path) {
+            Ok(true) => match grimoire::config::upgrade_config(&config_path) {
+                Ok(result) => {
+                    eprintln!(
+                        "freqhole-config.toml upgraded {} -> {} (backup: {})",
+                        result.old_version,
+                        result.new_version,
+                        result.backup_path.display()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("warning: config upgrade failed: {e}");
+                }
+            },
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("warning: config upgrade check failed: {e}");
+            }
+        }
+    }
+
     grimoire::database::initialize()
         .await
         .map_err(|e| color_eyre::eyre::eyre!("failed to initialize database: {e}"))?;
