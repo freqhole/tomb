@@ -269,7 +269,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 12;
+export const MUSIC_DB_VERSION = 13;
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -282,3 +282,44 @@ export const STORE_FAVORITES = "favorites";
 export const STORE_RATINGS = "ratings";
 export const STORE_TAGS = "tags";
 export const STORE_ALBUM_TAGS = "album_tags";
+export const STORE_TAXONS = "taxons";
+export const STORE_ALBUM_TAXONS = "album_taxons";
+
+// sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
+// entries that belong to the local indexeddb library. matches
+// `LOCAL_REMOTE_ID` in `library/views/graph/GraphTopNavSearch.tsx` and
+// the `"local"` sentinel used by `music/utils/routing.ts::buildRouteFor`.
+export const LOCAL_TAXON_REMOTE_ID = "local";
+
+// ===== TAXONS TABLE =====
+// a taxon is any cross-kind label attached to an album: genre, mood,
+// era, region, label, style, tag, ... each taxon row is scoped to the
+// remote that owns it (peer-cached taxons keep their source remote_id
+// so we never confuse a peer's "jazz" with a local one).
+export interface TaxonRow {
+  /** stable id from the source library. for local taxons we generate
+   *  a uuid; for peer-cached taxons we use the peer's id verbatim. */
+  taxon_id: string;
+  /** owning library: `LOCAL_TAXON_REMOTE_ID` for local, otherwise the
+   *  remote_id from `Remote.remote_id`. */
+  remote_id: string;
+  /** kind discriminator (`"genre"`, `"mood"`, `"era"`, ...). */
+  kind_slug: string;
+  /** human display label. */
+  label: string;
+  /** url-safe slug of `label` for dedup lookups within
+   *  `(remote_id, kind_slug)`. produced via `nodeIds.slug`. */
+  slug: string;
+  created_at: number;
+  updated_at: number;
+}
+
+// ===== ALBUM_TAXONS JUNCTION =====
+// album <-> taxon many-to-many. `remote_id` is denormalized from the
+// taxon for cheap by-remote scans (clearing a peer's mirror, etc.).
+export interface AlbumTaxonRow {
+  album_id: string;
+  taxon_id: string;
+  remote_id: string;
+  created_at: number;
+}

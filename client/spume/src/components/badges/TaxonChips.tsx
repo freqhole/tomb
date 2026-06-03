@@ -105,7 +105,7 @@ export function TaxonChipList(props: Omit<TaxonChipsProps, "class">) {
         const content = (
           <>
             <Show when={taxon.kind_slug !== "genre"}>
-              <span class="opacity-60 mr-1">{taxon.kind_slug}·</span>
+              <span class="opacity-60 mr-1">{taxon.kind_slug?.replace(/_/g, " ")} </span>
             </Show>
             {niceLabel}
           </>

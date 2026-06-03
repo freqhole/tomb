@@ -144,6 +144,21 @@ export function RadioHistoryList(props: RadioHistoryListProps) {
     )
   );
 
+  // reset + reload when the station filter changes so the detail
+  // view always shows the right station's history.
+  createEffect(
+    on(
+      () => props.stationId,
+      () => {
+        if (!hasLoadedFirstPage) return;
+        setEntries([]);
+        setExhausted(false);
+        void loadFirstPage();
+      },
+      { defer: true }
+    )
+  );
+
   createEffect(
     on(
       entries,

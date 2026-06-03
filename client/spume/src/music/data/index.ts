@@ -13,6 +13,15 @@ import {
 import { LocalMusicDataSource, localDataSource } from "./local/localSource";
 import { RemoteMusicDataSource, RemoteOfflineError } from "./remote/remoteSource";
 import type { MusicDataSource } from "./types";
+import {
+  localTaxonomyClient,
+  type LocalTaxonomyClient,
+} from "../services/local-api/localTaxonomyClient";
+
+/** union of every client shape `getTaxonomyClient()` can return; lets
+ *  components type their resolved client without caring whether the
+ *  active source is a peer remote or the local idb shim. */
+export type TaxonomyClient = ApiClient | LocalTaxonomyClient;
 import { debug, warn, error as errorLog } from "../../utils/logger";
 import { preCacheRemoteTransport } from "../services/storage/blobResolver";
 import {
@@ -45,6 +54,28 @@ export async function getRemoteClient(): Promise<ApiClient | null> {
   const remote = getCurrentRemote();
   if (!remote) return null;
   return getClientForRemote(remote);
+}
+
+/**
+ * taxonomy client for the active source. returns the real api client
+ * when a peer remote is active, or a local-idb shim with a
+ * structurally compatible `music.*` subset (taxon kinds, taxons,
+ * album-link crud) when local is active. consumers that only touch
+ * the taxonomy surface (album editor, taxon autocomplete) can use
+ * this instead of `getRemoteClient()` to work uniformly across
+ * sources.
+ */
+export async function getTaxonomyClient(): Promise<
+  ApiClient | LocalTaxonomyClient
+> {
+  const remote = getCurrentRemote();
+  if (!remote) return localTaxonomyClient;
+  return getClientForRemote(remote);
+}
+
+/** true when the active source is the local indexeddb library. */
+export function isLocalSourceActive(): boolean {
+  return getCurrentRemote() == null;
 }
 
 // switch to local data source

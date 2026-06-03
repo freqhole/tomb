@@ -243,6 +243,18 @@ export function RadioView() {
     }
   });
 
+  // keep knownRemotes fresh whenever the station list changes. discovery
+  // can promote a pending remote to a real one (or the user might add a
+  // remote in another tab) between mount and a share click; without this
+  // refresh remoteForSource would miss the new row and the share button
+  // would fail with "could not resolve source for sharing".
+  createEffect(() => {
+    stations();
+    void getAllRemotes()
+      .then(setKnownRemotes)
+      .catch((e) => debug("radio-view", "failed to refresh remotes:", e));
+  });
+
   onMount(() => {
     const onResize = () => {
       setIsNarrow(isNarrowViewport());
@@ -501,7 +513,12 @@ export function RadioView() {
     }
     const source = remoteForSource(station.source);
     if (!source) {
-      toast.error("could not resolve source for sharing");
+      const kind = station.source.kind;
+      if (kind === "pending" || kind === "query_param") {
+        toast.error("add this remote before sharing its stations");
+      } else {
+        toast.error("could not resolve source for sharing");
+      }
       return;
     }
     showShareModal({
@@ -808,6 +825,11 @@ export function RadioView() {
                       </div>
                     </div>
                   </header>
+                  <Show when={station.station_id}>
+                    <div class="mt-6">
+                      <RadioHistoryList stationId={station.station_id} />
+                    </div>
+                  </Show>
                 </div>
               );
             })()}
@@ -966,7 +988,9 @@ export function RadioView() {
                   "pb-6": useStickyDetailLayout(),
                 }}
               >
-                <RadioHistoryList />
+                <RadioHistoryList
+                  stationId={currentStationObj()?.station_id ?? radioCurrentStationId() ?? null}
+                />
               </div>
             </div>
           </div>

@@ -15,6 +15,8 @@
 import { createMemo, createSignal, createEffect, on, For, Show } from "solid-js";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
+import { localDataSource } from "../../../music/data/local/localSource";
+import type { MusicDataSource } from "../../../music/data/types";
 import { TopNavSearch } from "../../../components/navigation/TopNavSearch";
 import type { SearchSuggestion as InputSuggestion } from "../../../components/forms/SearchInput";
 import type { SearchSuggestion as APISuggestion } from "../../../music/data/types";
@@ -24,6 +26,12 @@ import { slug } from "../../../components/graph/data/nodeIds";
 import { routes } from "../../../music/utils/routing";
 import { pickRemote } from "../../../app/services/remotePickerState";
 import { wakeAllRemotes } from "../../../app/services/remotes/remoteHealth";
+import { getLocalLibraryName } from "../../../app/services/storage/db";
+
+// sentinel id for the local indexeddb library. matches `buildRouteFor`'s
+// convention in `music/utils/routing.ts`, so `routes.albumOn(LOCAL_REMOTE_ID, ...)`
+// produces `/local/albums/...` correctly.
+export const LOCAL_REMOTE_ID = "local";
 
 type RemoteStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -56,6 +64,17 @@ interface AggSuggestion {
   primary: APISuggestion;
   contributingRemoteIds: string[];
   primaryRemoteId: string;
+}
+
+// uniform handle for everything we fan a search out to: real remotes
+// plus the synthetic local indexeddb library. `id` doubles as the key
+// in result/status/page-state maps and as the remote-id stamped onto
+// suggestion ids (so `routes.albumOn(id, ...)` resolves correctly for
+// both real remotes and the local sentinel).
+interface SearchTarget {
+  id: string;
+  label: string;
+  ds: MusicDataSource;
 }
 
 const DEBOUNCE_MS = 150;
@@ -94,19 +113,55 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   // generation counter so stale responses can't overwrite newer state.
   let gen = 0;
 
-  // local (`is_charnel_managed`) remote is in-process and shouldn't be
-  // skipped by the offline flag — keep it in the fan-out unconditionally
-  // so the user always sees their local library in cross-remote results.
-  const onlineRemotes = createMemo(() =>
-    props.remotes().filter((r) => r.is_charnel_managed || r.is_offline !== true)
-  );
+  // per-remote search timeout. dead/stuck remotes shouldn't hold up the
+  // ui indefinitely, but warming-up peers need enough budget to respond
+  // on first hit. 8s is the rough p2p cold-handshake worst case before
+  // we mark "error" and move on.
+  const SEARCH_TIMEOUT_MS = 8_000;
 
-  // fan-out fetcher: kicks off one searchSuggestions per online remote, marks
+  // race a promise against a timeout. if the timeout wins, the original
+  // promise is abandoned (its result is ignored). used to bound per-
+  // remote search latency so a single slow peer can't stall the ui.
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("search timed out")), ms);
+      p.then(
+        (v) => {
+          clearTimeout(t);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(t);
+          reject(e);
+        }
+      );
+    });
+  }
+
+  // search targets: the local indexeddb library is always included
+  // first, followed by every entry in `props.remotes()` regardless of
+  // its last-known `is_offline` flag. truly dead peers are bounded by
+  // the per-request timeout below; a warming-up peer gets a real
+  // chance to answer the first query instead of being pre-filtered out.
+  const searchTargets = createMemo<SearchTarget[]>(() => {
+    const out: SearchTarget[] = [
+      { id: LOCAL_REMOTE_ID, label: getLocalLibraryName(), ds: localDataSource },
+    ];
+    for (const r of props.remotes()) {
+      // defense in depth: skip any remote that happens to share the local
+      // sentinel id (shouldn't happen in practice but would shadow local).
+      if (r.remote_id === LOCAL_REMOTE_ID) continue;
+      out.push({ id: r.remote_id, label: r.name ?? r.remote_id, ds: new RemoteMusicDataSource(r) });
+    }
+    return out;
+  });
+
+  // fan-out fetcher: kicks off one searchSuggestions per remote, marks
   // each as loading/loaded/error independently and renders partial state.
   const runSearch = (q: string) => {
     gen++;
     const myGen = gen;
-    const remotes = onlineRemotes();
+    const targets = searchTargets();
 
     if (q.length < 2) {
       setStatuses(new Map());
@@ -116,45 +171,49 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     }
 
     // opportunistic wake-up: any remote currently flagged offline gets a
-    // background probe with backoff/dedupe. results flow into the
-    // reactive remote list and `runSearch` re-runs on the next query.
-    wakeAllRemotes();
+    // forced probe so its is_offline flag clears as soon as it answers.
+    // does not block this search — we already include offline remotes in
+    // the fan-out and let the per-request timeout bound stuck peers.
+    wakeAllRemotes({ force: true });
 
     const initial = new Map<string, RemoteStatus>();
-    for (const r of remotes) initial.set(r.remote_id, "loading");
+    for (const t of targets) initial.set(t.id, "loading");
     setStatuses(initial);
     setResultsByRemote(new Map());
     setPageState(new Map());
 
-    for (const r of remotes) {
-      const ds = new RemoteMusicDataSource(r);
+    for (const t of targets) {
+      const ds = t.ds;
       void (async () => {
         try {
           if (!ds.searchSuggestions) {
             if (gen !== myGen) return;
             setStatuses((prev) => {
               const next = new Map(prev);
-              next.set(r.remote_id, "idle");
+              next.set(t.id, "idle");
               return next;
             });
             return;
           }
-          const res = await ds.searchSuggestions({
-            field: "all",
-            partial: q,
-            page: 1,
-            page_size: PAGE_SIZE,
-          });
+          const res = await withTimeout(
+            ds.searchSuggestions({
+              field: "all",
+              partial: q,
+              page: 1,
+              page_size: PAGE_SIZE,
+            }),
+            SEARCH_TIMEOUT_MS
+          );
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
           setResultsByRemote((prev) => {
             const next = new Map(prev);
-            next.set(r.remote_id, suggestions);
+            next.set(t.id, suggestions);
             return next;
           });
           setPageState((prev) => {
             const next = new Map(prev);
-            next.set(r.remote_id, {
+            next.set(t.id, {
               loadedPage: 1,
               hasMore: !!res.has_next,
               loadingMore: false,
@@ -163,15 +222,15 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           });
           setStatuses((prev) => {
             const next = new Map(prev);
-            next.set(r.remote_id, "loaded");
+            next.set(t.id, "loaded");
             return next;
           });
         } catch (e) {
           if (gen !== myGen) return;
-          console.debug(`[graph-search] ${r.remote_id} failed:`, e);
+          console.debug(`[graph-search] ${t.id} failed:`, e);
           setStatuses((prev) => {
             const next = new Map(prev);
-            next.set(r.remote_id, "error");
+            next.set(t.id, "error");
             return next;
           });
         }
@@ -190,11 +249,11 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     const q = query();
     if (q.length < 2) return;
     const myGen = gen;
-    const remotes = onlineRemotes();
+    const targets = searchTargets();
     const pages = pageState();
 
-    const candidates = remotes.filter((r) => {
-      const ps = pages.get(r.remote_id);
+    const candidates = targets.filter((t) => {
+      const ps = pages.get(t.id);
       return ps && ps.hasMore && !ps.loadingMore;
     });
     if (candidates.length === 0) return;
@@ -202,37 +261,40 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     // mark all candidates as loading-more in one snapshot.
     setPageState((prev) => {
       const next = new Map(prev);
-      for (const r of candidates) {
-        const ps = next.get(r.remote_id);
-        if (ps) next.set(r.remote_id, { ...ps, loadingMore: true });
+      for (const t of candidates) {
+        const ps = next.get(t.id);
+        if (ps) next.set(t.id, { ...ps, loadingMore: true });
       }
       return next;
     });
 
-    for (const r of candidates) {
-      const ds = new RemoteMusicDataSource(r);
-      const ps = pages.get(r.remote_id)!;
+    for (const t of candidates) {
+      const ds = t.ds;
+      const ps = pages.get(t.id)!;
       const nextPage = ps.loadedPage + 1;
       void (async () => {
         try {
           if (!ds.searchSuggestions) return;
-          const res = await ds.searchSuggestions({
-            field: "all",
-            partial: q,
-            page: nextPage,
-            page_size: PAGE_SIZE,
-          });
+          const res = await withTimeout(
+            ds.searchSuggestions({
+              field: "all",
+              partial: q,
+              page: nextPage,
+              page_size: PAGE_SIZE,
+            }),
+            SEARCH_TIMEOUT_MS
+          );
           if (gen !== myGen) return;
           const suggestions = res.suggestions ?? [];
           setResultsByRemote((prev) => {
             const next = new Map(prev);
-            const existing = next.get(r.remote_id) ?? [];
-            next.set(r.remote_id, existing.concat(suggestions));
+            const existing = next.get(t.id) ?? [];
+            next.set(t.id, existing.concat(suggestions));
             return next;
           });
           setPageState((prev) => {
             const next = new Map(prev);
-            next.set(r.remote_id, {
+            next.set(t.id, {
               loadedPage: nextPage,
               hasMore: !!res.has_next,
               loadingMore: false,
@@ -241,14 +303,14 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           });
         } catch (e) {
           if (gen !== myGen) return;
-          console.debug(`[graph-search] ${r.remote_id} loadMore failed:`, e);
+          console.debug(`[graph-search] ${t.id} loadMore failed:`, e);
           // clear loadingMore so the user can retry by scrolling again,
           // but stop further attempts on this remote until the query
           // changes (avoids tight error loops).
           setPageState((prev) => {
             const next = new Map(prev);
-            const cur = next.get(r.remote_id);
-            if (cur) next.set(r.remote_id, { ...cur, hasMore: false, loadingMore: false });
+            const cur = next.get(t.id);
+            if (cur) next.set(t.id, { ...cur, hasMore: false, loadingMore: false });
             return next;
           });
         }
@@ -280,8 +342,8 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   const aggregatedSuggestions = createMemo<AggSuggestion[]>(() => {
     const byKey = new Map<string, AggSuggestion>();
     const ordered: AggSuggestion[] = [];
-    for (const r of onlineRemotes()) {
-      const list = resultsByRemote().get(r.remote_id) ?? [];
+    for (const t of searchTargets()) {
+      const list = resultsByRemote().get(t.id) ?? [];
       for (const s of list) {
         // dedup key: aggregate songs/artists/albums/playlists by display slug;
         // taxons (genre/mood/etc.) stay per-remote so the user can see which
@@ -292,19 +354,19 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           s.suggestion_type !== "album" &&
           s.suggestion_type !== "playlist";
         const key = isTaxon
-          ? `${s.suggestion_type}::${r.remote_id}::${slug(s.display)}`
+          ? `${s.suggestion_type}::${t.id}::${slug(s.display)}`
           : `${s.suggestion_type}::${slug(s.display)}`;
         const existing = byKey.get(key);
         if (existing) {
-          if (!existing.contributingRemoteIds.includes(r.remote_id)) {
-            existing.contributingRemoteIds.push(r.remote_id);
+          if (!existing.contributingRemoteIds.includes(t.id)) {
+            existing.contributingRemoteIds.push(t.id);
           }
         } else {
           const agg: AggSuggestion = {
             key,
             primary: s,
-            primaryRemoteId: r.remote_id,
-            contributingRemoteIds: [r.remote_id],
+            primaryRemoteId: t.id,
+            contributingRemoteIds: [t.id],
           };
           byKey.set(key, agg);
           ordered.push(agg);
@@ -330,14 +392,17 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
 
   // map to SearchInputSuggestion (the shape TopNavSearch expects).
   const inputSuggestions = createMemo<InputSuggestion[]>(() => {
+    const targetById = new Map(searchTargets().map((t) => [t.id, t]));
     const remoteById = new Map(props.remotes().map((r) => [r.remote_id, r]));
-    const nameFor = (id: string) => remoteById.get(id)?.name ?? id;
+    const nameFor = (id: string) => targetById.get(id)?.label ?? id;
     return aggregatedSuggestions().map((agg) => {
+      // for the local sentinel, there's no base_url — leave it empty so
+      // image helpers fall back to local blob resolution paths.
       const primaryRemote = remoteById.get(agg.primaryRemoteId);
       const baseUrl = primaryRemote?.base_url || "";
       const remoteCount = agg.contributingRemoteIds.length;
       const names = agg.contributingRemoteIds.map(nameFor);
-      const detailLabel = remoteCount > 1 ? `${remoteCount} remotes` : names[0];
+      const detailLabel = remoteCount > 1 ? `${remoteCount} libraries` : names[0];
       const detailTitle = remoteCount > 1 ? names.join(", ") : names[0];
       return {
         id: `${agg.primaryRemoteId}::${agg.primary.entity_id}`,
@@ -378,14 +443,18 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     }
     const total = sts.size;
     const errBit = errored > 0 ? `, ${errored} error` : "";
-    if (loading > 0) return `searching ${loaded}/${total} remotes...${errBit}`;
-    return `searched ${loaded}/${total} remotes${errBit}`;
+    if (loading > 0) return `searching ${loaded}/${total} libraries...${errBit}`;
+    return `searched ${loaded}/${total} libraries${errBit}`;
   });
 
   // suggestion.id is `${primaryRemoteId}::${entity_id}` (see inputSuggestions).
   // when an aggregated suggestion came from multiple remotes, prompt the
   // user to pick one via the global remote-picker modal. returning null
-  // aborts navigation (user cancelled).
+  // aborts navigation (user cancelled). the local sentinel is not
+  // selectable via the picker (it's a synthetic target), so if local is
+  // the only contributor we return it directly; if local is one of
+  // several contributors we let the user pick among real remotes only,
+  // and fall back to local if they cancel without options.
   const remoteIdFor = async (s: InputSuggestion): Promise<string | null | undefined> => {
     const id = s.id ?? "";
     const contributors = contributorsById().get(id);
@@ -394,11 +463,18 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     }
     if (contributors.length === 1) return contributors[0];
     const remoteById = new Map(props.remotes().map((r) => [r.remote_id, r]));
-    const options = contributors.map((rid) => remoteById.get(rid)).filter((r): r is Remote => !!r);
-    if (options.length === 0) return undefined;
+    const options = contributors
+      .filter((rid) => rid !== LOCAL_REMOTE_ID)
+      .map((rid) => remoteById.get(rid))
+      .filter((r): r is Remote => !!r);
+    if (options.length === 0) {
+      // local-only contributor (or every real remote is missing) —
+      // route to local without prompting.
+      return contributors.includes(LOCAL_REMOTE_ID) ? LOCAL_REMOTE_ID : undefined;
+    }
     const picked = await pickRemote(options, {
       title: "open on which remote?",
-      message: `"${s.text}" was found on ${options.length} remotes.`,
+      message: `"${s.text}" was found on ${options.length} remote${options.length === 1 ? "" : "s"}.`,
     });
     return picked ? picked.remote_id : null;
   };
@@ -417,12 +493,12 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
    *  something useful instead of nothing. */
   const topSuggestion = (): { s: APISuggestion; remoteId: string } | null => {
     let best: { s: APISuggestion; remoteId: string } | null = null;
-    for (const r of onlineRemotes()) {
-      const list = resultsByRemote().get(r.remote_id);
+    for (const t of searchTargets()) {
+      const list = resultsByRemote().get(t.id);
       if (!list) continue;
       for (const s of list) {
         if (!best || s.confidence > best.s.confidence) {
-          best = { s, remoteId: r.remote_id };
+          best = { s, remoteId: t.id };
         }
       }
     }
@@ -515,7 +591,7 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
       footerContent={
         <Show when={statusHint()}>
           <PerRemoteStatusRow
-            remotes={onlineRemotes()}
+            targets={searchTargets()}
             statuses={statuses()}
             summary={statusHint()!}
           />
@@ -526,18 +602,18 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
 }
 
 function PerRemoteStatusRow(props: {
-  remotes: Remote[];
+  targets: SearchTarget[];
   statuses: Map<string, RemoteStatus>;
   summary: string;
 }) {
   return (
     <div class="px-3 py-1 text-[10px] text-[var(--color-text-muted)] flex items-center gap-2 flex-wrap">
       <span>{props.summary}</span>
-      <For each={props.remotes}>
-        {(r) => {
+      <For each={props.targets}>
+        {(t) => {
           // status() is a reactive accessor so the dot re-renders when the
           // Map snapshot changes (the For row callback only runs once per item).
-          const status = () => props.statuses.get(r.remote_id) ?? "idle";
+          const status = () => props.statuses.get(t.id) ?? "idle";
           const dotClass = () => {
             const st = status();
             return st === "loading"
@@ -549,12 +625,9 @@ function PerRemoteStatusRow(props: {
                   : "bg-[var(--color-border-default)]";
           };
           return (
-            <span
-              class="inline-flex items-center gap-1"
-              title={`${r.name ?? r.remote_id}: ${status()}`}
-            >
+            <span class="inline-flex items-center gap-1" title={`${t.label}: ${status()}`}>
               <span class={`inline-block w-1.5 h-1.5 rounded-full ${dotClass()}`} />
-              <span class="opacity-70">{r.name ?? r.remote_id}</span>
+              <span class="opacity-70">{t.label}</span>
             </span>
           );
         }}

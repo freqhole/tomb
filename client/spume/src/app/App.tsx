@@ -91,6 +91,7 @@ import {
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
 import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
+import { checkPendingKnockApprovals } from "./services/remotes/pendingKnockChecker";
 import {
   applyServiceWorkerUpdate,
   dismissUpdate,
@@ -584,6 +585,15 @@ export function App() {
       // chance to warm up; also re-runs whenever a remote transitions
       // offline -> online.
       setTimeout(() => void checkPendingKnocks(), 3000);
+
+      // poll any pending remotes stuck in `knock_pending` to see if the
+      // admin approved them while spume was closed. deferred so midden /
+      // p2p transports are warm before we try to reach the peers, and
+      // staggered slightly so it doesn't pile onto the initial p2p
+      // health-check burst above.
+      onMiddenReady(() => {
+        setTimeout(() => void checkPendingKnockApprovals(), 5000);
+      });
     } finally {
       clearTimeout(loadingTimer);
       setIsInitializing(false);

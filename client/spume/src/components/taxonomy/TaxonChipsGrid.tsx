@@ -8,7 +8,7 @@ import { For, Show } from "solid-js";
 import { TaxonAutocomplete } from "../forms/TaxonAutocomplete";
 import { Icon, IconNames } from "../icons/registry";
 import type { TaxonRef } from "../../music/data/types";
-import type { ApiClient } from "../../app/api/client";
+import type { TaxonomyClient } from "../../music/data";
 
 export interface TaxonKindOption {
   slug: string;
@@ -114,7 +114,7 @@ export interface TaxonKindSectionProps {
   countSuffix?: string;
   /** explicit api client passed to TaxonAutocomplete — required when
    *  the caller is scoped to a non-active remote (e.g. graph edit panel). */
-  apiClient?: ApiClient | null;
+  apiClient?: TaxonomyClient | null;
 }
 
 export function TaxonKindSection(props: TaxonKindSectionProps) {
@@ -167,7 +167,7 @@ export interface TaxonChipsGridProps {
   /** rendered above the grid when the kinds list is empty. */
   emptyMessage?: string;
   /** explicit api client passed down to each TaxonAutocomplete. */
-  apiClient?: ApiClient | null;
+  apiClient?: TaxonomyClient | null;
 }
 
 export function TaxonChipsGrid(props: TaxonChipsGridProps) {

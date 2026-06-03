@@ -68,7 +68,7 @@ export function clusterChildrenOf(id: string): string[] {
 
 export function nodeRadius(role: string, childCount: number): number {
   switch (role) {
-    case "root":     return 14;
+    case "root":     return 34;
     case "remote":   return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation": return 20 + Math.min(Math.sqrt(childCount) * 4, 20);
     case "value":

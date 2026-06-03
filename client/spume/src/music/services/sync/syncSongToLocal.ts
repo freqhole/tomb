@@ -22,6 +22,7 @@ import { updateAlbum } from "../storage/db/albums";
 import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
 import { addAlbumTag, getAlbumTags } from "../storage/db/albumTags";
+import { upsertTaxon, linkAlbumTaxon } from "../storage/db/taxons";
 import { storeBlob } from "../storage/blobs";
 import {
   markSongSynced,
@@ -439,6 +440,7 @@ export async function downloadAndStoreImages(
 async function syncAlbumTaxons(
   albumId: string,
   remoteTaxons: TaxonRef[] | undefined,
+  sourceRemoteId: string,
 ): Promise<{ primaryGenreId: string | null; primaryGenreName: string | null; taxonRefs: TaxonRef[] }> {
   if (!remoteTaxons?.length) {
     return { primaryGenreId: null, primaryGenreName: null, taxonRefs: [] };
@@ -458,8 +460,25 @@ async function syncAlbumTaxons(
         primaryGenreName = localGenre.name;
       }
     } else {
-      // non-genre taxon: pass through verbatim (no local table for these yet)
+      // non-genre taxon: pass through verbatim (no legacy local table for these)
       taxonRefs.push({ ...remoteTaxon });
+    }
+
+    // mirror every taxon (all kinds) into the unified taxons store,
+    // tagged with the source remote_id so peer-cached taxons stay
+    // attributable. dedup is handled by upsertTaxon's compound index.
+    try {
+      const row = await upsertTaxon({
+        remote_id: sourceRemoteId,
+        kind_slug: remoteTaxon.kind_slug,
+        label: remoteTaxon.label,
+      });
+      await linkAlbumTaxon(albumId, row.taxon_id);
+    } catch (err) {
+      warn(
+        "syncAlbumTaxons",
+        `failed to mirror taxon ${remoteTaxon.kind_slug}:${remoteTaxon.label} for album ${albumId}: ${err}`,
+      );
     }
   }
 
@@ -611,10 +630,14 @@ export async function syncSongToLocal(
       await updateAlbum(albumId, { images: albumImages });
     }
 
-    // sync album taxons (genre kind plus pass-through of others)
+    // sync album taxons (genre kind plus pass-through of others).
+    // mirrors every taxon into the unified taxons store tagged with the
+    // source remote_id so the local graph viz can navigate peer-cached
+    // taxons offline.
     const { primaryGenreId, primaryGenreName, taxonRefs } = await syncAlbumTaxons(
       albumId,
       song.album_taxons,
+      remote_server_id,
     );
 
     // create local song record
