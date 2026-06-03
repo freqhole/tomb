@@ -135,14 +135,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!this.hasShownOfflineToast) {
       this.hasShownOfflineToast = true;
       debug("remoteSource", `showing offline toast for ${remoteName}`);
-      toast.warning(`${remoteName} is offline`, {
-        title: "remote-offline",
-        persistent: true,
-        action: {
-          label: "switch to local",
-          onClick: triggerSwitchToLocal,
-        },
-      });
+      // #TODO: i dunno, either improve this or actually yank it. currently: mostly annoying :/
+      // toast.warning(`${remoteName} is offline`, {
+      //   title: "remote-offline",
+      //   persistent: true,
+      //   action: {
+      //     label: "switch to local",
+      //     onClick: triggerSwitchToLocal,
+      //   },
+      // });
     }
 
     throw new RemoteOfflineError(this.remoteId, remoteName);
