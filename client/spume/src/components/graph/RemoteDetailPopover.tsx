@@ -121,7 +121,7 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
           <Show when={props.onBrowse}>
             <button
               type="button"
-              class="w-full py-1.5 px-3 rounded text-xs font-medium border border-sky-400/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-100 hover:text-white transition-colors cursor-pointer"
+              class="w-full py-1.5 px-3 rounded text-xs font-medium border border-magenta-400/30 bg-magenta-500/10 hover:bg-magenta-500/20 text-magenta-100 hover:text-white transition-colors cursor-pointer"
               onClick={(e) => {
                 e.stopPropagation();
                 props.onBrowse?.();

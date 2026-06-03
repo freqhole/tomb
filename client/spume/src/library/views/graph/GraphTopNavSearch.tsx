@@ -311,6 +311,20 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
         }
       }
     }
+    // cross-remote rank merge. each remote's page is already ordered
+    // by its own fts rank (mapped into `confidence`), but appending
+    // them per-remote leaves the list grouped by remote. sort the
+    // dedup'd aggregate by confidence desc so the top hits across all
+    // remotes float up regardless of arrival order. this memo re-runs
+    // whenever any remote's results arrive, so the list reorders as
+    // partial results stream in.
+    //
+    // caveat: `confidence` is computed per-remote from local fts
+    // rank, so cross-remote comparisons are only loosely meaningful.
+    // a follow-up could normalize per remote (e.g. divide by that
+    // remote's top row) or fold in `count`; for now naive desc-sort
+    // is a clear improvement over per-remote grouping.
+    ordered.sort((a, b) => (b.primary.confidence ?? 0) - (a.primary.confidence ?? 0));
     return ordered;
   });
 
@@ -424,7 +438,9 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
     const data = s.data as APISuggestion | undefined;
     if (!data) return false;
-    if (data.suggestion_type !== "genre") return false;
+    // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: accept legacy "genre" wire
+    // value from peers that haven't upgraded past the rename.
+    if (data.suggestion_type !== "taxon" && data.suggestion_type !== "genre") return false;
     const primary = (s.id ?? "").split("::")[0];
     if (!primary) return false;
     return Boolean(await props.onPivotToSuggestion?.(data, primary, []));
@@ -456,7 +472,8 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     if (query().length < 2) return false;
     const top = topSuggestion();
     if (!top) return false;
-    if (top.s.suggestion_type === "genre") {
+    // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: legacy "genre" also pivots.
+    if (top.s.suggestion_type === "taxon" || top.s.suggestion_type === "genre") {
       void props.onPivotToSuggestion?.(top.s, top.remoteId, []);
       return true;
     }

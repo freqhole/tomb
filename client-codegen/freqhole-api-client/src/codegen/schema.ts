@@ -5783,7 +5783,7 @@ export const SuggestionSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
@@ -5791,7 +5791,7 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
-export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]);
+export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]);
 export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 
 export const SuggestionsRequestSchema = z.object({
@@ -5817,7 +5817,7 @@ export const SuggestionsResponseSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),

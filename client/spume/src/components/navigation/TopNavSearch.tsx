@@ -358,13 +358,19 @@ export function TopNavSearch(props: TopNavSearchProps) {
           remoteId ? routes.playlistOn(remoteId, s.entity_id) : routes.playlist(s.entity_id)
         );
         break;
-      case "genre": {
-        // taxon hits deep-link into the graph viz view focused on the
-        // picked taxon. requires a remote id; if remoteIdFor returned
-        // undefined (single-source local), skip nav.
+      // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: legacy "genre" falls
+      // through to the taxon case. taxon hits deep-link into the
+      // graph viz view focused on the picked taxon. requires a
+      // remote id; if remoteIdFor returned undefined (single-source
+      // local), skip nav. when the backend can't tell us which
+      // taxon kind matched, there's no safe default — bail out
+      // rather than guess.
+      case "genre":
+      case "taxon": {
         if (!remoteId) break;
-        const kind = ((meta?.kind_slug as string | undefined) ?? "genre") as RelationKind;
-        const nodeId = valueNodeId(remoteId, kind, s.display);
+        const kindSlug = meta?.kind_slug as string | undefined;
+        if (!kindSlug) break;
+        const nodeId = valueNodeId(remoteId, kindSlug as RelationKind, s.display);
         props.onNavigate?.(`/explore?graph=${encodeURIComponent(nodeId)}`);
         break;
       }

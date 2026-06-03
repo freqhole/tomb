@@ -386,22 +386,38 @@ function SuggestionRow(props: {
         <FavoriteHeart isFavorite={true} readonly={true} size="sm" class="flex-shrink-0" />
       </Show>
 
-      {/* category badge */}
+      {/* category badge. for taxon rows, the badge shows the taxon
+       *  kind (genre/mood/tag/style/etc) instead of the generic
+       *  "taxon" wire value, so users can distinguish what kind of
+       *  match a row is at a glance. FEDERATION-COMPAT-LEGACY-GENRE-TYPE:
+       *  legacy peers still send "genre" — treat it the same. */}
       <Show when={props.suggestion.category}>
-        <div class="px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] flex flex-col items-end leading-tight max-w-[140px]">
-          <span>{props.suggestion.category}</span>
-          <Show when={props.suggestion.categoryDetail}>
-            <div class="text-[9px] opacity-70 w-full">
-              <HighlightedMarqueeText
-                text={props.suggestion.categoryDetail!.label}
-                title={
-                  props.suggestion.categoryDetail!.title ?? props.suggestion.categoryDetail!.label
-                }
-                isHovering={props.highlighted}
-              />
+        {(() => {
+          const apiData = props.suggestion.data as
+            | { suggestion_type?: string; metadata?: { kind_slug?: string } }
+            | undefined;
+          const isTaxon =
+            apiData?.suggestion_type === "taxon" || apiData?.suggestion_type === "genre";
+          const kindSlug = apiData?.metadata?.kind_slug;
+          const badgeLabel = isTaxon && kindSlug ? kindSlug : props.suggestion.category;
+          return (
+            <div class="px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] flex flex-col items-end leading-tight max-w-[140px]">
+              <span>{badgeLabel}</span>
+              <Show when={props.suggestion.categoryDetail}>
+                <div class="text-[9px] opacity-70 w-full">
+                  <HighlightedMarqueeText
+                    text={props.suggestion.categoryDetail!.label}
+                    title={
+                      props.suggestion.categoryDetail!.title ??
+                      props.suggestion.categoryDetail!.label
+                    }
+                    isHovering={props.highlighted}
+                  />
+                </div>
+              </Show>
             </div>
-          </Show>
-        </div>
+          );
+        })()}
       </Show>
     </div>
   );

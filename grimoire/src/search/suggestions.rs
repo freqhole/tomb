@@ -226,7 +226,7 @@ pub async fn get_album_suggestions(
     struct AlbumSuggestionRow {
         album_id: String,
         album_title: String,
-        images: Option<String>, // JSON array
+        images: Option<String>,       // JSON array
         artist_ids: Option<String>,   // JSON array of artistz.id
         artist_names: Option<String>, // JSON array of artistz.name, parallel order
         fts_rank: f64,
@@ -319,24 +319,25 @@ pub async fn get_album_suggestions(
     Ok(suggestions)
 }
 
-/// get genre suggestions from FTS
-pub async fn get_genre_suggestions(
+/// get taxon suggestions from FTS across every taxon kind.
+///
+/// queries `taxonz_fts(taxon_id, kind_slug, label)` with a prefix
+/// match (`label:partial*`). previously this was scoped to
+/// `kind.slug = 'genre'`; the filter was dropped so the autocomplete
+/// surfaces any taxon kind (genre, tag, mood, style, era, label,
+/// user-defined). callers / consumers discriminate via the
+/// `metadata.kind_slug` field carried on each Suggestion.
+pub async fn get_taxon_suggestions(
     pool: &SqlitePool,
     partial: &str,
 ) -> GrimoireResult<Vec<Suggestion>> {
-    // query taxonz_fts (filtered to kind='genre') with prefix match: `label:partial*`
-    // join to taxonz for full details and count associated albums.
-    // post-taxonomy refactor: genres are taxons under kind='genre',
-    // and the dedicated `genrez_fts` was replaced by the cross-kind
-    // `taxonz_fts(taxon_id, kind_slug, label)`.
-
     let match_query = sanitize_fts_query(partial);
 
     let rows = sqlx::query!(
         r#"
         SELECT
-            taxon.id as "genre_id!: String",
-            taxon.label as "genre_name!: String",
+            taxon.id as "taxon_id!: String",
+            taxon.label as "taxon_label!: String",
             kind.slug as "kind_slug!: String",
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT at.album_id)
@@ -347,7 +348,6 @@ pub async fn get_genre_suggestions(
         JOIN taxonz taxon ON fts.taxon_id = taxon.id
         JOIN taxon_kindz kind ON kind.id = taxon.kind_id
         WHERE taxonz_fts MATCH ?
-            AND kind.slug = 'genre'
             AND taxon.deleted_at IS NULL
         GROUP BY taxon.id, taxon.label, kind.slug, fts.rank
         ORDER BY fts.rank DESC
@@ -361,21 +361,21 @@ pub async fn get_genre_suggestions(
     let suggestions = rows
         .into_iter()
         .map(|row| {
-            let confidence = calculate_confidence(partial, &row.genre_name, row.fts_rank as f32);
-            let highlight = generate_highlight(&row.genre_name, partial);
+            let confidence = calculate_confidence(partial, &row.taxon_label, row.fts_rank as f32);
+            let highlight = generate_highlight(&row.taxon_label, partial);
 
             Suggestion {
-                value: row.genre_name.clone(),
-                display: row.genre_name.clone(),
+                value: row.taxon_label.clone(),
+                display: row.taxon_label.clone(),
                 highlight,
                 count: row.song_count,
-                suggestion_type: SuggestionType::Genre,
+                suggestion_type: SuggestionType::Taxon,
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "name",
                     "kind_slug": row.kind_slug
                 })),
-                entity_id: row.genre_id,
+                entity_id: row.taxon_id,
                 is_favorite: false,
             }
         })

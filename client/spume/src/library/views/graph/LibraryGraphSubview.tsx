@@ -2270,14 +2270,55 @@ function Inner(props: {
     };
   };
 
+  // shared pivot helper. clears pins, ensures the remote's taxon hubs
+  // + the specific relation hub are loaded, then breadcrumb-walks to
+  // the leaf so the picked node becomes the new pivot. returns false
+  // if anything blocking failed (e.g. unknown remote). used by both
+  // the in-graph search row handler and the `?graph=` deep-link
+  // effect so the two paths stay in sync.
+  const pivotToTaxonNode = async (params: {
+    remoteId: string;
+    relHubId: string;
+    nodeId: string;
+    ancestors: string[];
+    logTag: string;
+  }): Promise<boolean> => {
+    const { remoteId, relHubId: relHub, nodeId, ancestors, logTag } = params;
+    if (!props.remotes().some((r) => r.remote_id === remoteId)) {
+      console.warn(`[${logTag}] remote not available`, { remoteId });
+      return false;
+    }
+    if (editingRemoteId() !== null) setEditingRemoteId(null);
+
+    activateRemote(remoteId);
+
+    await ensureTaxonKindsLoaded(remoteId).catch((err) =>
+      console.warn(`[${logTag}] taxon-kinds load failed`, { remoteId, err })
+    );
+    await maybeLoadTaxonsForPivot(relHub).catch((err) =>
+      console.warn(`[${logTag}] taxons load failed`, { relHub, err })
+    );
+
+    walkerClient()?.setPinned([]);
+
+    const client = walkerClient();
+    if (client) {
+      for (const id of ancestors) client.expand(id);
+    }
+    setSelectedId(nodeId);
+
+    console.log(`[${logTag}] solo`, { remoteId, nodeId, ancestors });
+    return true;
+  };
+
   // pivot the walker to a single picked suggestion. only taxon
-  // ("genre") suggestions get routed here from GraphTopNavSearch and
-  // the deep-link mount path; everything else navigates to its detail
-  // view via the base topnav. behavior is solo: only the picked
-  // taxon's chain (root → remote square → relation hub → taxon) is
-  // rendered, any prior pins from previous searches are cleared, and
-  // the picked node becomes the new pivot so a click on it fans out
-  // children via the normal walker handlers.
+  // suggestions get routed here from GraphTopNavSearch; everything
+  // else navigates to its detail view via the base topnav. behavior
+  // is solo: only the picked taxon's chain (root → remote square →
+  // relation hub → taxon) is rendered, prior pins from previous
+  // searches are cleared, and the picked node becomes the new pivot
+  // so a click on it fans out children via the normal walker
+  // handlers.
   const handlePivotToSuggestion = async (
     picked: import("../../../music/data/types").SearchSuggestion,
     pickedRemoteId: string,
@@ -2290,44 +2331,17 @@ function Inner(props: {
     }>
   ): Promise<boolean> => {
     if (!pickedRemoteId) return false;
-    if (!props.remotes().some((r) => r.remote_id === pickedRemoteId)) return false;
-    if (editingRemoteId() !== null) setEditingRemoteId(null);
-
-    activateRemote(pickedRemoteId);
-    await ensureTaxonKindsLoaded(pickedRemoteId).catch((err) =>
-      console.warn("[searchPivot] taxon-kinds load failed", { pickedRemoteId, err })
-    );
 
     const plan = planForSuggestion(picked, pickedRemoteId);
-    if (!plan) return false;
+    if (!plan || !plan.taxonRelHubId) return false;
 
-    if (plan.stubNodes.length > 0 || plan.stubEdges.length > 0) {
-      walkerClient()?.merge(plan.stubNodes, plan.stubEdges);
-    }
-
-    if (plan.taxonRelHubId) {
-      await maybeLoadTaxonsForPivot(plan.taxonRelHubId).catch((err) =>
-        console.warn("[searchPivot] taxons load failed", { relHubId: plan.taxonRelHubId, err })
-      );
-    }
-
-    // solo: drop any pins from previous searches so nothing else
-    // lingers on screen.
-    walkerClient()?.setPinned([]);
-
-    const client = walkerClient();
-    if (client) {
-      for (const id of plan.ancestors) client.expand(id);
-    }
-
-    setSelectedId(plan.nodeId);
-
-    console.log("[searchPivot] solo", {
-      pickedRemoteId,
-      pickedNodeId: plan.nodeId,
+    return pivotToTaxonNode({
+      remoteId: pickedRemoteId,
+      relHubId: plan.taxonRelHubId,
+      nodeId: plan.nodeId,
       ancestors: plan.ancestors,
+      logTag: "searchPivot",
     });
-    return true;
   };
 
   // deep-link: `/explore?graph=<nodeId>` pivots the graph to the
@@ -2335,58 +2349,56 @@ function Inner(props: {
   // param). currently only value:: / group:: taxon ids are supported —
   // these are produced by the global topnav search when a taxon
   // suggestion is picked from a non-graph view. each unique param
-  // value is processed exactly once; clearing the search bar still
-  // resets the graph via onSearchCleared above and leaves the stale
-  // param in the URL as a no-op.
+  // value is marked processed only AFTER a successful pivot, so an
+  // early bail-out (e.g. remotes resource still loading) doesn't
+  // permanently block a retry once remotes resolve.
   let lastProcessedGraphParam: string | null = null;
   createEffect(() => {
     const raw = searchParams.graph;
     const param = Array.isArray(raw) ? raw[0] : raw;
     if (!param || param === lastProcessedGraphParam) return;
-    lastProcessedGraphParam = param;
 
     let parsed: ReturnType<typeof parseNodeId>;
     try {
       parsed = parseNodeId(param);
     } catch (err) {
       console.warn("[graphDeepLink] unparseable nodeId", { param, err });
+      lastProcessedGraphParam = param; // bad input — don't retry
       return;
     }
     if (parsed.kind !== "value" && parsed.kind !== "group") {
       console.warn("[graphDeepLink] only taxon (value/group) nodes are supported", { parsed });
+      lastProcessedGraphParam = param; // unsupported kind — don't retry
       return;
     }
+
+    // tracked reactively so this effect re-runs when remotes resolve.
+    // intentionally NOT marking `lastProcessedGraphParam` here — we
+    // want this branch to retry on the next remote update.
+    if (props.remotes().length === 0) return;
     if (!props.remotes().some((r) => r.remote_id === parsed.remoteId)) {
       console.warn("[graphDeepLink] remote not available", { remoteId: parsed.remoteId });
+      lastProcessedGraphParam = param; // remote will never appear — give up
       return;
     }
 
-    void (async () => {
-      const remoteId = parsed.remoteId;
-      const relHub = relationHubId(remoteId, parsed.relationKind);
-      const rHub = remoteHubId(remoteId);
-      const ancestors = [rHub, relHub, param];
+    const remoteId = parsed.remoteId;
+    const relHub = relationHubId(remoteId, parsed.relationKind);
+    const rHub = remoteHubId(remoteId);
+    const ancestors = [rHub, relHub, param];
 
-      activateRemote(remoteId);
-      if (editingRemoteId() !== null) setEditingRemoteId(null);
+    // mark processed BEFORE the async work so concurrent re-runs
+    // (e.g. searchParams + remotes both updating in the same tick)
+    // don't double-fire.
+    lastProcessedGraphParam = param;
 
-      await ensureTaxonKindsLoaded(remoteId).catch((err) =>
-        console.warn("[graphDeepLink] taxon-kinds load failed", { remoteId, err })
-      );
-      await maybeLoadTaxonsForPivot(relHub).catch((err) =>
-        console.warn("[graphDeepLink] taxons load failed", { relHub, err })
-      );
-
-      walkerClient()?.setPinned([]);
-
-      const client = walkerClient();
-      if (client) {
-        for (const id of ancestors) client.expand(id);
-      }
-      setSelectedId(param);
-
-      console.log("[graphDeepLink] solo", { remoteId, nodeId: param, ancestors });
-    })();
+    void pivotToTaxonNode({
+      remoteId,
+      relHubId: relHub,
+      nodeId: param,
+      ancestors,
+      logTag: "graphDeepLink",
+    });
   });
 
   // ---- render --------------------------------------------------------
