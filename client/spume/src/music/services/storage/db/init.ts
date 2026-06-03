@@ -1,9 +1,11 @@
 // database initialization and schema management
 import { openDB, type IDBPDatabase } from "idb";
 import {
+  LOCAL_TAXON_REMOTE_ID,
   MUSIC_DB_NAME,
   MUSIC_DB_VERSION,
   STORE_ALBUM_TAGS,
+  STORE_ALBUM_TAXONS,
   STORE_ALBUMS,
   STORE_ARTISTS,
   STORE_FAVORITES,
@@ -13,6 +15,7 @@ import {
   STORE_RATINGS,
   STORE_SONGS,
   STORE_TAGS,
+  STORE_TAXONS,
 } from "../types";
 import { debug } from "../../../../utils/logger";
 
@@ -172,6 +175,38 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         albumTagsStore.createIndex("by_created_at", "created_at");
       }
 
+      // taxons (genre / mood / era / label / ...). scoped by remote_id
+      // so peer-cached taxons never collide with local ones.
+      if (!db.objectStoreNames.contains(STORE_TAXONS)) {
+        const taxonsStore = db.createObjectStore(STORE_TAXONS, {
+          keyPath: "taxon_id",
+        });
+        taxonsStore.createIndex("by_remote_id", "remote_id");
+        taxonsStore.createIndex("by_kind_slug", "kind_slug");
+        // (remote_id, kind_slug, slug) is the dedup key used by
+        // upsertTaxon to avoid creating duplicate "jazz" rows for the
+        // same library.
+        taxonsStore.createIndex(
+          "by_remote_kind_slug",
+          ["remote_id", "kind_slug", "slug"],
+          { unique: true },
+        );
+        taxonsStore.createIndex("by_label", "label");
+      }
+
+      // album_taxons junction. `remote_id` is denormalized from the
+      // taxon row so we can wipe a peer's mirror with a single index
+      // scan without joining.
+      if (!db.objectStoreNames.contains(STORE_ALBUM_TAXONS)) {
+        const albumTaxonsStore = db.createObjectStore(STORE_ALBUM_TAXONS, {
+          keyPath: ["album_id", "taxon_id"],
+        });
+        albumTaxonsStore.createIndex("by_album_id", "album_id");
+        albumTaxonsStore.createIndex("by_taxon_id", "taxon_id");
+        albumTaxonsStore.createIndex("by_remote_id", "remote_id");
+        albumTaxonsStore.createIndex("by_created_at", "created_at");
+      }
+
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to
       // `album_taxons` (TaxonRef[]). preserves any existing `album_taxons`,
       // backfilling only the genre kind from the legacy field. uses the
@@ -200,6 +235,74 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           }
           delete song.album_genres;
           await cursor.update(song);
+          cursor = await cursor.continue();
+        }
+      }
+
+      // v12 -> v13: backfill the new `taxons` + `album_taxons` stores
+      // from each cached song's inline `album_taxons` ref array. the
+      // inline refs stay on songs as a denormalized convenience for
+      // single-album views; the junction is the authoritative source
+      // for cross-album / cross-artist taxon nav (graph viz).
+      //
+      // dedup happens via the `by_remote_kind_slug` unique index, so
+      // re-running the migration would be idempotent if the store
+      // already exists.
+      if (oldVersion < 13 && db.objectStoreNames.contains(STORE_SONGS)) {
+        const songsStore = tx.objectStore(STORE_SONGS);
+        const taxonsStore = tx.objectStore(STORE_TAXONS);
+        const albumTaxonsStore = tx.objectStore(STORE_ALBUM_TAXONS);
+        const taxonsByDedup = taxonsStore.index("by_remote_kind_slug");
+        const slugify = (s: string) =>
+          s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        const now = Date.now();
+        // (album_id, taxon_id) we've already linked in this run; avoids
+        // an extra .get() roundtrip per song.
+        const linked = new Set<string>();
+        let cursor = await songsStore.openCursor();
+        while (cursor) {
+          const song = cursor.value as Record<string, unknown>;
+          const albumId = song.album_id as string | undefined;
+          const refs = song.album_taxons as
+            | Array<{ id: string; kind_slug: string; label: string }>
+            | undefined;
+          if (albumId && refs && refs.length > 0) {
+            for (const ref of refs) {
+              const kindSlug = ref.kind_slug || "genre";
+              const labelSlug = slugify(ref.label || ref.id);
+              if (!labelSlug) continue;
+              const dedupKey: [string, string, string] = [
+                LOCAL_TAXON_REMOTE_ID,
+                kindSlug,
+                labelSlug,
+              ];
+              let existing = await taxonsByDedup.get(dedupKey);
+              if (!existing) {
+                const row = {
+                  taxon_id: ref.id || crypto.randomUUID(),
+                  remote_id: LOCAL_TAXON_REMOTE_ID,
+                  kind_slug: kindSlug,
+                  label: ref.label,
+                  slug: labelSlug,
+                  created_at: now,
+                  updated_at: now,
+                };
+                await taxonsStore.put(row);
+                existing = row;
+              }
+              const taxonId = (existing as { taxon_id: string }).taxon_id;
+              const linkKey = `${albumId}::${taxonId}`;
+              if (!linked.has(linkKey)) {
+                linked.add(linkKey);
+                await albumTaxonsStore.put({
+                  album_id: albumId,
+                  taxon_id: taxonId,
+                  remote_id: LOCAL_TAXON_REMOTE_ID,
+                  created_at: now,
+                });
+              }
+            }
+          }
           cursor = await cursor.continue();
         }
       }

@@ -21,10 +21,6 @@ export interface BuildWalkGraphInput {
   favoriteSongAlbumIds?: Map<string, Set<string>>;
   /** bare artist ids (from song favorites) per remote, unioned with artist.isFavorite */
   favoriteSongArtistIds?: Map<string, Set<string>>;
-  /** bare album ids "beloved" by any user on this remote (server-side aggregate). */
-  belovedAlbumIdsByRemote?: Map<string, Set<string>>;
-  /** bare artist ids "beloved" by any user on this remote (server-side aggregate). */
-  belovedArtistIdsByRemote?: Map<string, Set<string>>;
   /** which remoteIds correspond to the local charnel-managed sidecar.
    *  the renderer draws a home-icon glyph next to those remote-hub labels. */
   charnelManagedRemoteIds?: Set<string>;
@@ -146,30 +142,11 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
     }
 
     // ---- beloved hub (all-users favorites aggregate) -----------------------
-    // server-side endpoint `/api/favorites/beloved` returns the distinct
-    // union of album/artist ids favorited by any user on this remote
-    // (direct + song-derived). emit only when at least one id is known.
-    {
-      const belovedAlbums = input.belovedAlbumIdsByRemote?.get(remoteId) ?? new Set<string>();
-      const belovedArtists = input.belovedArtistIdsByRemote?.get(remoteId) ?? new Set<string>();
-      if (belovedAlbums.size > 0 || belovedArtists.size > 0) {
-        const belHubId = relationHubId(remoteId, "beloved");
-        nodes.push({
-          id: belHubId,
-          role: "relation",
-          label: "beloved",
-          parentId: rhId,
-          childCount: belovedAlbums.size + belovedArtists.size,
-        });
-        edges.push({ source: rhId, target: belHubId });
-        for (const bareArtistId of belovedArtists) {
-          edges.push({ source: belHubId, target: artistNodeId(remoteId, bareArtistId) });
-        }
-        for (const bareAlbumId of belovedAlbums) {
-          edges.push({ source: belHubId, target: albumNodeId(remoteId, bareAlbumId) });
-        }
-      }
-    }
+    // moved out: seeded lazily by createPivotHandler's
+    // maybeLoadBelovedForPivot when the remote hub (or the beloved
+    // relation hub) becomes the pivot. emitting it here would surface
+    // an empty hub on libraries with no favorites; lazy loader only
+    // attaches the hub once the server returns at least one id.
 
     // ---- relation hubs --------------------------------------------------
     // moved out: hubs are now seeded by LibraryGraphSubview from

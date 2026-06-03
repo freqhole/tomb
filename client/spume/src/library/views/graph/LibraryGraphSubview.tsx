@@ -34,6 +34,10 @@ import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { useTopNavSlots } from "../../../app/shell/topNavSlots";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { RemoteAlbumsLoader } from "./graphSubview/RemoteAlbumsLoader";
+import { LocalAlbumsLoader, LOCAL_GRAPH_REMOTE_ID } from "./graphSubview/LocalAlbumsLoader";
+import { getLocalLibraryName } from "../../../app/services/storage/db";
+import { isCharnelMode } from "../../../app/services/charnel/mode";
+import { listFavoritedSongAlbumArtistIds } from "../../../music/services/storage/db";
 import { pickPrimaryImage, buildImageUrls, fetchAlbumSongs } from "./graphSubview/helpers";
 import { useArtistClusterIndex } from "./graphSubview/useArtistClusterIndex";
 import {
@@ -127,25 +131,16 @@ export interface LibraryGraphSubviewProps {
 // ---- outer shell ------------------------------------------------------------
 
 export function LibraryGraphSubview(props: LibraryGraphSubviewProps) {
+  // local indexeddb library always contributes a synthetic "local"
+  // hub, so the explore view renders even when no peer remotes are
+  // configured. peer remotes (when present) layer alongside it.
   return (
-    <Show
-      when={props.remotes.length > 0}
-      fallback={
-        <div
-          class="h-full flex items-center justify-center text-[var(--color-text-disabled)] text-xs"
-          data-testid="library-graph-placeholder"
-        >
-          <span>select one or more remotes to load albums</span>
-        </div>
-      }
-    >
-      <Inner
-        remotes={() => props.remotes}
-        isActive={props.isActive}
-        bulkTagMode={props.bulkTagMode}
-        extraTools={props.extraTools}
-      />
-    </Show>
+    <Inner
+      remotes={() => props.remotes}
+      isActive={props.isActive}
+      bulkTagMode={props.bulkTagMode}
+      extraTools={props.extraTools}
+    />
   );
 }
 
@@ -201,11 +196,6 @@ function Inner(props: {
   const [favSongAlbumIds, setFavSongAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
   const [favSongArtistIds, setFavSongArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
   const favSongLoadedRemotes = new Set<string>();
-  // per-remote "beloved" (all-users favorites aggregate) ids — fetched
-  // via listBeloved(). drives the pink beloved hub in buildWalkGraph.
-  const [belovedAlbumIds, setBelovedAlbumIds] = createSignal<Map<string, Set<string>>>(new Map());
-  const [belovedArtistIds, setBelovedArtistIds] = createSignal<Map<string, Set<string>>>(new Map());
-  const belovedLoadedRemotes = new Set<string>();
   // per-remote artist-image cache: artist_id -> primary ImageMetadata.
   // populated lazily on first activation via query_artists; lets the
   // artist graph nodes (deriveArtistNodes only sees albums) and the
@@ -327,9 +317,16 @@ function Inner(props: {
     return added;
   };
 
-  // prune stale remotes when the provided list changes
+  // prune stale remotes when the provided list changes. the synthetic
+  // "local" hub is always part of the active set so its bookkeeping
+  // (nodesByRemote, fetching flags, lazy-load caches) survives peer
+  // remote churn. tauri/charnel mode hides the synthetic local hub
+  // entirely (the charnel sidecar already provides a real local-library
+  // remote), so we skip seeding it there.
+  const includeLocalHub = !isCharnelMode();
   createEffect(() => {
     const active = new Set(props.remotes().map((r) => r.remote_id));
+    if (includeLocalHub) active.add(LOCAL_GRAPH_REMOTE_ID);
     setNodesByRemote((prev) => {
       let changed = false;
       const next = new Map(prev);
@@ -517,30 +514,24 @@ function Inner(props: {
     }
   };
 
-  // fetch "beloved" (all-users favorites aggregate) ids for a remote.
-  // backend returns the distinct union of album/artist ids favorited
-  // by any user (direct + song-derived). drives the pink beloved hub.
-  const loadBelovedForRemote = async (remote: Remote): Promise<void> => {
-    if (belovedLoadedRemotes.has(remote.remote_id)) return;
-    belovedLoadedRemotes.add(remote.remote_id);
+  // local twin: aggregate song favorite ids from indexeddb so the
+  // synthetic "local" favorites hub includes song-derived albums and
+  // artists (not just direct album.is_favorite / artist.is_favorite).
+  const loadFavoriteSongsForLocal = async (): Promise<void> => {
     try {
-      const client = await getClientForRemote(remote);
-      const result = await client.music.listBeloved({});
-      if (!result.success || !result.data) return;
-      const albumIds = new Set<string>(result.data.album_ids);
-      const artistIds = new Set<string>(result.data.artist_ids);
-      setBelovedAlbumIds((prev) => {
+      const { album_ids, artist_ids } = await listFavoritedSongAlbumArtistIds();
+      setFavSongAlbumIds((prev) => {
         const next = new Map(prev);
-        next.set(remote.remote_id, albumIds);
+        next.set(LOCAL_GRAPH_REMOTE_ID, album_ids);
         return next;
       });
-      setBelovedArtistIds((prev) => {
+      setFavSongArtistIds((prev) => {
         const next = new Map(prev);
-        next.set(remote.remote_id, artistIds);
+        next.set(LOCAL_GRAPH_REMOTE_ID, artist_ids);
         return next;
       });
     } catch (err) {
-      console.warn("beloved fetch failed", { remoteId: remote.remote_id, err });
+      console.warn("local song favorites fetch failed", { err });
     }
   };
 
@@ -596,6 +587,51 @@ function Inner(props: {
       }
     } catch (err) {
       console.warn("taxon kinds fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
+  // local-source twin of loadTaxonKindsForRemote. shape-matches the
+  // peer loader so the hub-seeding flow (skip empties, lazy nodes,
+  // taxonKindMetaByHub) stays consistent between local and remote
+  // sources.
+  const loadTaxonKindsForLocal = async (): Promise<void> => {
+    try {
+      const { localTaxonomyClient } =
+        await import("../../../music/services/local-api/localTaxonomyClient");
+      const result = await localTaxonomyClient.music.listTaxonKinds();
+      if (!result.success || !result.data) return;
+      const remoteId = LOCAL_GRAPH_REMOTE_ID;
+      const rhId = remoteHubId(remoteId);
+      const SKIP_SLUGS = new Set(["favorite", "favorites", "beloved"]);
+      const addNodes: WalkNode[] = [];
+      const addEdges: WalkEdge[] = [];
+      for (const kind of result.data) {
+        if (kind.value_type !== "categorical") continue;
+        if (SKIP_SLUGS.has(kind.slug)) continue;
+        if (!kind.album_count || kind.album_count <= 0) continue;
+        const id = relationHubId(remoteId, kind.slug);
+        addNodes.push({
+          id,
+          role: "relation",
+          label:
+            kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
+          parentId: rhId,
+          childCount: kind.album_count,
+          lazy: true,
+          tint: kind.color ?? undefined,
+        });
+        addEdges.push({ source: rhId, target: id });
+        taxonKindMetaByHub.set(id, {
+          label:
+            kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
+          color: kind.color ?? null,
+        });
+      }
+      if (addNodes.length > 0 || addEdges.length > 0) {
+        walkerClient()?.merge(addNodes, addEdges);
+      }
+    } catch (err) {
+      console.warn("local taxon kinds fetch failed", { err });
     }
   };
 
@@ -688,28 +724,34 @@ function Inner(props: {
     // the canvas reflects the editing scope and cross-remote clustering is
     // suppressed (the worker's linkGroup needs >=2 distinct remotes).
     const active = editingRemoteId();
-    const remoteIds = active
-      ? props
-          .remotes()
-          .filter((r) => r.remote_id === active)
-          .map((r) => r.remote_id)
-      : props.remotes().map((r) => r.remote_id);
+    // peer remotes, plus the synthetic "local" hub. edit-mode
+    // scope-locks to a single remote; local isn't editable through
+    // the graph today so the lock simply excludes it.
+    const peerIds = props.remotes().map((r) => r.remote_id);
+    let remoteIds: string[];
+    if (active) {
+      remoteIds = peerIds.filter((id) => id === active);
+    } else if (includeLocalHub) {
+      remoteIds = [LOCAL_GRAPH_REMOTE_ID, ...peerIds];
+    } else {
+      remoteIds = peerIds;
+    }
     if (remoteIds.length === 0) return null;
+    const remoteNames = new Map<string, string>(props.remotes().map((r) => [r.remote_id, r.name]));
+    if (includeLocalHub) remoteNames.set(LOCAL_GRAPH_REMOTE_ID, getLocalLibraryName());
     return buildWalkGraph({
       remoteIds,
       albumsByRemote: byRemote,
       artistsByRemote: artistsByRemote(),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
-      belovedAlbumIdsByRemote: belovedAlbumIds(),
-      belovedArtistIdsByRemote: belovedArtistIds(),
       charnelManagedRemoteIds: new Set(
         props
           .remotes()
           .filter((r) => !!r.is_charnel_managed)
           .map((r) => r.remote_id)
       ),
-      remoteNamesById: new Map(props.remotes().map((r) => [r.remote_id, r.name])),
+      remoteNamesById: remoteNames,
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -2485,13 +2527,16 @@ function Inner(props: {
     if (tick !== favSongLastResetTick) {
       favSongLastResetTick = tick;
       for (const r of online) favSongLoadedRemotes.delete(r.remote_id);
-      for (const r of online) belovedLoadedRemotes.delete(r.remote_id);
+      if (includeLocalHub) favSongLoadedRemotes.delete(LOCAL_GRAPH_REMOTE_ID);
     }
     for (const remote of online) {
       if (favSongLoadedRemotes.has(remote.remote_id)) continue;
       favSongLoadedRemotes.add(remote.remote_id);
       void loadFavoriteSongsForRemote(remote);
-      void loadBelovedForRemote(remote);
+    }
+    if (includeLocalHub && !favSongLoadedRemotes.has(LOCAL_GRAPH_REMOTE_ID)) {
+      favSongLoadedRemotes.add(LOCAL_GRAPH_REMOTE_ID);
+      void loadFavoriteSongsForLocal();
     }
   });
 
@@ -2533,6 +2578,28 @@ function Inner(props: {
       void loadTaxonKindsForRemote(remote);
     }
   });
+
+  // local twin of the peer taxon-kinds seed effect. uses the same
+  // dedup set keyed by LOCAL_GRAPH_REMOTE_ID and re-fires on worker
+  // reset (mergeResetTick advance) so local hubs reappear after a
+  // remote-set change wipes the worker. skipped in charnel/tauri mode
+  // where the synthetic local hub is hidden.
+  createEffect(() => {
+    mergeResetTick(); // subscribe; reset handled by the peer loop above
+    if (!includeLocalHub) return;
+    if (!taxonKindsLoadedRemotes.has(LOCAL_GRAPH_REMOTE_ID)) {
+      taxonKindsLoadedRemotes.add(LOCAL_GRAPH_REMOTE_ID);
+      void loadTaxonKindsForLocal();
+    }
+  });
+  // ensure local is purged from the dedup set on every reset so the
+  // effect above can refire. has to happen in the same effect that
+  // drains peer remotes; piggyback there.
+  createEffect((prev: number) => {
+    const tick = mergeResetTick();
+    if (tick !== prev && includeLocalHub) taxonKindsLoadedRemotes.delete(LOCAL_GRAPH_REMOTE_ID);
+    return tick;
+  }, 0);
 
   // offline-aware lookups for WalkCanvas. nodes for offline remotes (and
   // their entire subtree) get drawn dimmed so the user sees "this server is
@@ -2751,6 +2818,13 @@ function Inner(props: {
 
   return (
     <div class="h-full flex flex-col">
+      <Show when={includeLocalHub}>
+        <LocalAlbumsLoader
+          search={searchQuery}
+          onNodes={setNodesFor}
+          onFetchingChange={setFetchingFor}
+        />
+      </Show>
       <For each={onlineRemotes()}>
         {(r) => (
           <RemoteAlbumsLoader

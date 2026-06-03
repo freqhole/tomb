@@ -22,8 +22,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { getRemoteClient } from "../../music/data";
-import type { ApiClient } from "../../app/api/client";
+import { getTaxonomyClient, type TaxonomyClient } from "../../music/data";
 import type { TaxonRef } from "../../music/data/types";
 import { Icon, IconNames } from "../icons/registry";
 
@@ -37,7 +36,7 @@ export interface TaxonAutocompleteProps {
    *  the current global active remote via `getRemoteClient()`. callers
    *  that operate on a specific remote (e.g. the graph edit panel)
    *  must pass this — the global active remote is otherwise null. */
-  apiClient?: ApiClient | null;
+  apiClient?: TaxonomyClient | null;
   /** invoked when the user picks an existing taxon. */
   onSelect: (taxon: TaxonRef) => void;
   /** invoked when the user hits enter on a label that has no exact
@@ -82,7 +81,7 @@ export function TaxonAutocomplete(props: TaxonAutocompleteProps) {
       explicit: props.apiClient,
     }),
     async ({ q, kind, limit, explicit }) => {
-      const client = explicit ?? (await getRemoteClient());
+      const client = explicit ?? (await getTaxonomyClient());
       if (!client) return [] as TaxonRef[];
       const resp = await client.music.queryTaxons({
         kind_slug: kind,
