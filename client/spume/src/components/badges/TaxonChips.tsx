@@ -17,6 +17,7 @@
 
 import { For, Show } from "solid-js";
 import type { TaxonRef } from "../../music/services/storage/types";
+import { formatTaxonLabel } from "../../music/utils/format";
 
 export interface TaxonChipsProps {
   taxons: TaxonRef[] | null | undefined;
@@ -100,12 +101,13 @@ export function TaxonChipList(props: Omit<TaxonChipsProps, "class">) {
         const interactive = props.onTaxonClick
           ? "transition-colors hover:bg-[var(--color-bg-hover)] cursor-pointer"
           : "";
+        const niceLabel = formatTaxonLabel(taxon.label);
         const content = (
           <>
             <Show when={taxon.kind_slug !== "genre"}>
               <span class="opacity-60 mr-1">{taxon.kind_slug}·</span>
             </Show>
-            {taxon.label}
+            {niceLabel}
           </>
         );
         return props.onTaxonClick ? (
@@ -113,12 +115,12 @@ export function TaxonChipList(props: Omit<TaxonChipsProps, "class">) {
             type="button"
             class={`${baseClasses} ${interactive}`}
             onClick={() => props.onTaxonClick?.(taxon)}
-            title={`${taxon.kind_slug}: ${taxon.label}`}
+            title={`${taxon.kind_slug}: ${niceLabel}`}
           >
             {content}
           </button>
         ) : (
-          <span class={baseClasses} title={`${taxon.kind_slug}: ${taxon.label}`}>
+          <span class={baseClasses} title={`${taxon.kind_slug}: ${niceLabel}`}>
             {content}
           </span>
         );

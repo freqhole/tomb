@@ -25,6 +25,7 @@ import type { Song } from "../services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import { formatTaxonLabel } from "../utils/format";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
@@ -377,7 +378,7 @@ export function AlbumDetailView() {
                         >
                           {(genre) => (
                             <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
-                              {genre.label}
+                              {formatTaxonLabel(genre.label)}
                             </span>
                           )}
                         </For>

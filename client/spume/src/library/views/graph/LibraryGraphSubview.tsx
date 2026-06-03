@@ -1924,23 +1924,16 @@ function Inner(props: {
 
   // ---- topnav slots --------------------------------------------------
 
-  const isRefetching = () => {
-    for (const v of fetchingByRemote().values()) {
-      if (v) return true;
-    }
-    return false;
-  };
-
   createEffect(() => {
     const depth = breadcrumbDepth();
     const topNavTools = (
       <GraphTopNavTools
         onBack={depth > 1 ? () => walkApi()?.back() : undefined}
         onFit={() => walkApi()?.fit()}
-        onResetWalk={() => walkApi()?.resetWalk()}
-        onResetView={() => walkApi()?.resetView()}
-        onRefetch={() => void queryClient.invalidateQueries({ queryKey: ["library-albums"] })}
-        isRefetching={isRefetching}
+        onResetWalk={() => {
+          walkApi()?.resetWalk();
+          void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
+        }}
         extra={props.extraTools}
       />
     );
@@ -1972,7 +1965,7 @@ function Inner(props: {
 
   // mount the cross-remote graph search container into the topnav's
   // search slot exactly once. kept out of the tools/secondary-row effect
-  // above so reactive deps there (breadcrumbDepth, isRefetching,
+  // above so reactive deps there (breadcrumbDepth,
   // bulkTagMode) don't remount this component and blow away its internal
   // searchValue signal on every pivot. aggregates suggestions across
   // every online remote; a row click / enter pivots the library walker

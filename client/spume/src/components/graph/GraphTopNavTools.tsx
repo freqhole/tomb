@@ -1,7 +1,7 @@
 // inline horizontal cluster of graph controls designed to live in the
-// topnav's right-side icon row. exposes fit, reset-walk, refresh, and
-// (conditionally) back. the refresh button is dual-action: tap = reset
-// view position, long-press = refetch data.
+// topnav's right-side icon row. exposes fit, reset-walk, and
+// (conditionally) back. reset-walk also refetches — the caller wires
+// the refetch into its onResetWalk handler.
 //
 // note: the per-kind relation picker (filter + strength chips) used to
 // live here. it's been removed — relation kinds are always all
@@ -15,8 +15,6 @@ import { createSignal, onCleanup, onMount, type JSX, Show } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
 import { isNarrowViewport } from "../../config/breakpoints";
 
-const LONG_PRESS_MS = 450;
-
 export interface GraphTopNavToolsProps {
   /** called when the user taps the back arrow (gated: only shown when provided) */
   onBack?: () => void;
@@ -24,12 +22,6 @@ export interface GraphTopNavToolsProps {
   onFit?: () => void;
   /** called when the user taps the reset-walk button */
   onResetWalk?: () => void;
-  /** called when the user short-presses the refresh button (reset view position only) */
-  onResetView?: () => void;
-  /** called when the user long-presses the refresh button (refetch data) */
-  onRefetch?: () => void;
-  /** when true, dims the refresh button to indicate an in-flight refetch */
-  isRefetching?: () => boolean;
 
   /** optional trailing slot — rendered after the last control on
    *  the right edge of the cluster. used by LibraryGraphSubview to
@@ -76,18 +68,8 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
       <Show when={props.onResetWalk}>
         <IconBtn
           icon="home"
-          label="reset walk to root"
+          label="reset graph"
           onClick={props.onResetWalk}
-          sizeClass={btnSize()}
-          iconPx={iconPx()}
-        />
-      </Show>
-
-      <Show when={props.onResetView || props.onRefetch}>
-        <RefreshButton
-          onResetView={props.onResetView}
-          onRefetch={props.onRefetch}
-          isRefetching={props.isRefetching}
           sizeClass={btnSize()}
           iconPx={iconPx()}
         />
@@ -123,73 +105,6 @@ function IconBtn(props: {
       aria-pressed={props.active}
     >
       {props.children ?? <Icon name={props.icon} size={props.iconPx ?? 14} />}
-    </button>
-  );
-}
-
-// dual-action refresh button: tap = reset view position, long-press = refetch data.
-function RefreshButton(props: {
-  onResetView?: () => void;
-  onRefetch?: () => void;
-  isRefetching?: () => boolean;
-  sizeClass?: string;
-  iconPx?: number;
-}) {
-  let timerId: ReturnType<typeof setTimeout> | null = null;
-  let fired = false;
-
-  const cancel = () => {
-    if (timerId !== null) {
-      clearTimeout(timerId);
-      timerId = null;
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      class={`inline-flex items-center justify-center ${props.sizeClass ?? "w-7 h-7"} rounded transition-colors border-none bg-transparent cursor-pointer flex-shrink-0`}
-      classList={{
-        "text-white/35 pointer-events-none": props.isRefetching?.() ?? false,
-        "text-white/65 hover:text-white hover:bg-white/10": !(props.isRefetching?.() ?? false),
-      }}
-      title="refresh (hold for refetch)"
-      aria-label="refresh"
-      onPointerDown={(e) => {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        fired = false;
-        timerId = setTimeout(() => {
-          fired = true;
-          timerId = null;
-          props.onRefetch?.();
-        }, LONG_PRESS_MS);
-        e.preventDefault();
-      }}
-      onPointerUp={() => {
-        cancel();
-        if (!fired) {
-          props.onResetView?.();
-        }
-        fired = false;
-      }}
-      onPointerCancel={() => {
-        cancel();
-        fired = false;
-      }}
-    >
-      <svg
-        width={props.iconPx ?? 14}
-        height={props.iconPx ?? 14}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <polyline points="23 4 23 10 17 10" />
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-      </svg>
     </button>
   );
 }

@@ -1528,7 +1528,13 @@ export function TopNav(props: TopNavProps) {
                 live to the right of the icon row, just before the search
                 input. used e.g. by the library graph view to host its
                 zoom/tool/relations cluster inline in the topnav. */}
-            <Show when={props.rightContent && !(isNarrow() && isMainMenuOpen())}>
+            <Show
+              when={
+                props.rightContent &&
+                !(isNarrow() && isMainMenuOpen()) &&
+                !(isNarrow() && searchExpanded())
+              }
+            >
               <div class="flex-shrink-0 order-2 flex items-center">{props.rightContent}</div>
             </Show>
 
