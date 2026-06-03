@@ -167,6 +167,7 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       state.fullGraph = msg.graph;
       state.width = msg.width;
       state.height = msg.height;
+      state.pinned = new Set<string>();
       indexGraph();
 
       if (msg.breadcrumb && msg.breadcrumb.length > 0) {
@@ -314,6 +315,12 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
 
     case "setHidden": {
       state.hidden = new Set(msg.nodeIds);
+      buildSim();
+      break;
+    }
+
+    case "setPinned": {
+      state.pinned = new Set(msg.nodeIds);
       buildSim();
       break;
     }

@@ -170,6 +170,15 @@ export interface MsgCollapseSubtrees {
   type: "collapseSubtrees";
 }
 
+/** pin a set of node ids so they (and every ancestor on the path back
+ *  to root) stay visible regardless of where the breadcrumb pivot is.
+ *  used by search to keep all hits on-screen while the user drills
+ *  into a single one. pass an empty array to clear. */
+export interface MsgSetPinned {
+  type: "setPinned";
+  nodeIds: string[];
+}
+
 export type MainToWorker =
   | MsgBack
   | MsgExpand
@@ -184,6 +193,7 @@ export type MainToWorker =
   | MsgResize
   | MsgSetHidden
   | MsgSetPaused
+  | MsgSetPinned
   | MsgSetTuning;
 
 // ---- worker → main ---------------------------------------------------------

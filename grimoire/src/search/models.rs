@@ -35,13 +35,23 @@ pub enum SuggestionType {
     Artist,
     Album,
     Song,
-    Genre,
+    // FEDERATION-COMPAT-LEGACY-GENRE-TYPE
+    // emitted on the wire as "taxon". the `alias = "genre"` accepts
+    // legacy `"genre"` payloads from peers that haven't upgraded past
+    // the rename of this variant. remove the alias (and every other
+    // line tagged FEDERATION-COMPAT-LEGACY-GENRE-TYPE in the repo)
+    // once all peers are upgraded.
+    #[serde(alias = "genre")]
+    Taxon,
     Playlist,
 }
 
 impl ZodSchemaTrait for SuggestionType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("genre"), z.literal("playlist")])"#.to_string()
+        // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: the zod union accepts
+        // both "taxon" (current) and "genre" (legacy from older
+        // peers) so client validation doesn't reject legacy payloads.
+        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")])"#.to_string()
     }
 }
 

@@ -7,6 +7,7 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { fn } from "storybook/test";
 import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 
 const meta: Meta<typeof WalkCanvas> = {
@@ -19,11 +20,12 @@ const meta: Meta<typeof WalkCanvas> = {
   // explicit spies for every optional callback prop so storybook 8+ doesn't
   // warn about "implicit action args during render". every story inherits
   // these via args merging; override per-story if a callback needs real
-  // behavior.
+  // behavior. `driver` is required; stories share a single per-render
+  // walker driver instance.
   args: {
+    driver: createWalkerDriver(),
     onSelect: fn(),
     onPivot: fn(),
-    onClientReady: fn(),
     onReady: fn(),
     onBreadcrumbChange: fn(),
     interceptClick: fn(),

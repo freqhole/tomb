@@ -18,6 +18,7 @@ import { TopNavSearch } from "../src/components/navigation/TopNavSearch";
 import { PlayerBar } from "../src/components/player/PlayerBar";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
@@ -83,6 +84,8 @@ export const FullAppDemo: Story = {
     // navigation state
     const [currentRoute, setCurrentRoute] = createSignal<Route>("library");
     const [_topNavOpen, setTopNavOpen] = createSignal(false);
+    // single walker driver shared by the embedded library WalkCanvas
+    const superStoryDriver = createWalkerDriver();
 
     // player state
     const [currentSong, setCurrentSong] = createSignal<Song | null>(generatedSongs[0]);
@@ -929,7 +932,7 @@ export const FullAppDemo: Story = {
           // live data; here we just want a representative visual.
           return (
             <div class="flex-1 relative bg-black overflow-hidden">
-              <WalkCanvas graph={MOCK_GRAPH} initialPivot="root" />
+              <WalkCanvas graph={MOCK_GRAPH} initialPivot="root" driver={superStoryDriver} />
             </div>
           );
         case "songs":

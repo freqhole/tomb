@@ -28,6 +28,11 @@ export interface WalkerClient {
    *  in the visible set so the sim re-lays out without them. pass an
    *  empty array to clear. breadcrumb nodes are never hidden. */
   setHidden(nodeIds: string[]): void;
+  /** pin a set of nodes so they stay visible regardless of the pivot.
+   *  every ancestor on the path back to root is walked-in by the
+   *  worker so each pinned node draws with its full chain. pass an
+   *  empty array to clear. */
+  setPinned(nodeIds: string[]): void;
   repivot(nodeId: string, resetBreadcrumb?: boolean): void;
   setPaused(paused: boolean): void;
   /** debug overlay — push partial tuning patch to the worker. */
@@ -129,6 +134,9 @@ export function createWalkerClient(): WalkerClient {
     },
     setHidden(nodeIds) {
       post({ type: "setHidden", nodeIds });
+    },
+    setPinned(nodeIds) {
+      post({ type: "setPinned", nodeIds });
     },
     repivot(nodeId, resetBreadcrumb) {
       post({ type: "repivot", nodeId, resetBreadcrumb });

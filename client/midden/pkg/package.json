@@ -2,7 +2,7 @@
   "name": "midden",
   "type": "module",
   "description": "WASM bindings for freqhole P2P client (iroh-based)",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "files": [
     "midden_bg.wasm",
     "midden.js",

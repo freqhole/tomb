@@ -69,6 +69,12 @@ export const state: {
   /** node ids the host has marked hidden (e.g. filtered-out taxons in
    *  edit mode). breadcrumb nodes are never hidden even if listed here. */
   hidden: Set<string>;
+  /** node ids force-shown regardless of pivot. every ancestor on the
+   *  path back to root is walked-in automatically so each pinned node
+   *  draws with its full chain. cleared on `init` and via
+   *  `setPinned([])`. used by the search seed to keep all hits visible
+   *  while the user drills into a single one. */
+  pinned: Set<string>;
   /** node ids whose immediate child subtree (children + their album
    *  children for any artist child) should be force-shown in addition to
    *  normal pivot-based visibility. populated by `expandSubtree` msgs;
@@ -83,6 +89,7 @@ export const state: {
   sim: null,
   paused: false,
   hidden: new Set<string>(),
+  pinned: new Set<string>(),
   eagerExpansions: new Set<string>(),
   tuning: { ...DEFAULT_SIM_TUNING },
 };

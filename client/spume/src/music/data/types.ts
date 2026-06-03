@@ -145,11 +145,15 @@ export interface ListFavoritesParams {
   offset?: number;
 }
 
-// search suggestion types
+// search suggestion types. `"genre"` is FEDERATION-COMPAT-LEGACY-GENRE-TYPE:
+// kept as an accepted wire value so payloads from peers that haven't
+// upgraded past the rename still validate. new code should emit
+// `"taxon"` and switch on both when consuming.
 export type SuggestionType =
   | "artist"
   | "album"
   | "song"
+  | "taxon"
   | "genre"
   | "playlist";
 

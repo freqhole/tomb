@@ -48,12 +48,33 @@ pub struct GrimoireConfig {
     /// background job processor configuration (concurrency, etc.)
     #[serde(default)]
     pub jobs: JobsConfig,
+    /// native audio backend tuning (rodio/cpal). all fields optional;
+    /// omit the whole section to accept defaults.
+    #[serde(default)]
+    pub audio: AudioConfig,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
     /// back to disk without re-running cwd-based config discovery.
     #[serde(default, skip)]
     pub loaded_from: Option<PathBuf>,
+}
+
+/// native audio backend (rodio/cpal) tuning. used by the
+/// `rodio-playback` feature; ignored when the feature is off. all
+/// fields are optional — omit the `[audio]` section to accept the
+/// built-in defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AudioConfig {
+    /// linux-only: cpal output period size, in frames. raise on
+    /// pipewire/pulseaudio systems that still glitch under load
+    /// (vm guests, busy desktops). when unset, the backend uses
+    /// 2048 (~43ms @ 48k). try 4096 or 8192 if 2048 still stutters;
+    /// each doubling roughly doubles output latency but adds
+    /// proportional headroom against scheduler jitter. ignored on
+    /// macos / windows.
+    #[serde(default)]
+    pub linux_buffer_frames: Option<u32>,
 }
 
 /// Database configuration
@@ -809,6 +830,7 @@ pub fn init_config_for_tests() {
         radio: None,
         client: None,
         jobs: JobsConfig::default(),
+        audio: AudioConfig::default(),
         loaded_from: None,
     };
     match CONFIG.get() {
@@ -1691,6 +1713,7 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 
@@ -1735,6 +1758,7 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 
@@ -1777,6 +1801,7 @@ mod tests {
             radio: None,
             client: None,
             jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 

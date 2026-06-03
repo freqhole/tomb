@@ -235,6 +235,24 @@ export function getVisible(): Set<string> {
       }
     }
   }
+  // pinned nodes (search-result anchors) stay visible regardless of
+  // pivot. walk every ancestor up to root so each pin draws with its
+  // full chain (root -> remote -> [relation -> value] | artist | album).
+  for (const pinId of state.pinned) {
+    if (!nodeMap.has(pinId)) continue;
+    visible.add(pinId);
+    const stack: string[] = [pinId];
+    const seen = new Set<string>([pinId]);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const parentId of parentsOf.get(cur) ?? []) {
+        if (seen.has(parentId)) continue;
+        seen.add(parentId);
+        visible.add(parentId);
+        stack.push(parentId);
+      }
+    }
+  }
   // surface the taxon-hub (relation node) for every visible value, so users
   // can see at a glance which kind a value belongs to and have a launch point
   // back into that taxon. the forward relation→value edge already exists in

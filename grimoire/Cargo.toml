@@ -63,9 +63,18 @@ tracing-subscriber = "0.3"
 
 # native audio playback (rodio cargo feature). gated because cross-
 # compile targets without alsa/coreaudio/wasapi can't link cpal.
-rodio = { version = "0.20", default-features = false, features = [
+rodio = { version = "0.22", default-features = false, features = [
+    "playback",
     "symphonia-all",
+    "tracing",
 ], optional = true }
+# direct cpal dep so we can set `BufferSize::Fixed` explicitly. on
+# linux this is the consensus fix for pipewire/pulseaudio underruns
+# under gui load (see rodio#827); 2048 frames @ 48k is ~43ms with
+# plenty of headroom. note: cpal 0.17 (rodio 0.22's pinned cpal) has
+# no `pulseaudio` feature yet \u2014 that lands in cpal 0.18 / rodio 0.23.
+# once rodio publishes against cpal 0.18 we should enable it here.
+cpal = { version = "0.17", default-features = false, optional = true }
 
 # api codegen support
 zod_gen = "1.0"
@@ -78,7 +87,7 @@ webauthn = ["webauthn-rs"]
 vendored-openssl = ["openssl"]
 # rodio audio backend (uses cpal). disable for headless / cross-
 # compile targets without an audio system available at link time.
-rodio-playback = ["dep:rodio"]
+rodio-playback = ["dep:rodio", "dep:cpal"]
 
 [dependencies.webauthn-rs]
 workspace = true

@@ -19,6 +19,7 @@ import { playQueue } from "../services/queue/queue";
 import { useAlbumContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import { formatTaxonLabel } from "../utils/format";
 import { formatLongDuration } from "../../utils/formatDuration";
 import { Icon } from "../../components/icons/registry";
 import { AlbumsTable } from "../../library/components/AlbumsTable";
@@ -131,11 +132,13 @@ export function AlbumsView(props: AlbumsViewProps) {
     return allAlbums.map((album) => {
       // format genres (GenreRef[] -> string), augmented with non-genre
       // taxons (label, mood, era, ...) so cross-kind classification is
-      // visible at a glance in the grid.
-      const genreNames = (album.genres || []).map((g) => g.name);
+      // visible at a glance in the grid. labels get the standard
+      // underscore-→-space treatment; kind prefix is dropped here
+      // since grid cells are too narrow to spare the chars.
+      const genreNames = (album.genres || []).map((g) => formatTaxonLabel(g.name));
       const otherTaxonLabels = (album.taxons || [])
         .filter((t) => t.kind_slug !== "genre")
-        .map((t) => `${t.kind_slug}·${t.label}`);
+        .map((t) => formatTaxonLabel(t.label));
       const allLabels = [...genreNames, ...otherTaxonLabels];
       const genreText = allLabels.length > 0 ? allLabels.join(" • ") : null;
 

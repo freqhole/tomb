@@ -152,7 +152,6 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
     {
       const belovedAlbums = input.belovedAlbumIdsByRemote?.get(remoteId) ?? new Set<string>();
       const belovedArtists = input.belovedArtistIdsByRemote?.get(remoteId) ?? new Set<string>();
-      console.log("[beloved] buildWalkGraph emit", { remoteId, albums: belovedAlbums.size, artists: belovedArtists.size, hasAlbumMap: !!input.belovedAlbumIdsByRemote, hasArtistMap: !!input.belovedArtistIdsByRemote });
       if (belovedAlbums.size > 0 || belovedArtists.size > 0) {
         const belHubId = relationHubId(remoteId, "beloved");
         nodes.push({

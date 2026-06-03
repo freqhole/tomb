@@ -28,7 +28,7 @@ import {
   onMount,
   type JSX,
 } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { useTopNavSlots } from "../../../app/shell/topNavSlots";
@@ -67,8 +67,10 @@ import { getArtistAbbreviation } from "../../../music/utils/format";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import WalkCanvas from "../../../components/graph/WalkCanvas";
 import type { WalkApi } from "../../../components/graph/WalkCanvas";
-import type { WalkerClient } from "../../../components/graph/worker/client";
+import type { GraphDriver } from "../../../components/graph/drivers/GraphDriver";
+import { createWalkerDriver } from "../../../components/graph/drivers/GraphDriver";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
+import { GraphTopNavSearch } from "./GraphTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
 import {
   rootId,
@@ -79,6 +81,7 @@ import {
   valueNodeId,
   groupNodeId,
   artistNodeId,
+  albumNodeId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
 import type { WalkNode, WalkEdge } from "../../../components/graph/types";
@@ -155,6 +158,7 @@ function Inner(props: {
   extraTools?: JSX.Element;
 }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams<{ graph?: string }>();
   const slots = useTopNavSlots();
   const queryClient = useQueryClient();
   const favoriteMutation = useToggleFavoriteMutation();
@@ -519,24 +523,12 @@ function Inner(props: {
   const loadBelovedForRemote = async (remote: Remote): Promise<void> => {
     if (belovedLoadedRemotes.has(remote.remote_id)) return;
     belovedLoadedRemotes.add(remote.remote_id);
-    console.log("[beloved] loadBelovedForRemote start", { remoteId: remote.remote_id });
     try {
       const client = await getClientForRemote(remote);
       const result = await client.music.listBeloved({});
-      console.log("[beloved] listBeloved result", {
-        remoteId: remote.remote_id,
-        success: result.success,
-        data: (result as any).data,
-        error: (result as any).error,
-      });
       if (!result.success || !result.data) return;
       const albumIds = new Set<string>(result.data.album_ids);
       const artistIds = new Set<string>(result.data.artist_ids);
-      console.log("[beloved] populating signals", {
-        remoteId: remote.remote_id,
-        albums: albumIds.size,
-        artists: artistIds.size,
-      });
       setBelovedAlbumIds((prev) => {
         const next = new Map(prev);
         next.set(remote.remote_id, albumIds);
@@ -724,13 +716,24 @@ function Inner(props: {
   // merges added during the session.
   const lookupNode = (id: string): AlbumNodeData | ArtistNodeData | null =>
     buildResult()?.nodesById.get(id) ?? extraNodesById().get(id) ?? null;
-  // ---- walker client lifecycle ----------------------------------------
+  // ---- graph driver lifecycle ----------------------------------------
   //
-  // WalkCanvas creates and owns the worker. we get a reference via
-  // onClientReady, then manage incremental init/merge from here so
-  // streaming page loads don't restart the sim.
+  // two drivers, eagerly constructed:
+  //   - walkerDriver: worker-backed sim for library mode
+  //     (breadcrumb + one-hub-at-a-time visibility).
+  //   - searchDriver: in-thread d3-force for search mode
+  //     (everything visible; click = pivot ring only).
+  //
+  // ---- driver ------------------------------------------------------
+  // single library walker driver. search hits seed pivots into this
+  // graph by activating the suggestion's remote, ensuring the relation
+  // hub is loaded (for taxon hits), and calling `walkerDriver.repivot`.
 
-  const [walkerClient, setWalkerClient] = createSignal<WalkerClient | null>(null);
+  const walkerDriver: GraphDriver = createWalkerDriver();
+  const walkerClient = (): GraphDriver => walkerDriver;
+  onCleanup(() => {
+    walkerDriver.dispose();
+  });
   const [walkApi, setWalkApi] = createSignal<WalkApi | null>(null);
   const [breadcrumbDepth, setBreadcrumbDepth] = createSignal(1);
   // current breadcrumb id set (root..pivot, unordered). populated by
@@ -759,7 +762,7 @@ function Inner(props: {
     if (!result || result.graph.nodes.length === 0) return;
 
     // detect remote-set change (user added/removed a remote, or edit-
-    // mode scope-lock collapsed/restored the remote list) -> full reset
+    // mode scope-lock collapsed/restored the remote list) -> full reset.
     const remoteKey = result.graph.nodes
       .filter((n) => n.role === "remote")
       .map((n) => n.id)
@@ -803,11 +806,9 @@ function Inner(props: {
     }
   });
 
-  // pause/resume when this subview is hidden
+  // pause/resume when this subview is hidden.
   createEffect(() => {
-    const client = walkerClient();
-    if (!client) return;
-    client.setPaused(!props.isActive());
+    walkerDriver.setPaused(!props.isActive());
   });
 
   // mirror the worker's visible-ids stream into a signal so other
@@ -903,7 +904,6 @@ function Inner(props: {
   });
 
   onCleanup(() => {
-    setWalkerClient(null);
     hadInit = false;
     prevNodeIds.clear();
     prevEdgeKeys.clear();
@@ -1924,23 +1924,16 @@ function Inner(props: {
 
   // ---- topnav slots --------------------------------------------------
 
-  const isRefetching = () => {
-    for (const v of fetchingByRemote().values()) {
-      if (v) return true;
-    }
-    return false;
-  };
-
   createEffect(() => {
     const depth = breadcrumbDepth();
     const topNavTools = (
       <GraphTopNavTools
         onBack={depth > 1 ? () => walkApi()?.back() : undefined}
         onFit={() => walkApi()?.fit()}
-        onResetWalk={() => walkApi()?.resetWalk()}
-        onResetView={() => walkApi()?.resetView()}
-        onRefetch={() => void queryClient.invalidateQueries({ queryKey: ["library-albums"] })}
-        isRefetching={isRefetching}
+        onResetWalk={() => {
+          walkApi()?.resetWalk();
+          void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
+        }}
         extra={props.extraTools}
       />
     );
@@ -1968,9 +1961,31 @@ function Inner(props: {
     } else {
       slots.setSecondaryRowContent(undefined);
     }
+  });
 
-    // search input has no meaning in the graph viz for now; hide it.
-    slots.setHideSearch(true);
+  // mount the cross-remote graph search container into the topnav's
+  // search slot exactly once. kept out of the tools/secondary-row effect
+  // above so reactive deps there (breadcrumbDepth,
+  // bulkTagMode) don't remount this component and blow away its internal
+  // searchValue signal on every pivot. aggregates suggestions across
+  // every online remote; a row click / enter pivots the library walker
+  // to the picked hit via `handlePivotToSuggestion`.
+  createEffect(() => {
+    slots.setHideSearch(false);
+    slots.setSearchContent(
+      <GraphTopNavSearch
+        remotes={() => props.remotes()}
+        onNavigate={(path) => navigate(path)}
+        onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
+        onPivotToSuggestion={(s, primaryRemoteId, all) =>
+          handlePivotToSuggestion(s, primaryRemoteId, all)
+        }
+        onSearchCleared={() => {
+          walkerClient()?.setPinned([]);
+          walkApi()?.resetWalk();
+        }}
+      />
+    );
   });
 
   // ---- event handlers ------------------------------------------------
@@ -2116,6 +2131,267 @@ function Inner(props: {
     pivotHandlerLastResetTick = tick;
     if (tick === 0) return;
     resetMergedState();
+  });
+
+  // search hit -> library walker seed.
+  //
+  // every hit in the current aggregated suggestion list is merged into
+  // the walker with its full ancestor chain (root -> remote -> [relation
+  // -> value] | artist | album) AND pinned via `setPinned` so the whole
+  // set stays visible regardless of where the user navigates to next.
+  // pinned ancestors are walked in by the worker, so we only ship the
+  // leaf ids.
+  //
+  // the picked hit additionally pivots — the walker's normal breadcrumb
+  // / loader behaviour then drives fanout when the user clicks any
+  // visible node (search result or otherwise). collapse + sibling-pivot
+  // semantics are the worker's normal behaviour; pinning just guarantees
+  // the search results don't fall off-screen as the user explores.
+  //
+  // returning true tells the topnav input to suppress its default
+  // route-nav. returning false lets the input fall back (only happens
+  // when we can't map the picked suggestion to a graph node).
+  const ensureTaxonKindsLoaded = async (remoteId: string): Promise<void> => {
+    const remote = props.remotes().find((r) => r.remote_id === remoteId);
+    if (!remote) return;
+    if (offlineByRemote().get(remoteId) === true) return;
+    if (taxonKindsLoadedRemotes.has(remoteId)) return;
+    taxonKindsLoadedRemotes.add(remoteId);
+    try {
+      await loadTaxonKindsForRemote(remote);
+    } catch (err) {
+      taxonKindsLoadedRemotes.delete(remoteId);
+      throw err;
+    }
+  };
+
+  // per-suggestion plan: leaf id, ancestor chain (for breadcrumb walk
+  // of the picked hit), and any side-effect inputs (stub nodes/edges
+  // for artist/album hits; taxon-hub id for taxon hits).
+  type SeedPlan = {
+    nodeId: string;
+    ancestors: string[]; // [remoteHub, ..., nodeId]
+    taxonRelHubId: string | null;
+    stubNodes: WalkNode[];
+    stubEdges: WalkEdge[];
+  };
+
+  const planForSuggestion = (
+    s: import("../../../music/data/types").SearchSuggestion,
+    remoteId: string
+  ): SeedPlan | null => {
+    const rHub = remoteHubId(remoteId);
+    const meta = (s.metadata ?? {}) as {
+      kind_slug?: string;
+      artist_id?: string;
+      artist_ids?: string;
+      artist_name?: string;
+      album_id?: string;
+      album_title?: string;
+    };
+
+    if (s.suggestion_type === "playlist") return null;
+
+    if (s.suggestion_type === "artist") {
+      if (!s.entity_id) return null;
+      const aId = artistNodeId(remoteId, s.entity_id);
+      return {
+        nodeId: aId,
+        ancestors: [rHub, aId],
+        taxonRelHubId: null,
+        stubNodes: [{ id: aId, role: "artist", label: s.display, parentId: rHub, childCount: 0 }],
+        stubEdges: [{ source: rHub, target: aId }],
+      };
+    }
+
+    if (s.suggestion_type === "album" || s.suggestion_type === "song") {
+      const bareAlbumId = s.suggestion_type === "album" ? s.entity_id : (meta.album_id ?? null);
+      if (!bareAlbumId) return null;
+      const bareArtistId =
+        meta.artist_id ??
+        (typeof meta.artist_ids === "string"
+          ? (() => {
+              try {
+                const arr = JSON.parse(meta.artist_ids) as unknown;
+                return Array.isArray(arr) && typeof arr[0] === "string" ? arr[0] : null;
+              } catch {
+                return null;
+              }
+            })()
+          : null);
+      const albumId = albumNodeId(remoteId, bareAlbumId);
+      const albumLabel = s.suggestion_type === "song" ? (meta.album_title ?? s.display) : s.display;
+      const stubNodes: WalkNode[] = [];
+      const stubEdges: WalkEdge[] = [];
+      let parentId: string = rHub;
+      const ancestors: string[] = [rHub];
+      if (bareArtistId) {
+        const artId = artistNodeId(remoteId, bareArtistId);
+        stubNodes.push({
+          id: artId,
+          role: "artist",
+          label: meta.artist_name ?? "unknown artist",
+          parentId: rHub,
+          childCount: 1,
+        });
+        stubEdges.push({ source: rHub, target: artId });
+        parentId = artId;
+        ancestors.push(artId);
+      }
+      stubNodes.push({
+        id: albumId,
+        role: "album",
+        label: albumLabel,
+        parentId,
+        childCount: 0,
+      });
+      stubEdges.push({ source: parentId, target: albumId });
+      ancestors.push(albumId);
+      return { nodeId: albumId, ancestors, taxonRelHubId: null, stubNodes, stubEdges };
+    }
+
+    // taxon
+    const kind = (meta.kind_slug ?? s.suggestion_type ?? "tag") as RelationKind;
+    const relHub = relationHubId(remoteId, kind);
+    const valId = valueNodeId(remoteId, kind, s.display);
+    return {
+      nodeId: valId,
+      ancestors: [rHub, relHub, valId],
+      taxonRelHubId: relHub,
+      stubNodes: [],
+      stubEdges: [],
+    };
+  };
+
+  // shared pivot helper. clears pins, ensures the remote's taxon hubs
+  // + the specific relation hub are loaded, then breadcrumb-walks to
+  // the leaf so the picked node becomes the new pivot. returns false
+  // if anything blocking failed (e.g. unknown remote). used by both
+  // the in-graph search row handler and the `?graph=` deep-link
+  // effect so the two paths stay in sync.
+  const pivotToTaxonNode = async (params: {
+    remoteId: string;
+    relHubId: string;
+    nodeId: string;
+    ancestors: string[];
+    logTag: string;
+  }): Promise<boolean> => {
+    const { remoteId, relHubId: relHub, nodeId, ancestors, logTag } = params;
+    if (!props.remotes().some((r) => r.remote_id === remoteId)) {
+      console.warn(`[${logTag}] remote not available`, { remoteId });
+      return false;
+    }
+    if (editingRemoteId() !== null) setEditingRemoteId(null);
+
+    activateRemote(remoteId);
+
+    await ensureTaxonKindsLoaded(remoteId).catch((err) =>
+      console.warn(`[${logTag}] taxon-kinds load failed`, { remoteId, err })
+    );
+    await maybeLoadTaxonsForPivot(relHub).catch((err) =>
+      console.warn(`[${logTag}] taxons load failed`, { relHub, err })
+    );
+
+    walkerClient()?.setPinned([]);
+
+    const client = walkerClient();
+    if (client) {
+      for (const id of ancestors) client.expand(id);
+    }
+    setSelectedId(nodeId);
+
+    console.log(`[${logTag}] solo`, { remoteId, nodeId, ancestors });
+    return true;
+  };
+
+  // pivot the walker to a single picked suggestion. only taxon
+  // suggestions get routed here from GraphTopNavSearch; everything
+  // else navigates to its detail view via the base topnav. behavior
+  // is solo: only the picked taxon's chain (root → remote square →
+  // relation hub → taxon) is rendered, prior pins from previous
+  // searches are cleared, and the picked node becomes the new pivot
+  // so a click on it fans out children via the normal walker
+  // handlers.
+  const handlePivotToSuggestion = async (
+    picked: import("../../../music/data/types").SearchSuggestion,
+    pickedRemoteId: string,
+    // kept for backwards-compat with the GraphTopNavSearch signature
+    // (used to carry sibling search hits for multi-pin). intentionally
+    // ignored — solo-pivot is the only mode now.
+    _all: Array<{
+      s: import("../../../music/data/types").SearchSuggestion;
+      remoteId: string;
+    }>
+  ): Promise<boolean> => {
+    if (!pickedRemoteId) return false;
+
+    const plan = planForSuggestion(picked, pickedRemoteId);
+    if (!plan || !plan.taxonRelHubId) return false;
+
+    return pivotToTaxonNode({
+      remoteId: pickedRemoteId,
+      relHubId: plan.taxonRelHubId,
+      nodeId: plan.nodeId,
+      ancestors: plan.ancestors,
+      logTag: "searchPivot",
+    });
+  };
+
+  // deep-link: `/explore?graph=<nodeId>` pivots the graph to the
+  // referenced taxon on mount (and on any subsequent change of the
+  // param). currently only value:: / group:: taxon ids are supported —
+  // these are produced by the global topnav search when a taxon
+  // suggestion is picked from a non-graph view. each unique param
+  // value is marked processed only AFTER a successful pivot, so an
+  // early bail-out (e.g. remotes resource still loading) doesn't
+  // permanently block a retry once remotes resolve.
+  let lastProcessedGraphParam: string | null = null;
+  createEffect(() => {
+    const raw = searchParams.graph;
+    const param = Array.isArray(raw) ? raw[0] : raw;
+    if (!param || param === lastProcessedGraphParam) return;
+
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(param);
+    } catch (err) {
+      console.warn("[graphDeepLink] unparseable nodeId", { param, err });
+      lastProcessedGraphParam = param; // bad input — don't retry
+      return;
+    }
+    if (parsed.kind !== "value" && parsed.kind !== "group") {
+      console.warn("[graphDeepLink] only taxon (value/group) nodes are supported", { parsed });
+      lastProcessedGraphParam = param; // unsupported kind — don't retry
+      return;
+    }
+
+    // tracked reactively so this effect re-runs when remotes resolve.
+    // intentionally NOT marking `lastProcessedGraphParam` here — we
+    // want this branch to retry on the next remote update.
+    if (props.remotes().length === 0) return;
+    if (!props.remotes().some((r) => r.remote_id === parsed.remoteId)) {
+      console.warn("[graphDeepLink] remote not available", { remoteId: parsed.remoteId });
+      lastProcessedGraphParam = param; // remote will never appear — give up
+      return;
+    }
+
+    const remoteId = parsed.remoteId;
+    const relHub = relationHubId(remoteId, parsed.relationKind);
+    const rHub = remoteHubId(remoteId);
+    const ancestors = [rHub, relHub, param];
+
+    // mark processed BEFORE the async work so concurrent re-runs
+    // (e.g. searchParams + remotes both updating in the same tick)
+    // don't double-fire.
+    lastProcessedGraphParam = param;
+
+    void pivotToTaxonNode({
+      remoteId,
+      relHubId: relHub,
+      nodeId: param,
+      ancestors,
+      logTag: "graphDeepLink",
+    });
   });
 
   // ---- render --------------------------------------------------------
@@ -2498,7 +2774,7 @@ function Inner(props: {
           initialPivot={rootId()}
           width={canvasSize().width}
           height={canvasSize().height}
-          onClientReady={(c) => setWalkerClient(c)}
+          driver={walkerDriver}
           onReady={(api) => setWalkApi(api)}
           onBreadcrumbChange={(depth, ids) => {
             setBreadcrumbDepth(depth);

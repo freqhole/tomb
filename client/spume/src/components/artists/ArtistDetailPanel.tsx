@@ -20,6 +20,7 @@ import MediaImage from "../media/MediaImage";
 import { EntityLinks } from "../media/EntityLinks";
 import { TaxonChipList } from "../badges/TaxonChips";
 import { canUpdateArtist } from "../../music/data/permissions";
+import { formatTaxonLabel } from "../../music/utils/format";
 import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
@@ -378,7 +379,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                           onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
                           disabled={!genre.id}
                         >
-                          {genre.name}
+                          {formatTaxonLabel(genre.name)}
                         </button>
                       )}
                     </For>
@@ -552,7 +553,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                           onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
                           disabled={!genre.id}
                         >
-                          {genre.name}
+                          {formatTaxonLabel(genre.name)}
                         </button>
                       )}
                     </For>

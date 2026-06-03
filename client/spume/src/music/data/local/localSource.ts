@@ -1344,7 +1344,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           display: result.genre.name,
           highlight: result.genre.name,
           count: result.album_count,
-          suggestion_type: "genre",
+          suggestion_type: "taxon",
           confidence: 1.0,
           metadata: { album_count: result.album_count, song_count: result.song_count },
           entity_id: result.genre.genre_id,

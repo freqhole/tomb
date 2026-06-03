@@ -6,6 +6,7 @@
 import { createSignal, Show } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
 import { buildWalkGraph } from "../src/components/graph/data/buildWalkGraph";
 import { artistNodeId, rootId } from "../src/components/graph/data/nodeIds";
 import type { AlbumNodeData, ArtistNodeData } from "../src/components/graph/types";
@@ -178,6 +179,7 @@ const { graph, nodesById } = buildWalkGraph({
 
 function PopoverWalkStory() {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const driver = createWalkerDriver();
 
   const albumHide = useDetailPanelHide(selectedId);
   const artistHide = useDetailPanelHide(selectedId);
@@ -200,6 +202,7 @@ function PopoverWalkStory() {
         graph={graph}
         initialPivot={rootId()}
         selectedId={selectedId()}
+        driver={driver}
         onSelect={(id) => setSelectedId(id)}
         onPivot={() => {}}
       />
