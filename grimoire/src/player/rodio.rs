@@ -643,15 +643,22 @@ fn load_source(
 }
 
 /// open the default audio output device. on linux we explicitly
-/// request a `BufferSize::Fixed(2048)` period (~43ms @ 48k) which is
-/// the consensus fix for pipewire/pulseaudio underruns under gui
-/// load — see rodio#827. on other targets we let rodio pick its
-/// default (which post-0.21 already aims for ~50ms).
+/// request a `BufferSize::Fixed(N)` period; the frame count comes
+/// from `[audio].linux_buffer_frames` in the toml when set, else
+/// defaults to 2048 (~43ms @ 48k) — the consensus fix for
+/// pipewire/pulseaudio underruns under gui load (see rodio#827).
+/// raise the config value (4096 / 8192) on vms / noisy hosts that
+/// still glitch. on other targets we let rodio pick its default
+/// (which post-0.21 already aims for ~50ms).
 fn open_device_sink() -> Result<MixerDeviceSink, rodio::stream::DeviceSinkError> {
     #[cfg(target_os = "linux")]
     {
+        let frames = crate::config::get_config()
+            .audio
+            .linux_buffer_frames
+            .unwrap_or(2048);
         DeviceSinkBuilder::from_default_device()?
-            .with_buffer_size(cpal::BufferSize::Fixed(2048))
+            .with_buffer_size(cpal::BufferSize::Fixed(frames))
             .open_sink_or_fallback()
     }
     #[cfg(not(target_os = "linux"))]

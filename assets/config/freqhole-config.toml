@@ -202,6 +202,22 @@ queue_size_limit = 150
 max_concurrency = 0
 
 # ============================================================================
+# OPTIONAL: native audio backend (rodio/cpal) tuning
+# only consumed when the `rodio-playback` cargo feature is on (charnel
+# desktop app, cli `serve`). headless / web-only builds ignore it.
+# the whole section is optional; omit it to accept defaults.
+# ============================================================================
+[audio]
+# OPTIONAL (linux only): cpal output period size, in frames.
+# raise this if you hear stutters / xruns under load on linux \u2014
+# typical culprits are pipewire/pulseaudio on busy desktops, vm
+# guests, or low-power boards. each doubling roughly doubles output
+# latency but adds proportional headroom against scheduler jitter.
+# default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
+# 8192 (~170ms) if 2048 still glitches. ignored on macos / windows.
+linux_buffer_frames = 4096
+
+# ============================================================================
 # OPTIONAL: server configuration
 # this entire section is optional - only needed when running the HTTP server
 # if you only use the CLI, you can omit or comment out this section
