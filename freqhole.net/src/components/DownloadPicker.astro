@@ -13,7 +13,7 @@ interface Props {
 const { heroOnly = false, buttonOnly = false } = Astro.props;
 
 const REPO = "freqhole/tomb";
-const BASE = `https://github.com/${REPO}/releases/download/v${VERSION}`;
+const BASE = `https://github.com/${REPO}/releases/download/${VERSION}`;
 
 const ASSETS: Record<string, string> = {
   "charnel-mac-arm": `freqhole_charnel_${VERSION}_aarch64.dmg`,
@@ -26,17 +26,20 @@ const ASSETS: Record<string, string> = {
   "charnel-linux-arm-rpm": `freqhole_charnel_${VERSION}_aarch64.rpm`,
   "charnel-android": `freqhole_charnel_${VERSION}_android-universal.apk`,
   "charnel-android-arm64": `freqhole_charnel_${VERSION}_android-arm64.apk`,
-  "cli-mac-arm": `freqhole_cli_${VERSION}_darwin-aarch64`,
-  "cli-mac-intel": `freqhole_cli_${VERSION}_darwin-x86_64`,
-  "cli-linux-x86": `freqhole_cli_${VERSION}_linux-x86_64`,
-  "cli-linux-arm64": `freqhole_cli_${VERSION}_linux-aarch64`,
-  "cli-linux-armv7": `freqhole_cli_${VERSION}_linux-armv7`,
+  "cli-mac-arm": `rathole_${VERSION}_darwin-aarch64`,
+  "cli-mac-intel": `rathole_${VERSION}_darwin-x86_64`,
+  "cli-linux-x86": `rathole_${VERSION}_linux-x86_64`,
+  "cli-linux-arm64": `rathole_${VERSION}_linux-aarch64`,
+  "cli-linux-armv7": `rathole_${VERSION}_linux-armv7`,
 };
 
 const url = (key: string) => `${BASE}/${ASSETS[key]}`;
+const urlsJson = JSON.stringify(
+  Object.fromEntries(Object.keys(ASSETS).map((k) => [k, url(k)])),
+);
 ---
 
-<div data-dl-picker data-version={VERSION} class:list={["dl-picker", "not-content", { "dl-button-only": buttonOnly }]}>
+<div data-dl-picker data-version={VERSION} data-dl-urls={urlsJson} class:list={["dl-picker", "not-content", { "dl-button-only": buttonOnly }]}>
   {!buttonOnly && (
   <div class="dl-hero" data-dl-hero>
     <div class="dl-hero-icon" data-dl-hero-icon aria-hidden="true">
@@ -336,9 +339,15 @@ const url = (key: string) => `${BASE}/${ASSETS[key]}`;
 
     const version = root.getAttribute("data-version") || "";
 
-    // build a key -> url map by reading the baked anchors rendered by astro
+    // build a key -> url map by reading the baked anchors rendered by astro,
+    // falling back to the JSON map baked into data-dl-urls (needed in buttonOnly mode
+    // where the per-asset anchors aren't rendered).
     /** @type {Record<string, string>} */
-    const urls = {};
+    let urls = {};
+    try {
+      const raw = root.getAttribute("data-dl-urls");
+      if (raw) urls = JSON.parse(raw);
+    } catch {}
     root.querySelectorAll("a[data-dl]").forEach((a) => {
       const key = a.getAttribute("data-dl");
       if (key) urls[key] = /** @type {HTMLAnchorElement} */ (a).href;
