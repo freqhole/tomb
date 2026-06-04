@@ -1,0 +1,132 @@
+---
+title: metadata enrichment
+description: pulling metadata, bios, tags, and artwork from MusicBrainz, last.fm, and theaudiodb
+---
+
+freqhole can enrich its catalog from three free external sources:
+
+- **MusicBrainz** — canonical metadata (corrected names, release dates, track order) + cover art from the Cover Art Archive. lookups are **manual** (initiated from the album editor).
+- **last.fm** — album wiki summaries, artist bios, top tags (folksonomy), similar artists. runs **lazily in the background**.
+- **theaudiodb** — artist bios, artist images (thumbnails, banners, fanart), album artwork variants, structured genre/style tags. runs **lazily in the background**.
+
+all three are opt-in, independent, and never modify your original audio files. enrichment results live in freqhole's database alongside everything else — each source writes into its own columns, so you can enable any combination without conflicts.
+
+| source        | strengths                                | initiated     |
+| ------------- | ---------------------------------------- | ------------- |
+| MusicBrainz   | canonical metadata, cover art            | manual lookup |
+| last.fm       | bios, folksonomy tags, similar artists   | background    |
+| theaudiodb    | artist imagery, album artwork variants   | background    |
+
+---
+
+## MusicBrainz
+
+### enabling
+
+```toml
+[musicbrainz]
+enabled = true
+preferred_country = "US"
+```
+
+`preferred_country` biases search results toward releases from that country (ISO 3166-1 alpha-2).
+
+or in the desktop app: **settings → integrations → enable MusicBrainz**.
+
+no api key required.
+
+### what MusicBrainz provides
+
+- corrected artist names and album titles
+- accurate release dates
+- proper track ordering
+- cover art from the Cover Art Archive
+
+### performing a lookup
+
+lookups happen from the album editor in the web app or desktop app.
+
+1. open an album page
+2. click **edit album** (member or admin role required)
+3. in the MusicBrainz section, click **search MusicBrainz**
+4. review the search results and select the correct release
+5. confirm to apply the metadata
+
+freqhole stores the fetched metadata in the database. your original audio files are never modified.
+
+### fixing a bad match
+
+1. open the album page → **edit album**
+2. in the MusicBrainz section, click **disconnect** to remove the current match
+3. search again and select the correct release
+
+### rate limits + privacy
+
+MusicBrainz limits api requests to roughly 1 per second. freqhole respects that.
+
+queries include song/album/artist metadata. no account info or listening history is sent.
+
+---
+
+## last.fm
+
+### getting an api key
+
+1. go to [last.fm/api/account/create](https://www.last.fm/api/account/create)
+2. fill in the form (application name, contact email, brief description)
+3. submit — last.fm shows an **api key** and a **shared secret**
+4. **only copy the api key.** the shared secret is for write/auth flows that freqhole doesn't use
+
+### enabling
+
+```toml
+[lastfm]
+enabled = true
+api_key = "your-api-key-here"
+```
+
+or set the `LASTFM_API_KEY` environment variable (overrides the config file value).
+
+restart the server (or the desktop app) for the change to take effect.
+
+### what last.fm provides
+
+- album wiki summaries (short blurbs about the album)
+- artist biographies
+- top tags — last.fm's user-driven folksonomy, useful for cross-referencing with your own taxonomy
+- similar artists, which feed into the related-artist edges in the graph viz
+
+### rate limits + privacy
+
+last.fm allows roughly 5 requests per second per api key. freqhole paces its enrichment well under that.
+
+queries include song/album/artist names. no account info or listening history is sent.
+
+---
+
+## theaudiodb
+
+### getting an api key (optional)
+
+theaudiodb ships with a public free **test** key `"123"` baked into the default config. it works fine for low-volume non-commercial use, which covers most personal libraries.
+
+if you want a real key (higher rate limits, no shared-key throttling), [donate at theaudiodb.com](https://www.theaudiodb.com/) — small one-time donation gets you a personal key.
+
+### enabling
+
+```toml
+[audiodb]
+enabled = true
+api_key = "123"  # or your personal key
+```
+
+or set the `AUDIODB_API_KEY` environment variable (overrides the config file value).
+
+### what theaudiodb provides
+
+- artist biographies (often longer than last.fm's)
+- artist images: square thumbnails, wide banners, full-bleed fanart
+- album artwork (cover, back, CD label)
+- structured genre + style tags
+
+theaudiodb's image collection is one of the main draws — it has dense coverage of artist banner/fanart shots that show up in the graph viz, album detail panels, and now-playing screens.

@@ -85,9 +85,59 @@ enables P2P sharing via iroh. your server gets a unique node ID that friends use
 ```toml
 [musicbrainz]
 enabled = true
+preferred_country = "US"
 ```
 
-enables the MusicBrainz lookup feature in the album editor. lookups are always initiated manually.
+enables the MusicBrainz lookup feature in the album editor. lookups are always initiated manually. `preferred_country` biases search results toward releases from that country (ISO 3166-1 alpha-2).
+
+see the [metadata enrichment](/guides/metadata-enrichment/) guide for details.
+
+### last.fm
+
+```toml
+[lastfm]
+enabled = true
+api_key = "your-api-key-here"
+```
+
+fetches album wiki summaries, artist bios, top tags (folksonomy), and similar artists. requires a free api key from [last.fm/api/account/create](https://www.last.fm/api/account/create).
+
+only the **api key** is needed — read-only enrichment doesn't use the shared secret or any of the other oauth values last.fm hands back. paste the api key string and ignore the rest.
+
+`LASTFM_API_KEY` environment variable overrides the value in the config file.
+
+see the [metadata enrichment](/guides/metadata-enrichment/) guide for details.
+
+### theaudiodb
+
+```toml
+[audiodb]
+enabled = true
+api_key = "123"
+```
+
+fetches artist bios, artist images (thumbnails, banners, fanart), album artwork, and genre/style tags. the default `"123"` is theaudiodb's public free test key for low-volume non-commercial use. for heavier use, [donate at theaudiodb.com](https://www.theaudiodb.com/) to get a real key.
+
+`AUDIODB_API_KEY` environment variable overrides the value in the config file.
+
+see the [metadata enrichment](/guides/metadata-enrichment/) guide for details.
+
+### audio (rodio/cpal buffer)
+
+```toml
+[audio]
+linux_buffer_frames = 4096
+```
+
+native audio backend tuning. only consumed when the `rodio-playback` cargo feature is on (charnel desktop app, cli `serve`). headless / web-only builds ignore this section.
+
+`linux_buffer_frames` is **linux only** — cpal output period size in frames. raise this if you hear stutters or xruns under load (typical culprits: pipewire/pulseaudio on busy desktops, vm guests, low-power boards). each doubling roughly doubles output latency but adds proportional headroom against scheduler jitter.
+
+- default when unset: `2048` (~43ms @ 48kHz)
+- try `4096` (~85ms) if 2048 still glitches
+- try `8192` (~170ms) for the heaviest cases
+
+ignored on macOS / windows.
 
 ---
 

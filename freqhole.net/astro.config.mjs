@@ -41,7 +41,7 @@ export default defineConfig({
 					label: 'guides',
 					items: [
 						{ label: 'scanning music', slug: 'guides/scanning' },
-						{ label: 'MusicBrainz integration', slug: 'guides/musicbrainz' },
+						{ label: 'metadata enrichment', slug: 'guides/metadata-enrichment' },
 						{ label: 'sharing with friends', slug: 'guides/sharing' },
 						{ label: 'maintenance', slug: 'guides/maintenance' },
 					],

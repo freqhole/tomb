@@ -209,3 +209,16 @@ SQLite can't handle too many concurrent writes. freqhole handles this automatica
 ### can't connect via p2p
 
 1. make sure your router has UPnP [universal plug and play](https://en.wikipedia.org/wiki/Universal_Plug_and_Play) enabled
+
+### audio stutters / xruns (linux)
+
+if playback in the desktop app crackles, stutters, or drops samples on linux — especially under load, in a vm, or on a low-power board (raspberry pi, etc.) — bump the cpal output buffer:
+
+```toml
+[audio]
+linux_buffer_frames = 4096   # or 8192 if 4096 still glitches
+```
+
+default is `2048` (~43ms latency @ 48kHz). doubling roughly doubles latency but adds proportional headroom against pipewire/pulseaudio scheduler jitter. restart the app for the change to take effect. ignored on macOS / windows.
+
+see the [audio config section](/concepts/configuration/#audio-rodiocpal-buffer) for details.
