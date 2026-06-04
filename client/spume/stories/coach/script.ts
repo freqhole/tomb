@@ -320,7 +320,7 @@ export const coachSteps: CoachStep[] = [
     // type the node id char-by-char during 0..0.85, then transition to
     // the loading spinner for the last 15% of the slide.
     onProgress: (ctx, p) => {
-      const url = "freqhole://carp.basement/share/abc123";
+      const url = "deadbeefdeadbeefcafebabecafebabe0123456789abcdef0123456789abcdef";
       const typeP = Math.min(1, p / 0.85);
       const n = Math.round(typeP * url.length);
       ctx.setInputValue?.("knockNodeIdInput", url.slice(0, n));
