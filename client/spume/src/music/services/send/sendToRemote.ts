@@ -419,6 +419,7 @@ export async function sendToRemote(
         images: payload.images,
         logPrefix: lp,
         imageCache,
+        destRemote: dest,
       }).catch((e) => {
         warn(TAG, `${lp} album image upload threw: ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
@@ -557,6 +558,7 @@ export async function sendToRemote(
         logPrefix: `${lp} "${song.title}"`,
         imageCache,
         skipBlobIds: albumImageBlobIds,
+        destRemote: dest,
       }).catch((e) => {
         warn(TAG, `${lp} song image upload threw for "${song.title}": ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
@@ -636,6 +638,7 @@ export async function sendToRemote(
         images: payload.images,
         logPrefix: lp,
         imageCache,
+        destRemote: dest,
       }).catch((e) => {
         warn(TAG, `${lp} playlist image upload threw: ${String(e)}`);
         return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };

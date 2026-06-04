@@ -1,7 +1,8 @@
 // album editor modal - edit album metadata
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getDataSource, getCurrentRemote } from "../../music/data";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
@@ -14,19 +15,34 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { ArtistAutocomplete } from "../forms/ArtistAutocomplete";
 import { AlbumAutocomplete } from "../forms/AlbumAutocomplete";
-import { GenreAutocomplete } from "../forms/GenreAutocomplete";
-import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { EntityImages } from "../layout/EntityImages";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
+import {
+  AlbumEnrichmentSourceTab,
+  type SourceProgress,
+} from "../enrichment/AlbumEnrichmentSourceTab";
+import { SingleAlbumTaxonApplyPanel } from "../enrichment/SingleAlbumTaxonApplyPanel";
+import { parseAlbumMetadata } from "../../library/data/albumMetadata";
+import { getClientForRemote } from "../../app/api/client";
+import { EnrichmentReviewPanel } from "../../library/components/EnrichmentReviewPanel";
+import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
+import { useEnrichmentEnabledQuery } from "../../music/hooks/useEnrichmentEnabled";
+import { showArtistEditor } from "../../music/hooks/modals";
 import { Modal } from "./Modal";
+import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 import { formatDateTime } from "../../utils/dateTime";
 
 interface AlbumEditorModalProps {
   albumId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. used by the library view's bulk
+   *  enrichment review flow, where the user has explicitly picked a
+   *  remote that may differ from the active source. */
+  remote?: Remote;
   onClose: () => void;
   onSave?: () => void;
   /** if true, hides buttons that would open other modals (prevents infinite recursion) */
@@ -35,6 +51,26 @@ interface AlbumEditorModalProps {
   onOpenSongEditor?: (songId: string) => void;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /**
+   * bulk-enrichment review mode (phase 14.7).
+   *
+   * deliberately named "review" rather than "queue" to avoid clashing
+   * with the player's song queue (`QueueSidebar`, `currentQueueIndex`).
+   *
+   * when set, the modal renders:
+   *   - a header strip showing `n / total — title`
+   *   - a footer toolbar `[skip] [save & next] [save & close] [exit]`
+   *     replacing the normal save/cancel buttons
+   *   - keyboard bindings: `j` / arrow-right → next, `k` / arrow-left
+   *     → prev, `escape` → exit (no save).
+   */
+  review?: {
+    ids: string[];
+    currentIndex: number;
+    onNext: () => void;
+    onPrev: () => void;
+    onExit: () => void;
+  };
 }
 
 // inline component for bulk-setting disc number on all songs in an album
@@ -128,18 +164,19 @@ interface FormData {
   artist_id: string | undefined;
   artist_name: string;
   album_type: string;
-  genre_ids: string[];
-  genres: string[];
-  new_genres: string[]; // genres without IDs (will be created on save)
-  release_date: string;
-  label: string;
   uploaded_blob_id: string | null;
 }
 
 export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const queryClient = useQueryClient();
-  const albumQuery = useAlbumQuery(() => props.albumId);
-  const songsQuery = useAlbumSongsQuery(() => props.albumId);
+  const albumQuery = useAlbumQuery(
+    () => props.albumId,
+    () => props.remote
+  );
+  const songsQuery = useAlbumSongsQuery(
+    () => props.albumId,
+    () => props.remote
+  );
   const updateMutation = useUpdateAlbumMutation();
 
   const [formData, setFormData] = createSignal<FormData>({
@@ -147,18 +184,23 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     artist_id: undefined,
     artist_name: "",
     album_type: "album",
-    genre_ids: [],
-    genres: [],
-    new_genres: [],
-    release_date: "",
-    label: "",
+
     uploaded_blob_id: null,
   });
 
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedAlbumId, setLoadedAlbumId] = createSignal<string | null>(null);
-  const [activeTab, setActiveTab] = createSignal<"info" | "images" | "musicbrainz">("info");
+  const [activeTab, setActiveTab] = createSignal<
+    "info" | "images" | "metadata" | "musicbrainz" | "lastfm" | "audiodb"
+  >("info");
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
+
+  // per-source enrichment progress (phase 14.7). polled while the modal is
+  // open so the per-source tabs can show fresh status badges, retry counts,
+  // and last-error info without each tab firing its own request.
+  const [enrichmentProgress, setEnrichmentProgress] = createSignal<Record<string, SourceProgress>>(
+    {}
+  );
 
   // when user picks an existing album from autocomplete, store its ID for merge
   const [mergeTargetAlbumId, setMergeTargetAlbumId] = createSignal<string | undefined>(undefined);
@@ -172,21 +214,32 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     message: string;
   } | null>(null);
 
-  // helper to sync form state from query data
+  // taxons editor handle + dirty bit. the editor batches add/remove
+  // operations until apply() is called from handleSave so the modal's
+  // save/reset/dirty flow stays consistent.
+  let taxonsHandle: AlbumTaxonsEditorHandle | undefined;
+  const [taxonsDirty, setTaxonsDirty] = createSignal(false);
+
+  // helper to sync form state from query data. songs are best-effort -
+  // when an album has no songs (or the songs query hasn't resolved yet
+  // for a review-mode album), we still initialize so the modal renders
+  // instead of staying stuck on "loading...".
+  //
+  // artist info: prefer the album record's own artist_id/artist_name
+  // (always populated by the server's album_query_view join), then fall
+  // back to the first song. previously this read firstSong only, which
+  // left the artist field blank whenever songs hadn't loaded yet —
+  // commonly hit when opening the modal from the graph viz where the
+  // songs query for that (remote, albumId) hasn't been warmed by a
+  // prior detail/grid render.
   const syncFormFromData = (album: NonNullable<typeof albumQuery.data>, songs: Song[]) => {
     const firstSong = songs[0];
-    if (!firstSong) return;
 
     const data: FormData = {
       title: album.title || "",
-      artist_id: firstSong.artist_id,
-      artist_name: firstSong.artist_name || "",
+      artist_id: album.artist_id || firstSong?.artist_id,
+      artist_name: album.artist_name || firstSong?.artist_name || "",
       album_type: album.album_type || "album",
-      genre_ids: album.genres?.map((g) => g.id) || [],
-      genres: album.genres?.map((g) => g.name) || [],
-      new_genres: [],
-      release_date: album.release_date || "",
-      label: album.label || "",
       uploaded_blob_id: null,
     };
     setFormData(data);
@@ -197,9 +250,28 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // guarded by loadedAlbumId to prevent refetchOnWindowFocus from wiping unsaved edits
   createEffect(() => {
     const album = albumQuery.data;
-    const songs = songsQuery.data?.items;
-    // reinitialize if this is a different album or first load
-    if (album && songs && songs.length > 0 && loadedAlbumId() !== props.albumId) {
+    const songs = songsQuery.data?.items ?? [];
+    // TEMP DEBUG
+    console.log("[AlbumEditorModal] init effect tick", {
+      propsAlbumId: props.albumId,
+      loadedAlbumId: loadedAlbumId(),
+      hasAlbum: !!album,
+      albumStatus: albumQuery.status,
+      albumFetchStatus: albumQuery.fetchStatus,
+      albumError: albumQuery.error?.message,
+      songsStatus: songsQuery.status,
+      songCount: songs.length,
+    });
+    // reinitialize if this is a different album or first load.
+    // we no longer wait for songs.length > 0 - albums with zero songs
+    // (or while the songs query is still in flight) used to leave the
+    // modal stuck on "loading..." indefinitely.
+    if (album && loadedAlbumId() !== props.albumId) {
+      // TEMP DEBUG
+      console.log("[AlbumEditorModal] syncing initialData", {
+        albumId: props.albumId,
+        albumTitle: album.title,
+      });
       syncFormFromData(album, songs);
 
       // sync images
@@ -254,19 +326,19 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       current.artist_id !== initial.artist_id ||
       current.artist_name !== initial.artist_name ||
       current.album_type !== initial.album_type ||
-      JSON.stringify(current.genre_ids) !== JSON.stringify(initial.genre_ids) ||
-      JSON.stringify(current.genres) !== JSON.stringify(initial.genres) ||
-      current.new_genres.length > 0 ||
-      current.release_date !== initial.release_date ||
-      current.label !== initial.label ||
       current.uploaded_blob_id !== null ||
       mergeTargetAlbumId() !== undefined ||
-      urlsChanged()
+      urlsChanged() ||
+      taxonsDirty()
     );
   });
 
-  const handleSave = async () => {
-    if (!hasChanges()) return;
+  const handleSave = async (opts: { stayOpen?: boolean } = {}) => {
+    if (!hasChanges()) {
+      // in review mode \"save & next\" with no edits should still advance.
+      if (opts.stayOpen) return true;
+      return true;
+    }
 
     const data = formData();
     const initial = initialData();
@@ -292,18 +364,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
         props.onSave?.();
         props.onMergeNavigate?.(mergeTarget);
-        props.onClose();
+        if (!opts.stayOpen) props.onClose();
+        return true;
       } catch (error) {
         console.error("failed to merge album:", error);
+        return false;
       }
-      return;
     }
-
-    // determine if genres changed (either IDs or new genres added)
-    const genresChanged =
-      JSON.stringify(data.genre_ids) !== JSON.stringify(initial?.genre_ids) ||
-      JSON.stringify(data.genres) !== JSON.stringify(initial?.genres) ||
-      data.new_genres.length > 0;
 
     try {
       await updateMutation.mutateAsync({
@@ -312,15 +379,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         artist_id: data.artist_id !== initial?.artist_id ? data.artist_id : undefined,
         artist_name: data.artist_name !== initial?.artist_name ? data.artist_name : undefined,
         album_type: data.album_type !== initial?.album_type ? data.album_type : undefined,
-        // send existing genre IDs (or empty array to clear all)
-        genre_ids: genresChanged ? data.genre_ids : undefined,
-        // send new genre names to be created
-        genres: genresChanged && data.new_genres.length > 0 ? data.new_genres : undefined,
-        release_date:
-          data.release_date !== initial?.release_date && data.release_date
-            ? data.release_date
-            : undefined,
-        label: data.label !== initial?.label ? data.label : undefined,
+        // genres are now managed via the AlbumTaxonsEditor below (kind=genre)
+        // alongside every other taxon kind, so no genre payload is sent here.
         // send entity URLs if changed (filter out deleted, map with null id for new)
         entity_urls: urlsChanged()
           ? entityUrls()
@@ -328,6 +388,18 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }))
           : undefined,
       });
+
+      // flush any pending taxon link add/remove ops in the same save.
+      // these go through the dedicated `addAlbumTaxon` / `removeAlbumTaxon`
+      // routes so musicbrainz / audiodb provenance stays untouched.
+      if (taxonsHandle?.isDirty()) {
+        try {
+          await taxonsHandle.apply();
+        } catch (err) {
+          console.error("failed to apply taxon edits:", err);
+          toast.error("failed to save taxon changes");
+        }
+      }
 
       // invalidate before closing so the UI refreshes even if the modal unmounts
       await Promise.all([
@@ -340,12 +412,206 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       ]);
 
       props.onSave?.();
-      props.onClose();
+      if (!opts.stayOpen) props.onClose();
+      return true;
     } catch (error) {
       console.error("failed to save album:", error);
       // toast is already shown by mutation onError handler
+      return false;
     }
   };
+
+  // review-mode helpers (phase 14.7).
+  const reviewMode = () => props.review;
+  const reviewTotal = () => reviewMode()?.ids.length ?? 0;
+  const reviewIndex = () => reviewMode()?.currentIndex ?? 0;
+  const reviewHasPrev = () => reviewMode() != null && reviewIndex() > 0;
+  const reviewHasNext = () => reviewMode() != null && reviewIndex() < reviewTotal() - 1;
+
+  const handleSkip = () => {
+    if (reviewHasNext()) reviewMode()?.onNext();
+    else reviewMode()?.onExit();
+  };
+  const handleSaveAndNext = async () => {
+    const ok = await handleSave({ stayOpen: true });
+    if (!ok) return;
+    if (reviewHasNext()) reviewMode()?.onNext();
+    else reviewMode()?.onExit();
+  };
+  const handleSaveAndClose = async () => {
+    const ok = await handleSave({ stayOpen: true });
+    if (!ok) return;
+    reviewMode()?.onExit();
+  };
+  const handleExit = () => reviewMode()?.onExit();
+
+  // keyboard navigation while in review mode. ignored when focus is in a
+  // text input / textarea / contenteditable to avoid stealing typing.
+  createEffect(() => {
+    if (!reviewMode()) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = (t?.tagName ?? "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      if (t?.isContentEditable) return;
+      if (e.key === "j" || e.key === "ArrowRight") {
+        e.preventDefault();
+        if (reviewHasNext()) reviewMode()?.onNext();
+      } else if (e.key === "k" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (reviewHasPrev()) reviewMode()?.onPrev();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  // parsed album metadata (phase 14.7). drives the snapshot summaries on
+  // the per-source tabs; the modal already loads albumQuery so this is
+  // free.
+  const albumMetadata = createMemo(() => parseAlbumMetadata(albumQuery.data?.metadata ?? null));
+
+  // pick the remote the modal should target. when the caller (e.g. the
+  // library view's bulk-enrichment review) supplied an explicit remote,
+  // use it; otherwise fall back to whatever the active data source is.
+  const currentRemote = () => props.remote ?? getCurrentRemote();
+
+  // image mutations affect album detail, album lists/grids, and any song/artist
+  // views that render embedded album thumbnails. invalidate broad query families
+  // (not just current-source scoped keys) so whichever view opened this modal
+  // re-renders with fresh image state.
+  const invalidateAlbumImageQueries = async (albumId: string, artistId?: string) => {
+    const tasks: Promise<unknown>[] = [
+      queryClient.invalidateQueries({ queryKey: ["albums"] }),
+      queryClient.invalidateQueries({ queryKey: ["album", "songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["artists"] }),
+      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] }),
+      queryClient.invalidateQueries({ queryKey: ["library-albums"] }),
+    ];
+
+    if (albumId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(albumId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(albumId) })
+      );
+    }
+
+    if (artistId) {
+      tasks.push(
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.songs(artistId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.artists.albums(artistId) })
+      );
+    }
+
+    await Promise.all(tasks);
+  };
+
+  // admin gating for the per-source raw-data review surfaces — non-admins
+  // can read stored snapshots but can't trigger fetch/refetch jobs. the
+  // hook + panel only consume `remote_id`, so the runtime shape of
+  // `CurrentRemoteInfo` (which omits some fields from `Remote`) is fine
+  // here — we just need the type to line up.
+  const reviewRemote = () => (currentRemote() ?? undefined) as Remote | undefined;
+  const isRemoteAdmin = useRemoteIsAdmin(reviewRemote);
+
+  // which external enrichment sources the operator has enabled in
+  // freqhole-config.toml on this remote. tabs for disabled sources are
+  // hidden entirely (also gates auto-switching the active tab when the
+  // current selection becomes invalid).
+  const enrichmentEnabledQuery = useEnrichmentEnabledQuery(reviewRemote);
+  const enrichmentEnabled = () =>
+    enrichmentEnabledQuery.data ?? { mb: true, lastfm: true, audiodb: true };
+
+  createEffect(() => {
+    const en = enrichmentEnabled();
+    const tab = activeTab();
+    if (tab === "musicbrainz" && !en.mb) setActiveTab("info");
+    else if (tab === "lastfm" && !en.lastfm) setActiveTab("info");
+    else if (tab === "audiodb" && !en.audiodb) setActiveTab("info");
+  });
+
+  // poll per-source enrichment progress while the modal is open. polled
+  // every 5s; bumped to 2s briefly after a manual refetch/requery.
+  const refreshEnrichmentProgress = async () => {
+    const remote = currentRemote();
+    if (!remote) return;
+    try {
+      const client = await getClientForRemote(remote);
+      const resp = await client.music.getEnrichmentProgress({
+        album_ids: [props.albumId],
+      });
+      if (!resp.success || !resp.data) return;
+      const album = resp.data.albums.find((a) => a.album_id === props.albumId);
+      if (!album) return;
+      const next: Record<string, SourceProgress> = {};
+      for (const s of album.sources) {
+        next[s.source.toLowerCase()] = {
+          status: s.status,
+          last_attempt_at: s.last_attempt_at ?? null,
+          last_error: s.last_error ?? null,
+          retry_count: s.retry_count,
+        };
+      }
+      setEnrichmentProgress(next);
+    } catch (err) {
+      // silent — the badges just stay stale; user can hit refetch.
+      if (typeof console !== "undefined") {
+        console.debug("getEnrichmentProgress failed:", err);
+      }
+    }
+  };
+  createEffect(() => {
+    const albumId = props.albumId;
+    if (!albumId) return;
+
+    // initial fetch so the badges are populated before any event fires.
+    refreshEnrichmentProgress();
+
+    // live-refresh via the job-events broker: any enrichment-related job
+    // for this album triggers a re-snapshot. covers individual source
+    // lookups, the orchestrator pipeline, and the auto-apply path.
+    const remote = currentRemote();
+    if (!remote) return;
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const client = await getClientForRemote(remote);
+        for await (const evt of client.jobs.events.subscribe(
+          {
+            kinds: [
+              "MbAlbumSearch",
+              "MbAlbumDetail",
+              "LastFmAlbumDetail",
+              "AudioDbAlbumDetail",
+              "AlbumEnrichmentPipeline",
+              "AutoApplyAlbumEnrichment",
+            ],
+            entity_refs: [{ kind: "album", id: albumId }],
+          },
+          controller.signal
+        )) {
+          // only refresh on terminal transitions or explicit failure
+          // frames — progress/stage chatter doesn't change the badges.
+          if (
+            (evt.kind === "status_changed" &&
+              (evt.to === "completed" || evt.to === "failed" || evt.to === "cancelled")) ||
+            evt.kind === "failed"
+          ) {
+            refreshEnrichmentProgress();
+          }
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (typeof console !== "undefined") {
+          console.debug("enrichment events subscribe ended:", err);
+        }
+      }
+    })();
+
+    onCleanup(() => controller.abort());
+  });
 
   const handleReset = () => {
     const initial = initialData();
@@ -354,6 +620,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       setImagePreview(null);
       setMergeTargetAlbumId(undefined);
     }
+    // discard any buffered taxon add/remove ops too
+    taxonsHandle?.reset();
   };
 
   const handleDelete = async () => {
@@ -435,10 +703,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       });
 
       // poll for job completion
-      const remote = getCurrentRemote();
+      const remote = currentRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) =>
+            setProcessingJob({ status: "processing", message: message ?? "processing image..." }),
+        });
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);
@@ -484,12 +755,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       setProcessingJob(null);
       albumQuery.refetch();
-      // invalidate album and song queries to update all views
-      // songs have album_images embedded, so they need refresh too
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-      // also invalidate artist song queries (used by artist detail view)
-      queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to upload image:", err);
       toast.error("failed to upload image");
@@ -524,8 +790,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       }));
       setImages(updatedImages);
       albumQuery.refetch();
-      // invalidate album queries to update all views
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");
@@ -566,6 +831,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
 
       setImages(updatedImages);
       albumQuery.refetch();
+      await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
       console.error("failed to remove image:", err);
       toast.error("failed to remove image");
@@ -582,12 +848,69 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       size="xl"
       elevated={props.disableNestedModals}
     >
+      {/* review-mode header strip (phase 14.7) */}
+      <Show when={reviewMode()}>
+        <div class="flex items-center justify-between gap-4 px-6 py-2 border-b border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-secondary)] flex-shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="font-mono">
+              {reviewIndex() + 1} / {reviewTotal()}
+            </span>
+            <span class="text-[var(--color-text-tertiary)]">-</span>
+            <span class="truncate text-[var(--color-text-primary)]">
+              {formData().title || albumQuery.data?.title || ""}
+            </span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              onClick={() => reviewMode()?.onPrev()}
+              disabled={!reviewHasPrev()}
+              title="previous (k / \u2190)"
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+            >
+              <Icon name={IconNames.chevronLeft} size={14} />
+            </button>
+            <button
+              onClick={() => reviewMode()?.onNext()}
+              disabled={!reviewHasNext()}
+              title="next (j / \u2192)"
+              class="px-2 py-1 rounded hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+            >
+              <Icon name={IconNames.chevronRight} size={14} />
+            </button>
+          </div>
+        </div>
+      </Show>
+
       {/* content */}
       <Show
         when={initialData()}
         fallback={
           <div class="flex-1 flex items-center justify-center p-6">
-            <div class="text-[var(--color-text-secondary)]">loading...</div>
+            <Show
+              when={albumQuery.error}
+              fallback={
+                <Show
+                  when={albumQuery.status === "success" && !albumQuery.data}
+                  fallback={<div class="text-[var(--color-text-secondary)]">loading...</div>}
+                >
+                  <div class="flex flex-col items-center gap-2 text-center">
+                    <div class="text-[var(--color-text-secondary)]">album not found</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)] font-mono">
+                      id: {props.albumId}
+                    </div>
+                  </div>
+                </Show>
+              }
+            >
+              <div class="flex flex-col items-center gap-2 text-center">
+                <div class="text-[var(--color-text-error,var(--color-text-secondary))]">
+                  failed to load album
+                </div>
+                <div class="text-xs text-[var(--color-text-tertiary)] font-mono">
+                  {albumQuery.error?.message}
+                </div>
+              </div>
+            </Show>
           </div>
         }
       >
@@ -600,7 +923,15 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             <Tab id="info" label="info" />
             <Tab id="images" label="images" badge={images().length || undefined} />
             <Tab id="metadata" label="metadata" />
-            <Tab id="musicbrainz" label="musicbrainz" />
+            <Show when={enrichmentEnabled().mb}>
+              <Tab id="musicbrainz" label="musicbrainz" />
+            </Show>
+            <Show when={enrichmentEnabled().lastfm}>
+              <Tab id="lastfm" label="last.fm" />
+            </Show>
+            <Show when={enrichmentEnabled().audiodb}>
+              <Tab id="audiodb" label="theaudiodb" />
+            </Show>
           </TabList>
 
           <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
@@ -653,6 +984,20 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   artist
                 </label>
                 <div class="flex items-center gap-2">
+                  <Show when={!props.disableNestedModals && formData().artist_id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = formData().artist_id;
+                        if (!id) return;
+                        showArtistEditor({ artistId: id, remote: props.remote });
+                      }}
+                      title="open artist editor"
+                      class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] underline-offset-2 hover:underline"
+                    >
+                      edit artist
+                    </button>
+                  </Show>
                   <Show
                     when={
                       formData().artist_name !== initialData()?.artist_name ||
@@ -685,34 +1030,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               </p>
             </div>
 
-            {/* genres */}
+            {/* taxons (genre, label, mood, era, region, ...) — deferred\n                add/remove buffered until the modal's save handler flushes\n                them via `taxonsHandle.apply()`. all kinds (including\n                genre, which used to live in a dedicated GenreAutocomplete\n                section) flow through the same chip ui. */}
             <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Show
-                  when={JSON.stringify(formData().genres) !== JSON.stringify(initialData()?.genres)}
-                >
-                  <button
-                    onClick={() => handleResetField("genres")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <GenreAutocomplete
-                label="genres"
-                value={formData().genres}
-                valueIds={formData().genre_ids}
-                onSelect={(genres, genreIds, newGenreNames) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    genre_ids: genreIds,
-                    genres: genres,
-                    new_genres: newGenreNames,
-                  }))
-                }
-                placeholder="select or type genres"
-                hint="choose one or more genres for this album"
+              <AlbumTaxonsEditor
+                albumId={props.albumId}
+                ref={(h) => (taxonsHandle = h)}
+                onDirtyChange={setTaxonsDirty}
               />
             </div>
 
@@ -747,67 +1070,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               </select>
             </div>
 
-            {/* label */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  label
-                </label>
-                <Show when={formData().label !== initialData()?.label}>
-                  <button
-                    onClick={() => handleResetField("label")}
-                    class="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <TextInput
-                value={formData().label}
-                onInput={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    label: e.currentTarget.value,
-                  }))
-                }
-                placeholder="record label"
-                class="w-full"
-              />
-              <p class="text-xs text-[var(--color-text-tertiary)]">
-                the record label that released this album
-              </p>
-            </div>
-
-            {/* release date */}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-[var(--color-text-primary)]">
-                  release date
-                </label>
-                <Show when={formData().release_date !== initialData()?.release_date}>
-                  <button
-                    onClick={() => handleResetField("release_date")}
-                    class="text-xs text-[var(--color-text-tertiary)} hover:text-[var(--color-text-primary)]"
-                  >
-                    reset
-                  </button>
-                </Show>
-              </div>
-              <TextInput
-                value={formData().release_date}
-                onInput={(e) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    release_date: e.currentTarget.value,
-                  }));
-                }}
-                placeholder="YYYY, YYYY-MM, or YYYY-MM-DD"
-                class="w-full"
-              />
-              <p class="text-xs text-[var(--color-text-tertiary)]">
-                release year or full date (accepts YYYY, YYYY-MM, or YYYY-MM-DD)
-              </p>
-            </div>
+            {/* label and release_date are edited via the taxonomy editor
+                above (kind=label, kind=release_date). */}
 
             {/* entity URLs */}
             <div class="space-y-2">
@@ -928,44 +1192,118 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
             </Show>
           </TabPanel>
 
-          <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
-            <MusicBrainzPanel
-              albumId={props.albumId}
-              albumTitle={formData().title}
-              artistId={formData().artist_id || ""}
-              artistName={formData().artist_name}
-              albumType={formData().album_type}
-              releaseDate={formData().release_date || undefined}
-              label={formData().label || undefined}
-              genres={formData().genres}
-              songs={songs()}
-              onAlbumUpdated={async () => {
-                // invalidate broad query families so all views update
-                queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
-                queryClient.invalidateQueries({
-                  queryKey: queryKeys.albums.songs(props.albumId),
-                });
-                queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
+          <Show when={enrichmentEnabled().mb}>
+            <TabPanel id="musicbrainz" class="flex-1 overflow-y-auto p-6">
+              <MusicBrainzPanel
+                albumId={props.albumId}
+                albumTitle={formData().title}
+                artistId={formData().artist_id || ""}
+                artistName={formData().artist_name}
+                albumType={formData().album_type}
+                releaseDate={albumQuery.data?.release_date || undefined}
+                label={albumQuery.data?.label || undefined}
+                genres={albumQuery.data?.genres?.map((g) => g.name) || []}
+                songs={songs()}
+                onAlbumUpdated={async () => {
+                  // invalidate broad query families so all views update
+                  queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
+                  queryClient.invalidateQueries({
+                    queryKey: queryKeys.albums.songs(props.albumId),
+                  });
+                  queryClient.invalidateQueries({ queryKey: ["artist", "songs"] });
 
-                // refetch this modal's data and re-sync form when done
-                const [albumResult, songsResult] = await Promise.all([
-                  albumQuery.refetch(),
-                  songsQuery.refetch(),
-                ]);
-                if (albumResult.data && songsResult.data?.items?.length) {
-                  syncFormFromData(albumResult.data, songsResult.data.items);
-                }
-              }}
-            />
-          </TabPanel>
+                  // refetch this modal's data and re-sync form when done
+                  const [albumResult, songsResult] = await Promise.all([
+                    albumQuery.refetch(),
+                    songsQuery.refetch(),
+                  ]);
+                  if (albumResult.data && songsResult.data?.items?.length) {
+                    syncFormFromData(albumResult.data, songsResult.data.items);
+                  }
+                }}
+              />
+            </TabPanel>
+          </Show>
+
+          <Show when={enrichmentEnabled().lastfm}>
+            <TabPanel id="lastfm" class="flex-1 overflow-y-auto p-6 space-y-6">
+              <AlbumEnrichmentSourceTab
+                albumId={props.albumId}
+                source="lastfm"
+                initialArtist={formData().artist_name}
+                initialTitle={formData().title}
+                snapshot={albumMetadata().lastfm}
+                progress={enrichmentProgress().lastfm}
+                onRequeried={refreshEnrichmentProgress}
+              />
+              <Show when={reviewRemote()}>
+                <SingleAlbumTaxonApplyPanel
+                  albumId={props.albumId}
+                  remote={reviewRemote()}
+                  source="lastfm"
+                  isAdmin={isRemoteAdmin()}
+                  onApplied={async () => {
+                    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                    await albumQuery.refetch();
+                  }}
+                />
+                <div class="pt-2 border-t border-[var(--color-border-default)]">
+                  <EnrichmentReviewPanel
+                    source="lastfm"
+                    albumId={props.albumId}
+                    metadataRaw={albumQuery.data?.metadata ?? null}
+                    remote={reviewRemote()!}
+                    isAdmin={isRemoteAdmin()}
+                    hideFetchButton
+                  />
+                </div>
+              </Show>
+            </TabPanel>
+          </Show>
+
+          <Show when={enrichmentEnabled().audiodb}>
+            <TabPanel id="audiodb" class="flex-1 overflow-y-auto p-6 space-y-6">
+              <AlbumEnrichmentSourceTab
+                albumId={props.albumId}
+                source="audiodb"
+                initialArtist={formData().artist_name}
+                initialTitle={formData().title}
+                snapshot={albumMetadata().audiodb}
+                progress={enrichmentProgress().audiodb}
+                onRequeried={refreshEnrichmentProgress}
+              />
+              <Show when={reviewRemote()}>
+                <SingleAlbumTaxonApplyPanel
+                  albumId={props.albumId}
+                  remote={reviewRemote()}
+                  source="audiodb"
+                  isAdmin={isRemoteAdmin()}
+                  onApplied={async () => {
+                    queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+                    await albumQuery.refetch();
+                  }}
+                />
+                <div class="pt-2 border-t border-[var(--color-border-default)]">
+                  <EnrichmentReviewPanel
+                    source="audiodb"
+                    albumId={props.albumId}
+                    metadataRaw={albumQuery.data?.metadata ?? null}
+                    remote={reviewRemote()!}
+                    isAdmin={isRemoteAdmin()}
+                    hideFetchButton
+                  />
+                </div>
+              </Show>
+            </TabPanel>
+          </Show>
         </Tabs>
       </Show>
 
       {/* footer */}
-      <Show when={initialData() && activeTab() === "info"}>
+      <Show when={initialData() && (activeTab() === "info" || reviewMode() != null)}>
         <div class="flex items-center justify-between p-6 border-t border-[var(--color-border-default)] flex-shrink-0">
           <Show when={canDeleteAlbum()}>
             <Button onClick={handleDelete} variant="danger">
@@ -981,12 +1319,45 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                 reset all
               </button>
             </Show>
-            <Button variant="secondary" onClick={props.onClose}>
-              cancel
-            </Button>
-            <Show when={canUpdateAlbum()}>
-              <Button variant="primary" onClick={handleSave} disabled={!hasChanges()}>
-                save changes
+            <Show
+              when={reviewMode()}
+              fallback={
+                <>
+                  <Button variant="secondary" onClick={props.onClose}>
+                    cancel
+                  </Button>
+                  <Show when={canUpdateAlbum()}>
+                    <Button variant="primary" onClick={() => handleSave()} disabled={!hasChanges()}>
+                      save changes
+                    </Button>
+                  </Show>
+                </>
+              }
+            >
+              {/* review-mode footer toolbar (phase 14.7) */}
+              <Button variant="secondary" onClick={handleSkip}>
+                skip
+              </Button>
+              <Show when={canUpdateAlbum()}>
+                <Button
+                  variant="secondary"
+                  onClick={handleSaveAndClose}
+                  disabled={!hasChanges()}
+                  title="save current and exit review"
+                >
+                  save & close
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleSaveAndNext}
+                  disabled={!hasChanges() && !reviewHasNext()}
+                  title="save current and advance"
+                >
+                  {reviewHasNext() ? "save & next" : "save & finish"}
+                </Button>
+              </Show>
+              <Button variant="secondary" onClick={handleExit}>
+                exit
               </Button>
             </Show>
           </div>

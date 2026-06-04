@@ -37,4 +37,10 @@ pub struct ServerInfoResponse {
     pub image_blob_id: Option<String>,
     /// whether knocking is enabled for P2P access requests
     pub knocking_enabled: Option<bool>,
+    /// whether musicbrainz enrichment is enabled on the server
+    pub musicbrainz_enabled: Option<bool>,
+    /// whether last.fm enrichment is enabled on the server
+    pub lastfm_enabled: Option<bool>,
+    /// whether theaudiodb enrichment is enabled on the server
+    pub audiodb_enabled: Option<bool>,
 }

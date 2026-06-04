@@ -15,8 +15,7 @@ use std::time::Duration;
 use color_eyre::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
-use grimoire::events::{self, GrimoireEvent};
-use grimoire::jobs::{self, CancellationToken};
+use grimoire::jobs::{self, job_events::JobEvent, CancellationToken};
 use grimoire::setup::{get_local_defaults, SetupConfig, SetupResult, SetupService};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -41,6 +40,9 @@ enum FieldId {
     EnableHttp,
     EnableP2p,
     EnableKnocking,
+    EnableRemoteAdmin,
+    EnableRadio,
+    EnableFetchMusic,
 }
 
 const FIELDS: &[FieldId] = &[
@@ -52,6 +54,9 @@ const FIELDS: &[FieldId] = &[
     FieldId::EnableHttp,
     FieldId::EnableP2p,
     FieldId::EnableKnocking,
+    FieldId::EnableRemoteAdmin,
+    FieldId::EnableRadio,
+    FieldId::EnableFetchMusic,
 ];
 
 impl FieldId {
@@ -62,7 +67,12 @@ impl FieldId {
     fn is_bool(self) -> bool {
         matches!(
             self,
-            FieldId::EnableHttp | FieldId::EnableP2p | FieldId::EnableKnocking
+            FieldId::EnableHttp
+                | FieldId::EnableP2p
+                | FieldId::EnableKnocking
+                | FieldId::EnableRemoteAdmin
+                | FieldId::EnableRadio
+                | FieldId::EnableFetchMusic
         )
     }
 
@@ -76,6 +86,9 @@ impl FieldId {
             FieldId::EnableHttp => "http server    ",
             FieldId::EnableP2p => "p2p / federation",
             FieldId::EnableKnocking => "knocking       ",
+            FieldId::EnableRemoteAdmin => "remote admin   ",
+            FieldId::EnableRadio => "radio          ",
+            FieldId::EnableFetchMusic => "fetch music    ",
         }
     }
 }
@@ -93,7 +106,8 @@ enum Status {
 /// scan step state. lives only after main setup completes.
 struct ScanState {
     music_dir: String,
-    selected_path: bool, // true = path field selected, false = action row
+    tags_csv: String,
+    selected_path: bool, // true = path field selected, false = tags field
     /// background scan in flight (Some = scanning, None = not yet started or done)
     handle: Option<ScanHandle>,
     /// latest job-progress snapshot from grimoire events
@@ -157,14 +171,19 @@ struct WizardApp {
     /// rathole tty's autostart-on-launch behavior.
     enable_http: bool,
     /// federation / p2p enabled in the generated config. drives
-    /// `[federation].enabled` and tty autostart. defaults to off
-    /// since haruspex creds aren't configured yet.
+    /// `[federation].enabled` and tty autostart. defaults to on.
     enable_p2p: bool,
     /// allow unknown peers to "knock" and request access. drives
     /// `[federation].knocking_enabled`. on by default so peers
     /// have a built-in path to request access without out-of-band
     /// invite codes.
     enable_knocking: bool,
+    /// enable remote admin over p2p federation.
+    enable_remote_admin: bool,
+    /// enable radio subsystem.
+    enable_radio: bool,
+    /// enable server.fetch_music routes.
+    enable_fetch_music: bool,
     selected: usize,
     status: Status,
     cancelled: bool,
@@ -184,9 +203,12 @@ impl WizardApp {
             description: String::new(),
             admin_username: d.username,
             image_path: String::new(),
-            enable_http: true,
-            enable_p2p: false,
+            enable_http: false,
+            enable_p2p: true,
             enable_knocking: true,
+            enable_remote_admin: false,
+            enable_radio: false,
+            enable_fetch_music: true,
             selected: 0,
             status: Status::Editing,
             cancelled: false,
@@ -210,7 +232,12 @@ impl WizardApp {
             // bool fields have no text buffer; callers must guard
             // with `is_bool()` before invoking this. unreachable
             // here keeps the api ergonomic for the path/text fields.
-            FieldId::EnableHttp | FieldId::EnableP2p | FieldId::EnableKnocking => {
+            FieldId::EnableHttp
+            | FieldId::EnableP2p
+            | FieldId::EnableKnocking
+            | FieldId::EnableRemoteAdmin
+            | FieldId::EnableRadio
+            | FieldId::EnableFetchMusic => {
                 unreachable!("current_buf_mut called on bool field")
             }
         }
@@ -223,6 +250,9 @@ impl WizardApp {
             FieldId::EnableHttp => self.enable_http = !self.enable_http,
             FieldId::EnableP2p => self.enable_p2p = !self.enable_p2p,
             FieldId::EnableKnocking => self.enable_knocking = !self.enable_knocking,
+            FieldId::EnableRemoteAdmin => self.enable_remote_admin = !self.enable_remote_admin,
+            FieldId::EnableRadio => self.enable_radio = !self.enable_radio,
+            FieldId::EnableFetchMusic => self.enable_fetch_music = !self.enable_fetch_music,
             _ => {}
         }
     }
@@ -294,6 +324,9 @@ impl WizardApp {
             server_enabled: Some(self.enable_http),
             federation_enabled: Some(self.enable_p2p),
             knocking_enabled: Some(self.enable_knocking),
+            remote_admin_enabled: Some(self.enable_remote_admin),
+            radio_enabled: Some(self.enable_radio),
+            fetch_music_enabled: Some(self.enable_fetch_music),
         })
     }
 }
@@ -317,10 +350,10 @@ async fn run_inner(mut terminal: DefaultTerminal, config_path: PathBuf) -> Resul
     let mut app = WizardApp::new(config_path);
     let mut input = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(500));
-    // subscribe up-front so we never miss the first JobProgress event after
+    // subscribe up-front so we never miss the first progress event after
     // start_scan kicks off (the broadcast channel only delivers events sent
     // *after* subscribe).
-    let mut grim_rx = events::subscribe();
+    let mut grim_rx = grimoire::jobs::job_events::subscribe();
 
     loop {
         terminal.draw(|f| draw(f, &app))?;
@@ -360,7 +393,7 @@ async fn run_inner(mut terminal: DefaultTerminal, config_path: PathBuf) -> Resul
                 Err(broadcast::error::RecvError::Lagged(_)) => {}
                 Err(broadcast::error::RecvError::Closed) => {
                     // channel can't really close (static), but be defensive
-                    grim_rx = events::subscribe();
+                    grim_rx = grimoire::jobs::job_events::subscribe();
                 }
             },
             _ = tick.tick() => {
@@ -416,7 +449,7 @@ fn check_enqueue_result(app: &mut WizardApp) {
     }
 }
 
-fn apply_grimoire_event(app: &mut WizardApp, ev: GrimoireEvent) {
+fn apply_grimoire_event(app: &mut WizardApp, ev: JobEvent) {
     let scan = match &mut app.phase {
         Phase::Scan(s) => s,
         _ => return,
@@ -426,13 +459,19 @@ fn apply_grimoire_event(app: &mut WizardApp, ev: GrimoireEvent) {
         None => return,
     };
     match ev {
-        GrimoireEvent::JobProgress {
+        JobEvent::Progress {
             session_id,
-            directory,
-            songs_added,
-            jobs_pending,
-            jobs_total,
+            details: Some(d),
+            ..
         } if session_id == handle.session_id => {
+            let directory = d
+                .get("directory")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let songs_added = d.get("songs_added").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let jobs_pending = d.get("jobs_pending").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let jobs_total = d.get("jobs_total").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             scan.progress = Some(ProgressSnapshot {
                 directory,
                 songs_added,
@@ -440,12 +479,26 @@ fn apply_grimoire_event(app: &mut WizardApp, ev: GrimoireEvent) {
                 jobs_total,
             });
         }
-        GrimoireEvent::JobSessionComplete {
+        JobEvent::Completed {
             session_id,
-            songs_added,
-            albums_added,
-            artists_added,
+            details,
+            ..
         } if session_id == handle.session_id => {
+            let songs_added = details
+                .as_ref()
+                .and_then(|d| d.get("songs_added"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            let albums_added = details
+                .as_ref()
+                .and_then(|d| d.get("albums_added"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            let artists_added = details
+                .as_ref()
+                .and_then(|d| d.get("artists_added"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
             scan.completion = Some(CompletionSnapshot {
                 songs_added,
                 albums_added,
@@ -534,6 +587,7 @@ async fn handle_key_form(app: &mut WizardApp, code: KeyCode) {
                     app.setup_result = Some(res);
                     app.phase = Phase::Scan(ScanState {
                         music_dir: String::new(),
+                        tags_csv: String::new(),
                         selected_path: true,
                         handle: None,
                         progress: None,
@@ -636,12 +690,16 @@ async fn handle_key_scan(app: &mut WizardApp, code: KeyCode) {
             if scan.selected_path {
                 scan.music_dir.pop();
                 scan.path_cycle = None;
+            } else {
+                scan.tags_csv.pop();
             }
         }
         KeyCode::Char(c) => {
             if scan.selected_path {
                 scan.music_dir.push(c);
                 scan.path_cycle = None;
+            } else {
+                scan.tags_csv.push(c);
             }
         }
         _ => {}
@@ -660,6 +718,12 @@ async fn start_scan(scan: &mut ScanState) {
         scan.error = Some(format!("not a directory: {path}"));
         return;
     }
+    let tags: Vec<String> = scan
+        .tags_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     scan.error = None;
     let cancel = CancellationToken::new();
     let enqueue: Arc<Mutex<Option<std::result::Result<usize, String>>>> =
@@ -687,9 +751,21 @@ async fn start_scan(scan: &mut ScanState) {
         }
     };
 
+    if !tags.is_empty() {
+        let tag_res =
+            jobs::add_directory_tags(&path, tags.clone(), Some("wizard-scan".to_string())).await;
+        if !tag_res.success {
+            scan.error = Some(format!(
+                "failed to apply directory tags: {}",
+                tag_res.message
+            ));
+            return;
+        }
+    }
+
     // spawn the job processor (consumes pending jobs as they appear).
-    // it emits GrimoireEvent::JobProgress / JobSessionComplete which the
-    // wizard's main loop receives via the broadcast subscription.
+    // it emits JobEvent::Progress / Completed which the
+    // wizard's main loop receives via the typed job_events subscription.
     let proc_token = cancel.clone();
     tokio::spawn(async move {
         jobs::run_job_processor_with_token(proc_token).await;
@@ -1009,6 +1085,27 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
                     "[ ] disabled".to_string()
                 }
             }
+            FieldId::EnableRemoteAdmin => {
+                if app.enable_remote_admin {
+                    "[x] enabled (admin over p2p)".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
+            FieldId::EnableRadio => {
+                if app.enable_radio {
+                    "[x] enabled".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
+            FieldId::EnableFetchMusic => {
+                if app.enable_fetch_music {
+                    "[x] enabled (download/upload routes)".to_string()
+                } else {
+                    "[ ] disabled".to_string()
+                }
+            }
         };
         let is_sel = i == app.selected;
         let label_style = if is_sel {
@@ -1076,7 +1173,7 @@ fn draw_form(f: &mut Frame, area: Rect, app: &WizardApp) {
 fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
     use Constraint::*;
     let chunks = Layout::vertical([
-        Length(4), // input
+        Length(6), // inputs
         Length(4), // progress
         Min(3),    // info
     ])
@@ -1106,6 +1203,24 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
             Span::raw(scan.music_dir.clone()),
             cursor_span,
             hint,
+        ]),
+        Line::from(vec![
+            Span::styled(
+                " tags ",
+                if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                    Style::new().fg(Color::Black).bg(Color::Magenta).bold()
+                } else {
+                    Style::new().dim()
+                },
+            ),
+            Span::raw(" "),
+            Span::raw(scan.tags_csv.clone()),
+            if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                Span::styled("█", Style::new().fg(Color::Magenta))
+            } else {
+                Span::raw(" ")
+            },
+            Span::styled("  [comma-separated optional tags]", Style::new().dim()),
         ]),
         Line::from(""),
     ];
@@ -1177,7 +1292,8 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
     } else {
         let mut s = String::from(
             "point at a directory of audio files to scan + import.\n\
-             leave default or edit, then press enter to scan.\n\
+               optional tags are applied to that directory before scan.\n\
+               leave default or edit, then press enter to scan.\n\
              press esc to skip and finish setup.\n\n",
         );
         if let Some(r) = &app.setup_result {
@@ -1244,7 +1360,7 @@ fn draw_help(f: &mut Frame, area: Rect, app: &WizardApp) {
             } else if s.handle.is_some() {
                 " esc: cancel scan  ctrl+c: abort "
             } else {
-                " tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
+                " up/down: path/tags  tab: complete path  enter: scan  esc: skip  ctrl+c: abort "
             }
         }
         Phase::Done => " any key: launch rathole ",

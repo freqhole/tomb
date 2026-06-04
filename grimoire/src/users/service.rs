@@ -6,7 +6,9 @@
 use crate::response::GrimoireResponse;
 use crate::users::models::*;
 use crate::users::repository::UserRepository;
-use crate::wordlist::generate_word_code;
+use crate::wordlist::{
+    generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
+};
 use rand::Rng;
 
 /// Service for user-related business operations
@@ -519,6 +521,16 @@ impl UserService {
             }
         }
 
+        // some web/server flows can hit invite generation before setup
+        // has initialized the wordlist in this process; lazily init it.
+        if !is_initialized() {
+            let config = ManagementWordlistConfig::default();
+            let init = initialize_wordlist(&config);
+            if !init.success {
+                return GrimoireResponse::failure("Failed to generate invite code", init.errors);
+            }
+        }
+
         let mut invite_codes = Vec::new();
 
         for _ in 0..count {
@@ -1018,6 +1030,38 @@ impl UserService {
             Err(err) => {
                 GrimoireResponse::failure("Failed to hard-delete peer node", vec![err.into()])
             }
+        }
+    }
+
+    /// Permanently delete peer rows by node id across all user
+    /// associations. returns rows deleted.
+    pub async fn hard_delete_peer_node_by_node_id(&self, node_id: &str) -> GrimoireResponse<u64> {
+        match self
+            .repository
+            .hard_delete_peer_node_by_node_id(node_id)
+            .await
+        {
+            Ok(count) => GrimoireResponse::success("Peer node hard-deleted", count),
+            Err(err) => {
+                GrimoireResponse::failure("Failed to hard-delete peer node", vec![err.into()])
+            }
+        }
+    }
+
+    /// Move a peer-node association to a different user and clear any
+    /// soft-delete state on the peer row.
+    pub async fn reassign_peer_node_user(
+        &self,
+        node_id: &str,
+        user_id: &str,
+    ) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .reassign_peer_node_user(node_id, user_id)
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("Peer node reassigned", ()),
+            Err(err) => GrimoireResponse::failure("Failed to reassign peer node", vec![err.into()]),
         }
     }
 

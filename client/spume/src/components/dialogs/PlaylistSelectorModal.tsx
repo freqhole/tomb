@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { canCreatePlaylist } from "../../music/data/permissions";
 import {
   useAddSongsToPlaylistMutation,
@@ -22,6 +23,9 @@ export interface PlaylistSelectorModalProps {
   onClose: () => void;
   /** song IDs to add to the selected playlist */
   songIds: string[];
+  /** when set, scope all queries/mutations to this remote rather than
+   *  the globally-active data source. */
+  remote?: Remote;
 }
 
 // playlist selector modal for adding songs to playlists
@@ -31,10 +35,15 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [newPlaylistName, setNewPlaylistName] = createSignal("");
 
   const queryClient = useQueryClient();
-  const recentPlaylistsQuery = useRecentPlaylistsQuery(5);
+  const recentPlaylistsQuery = useRecentPlaylistsQuery(
+    5,
+    () => true,
+    () => props.remote
+  );
   const allPlaylistsQuery = usePlaylistsQuery({
     search: searchQuery,
     pageSize: 100,
+    remote: () => props.remote,
   });
 
   const addSongsMutation = useAddSongsToPlaylistMutation();
@@ -58,6 +67,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       await addSongsMutation.mutateAsync({
         playlistId: playlist.playlist_id,
         songIds: props.songIds,
+        remote: props.remote,
       });
 
       const songCount = props.songIds.length;
@@ -82,12 +92,14 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       const newPlaylist = await createPlaylistMutation.mutateAsync({
         title: name,
         description: null,
+        remote: props.remote,
       });
 
       // immediately add songs to the newly created playlist
       await addSongsMutation.mutateAsync({
         playlistId: newPlaylist.playlist_id,
         songIds: props.songIds,
+        remote: props.remote,
       });
 
       const songCount = props.songIds.length;

@@ -7,18 +7,33 @@ import {
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
+import { RemoteMusicDataSource } from "../data/remote/remoteSource";
+import type { MusicDataSource } from "../data/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { ImageMetadata } from "../services/storage/types";
 import { queryKeys } from "./queryKeys";
+
+// pick a data source: a remote-scoped one when an explicit remote is
+// supplied (e.g. song context menu "add to playlist" on a song that
+// came from a remote different from the active source), otherwise the
+// globally-active source.
+function pickSource(remote: Remote | undefined): MusicDataSource {
+  if (remote && remote.remote_id) {
+    return new RemoteMusicDataSource(remote) as unknown as MusicDataSource;
+  }
+  return getDataSource();
+}
 
 // query hook for recent playlists (no pagination, just top N)
 export function useRecentPlaylistsQuery(
   limit: number = 5,
   enabled: Accessor<boolean> = () => true,
+  remote?: Accessor<Remote | undefined>,
 ) {
   return createQuery(() => ({
-    queryKey: queryKeys.playlists.recent(limit),
+    queryKey: [...queryKeys.playlists.recent(limit), remote?.()?.remote_id ?? null] as const,
     queryFn: async () => {
-      const dataSource = getDataSource();
+      const dataSource = pickSource(remote?.());
 
       if (!dataSource.getPlaylists) {
         return [];
@@ -42,17 +57,20 @@ export function useRecentPlaylistsQuery(
 interface UsePlaylistsQueryOptions {
   search?: Accessor<string | undefined>;
   pageSize?: number;
+  /** when set, scope the query to this remote (overrides active source). */
+  remote?: Accessor<Remote | undefined>;
 }
 
 // infinite query hook for playlists
 export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
   const search = options?.search;
   const pageSize = options?.pageSize || 50;
+  const remote = options?.remote;
 
   return createInfiniteQuery(() => ({
-    queryKey: [...queryKeys.playlists.all(), "infinite", search?.()],
+    queryKey: [...queryKeys.playlists.all(), "infinite", search?.(), remote?.()?.remote_id ?? null],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const dataSource = getDataSource();
+      const dataSource = pickSource(remote?.());
 
       if (!dataSource.getPlaylists) {
         // local source doesn't support playlists yet
@@ -146,14 +164,18 @@ export function useCreatePlaylistMutation() {
       title: string;
       description?: string | null;
       is_public?: boolean;
+      /** when set, create the playlist on this remote rather than the
+       *  globally-active source. */
+      remote?: Remote;
     }) => {
-      const dataSource = getDataSource();
+      const dataSource = pickSource(params.remote);
 
       if (!dataSource.createPlaylist) {
         throw new Error("data source does not support creating playlists");
       }
 
-      return await dataSource.createPlaylist(params);
+      const { remote: _remote, ...createParams } = params;
+      return await dataSource.createPlaylist(createParams);
     },
     onSuccess: () => {
       // invalidate and refetch playlists queries
@@ -225,8 +247,13 @@ export function useAddSongsToPlaylistMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (params: { playlistId: string; songIds: string[] }) => {
-      const dataSource = getDataSource();
+    mutationFn: async (params: {
+      playlistId: string;
+      songIds: string[];
+      /** when set, target this remote rather than the active source. */
+      remote?: Remote;
+    }) => {
+      const dataSource = pickSource(params.remote);
 
       if (!dataSource.addSongsToPlaylist) {
         throw new Error(

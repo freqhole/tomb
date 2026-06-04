@@ -15,6 +15,7 @@ mod images;
 mod maintenance;
 mod musicbrainz;
 mod scan;
+mod taxonomy;
 mod user_favorites;
 mod user_ratings;
 
@@ -22,6 +23,7 @@ pub use fetch::FetchAction;
 pub use images::ImageAction;
 pub use musicbrainz::MusicBrainzAction;
 pub use scan::ScanAction;
+pub use taxonomy::TaxonomyAction;
 pub use user_favorites::FavoritesAction;
 pub use user_ratings::RatingsAction;
 
@@ -39,11 +41,6 @@ pub enum MusicAction {
     },
     /// Query albums
     QueryAlbums {
-        #[command(flatten)]
-        params: QueryParams,
-    },
-    /// Query genres
-    QueryGenres {
         #[command(flatten)]
         params: QueryParams,
     },
@@ -188,12 +185,6 @@ pub enum MusicAction {
         artist_id: String,
     },
 
-    /// Get genre by ID
-    GetGenre {
-        #[arg(long)]
-        genre_id: String,
-    },
-
     /// List all tags
     ListTags,
     /// Get tag by ID
@@ -237,6 +228,12 @@ pub enum MusicAction {
         #[command(subcommand)]
         action: ScanAction,
     },
+    /// Cross-kind taxonomy operations (genre / mood / instrument / era /
+    /// key / location / label / bpm / loudness_db / energy / ...)
+    Taxonomy {
+        #[command(subcommand)]
+        action: TaxonomyAction,
+    },
 }
 
 /// Handle music commands
@@ -251,9 +248,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         }
         MusicAction::QueryAlbums { params } => {
             dispatch_to_offal("/api/albums/query", serde_json::to_value(params).unwrap()).await
-        }
-        MusicAction::QueryGenres { params } => {
-            dispatch_to_offal("/api/genres/query", serde_json::to_value(params).unwrap()).await
         }
         MusicAction::QueryPlaylists { params } => {
             dispatch_to_offal(
@@ -312,11 +306,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         }
         MusicAction::DeleteArtist { artist_id } => {
             dispatch_to_offal("/api/artists/delete", json!({ "id": artist_id })).await
-        }
-
-        // Genre commands
-        MusicAction::GetGenre { genre_id } => {
-            dispatch_to_offal("/api/genres/get", json!({ "id": genre_id })).await
         }
 
         // Tag commands
@@ -381,7 +370,11 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
             .await
         }
         MusicAction::DeletePlaylist { playlist_id } => {
-            dispatch_to_offal("/api/playlists/delete", json!({ "id": playlist_id })).await
+            dispatch_to_offal(
+                "/api/playlists/delete",
+                json!({ "playlist_id": playlist_id }),
+            )
+            .await
         }
         MusicAction::UpdatePlaylist {
             json_input,
@@ -438,5 +431,6 @@ pub async fn handle_command(action: MusicAction) -> CommandOutput<serde_json::Va
         MusicAction::Ratings { action } => user_ratings::handle_command(action).await,
         MusicAction::Fetch { action } => fetch::handle_command(action).await,
         MusicAction::Scan { action } => scan::handle_command(action).await,
+        MusicAction::Taxonomy { action } => taxonomy::handle_command(action).await,
     }
 }

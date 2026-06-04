@@ -122,11 +122,17 @@ export default function FederationView() {
   // peer list
   const [peerNodes, setPeerNodes] = createSignal<PeerNodeInfo[]>([]);
   const [peersLoading, setPeersLoading] = createSignal(false);
+  // when true, the peer list shows ONLY soft-deleted peers; when false,
+  // only live ones. backend always returns both — we filter client-side
+  // so toggling doesn't refetch.
+  const [showDeletedPeersOnly, setShowDeletedPeersOnly] = createSignal(false);
+  // all knocks (including processed) keyed by node_id so we can surface
+  // the original join message on each peer row.
+  const [allKnocks, setAllKnocks] = createSignal<KnockInfo[]>([]);
   const [removingPeerId, setRemovingPeerId] = createSignal<string | null>(null);
   const [restoringPeerId, setRestoringPeerId] = createSignal<string | null>(
     null,
   );
-  const [includeDeletedPeers, setIncludeDeletedPeers] = createSignal(false);
 
   // knock requests
   const [knocks, setKnocks] = createSignal<KnockInfo[]>([]);
@@ -160,12 +166,6 @@ export default function FederationView() {
       await loadPeers();
       await loadKnocks();
     })();
-  });
-
-  // reload peer list whenever the include-deleted toggle changes
-  createEffect(() => {
-    includeDeletedPeers();
-    void loadPeers();
   });
 
   // auto-refresh knocks periodically when federation is enabled
@@ -329,9 +329,11 @@ export default function FederationView() {
   async function loadPeers() {
     setPeersLoading(true);
     try {
+      // always fetch the full set; the show-deleted toggle filters
+      // client-side so it can flip without a round-trip.
       const peers = await admin.dispatchOrThrow<PeerNodeInfo[]>(
         "peers_list_all",
-        { include_deleted: includeDeletedPeers() },
+        { include_deleted: true },
       );
       setPeerNodes(peers);
     } catch (e) {
@@ -376,21 +378,66 @@ export default function FederationView() {
     }
   }
 
+  async function hardDeletePeer(nodeId: string) {
+    if (
+      !confirm(
+        `permanently delete peer node ${formatNodeId(nodeId)}?\n\nthis cannot be undone. all knock history for this peer will be gone.`,
+      )
+    )
+      return;
+    setRemovingPeerId(nodeId);
+    setError("");
+    try {
+      await admin.dispatchOrThrow("peers_hard_delete", { node_id: nodeId });
+      await loadPeers();
+      setSuccess("peer permanently deleted");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemovingPeerId(null);
+    }
+  }
+
   // knock request functions
   async function loadKnocks() {
     setKnocksLoading(true);
     try {
-      const result = await admin.dispatchOrThrow<KnockInfo[]>(
-        "knocks_list",
-        {},
-      );
-      setKnocks(result);
+      const [pending, all] = await Promise.all([
+        admin.dispatchOrThrow<KnockInfo[]>("knocks_list", {}),
+        admin.dispatchOrThrow<KnockInfo[]>("knocks_list_all", {}),
+      ]);
+      setKnocks(pending);
+      setAllKnocks(all);
     } catch (e) {
       console.error("failed to load knocks:", e);
     } finally {
       setKnocksLoading(false);
     }
   }
+
+  // most-recent knock per node_id (for surfacing the original join
+  // message on peer rows).
+  const knockByNodeId = (): Map<string, KnockInfo> => {
+    const map = new Map<string, KnockInfo>();
+    for (const k of allKnocks()) {
+      const existing = map.get(k.node_id);
+      if (!existing || k.created_at > existing.created_at) {
+        map.set(k.node_id, k);
+      }
+    }
+    return map;
+  };
+
+  const visiblePeers = (): PeerNodeInfo[] => {
+    const wantDeleted = showDeletedPeersOnly();
+    return peerNodes().filter((p) => {
+      const isDeleted = !!p.deleted_at || !!p.user_deleted_at;
+      return wantDeleted ? isDeleted : !isDeleted;
+    });
+  };
+
+  const deletedPeerCount = (): number =>
+    peerNodes().filter((p) => !!p.deleted_at || !!p.user_deleted_at).length;
 
   async function handleAcceptKnock(knock: KnockInfo) {
     setProcessingKnockId(knock.id);
@@ -911,25 +958,27 @@ export default function FederationView() {
             <div class="section-actions" style="margin-bottom: 0.5rem">
               <div class="flex-spacer" />
               <button
-                class={`small ${includeDeletedPeers() ? "active" : "secondary"}`}
-                onClick={() => setIncludeDeletedPeers(!includeDeletedPeers())}
+                class={`small ${showDeletedPeersOnly() ? "active" : "secondary"}`}
+                onClick={() => setShowDeletedPeersOnly(!showDeletedPeersOnly())}
+                disabled={!showDeletedPeersOnly() && deletedPeerCount() === 0}
               >
-                {includeDeletedPeers() ? (
+                {showDeletedPeersOnly() ? (
                   <>
                     hide deleted peer<span class="pinky">z</span>
                   </>
                 ) : (
                   <>
-                    show deleted peer<span class="pinky">z</span>
+                    show deleted peer<span class="pinky">z</span> (
+                    {deletedPeerCount()})
                   </>
                 )}
               </button>
             </div>
 
             {/* peer list */}
-            <Show when={peerNodes().length > 0}>
+            <Show when={visiblePeers().length > 0}>
               <div class="peer-list">
-                <For each={peerNodes()}>
+                <For each={visiblePeers()}>
                   {(peer) => {
                     const isDeleted = () =>
                       !!peer.deleted_at || !!peer.user_deleted_at;
@@ -985,20 +1034,60 @@ export default function FederationView() {
                             </span>
                           </Show>
                         </div>
+                        <Show when={knockByNodeId().get(peer.node_id)?.message}>
+                          <div
+                            class="peer-knock-message"
+                            title="original knock request message"
+                            style={{
+                              "grid-column": "1 / -1",
+                              "font-size": "0.8125rem",
+                              "font-style": "italic",
+                              color: "var(--color-text-secondary, #888)",
+                              "border-left":
+                                "2px solid var(--color-border, #333)",
+                              padding: "0.25rem 0.5rem",
+                              "margin-top": "0.25rem",
+                            }}
+                          >
+                            “{knockByNodeId().get(peer.node_id)!.message}”
+                          </div>
+                        </Show>
                         <Show
                           when={!peer.deleted_at}
                           fallback={
-                            <button
-                              class="peer-remove"
-                              onClick={() =>
-                                restorePeer(peer.user_id, peer.node_id)
-                              }
-                              disabled={restoringPeerId() === peer.node_id}
-                              title="restore peer"
-                              style={{ color: "#ffffff" }}
+                            <div
+                              class="peer-actions"
+                              style={{
+                                display: "flex",
+                                gap: "0.25rem",
+                                "align-items": "center",
+                                "justify-content": "flex-end",
+                              }}
                             >
-                              {restoringPeerId() === peer.node_id ? "..." : "↻"}
-                            </button>
+                              <button
+                                class="primary small"
+                                onClick={() =>
+                                  restorePeer(peer.user_id, peer.node_id)
+                                }
+                                disabled={restoringPeerId() === peer.node_id}
+                                title="restore peer"
+                                style={{ color: "#ffffff" }}
+                              >
+                                {restoringPeerId() === peer.node_id
+                                  ? "..."
+                                  : "restore"}
+                              </button>
+                              <button
+                                class="danger small"
+                                onClick={() => hardDeletePeer(peer.node_id)}
+                                disabled={removingPeerId() === peer.node_id}
+                                title="permanently delete peer forever"
+                              >
+                                {removingPeerId() === peer.node_id
+                                  ? "..."
+                                  : "delete forever"}
+                              </button>
+                            </div>
                           }
                         >
                           <button
@@ -1019,9 +1108,11 @@ export default function FederationView() {
               </div>
             </Show>
 
-            <Show when={peerNodes().length === 0 && !peersLoading()}>
+            <Show when={visiblePeers().length === 0 && !peersLoading()}>
               <div class="status-message" style="margin-bottom: 1rem">
-                no peers allowed yet
+                {showDeletedPeersOnly()
+                  ? "no deleted peers"
+                  : "no peers allowed yet"}
               </div>
             </Show>
           </section>

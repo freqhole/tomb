@@ -43,6 +43,13 @@ export interface GenreRef {
   name: string;
 }
 
+// taxon reference (cross-kind label: genre, label, mood, era, region, ...)
+export interface TaxonRef {
+  id: string;
+  kind_slug: string;
+  label: string;
+}
+
 // clean entity URL type for app use (adapter filters out incomplete entries)
 export interface EntityUrl {
   id: string;
@@ -61,6 +68,9 @@ export interface AlbumSummary {
   release_date?: string;
   label?: string;
   genres?: GenreRef[];
+  /** every taxon linked to this album, across all kinds. prefer over
+   *  `genres` for kind-aware rendering (chips grouped by kind). */
+  taxons?: TaxonRef[];
   song_count: number;
   total_duration: number;
   images?: ImageMetadata[];
@@ -72,6 +82,13 @@ export interface AlbumSummary {
   updated_at?: number;
   created_by_username?: string;
   updated_by_username?: string;
+  /** raw json string from `albumz.metadata`. parse with `parseAlbumMetadata`
+   *  from `library/data/albumMetadata` to get the typed shape. */
+  metadata?: string | null;
+  /** raw musicbrainz lookup status string. parse with `parseMbLookupStatus`. */
+  mb_lookup_status?: string | null;
+  mb_lookup_at?: number | null;
+  mb_lookup_by?: string | null;
 }
 
 // artist summary data for lists
@@ -128,11 +145,15 @@ export interface ListFavoritesParams {
   offset?: number;
 }
 
-// search suggestion types
+// search suggestion types. `"genre"` is FEDERATION-COMPAT-LEGACY-GENRE-TYPE:
+// kept as an accepted wire value so payloads from peers that haven't
+// upgraded past the rename still validate. new code should emit
+// `"taxon"` and switch on both when consuming.
 export type SuggestionType =
   | "artist"
   | "album"
   | "song"
+  | "taxon"
   | "genre"
   | "playlist";
 
@@ -270,12 +291,9 @@ export interface MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<Song>>;
 
-  // genres (optional - may aggregate from albums/songs)
-  getGenres?(params?: QueryParams): Promise<PaginatedResponse<GenreSummary>>;
-  getGenreSongs?(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>>;
+  // genres were removed during the taxonomy refactor — fetch them via
+  // the unified taxonomy api (queryTaxons / getTaxon with kind='genre')
+  // instead of dedicated genre routes.
 
   // playlists (optional)
   getPlaylists?(
@@ -382,8 +400,6 @@ export interface MusicDataSource {
     album_id?: string | null;
     genre?: string | null;
     genre_id?: string | null;
-    sub_genre_ids?: string[] | null;
-    sub_genres?: string[] | null;
     track_number?: number | null;
     disc_number?: number | null;
     year?: number | null;

@@ -101,3 +101,52 @@ pub(in crate::ratcore::catalog) fn allow() -> AdminCommand {
         ],
     }
 }
+
+pub(in crate::ratcore::catalog) fn hard_delete() -> AdminCommand {
+    AdminCommand {
+        name: "peers_hard_delete".to_string(),
+        request_type: "AdminPeersHardDeleteRequest".to_string(),
+        response_type: "AdminPeersHardDeleteResponse".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![ArgSpec {
+            name: "node_id".to_string(),
+            kind: ArgKind::SelectFrom {
+                source_command: "peers_list_all".to_string(),
+                source_body: serde_json::json!({ "include_deleted": true }),
+                body_from_fields: vec![],
+                data_path: String::new(),
+                value_field: "node_id".to_string(),
+                label_field: "node_id".to_string(),
+            },
+            required: true,
+            help: Some("permanently delete this node from all user associations".to_string()),
+        }],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn reassign_user() -> AdminCommand {
+    AdminCommand {
+        name: "peers_reassign_user".to_string(),
+        request_type: "AdminPeersReassignUserRequest".to_string(),
+        response_type: "EmptyResponse".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![
+            ArgSpec {
+                name: "node_id".to_string(),
+                kind: ArgKind::SelectFrom {
+                    source_command: "peers_list_all".to_string(),
+                    source_body: serde_json::json!({ "include_deleted": true }),
+                    body_from_fields: vec![],
+                    data_path: String::new(),
+                    value_field: "node_id".to_string(),
+                    label_field: "node_id".to_string(),
+                },
+                required: true,
+                help: Some("pick peer node to reassign".to_string()),
+            },
+            pick_user("user_id", "pick the destination user (root excluded)"),
+        ],
+    }
+}

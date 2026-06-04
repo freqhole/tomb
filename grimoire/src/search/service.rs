@@ -58,11 +58,11 @@ pub async fn get_suggestions(
                     }
                 },
             );
-            all_suggestions.extend(match get_genre_suggestions(&pool, &req.partial).await {
+            all_suggestions.extend(match get_taxon_suggestions(&pool, &req.partial).await {
                 Ok(s) => s,
                 Err(e) => {
                     return GrimoireResponse::failure(
-                        "failed to get genre suggestions",
+                        "failed to get taxon suggestions",
                         vec![e.into()],
                     )
                 }
@@ -102,11 +102,16 @@ pub async fn get_suggestions(
             }
         },
         SearchField::Genres => {
-            match get_genre_suggestions(&pool, &req.partial).await {
+            // SearchField::Genres is kept as the API-level scope name for
+            // backwards compat with existing callers, but the underlying
+            // suggestion query now spans every taxon kind (genre, tag,
+            // mood, style, era, label, etc). consumers discriminate via
+            // suggestion.metadata.kind_slug.
+            match get_taxon_suggestions(&pool, &req.partial).await {
                 Ok(s) => s,
                 Err(e) => {
                     return GrimoireResponse::failure(
-                        "failed to get genre suggestions",
+                        "failed to get taxon suggestions",
                         vec![e.into()],
                     )
                 }

@@ -7,12 +7,18 @@ use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
 /// Job types supported by the queue
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ZodSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, ZodSchema)]
 pub enum JobType {
     // filesystem operations
     ScanDirectory,
     RescanDirectories,
     ProcessFile,
+    /// process every audio file in a single directory inside one job.
+    /// the scanner fans out by dir (not by file) so the worker pool
+    /// avoids cross-dir i/o thrash and redundant per-file ffmpeg /
+    /// art-extraction work. ProcessFile is still used for single-file
+    /// flows (uploads, url fetches).
+    ProcessDirectory,
 
     // media operations
     FetchMedia,
@@ -20,6 +26,52 @@ pub enum JobType {
     // upload processing
     ConvertWebp,
     ImportMusic,
+
+    // musicbrainz enrichment
+    MbAlbumSearch,
+    MbAlbumDetail,
+
+    // last.fm enrichment
+    LastFmAlbumDetail,
+    LastFmArtistDetail,
+
+    // theaudiodb enrichment
+    AudioDbAlbumDetail,
+    AudioDbArtistDetail,
+
+    // bulk multi-source enrichment orchestrator (phase 14.4)
+    AlbumEnrichmentPipeline,
+
+    // auto-apply: after `auto_confirm_mb_matches` flips an album to
+    // `confirmed`, this job waits for the chained mb/lastfm/audiodb
+    // detail jobs to settle, then applies every available proposal
+    // (taxons, entity urls, artist bio, related artists) and ingests
+    // every album + artist remote image candidate. final step flips
+    // the album to `enriched`.
+    AutoApplyAlbumEnrichment,
+}
+
+/// external enrichment sources the pipeline can run against.
+///
+/// NOTE: variants serialize as PascalCase ("Mb" / "Lastfm" / "Audiodb")
+/// to match the zod codegen output (which doesn't honor `#[serde(rename_all)]`).
+/// internal string keys (db, log lines, source-status maps) use the
+/// lowercase form returned by `as_str()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ZodSchema)]
+pub enum EnrichmentSource {
+    Mb,
+    Lastfm,
+    Audiodb,
+}
+
+impl EnrichmentSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EnrichmentSource::Mb => "mb",
+            EnrichmentSource::Lastfm => "lastfm",
+            EnrichmentSource::Audiodb => "audiodb",
+        }
+    }
 }
 
 /// job status lifecycle
@@ -223,6 +275,10 @@ pub struct CreateJobRequest {
     pub max_retries: Option<i32>,
     pub scheduled_at: Option<i64>, // unix timestamp, None = immediate
     pub created_by: Option<String>,
+    /// queue priority — higher runs first within same scheduled_at.
+    /// defaults to 0 when None. user-initiated lookups should pass 10+;
+    /// background batch fills should stay at 0.
+    pub priority: Option<i32>,
 }
 
 /// request for getting a job by id

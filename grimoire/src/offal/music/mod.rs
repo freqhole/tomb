@@ -1,20 +1,23 @@
 //! music domain handlers
 //!
-//! covers: songs, albums, artists, playlists, genres, favorites, ratings,
-//! tags, blobs, uploads, jobs, analytics, sessions, search
+//! covers: songs, albums, artists, playlists, taxonomy, favorites,
+//! ratings, tags, blobs, uploads, jobs, analytics, sessions, search
 
 pub mod albums;
 pub mod analytics;
 pub mod artists;
 pub mod favorites;
-pub mod genres;
+pub mod job_events;
 pub mod jobs;
 pub mod playlists;
 pub mod ratings;
+pub mod related_artists;
+pub mod relations;
 pub mod search;
 pub mod sessions;
 pub mod songs;
 pub mod tags;
+pub mod taxonomy;
 
 use crate::api_registry::{Method, RouteInfo};
 use crate::offal::caller::Caller;
@@ -28,14 +31,17 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(analytics::ROUTES);
     all.extend_from_slice(artists::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
-    all.extend_from_slice(genres::ROUTES);
+    all.extend_from_slice(job_events::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
+    all.extend_from_slice(related_artists::ROUTES);
+    all.extend_from_slice(relations::ROUTES);
     all.extend_from_slice(search::ROUTES);
     all.extend_from_slice(sessions::ROUTES);
     all.extend_from_slice(songs::ROUTES);
     all.extend_from_slice(tags::ROUTES);
+    all.extend_from_slice(taxonomy::ROUTES);
     all
 }
 
@@ -75,10 +81,29 @@ pub async fn dispatch(
 
         // albums
         "/api/albums/query" => Some(albums::query(caller, body.clone()).await),
+        "/api/albums/status-counts" => Some(albums::status_counts(caller, body.clone()).await),
         "/api/albums/get" => Some(albums::get(caller, body.clone()).await),
         "/api/albums/delete" => Some(albums::delete(caller, body.clone()).await),
         "/api/albums/images" => Some(albums::get_images(caller, body.clone()).await),
         "/api/albums/update" => Some(albums::update(caller, body.clone()).await),
+        "/api/albums/mb-confirm" => Some(albums::confirm_mb_match(caller, body.clone()).await),
+        "/api/albums/mb-reject" => Some(albums::reject_mb_match(caller, body.clone()).await),
+        "/api/albums/mb-auto-confirm" => {
+            Some(albums::auto_confirm_mb_matches(caller, body.clone()).await)
+        }
+        "/api/albums/propose-taxons" => Some(albums::propose_taxons(caller, body.clone()).await),
+        "/api/albums/apply-taxon-proposals" => {
+            Some(albums::apply_taxon_proposals(caller, body.clone()).await)
+        }
+        "/api/albums/set-mb-lookup-status" => {
+            Some(albums::set_mb_lookup_status(caller, body.clone()).await)
+        }
+        "/api/albums/propose-external-urls" => {
+            Some(albums::propose_external_urls(caller, body.clone()).await)
+        }
+        "/api/albums/apply-external-urls" => {
+            Some(albums::apply_external_urls(caller, body.clone()).await)
+        }
 
         // artists
         "/api/artists/query" => Some(artists::query(caller, body.clone()).await),
@@ -86,15 +111,51 @@ pub async fn dispatch(
         "/api/artists/delete" => Some(artists::delete(caller, body.clone()).await),
         "/api/artists/images" => Some(artists::get_images(caller, body.clone()).await),
         "/api/artists/update" => Some(artists::update(caller, body.clone()).await),
+        "/api/artists/update-metadata" => {
+            Some(artists::update_metadata(caller, body.clone()).await)
+        }
+        "/api/artists/propose-bios" => Some(artists::propose_bios(caller, body.clone()).await),
+        "/api/artists/apply-bio" => Some(artists::apply_bio(caller, body.clone()).await),
+        "/api/artists/propose-related" => {
+            Some(artists::propose_related(caller, body.clone()).await)
+        }
+        "/api/artists/apply-related" => Some(artists::apply_related(caller, body.clone()).await),
         "/api/music/artists" => Some(artists::create(caller, body.clone()).await),
 
-        // genres
-        "/api/genres/query" => Some(genres::query(caller, body.clone()).await),
-        "/api/genres/get" => Some(genres::get(caller, body.clone()).await),
+        // related artists (phase 13h)
+        "/api/related-artists/list" => Some(related_artists::list(caller, body.clone()).await),
+        "/api/related-artists/list-batch" => {
+            Some(related_artists::list_batch(caller, body.clone()).await)
+        }
+        "/api/related-artists/set-bandcamp" => {
+            Some(related_artists::set_bandcamp(caller, body.clone()).await)
+        }
+
+        // cross-remote relations/walk (phase 11)
+        "/api/music/relations/albums-by-value" => {
+            Some(relations::albums_by_value(caller, body.clone()).await)
+        }
+        "/api/music/entities/taxons" => {
+            Some(relations::entity_taxons_batch(caller, body.clone()).await)
+        }
+        "/api/music/relations/by-merged-key" => {
+            Some(relations::find_by_merged_key(caller, body.clone()).await)
+        }
+        "/api/music/relations/era-bins" => Some(relations::era_bins(caller, body.clone()).await),
+        "/api/music/relations/recently-added-albums" => {
+            Some(relations::recently_added_albums(caller, body.clone()).await)
+        }
+        "/api/music/relations/era-albums" => {
+            Some(relations::era_albums(caller, body.clone()).await)
+        }
+        "/api/music/relations/unassigned-albums" => {
+            Some(relations::unassigned_albums(caller, body.clone()).await)
+        }
 
         // favorites
         "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
         "/api/favorites/list" => Some(favorites::list(caller, body.clone()).await),
+        "/api/favorites/beloved" => Some(favorites::list_beloved(caller, body.clone()).await),
 
         // ratings
         "/api/ratings/set" => Some(ratings::set(caller, body.clone()).await),
@@ -111,11 +172,77 @@ pub async fn dispatch(
         "/api/tags/albums/replace" => Some(tags::replace_on_albums(caller, body.clone()).await),
         "/api/tags/albums/get" => Some(tags::get_for_albums(caller, body.clone()).await),
 
+        // taxonomy (kinds, taxons, parents, album links, scalar attributes)
+        "/api/taxonomy/kinds/list" => Some(taxonomy::list_kinds(caller, body.clone()).await),
+        "/api/taxonomy/kinds/create" => Some(taxonomy::create_kind(caller, body.clone()).await),
+        "/api/taxonomy/kinds/set-color" => {
+            Some(taxonomy::set_kind_color(caller, body.clone()).await)
+        }
+        "/api/taxonomy/kinds/set-label" => {
+            Some(taxonomy::set_kind_label(caller, body.clone()).await)
+        }
+        "/api/taxonomy/taxons/list-by-kind" => {
+            Some(taxonomy::list_taxons_by_kind(caller, body.clone()).await)
+        }
+        "/api/taxonomy/taxons/query" => Some(taxonomy::query_taxons(caller, body.clone()).await),
+        "/api/taxonomy/taxons/get" => Some(taxonomy::get_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/create" => Some(taxonomy::create_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/set-color" => Some(taxonomy::set_color(caller, body.clone()).await),
+        "/api/taxonomy/taxons/set-label" => Some(taxonomy::set_label(caller, body.clone()).await),
+        "/api/taxonomy/taxons/delete" => Some(taxonomy::delete_taxon(caller, body.clone()).await),
+        "/api/taxonomy/taxons/ancestors" => Some(taxonomy::ancestors(caller, body.clone()).await),
+        "/api/taxonomy/taxons/descendants" => {
+            Some(taxonomy::descendants(caller, body.clone()).await)
+        }
+        "/api/taxonomy/parents/add" => Some(taxonomy::add_parent(caller, body.clone()).await),
+        "/api/taxonomy/parents/remove" => Some(taxonomy::remove_parent(caller, body.clone()).await),
+        "/api/taxonomy/parents/list-by-kind" => {
+            Some(taxonomy::list_parents_for_kind(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/get" => {
+            Some(taxonomy::get_album_links(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/add" => {
+            Some(taxonomy::add_album_link(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/remove" => {
+            Some(taxonomy::remove_album_link(caller, body.clone()).await)
+        }
+        "/api/taxonomy/album-links/set" => {
+            Some(taxonomy::set_album_links(caller, body.clone()).await)
+        }
+        "/api/taxonomy/scalars/set" => Some(taxonomy::set_scalar(caller, body.clone()).await),
+        "/api/taxonomy/scalars/query-range" => {
+            Some(taxonomy::query_scalar_range(caller, body.clone()).await)
+        }
+
         // jobs
         "/api/jobs/status" => Some(jobs::status(caller, body.clone()).await),
         "/api/jobs/list" => Some(jobs::list(caller, body.clone()).await),
+        "/api/jobs/events/snapshot" => Some(job_events::snapshot(caller, body.clone()).await),
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
         "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
+        "/api/music/albums/mb-search/enqueue" => {
+            Some(jobs::enqueue_mb_album_search(caller, body.clone()).await)
+        }
+        "/api/music/albums/lastfm/enqueue" => {
+            Some(jobs::enqueue_lastfm_album_detail(caller, body.clone()).await)
+        }
+        "/api/music/albums/audiodb/enqueue" => {
+            Some(jobs::enqueue_audiodb_album_detail(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/bulk" => {
+            Some(jobs::enqueue_bulk_enrichment(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/cancel" => {
+            Some(jobs::cancel_bulk_enrichment(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/progress" => {
+            Some(jobs::get_enrichment_progress(caller, body.clone()).await)
+        }
+        "/api/music/albums/enrichment/requery" => {
+            Some(jobs::requery_enrichment(caller, body.clone()).await)
+        }
 
         // search
         "/api/music/search" => Some(search::search_handler(caller, body.clone()).await),
@@ -125,6 +252,13 @@ pub async fn dispatch(
         "/api/music/images/delete" => Some(albums::delete_image(caller, body.clone()).await),
         "/api/music/images/set-primary" => {
             Some(albums::set_primary_image(caller, body.clone()).await)
+        }
+        "/api/music/images/ingest" => Some(albums::ingest_remote_image(caller, body.clone()).await),
+        "/api/music/albums/image-candidates" => {
+            Some(albums::image_candidates_for_album(caller, body.clone()).await)
+        }
+        "/api/artists/image-candidates" => {
+            Some(artists::image_candidates(caller, body.clone()).await)
         }
 
         // analytics
@@ -170,6 +304,19 @@ pub async fn dispatch(
             super::media_blobz::dispatch(path, caller, body).await
         }
 
+        _ => None,
+    }
+}
+
+/// streaming dispatch for music-domain routes. mirrors `dispatch`
+/// but yields an `EventStream` instead of a single response.
+pub async fn dispatch_stream(
+    path: &str,
+    caller: &Caller,
+    body: &JsonValue,
+) -> Option<crate::offal::EventStream> {
+    match path {
+        "/api/jobs/events/subscribe" => Some(job_events::subscribe(caller.clone(), body.clone())),
         _ => None,
     }
 }

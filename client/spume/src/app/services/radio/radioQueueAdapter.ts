@@ -35,10 +35,21 @@ import {
   markTimelinePlaybackBlocked,
   handleTimelineAutoplayBlocked,
   recordCurrentRadioTrackHistory,
+  registerQueueAdapter,
 } from "./radioService";
 import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import type { Remote } from "../storage/schemas/remote";
 import type { Song } from "../../../music/services/storage/types";
+
+// register our queue-mode entry points with the radio service so it
+// can drive us without a static import cycle. the radio service holds
+// the function refs in a small registry; AppLayout's static import of
+// this module ensures we load on app startup.
+registerQueueAdapter({
+  acknowledgeTimelineUserStart: () => acknowledgeTimelineUserStart(),
+  startQueueModeAdapter: () => startQueueModeAdapter(),
+  stopQueueModeAdapter: () => stopQueueModeAdapter(),
+});
 
 // ---- state ---------------------------------------------------------------
 
@@ -141,7 +152,13 @@ export function startQueueModeAdapter(): void {
 
 /** stop the adapter. clears state and cancels any in-flight work. */
 export function stopQueueModeAdapter(): void {
-  console.info("[radio-queue-adapter] stopping (generation:", adapterGeneration, ")");
+  const wasActive = active;
+  console.info(
+    "[radio-queue-adapter] stopping generation:",
+    adapterGeneration,
+    "wasActive:",
+    wasActive,
+  );
   active = false;
   // increment generation first so any in-flight preCacheUpcoming loops
   // abort before creating more object URLs.
@@ -153,14 +170,21 @@ export function stopQueueModeAdapter(): void {
     disposeRoot();
     disposeRoot = null;
   }
-  // revoke all audio blob URLs created by timeline playback. these are
-  // audio object URLs held in audioAccess.activeBlobURLs — one per cached
-  // or currently-playing song. without this they survive the radio session
-  // and accumulate across tune/retune cycles.
+  // revoke audio blob URLs created by timeline playback ONLY if the
+  // adapter was actually active in this session. `activeBlobURLs` is
+  // shared with the music player (see audioAccess.ts) — calling
+  // cleanupAllAudioURLs() unconditionally would revoke the music
+  // player's currently-loaded blob URL, causing
+  // `WebKitBlobResource error 1` errors and song skips on resume
+  // (every music togglePlayback path goes through stopRadioForMusic →
+  // leaveRadio → stopQueueModeAdapter).
+  //
   // art blob URLs are separately managed: inline broadcaster art goes
   // through swapArtUrl() which already revokes on swap, and leaveRadio()
   // calls swapArtUrl(null) on teardown.
-  cleanupAllAudioURLs();
+  if (wasActive) {
+    cleanupAllAudioURLs();
+  }
 }
 
 // ---- internal ------------------------------------------------------------
@@ -469,6 +493,16 @@ async function handleTrackTransition(
   gen: number,
 ): Promise<void> {
   if (gen !== adapterGeneration) return;
+
+  // [radio-skip-debug] #5 — log when adapter accepts a new transition.
+  // compare timestamp vs. audio error/ended to see which fired first.
+  console.info(
+    "[radio-skip-debug] handleTrackTransition",
+    "timeline_item_id=", current.timeline_item_id,
+    "song_id=", current.song_id,
+    "gen=", gen,
+    "t=", Date.now(),
+  );
 
   const localSession = radioCurrentIsLocal();
   const remote = localSession ? await getTauriManagedRemote() : await resolveRemote();

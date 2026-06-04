@@ -42,6 +42,9 @@ const FRIENDZ_ALPN: &[u8] = b"freqhole-friendz/1";
 /// ALPN for admin command dispatch (must match grimoire's ADMIN_ALPN)
 const ADMIN_ALPN: &[u8] = b"freqhole-admin/1";
 
+/// ALPN for job-event subscriptions (must match grimoire's EVENTS_ALPN)
+const EVENTS_ALPN: &[u8] = b"freqhole-events/1";
+
 /// admin protocol messages (must match grimoire's AdminMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -306,6 +309,77 @@ impl BiStream {
         result
     }
 
+    /// write a newline-delimited utf-8 line.
+    ///
+    /// appends `\n` if not already present, then writes. used for the ndjson
+    /// framing the `freqhole-events/1` protocol speaks.
+    pub async fn write_line(&self, line: &str) -> Result<(), JsError> {
+        let mut send = self
+            .send
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("send stream busy or closed"))?;
+
+        let mut bytes = line.as_bytes().to_vec();
+        if !bytes.ends_with(b"\n") {
+            bytes.push(b'\n');
+        }
+
+        let result = send.write_all(&bytes).await.map_err(to_js_err);
+
+        *self.send.borrow_mut() = Some(send);
+        result
+    }
+
+    /// read a newline-terminated utf-8 line.
+    ///
+    /// returns the line WITHOUT the trailing `\n`. returns null on clean
+    /// stream close (EOF before any bytes). used for ndjson framing.
+    pub async fn read_line(&self) -> Result<JsValue, JsError> {
+        let mut recv = self
+            .recv
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("recv stream busy or closed"))?;
+
+        // hand-rolled read-until-newline so we don't drag in a BufReader
+        let mut buf: Vec<u8> = Vec::with_capacity(256);
+        let mut byte = [0u8; 1];
+        let result: Result<Option<String>, JsError> = loop {
+            match recv.read_exact(&mut byte).await {
+                Ok(()) => {
+                    if byte[0] == b'\n' {
+                        break Ok(Some(String::from_utf8_lossy(&buf).into_owned()));
+                    }
+                    buf.push(byte[0]);
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let clean_eof = err_str.contains("finished")
+                        || err_str.contains("closed")
+                        || err_str.contains("eof");
+                    if clean_eof {
+                        // partial line at EOF: surface it if non-empty, otherwise null
+                        if buf.is_empty() {
+                            break Ok(None);
+                        } else {
+                            break Ok(Some(String::from_utf8_lossy(&buf).into_owned()));
+                        }
+                    }
+                    break Err(to_js_err(e));
+                }
+            }
+        };
+
+        *self.recv.borrow_mut() = Some(recv);
+
+        match result {
+            Ok(Some(line)) => Ok(JsValue::from_str(&line)),
+            Ok(None) => Ok(JsValue::NULL),
+            Err(e) => Err(e),
+        }
+    }
+
     /// close the stream.
     ///
     /// finishes the send half and drops both halves.
@@ -463,6 +537,7 @@ impl MiddenNode {
                 AUTOMERGE_ALPN.to_vec(),
                 FRIENDZ_ALPN.to_vec(),
                 ADMIN_ALPN.to_vec(),
+                EVENTS_ALPN.to_vec(),
                 iroh_blobs::ALPN.to_vec(),
             ])
             .bind()
@@ -530,6 +605,7 @@ impl MiddenNode {
             FREQHOLE_ALPN.to_vec(),
             AUTOMERGE_ALPN.to_vec(),
             FRIENDZ_ALPN.to_vec(),
+            EVENTS_ALPN.to_vec(),
             iroh_blobs::ALPN.to_vec(),
         ];
         for i in 0..extra_alpns.length() {

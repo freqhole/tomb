@@ -10,6 +10,11 @@ export type ToastVariant = "success" | "error" | "warning" | "info";
 const activeToasts = new Map<string, { id: number; setMessage: (m: string) => void }>();
 
 const DEFAULT_DURATION = 5000;
+const SUCCESS_DURATION = 2500;
+
+function defaultDurationFor(variant: ToastVariant): number {
+  return variant === "success" ? SUCCESS_DURATION : DEFAULT_DURATION;
+}
 
 export interface ToastAction {
   /** button label text */
@@ -74,7 +79,7 @@ function ToastItem(props: ToastItemProps) {
   // schedule cleanup for non-persistent toasts (after timeout dismisses them)
   // add small buffer to ensure toast is gone
   if (!props.persistent && props.trackingKey) {
-    setTimeout(cleanup, (props.duration ?? DEFAULT_DURATION) + 100);
+    setTimeout(cleanup, (props.duration ?? defaultDurationFor(props.variant)) + 100);
   }
 
   return (
@@ -174,7 +179,10 @@ export function ToastRegion() {
       pauseOnInteraction={true}
       pauseOnPageIdle={true}
     >
-      <KobalteToast.List class="fixed top-0 right-0 z-[2000] flex flex-col gap-2 p-4">
+      <KobalteToast.List
+        class="fixed top-0 right-0 z-[2000] flex flex-col gap-2 p-4"
+        style={{ "padding-top": "calc(1rem + var(--safe-area-top, 0px))" }}
+      >
         {/* toasts will be rendered here */}
       </KobalteToast.List>
     </KobalteToast.Region>
@@ -225,7 +233,7 @@ function showToast(variant: ToastVariant, message: string, options?: ToastOption
       variant={variant}
       message={message}
       title={options?.title}
-      duration={options?.duration ?? DEFAULT_DURATION}
+      duration={options?.duration ?? defaultDurationFor(variant)}
       persistent={options?.persistent}
       action={options?.action}
       trackingKey={key}

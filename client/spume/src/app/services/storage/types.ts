@@ -17,6 +17,9 @@ export interface AppState {
   auto_download_enabled?: boolean;
   // currently tuned radio station (for resume on page reload)
   current_radio_station?: RadioStationRef | null;
+  // user-configurable display name for the web/indexeddb-backed "local
+  // library" source. defaults to "local library" when unset.
+  local_library_name?: string;
 }
 
 // queue history entry — represents one "add to queue" action

@@ -8,8 +8,10 @@ pub mod entities;
 
 // public modules
 pub mod analytics;
+pub mod audiodb;
 pub mod crud;
 pub mod fetch;
+pub mod lastfm;
 pub mod musicbrainz;
 pub mod scanner;
 pub mod users;
@@ -33,7 +35,7 @@ pub use users::{FavoritesService, RatingStats, RatingsService};
 //   - entities::playlists::{create_playlist, get_playlist, Playlist, CreatePlaylistRequest}
 //   - entities::albums::{create_album, get_album, Album, CreateAlbumRequest}
 //   - entities::songs::{create_song, list_songs, Song, CreateSongRequest}
-//   - entities::genres::{get_genre, list_genres, Genre, CreateGenreRequest}
+//   - entities::taxonomy::{find_or_create_taxon, query_taxons, ...} - genres + other taxonomies
 //   - entities::tags::{create_tag, get_tag, Tag}
 //
 // crud:: - High-level workflow operations (coordinates multiple entities)
@@ -42,7 +44,7 @@ pub use users::{FavoritesService, RatingStats, RatingsService};
 //   - find_or_create_album() - case-insensitive album deduplication
 //   - bulk_import_songs() - processes multiple files with relationships
 //   - query_songs() - unified query with FTS, filters, pagination
-//   - query_artists(), query_albums(), query_genres() - aggregated queries
+//   - query_artists(), query_albums() - aggregated queries
 //
 // scanner:: - Filesystem scanning operations
 //   - scan_directory() - discover audio files

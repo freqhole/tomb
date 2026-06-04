@@ -12,9 +12,12 @@ import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
+import { RemotePickerModal } from "../components/modals/RemotePickerModal";
 import { ShareModal } from "../components/modals/ShareModal";
 import { SongEditorModal } from "../components/modals/SongEditorModal";
 import { TagSelectorModal } from "../components/modals/TagSelectorModal";
+import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
+import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
 import {
   getCurrentRemote,
@@ -66,7 +69,7 @@ import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
-import { isMiddenReady } from "./api/client";
+import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
   getConfig,
@@ -83,10 +86,12 @@ import {
   getAllRemotes,
   getRemoteByPeerAddr,
   markRemoteOffline,
+  onRemoteStatusChange,
   refreshTauriRemoteTimestamp,
   upsertTauriRemote,
 } from "./services/remotes/remoteManager";
 import { drainIdbRemotesToSqlite } from "./services/remotes/drainIdbToSqlite";
+import { checkPendingKnockApprovals } from "./services/remotes/pendingKnockChecker";
 import {
   applyServiceWorkerUpdate,
   dismissUpdate,
@@ -303,9 +308,24 @@ export function App() {
           },
         });
         // show toast notification
-        toast.success(
-          `scan complete: ${event.data.songs_added} songs, ${event.data.albums_added} albums, ${event.data.artists_added} artists added`
-        );
+        {
+          const d = event.data;
+          const parts = [
+            `${d.songs_added} songs`,
+            `${d.albums_added} albums`,
+            `${d.artists_added} artists added`,
+          ];
+          if (d.restored_songs && d.restored_songs > 0) {
+            parts.push(`${d.restored_songs} restored`);
+          }
+          if (d.blobs_deleted && d.blobs_deleted > 0) {
+            parts.push(`${d.blobs_deleted} missing`);
+          }
+          if (d.purged_scan_dirs && d.purged_scan_dirs > 0) {
+            parts.push(`${d.purged_scan_dirs} dirs purged`);
+          }
+          toast.success(`scan complete: ${parts.join(", ")}`);
+        }
         break;
 
       case "knock-created":
@@ -510,18 +530,28 @@ export function App() {
       void (async () => {
         const allRemotes = await getAllRemotes();
         if (allRemotes.length > 0) {
-          // filter out P2P remotes if midden isn't ready yet
-          const remotesToCheck = allRemotes.filter((r) => {
-            if (isP2PRemote(r) && !isMiddenReady()) {
-              debug("App", `skipping health check for P2P remote ${r.name} (midden not ready)`);
-              return false;
-            }
-            return true;
-          });
-          if (remotesToCheck.length > 0) {
-            debug("App", `background: checking health of ${remotesToCheck.length} remotes`);
-            await Promise.all(remotesToCheck.map((r) => checkRemoteHealth(r)));
-            debug("App", "background: health check complete");
+          // partition: http remotes can be checked now; p2p remotes have
+          // to wait for midden to finish initializing.
+          const httpRemotes = allRemotes.filter((r) => !isP2PRemote(r));
+          const p2pRemotes = allRemotes.filter((r) => isP2PRemote(r));
+
+          if (httpRemotes.length > 0) {
+            debug("App", `background: checking health of ${httpRemotes.length} http remotes`);
+            await Promise.all(httpRemotes.map((r) => checkRemoteHealth(r)));
+            debug("App", "background: http health check complete");
+          }
+
+          if (p2pRemotes.length > 0) {
+            // event-driven: kick off when midden is ready (fires sync
+            // if it already is).
+            onMiddenReady(async () => {
+              debug(
+                "App",
+                `background: midden ready, checking health of ${p2pRemotes.length} p2p remotes`
+              );
+              await Promise.all(p2pRemotes.map((r) => checkRemoteHealth(r)));
+              debug("App", "background: p2p health check complete");
+            });
           }
         }
       })();
@@ -550,9 +580,20 @@ export function App() {
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);
 
-      // check for pending knock requests (tauri only, non-blocking)
-      // shows persistent toast if there are access requests waiting
-      void checkPendingKnocks();
+      // check for pending knock requests across every admin remote.
+      // delayed slightly so the auth-status store + p2p transports have a
+      // chance to warm up; also re-runs whenever a remote transitions
+      // offline -> online.
+      setTimeout(() => void checkPendingKnocks(), 3000);
+
+      // poll any pending remotes stuck in `knock_pending` to see if the
+      // admin approved them while spume was closed. deferred so midden /
+      // p2p transports are warm before we try to reach the peers, and
+      // staggered slightly so it doesn't pile onto the initial p2p
+      // health-check burst above.
+      onMiddenReady(() => {
+        setTimeout(() => void checkPendingKnockApprovals(), 5000);
+      });
     } finally {
       clearTimeout(loadingTimer);
       setIsInitializing(false);
@@ -560,9 +601,24 @@ export function App() {
     }
   });
 
+  // re-check pending knocks whenever a remote transitions offline -> online,
+  // so admins are notified about requests waiting on remotes that were
+  // unreachable at startup. coalesce bursts so several remotes coming
+  // online together only trigger one rescan.
+  let knockReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const unsubKnocksReconnect = onRemoteStatusChange((_remoteId, isOffline) => {
+    if (isOffline) return;
+    if (knockReconnectTimer !== null) clearTimeout(knockReconnectTimer);
+    knockReconnectTimer = setTimeout(() => {
+      knockReconnectTimer = null;
+      void checkPendingKnocks();
+    }, 1500);
+  });
+
   // cleanup cache network handlers and tauri listeners on unmount
   onCleanup(() => {
     cleanupCacheNetworkHandlers();
+    unsubKnocksReconnect();
     // cleanup tauri event listeners to prevent accumulation on HMR
     tauriUnlisteners.forEach((unlisten) => unlisten());
     tauriUnlisteners = [];
@@ -580,7 +636,15 @@ export function App() {
           key === "artists" ||
           key === "genres" ||
           key === "feed" ||
-          key === "tags"
+          key === "tags" ||
+          // singular-prefixed keys (e.g. queryKeys.albums.songs() ->
+          // ["album", "songs", ...], queryKeys.artists.albums() ->
+          // ["artist", "albums", ...]). these aren't covered by the
+          // plural keys above and would otherwise show stale data on
+          // album/artist detail views right after an import.
+          key === "album" ||
+          key === "artist" ||
+          key === "genre"
         );
       },
     });
@@ -819,10 +883,13 @@ export function App() {
         }}
       />
 
+      <RemotePickerModal />
+
       <Show when={useSongEditorState()()}>
         {(state) => (
           <SongEditorModal
             songId={state().songId}
+            remote={state().remote}
             onClose={hideSongEditor}
             onSave={() => {
               state().onSave?.();
@@ -837,6 +904,7 @@ export function App() {
         {(state) => (
           <ArtistEditorModal
             artistId={state().artistId}
+            remote={state().remote}
             onClose={hideArtistEditor}
             onSave={() => {
               state().onSave?.();
@@ -851,11 +919,13 @@ export function App() {
         {(state) => (
           <AlbumEditorModal
             albumId={state().albumId}
+            remote={state().remote}
             onClose={hideAlbumEditor}
             onSave={() => state().onSave?.()}
             disableNestedModals={state().disableNestedModals}
             onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
             onMergeNavigate={state().onMergeNavigate}
+            review={state().review}
           />
         )}
       </Show>
@@ -876,11 +946,33 @@ export function App() {
           <TagSelectorModal
             albumIds={state().albumIds}
             albumTitle={state().albumTitle}
+            remote={state().remote}
             onClose={hideTagSelector}
             onSave={() => {
               state().onSave?.();
               hideTagSelector();
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={useBulkReviewState()()}>
+        {(state) => (
+          <BulkEnrichmentReviewModal
+            ids={state().ids}
+            currentIndex={state().currentIndex}
+            remote={state().remote}
+            onNext={() => state().onNext()}
+            onPrev={() => state().onPrev()}
+            onExit={() => {
+              // capture handler before flipping the parent state — once
+              // hideBulkReview() runs the <Show> unmounts and `state()`
+              // becomes stale (solid throws a warning + returns undef).
+              const onExit = state().onExit;
+              hideBulkReview();
+              onExit();
+            }}
+            onMinimize={() => hideBulkReview()}
           />
         )}
       </Show>

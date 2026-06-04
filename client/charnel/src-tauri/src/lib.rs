@@ -47,6 +47,7 @@ mod player_commands {
         Err("rodio backend is desktop-only".to_string())
     }
 }
+mod jobs_events_commands;
 mod radio_commands;
 mod remotez_commands;
 mod server_controls;
@@ -269,6 +270,9 @@ fn mobile_auto_init(app_handle: &tauri::AppHandle) -> Result<(), Box<dyn std::er
         server_enabled: Some(false),
         federation_enabled: Some(true),
         knocking_enabled: Some(false),
+        remote_admin_enabled: Some(false),
+        radio_enabled: Some(false),
+        fetch_music_enabled: Some(false),
     };
 
     let service = grimoire::setup::SetupService::new();
@@ -583,29 +587,6 @@ pub fn run() {
                                     }
                                 })
                             }
-                            grimoire::events::GrimoireEvent::JobProgress { session_id, directory, songs_added, jobs_pending, jobs_total } => {
-                                serde_json::json!({
-                                    "type": "job-progress",
-                                    "data": {
-                                        "session_id": session_id,
-                                        "directory": directory,
-                                        "songs_added": songs_added,
-                                        "jobs_pending": jobs_pending,
-                                        "jobs_total": jobs_total
-                                    }
-                                })
-                            }
-                            grimoire::events::GrimoireEvent::JobSessionComplete { session_id, songs_added, albums_added, artists_added } => {
-                                serde_json::json!({
-                                    "type": "job-session-complete",
-                                    "data": {
-                                        "session_id": session_id,
-                                        "songs_added": songs_added,
-                                        "albums_added": albums_added,
-                                        "artists_added": artists_added
-                                    }
-                                })
-                            }
                         };
                         // emit to frontend as tauri event (matching spume's event channel)
                         if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
@@ -776,6 +757,10 @@ pub fn run() {
             radio_commands::radio_tune,
             radio_commands::radio_tune_local,
             radio_commands::radio_leave,
+            // job events broker bridge (local in-process; remote path tbd)
+            jobs_events_commands::jobs_events_snapshot,
+            jobs_events_commands::jobs_events_subscribe,
+            jobs_events_commands::jobs_events_unsubscribe,
             // P2P state control commands
             p2p_state::p2p_get_status,
             p2p_state::p2p_start,

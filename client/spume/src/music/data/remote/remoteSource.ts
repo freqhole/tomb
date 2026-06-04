@@ -16,7 +16,6 @@ import type {
   ArtistSummary,
   FavoriteItem,
   FavoriteTarget,
-  GenreSummary,
   ListFavoritesParams,
   MusicDataSource,
   PaginatedResponse,
@@ -136,14 +135,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!this.hasShownOfflineToast) {
       this.hasShownOfflineToast = true;
       debug("remoteSource", `showing offline toast for ${remoteName}`);
-      toast.warning(`${remoteName} is offline`, {
-        title: "remote-offline",
-        persistent: true,
-        action: {
-          label: "switch to local",
-          onClick: triggerSwitchToLocal,
-        },
-      });
+      // #TODO: i dunno, either improve this or actually yank it. currently: mostly annoying :/
+      // toast.warning(`${remoteName} is offline`, {
+      //   title: "remote-offline",
+      //   persistent: true,
+      //   action: {
+      //     label: "switch to local",
+      //     onClick: triggerSwitchToLocal,
+      //   },
+      // });
     }
 
     throw new RemoteOfflineError(this.remoteId, remoteName);
@@ -302,7 +302,17 @@ export class RemoteMusicDataSource implements MusicDataSource {
     params?: QueryParams,
   ): Promise<PaginatedResponse<AlbumSummary>> {
     const apiParams = this.buildApiParams(params);
+    // TEMP DEBUG
+    console.log("[RemoteMusicDataSource.getAlbums] request", { apiParams });
     const result = await (await this.getClient()).music.queryAlbums(apiParams);
+    // TEMP DEBUG
+    console.log("[RemoteMusicDataSource.getAlbums] response", {
+      success: result.success,
+      itemCount: result.success ? result.data.items.length : 0,
+      total: result.success ? result.data.total_count : 0,
+      firstId: result.success ? result.data.items[0]?.album.id : undefined,
+      error: result.success ? undefined : result.error,
+    });
 
     if (!result.success) {
       await this.handleFailedRequest(result);
@@ -325,6 +335,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
           release_date: item.album.release_date ?? undefined,
           label: item.album.label ?? undefined,
           genres: item.album.genres ?? undefined,
+          taxons: item.album.taxons ?? undefined,
           song_count: item.album.song_count,
           total_duration: item.album.total_duration,
           images: item.images && item.images.length > 0
@@ -338,6 +349,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
           updated_at: item.album.updated_at,
           created_by_username: item.album.created_by_username ?? undefined,
           updated_by_username: item.album.updated_by_username ?? undefined,
+          metadata: item.album.metadata ?? null,
+          mb_lookup_status: item.album.mb_lookup_status ?? null,
+          mb_lookup_at: item.album.mb_lookup_at ?? null,
+          mb_lookup_by: item.album.mb_lookup_by ?? null,
         };
       }),
       total: result.data.total_count,
@@ -443,62 +458,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     };
   }
 
-  // genres
-  async getGenres(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<GenreSummary>> {
-    const apiParams = this.buildApiParams(params);
-    const result = await (await this.getClient()).music.queryGenres(apiParams);
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      throw new Error("failed to query genres");
-    }
-
-    // clear offline status on successful request
-    await this.handleSuccessfulRequest();
-
-    // adapt API response to our interface
-    return {
-      items: result.data.items.map((item) => ({
-        genre_id: item.genre.id,
-        name: item.genre.name,
-        album_count: item.album_count || 0,
-        song_count: item.song_count || 0,
-      })),
-      total: result.data.total_count,
-      offset: result.data.offset,
-      limit: result.data.limit,
-      has_more: result.data.has_more,
-    };
-  }
-
-  async getGenreSongs(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<RemoteSong>> {
-    const apiParams = this.buildApiParams({
-      ...params,
-      genre_id: genreId,
-    });
-
-    const result = await (await this.getClient()).music.querySongs(apiParams);
-
-    if (!result.success) {
-      await this.handleFailedRequest(result);
-      throw new Error("failed to query genre songs");
-    }
-
-    return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item, this.baseUrl, this.remoteId),
-      ),
-      total: result.data.total_count,
-      offset: result.data.offset,
-      limit: result.data.limit,
-      has_more: result.data.has_more,
-    };
-  }
+  // genres + getGenreSongs were removed during the taxonomy refactor —
+  // genres are now a kind under the unified taxonomy api. fetch via
+  // queryTaxons({ kind_slug: 'genre' }) and follow the album_taxonz
+  // links from there.
 
   // playlists
   async getPlaylists(
@@ -868,6 +831,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
               release_date: apiFav.album.album.release_date || undefined,
               label: apiFav.album.album.label || undefined,
               genres: apiFav.album.album.genres || undefined,
+              taxons: apiFav.album.album.taxons || undefined,
               song_count: apiFav.album.album.song_count,
               total_duration: apiFav.album.album.total_duration,
               images: apiFav.album.images && apiFav.album.images.length > 0
@@ -1026,8 +990,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
     album_type?: string;
     release_date?: string;
     label?: string;
-    genre_ids?: string[];
-    genres?: string[]; // new genre names to create
+    // genre_ids / genres were removed from the album-update payload
+    // during the taxonomy refactor — clients now manage album genres
+    // (and every other taxon kind) via the dedicated taxonomy routes
+    // (`add_album_taxon` / `remove_album_taxon` / `find_or_create_taxon`).
     year?: number;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     merge_into_album_id?: string;
@@ -1040,8 +1006,6 @@ export class RemoteMusicDataSource implements MusicDataSource {
       album_type: params.album_type ?? null,
       release_date: params.release_date ?? null,
       label: params.label ?? null,
-      genre_ids: params.genre_ids ?? null,
-      genres: params.genres ?? null,
       entity_urls: params.entity_urls?.map(u => ({ id: u.id ?? null, name: u.name ?? null, url: u.url })) ?? null,
       updated_by: null,
       merge_into_album_id: params.merge_into_album_id ?? null,
@@ -1382,5 +1346,116 @@ export class RemoteMusicDataSource implements MusicDataSource {
       return null;
     }
     return result.data as import("../types").MbReleaseDetail;
+  }
+
+  // ---------------------------------------------------------------------
+  // phase 11 / phase 9 — cross-remote walk routes.
+  // thin wrappers around the new offal endpoints; the graph view uses
+  // these for lazy walk-expansion when the user clicks on an entity
+  // or drills into a (kind, value) hub.
+
+  // list albums belonging to a (kind, value_norm) taxon on this remote.
+  // returns null on failure (caller decides whether to retry / surface).
+  async albumsByValue(params: {
+    kind: string;
+    value_norm: string;
+    limit?: number | null;
+    offset?: number | null;
+  }): Promise<import("freqhole-api-client").AlbumsByValueResponse | null> {
+    const result = await (await this.getClient()).music.albumsByValue({
+      kind: params.kind,
+      value_norm: params.value_norm,
+      limit: params.limit ?? null,
+      offset: params.offset ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // batched lookup: fetch taxons for many entities in one round trip.
+  // entity_kind is "album" or "artist".
+  async entityTaxonsBatch(params: {
+    entity_kind: "album" | "artist";
+    entity_ids: string[];
+  }): Promise<import("freqhole-api-client").EntityTaxonsBatchResponse | null> {
+    if (params.entity_ids.length === 0) {
+      return { entity_kind: params.entity_kind, entries: [] };
+    }
+    const result = await (await this.getClient()).music.entityTaxonsBatch({
+      entity_kind: params.entity_kind,
+      entity_ids: params.entity_ids,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // confirm which entities on this remote match a list of merged keys
+  // (lowercased "artist::title" for albums, "artist" for artists).
+  // used by popover chip rendering and cross-remote dedup confirmation.
+  async findByMergedKey(params: {
+    entity_kind: "album" | "artist";
+    keys: string[];
+  }): Promise<import("freqhole-api-client").FindByMergedKeyResponse | null> {
+    if (params.keys.length === 0) {
+      return { entity_kind: params.entity_kind, matches: [] };
+    }
+    const result = await (await this.getClient()).music.findByMergedKey({
+      entity_kind: params.entity_kind,
+      keys: params.keys,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // ---------------------------------------------------------------------
+  // phase 22 — synthesized first-order hubs.
+  // these correspond to server-computed clusters that don't map to a
+  // stored taxon (era bins, recently-added). currently mostly stubs
+  // on the backend; client wrappers exist so hub-rendering can ship
+  // and degrade gracefully when the server returns empty payloads.
+
+  // greedy decade-aware year binning for the "era" hub. server may
+  // return an empty `bins` vec while the heuristic is still pending.
+  async eraBins(
+    params: { target_min?: number | null; target_max?: number | null } = {},
+  ): Promise<import("freqhole-api-client").EraBinsResponse | null> {
+    const result = await (await this.getClient()).music.eraBins({
+      target_min: params.target_min ?? null,
+      target_max: params.target_max ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
+  }
+
+  // top-N most recently added albums (enriched: includes artist +
+  // images + favorites). default 32, server-capped at 256.
+  async recentlyAddedAlbums(
+    params: { limit?: number | null } = {},
+  ): Promise<import("freqhole-api-client").RecentlyAddedAlbumsResponse | null> {
+    const result = await (await this.getClient()).music.recentlyAddedAlbums({
+      limit: params.limit ?? null,
+    });
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      return null;
+    }
+    await this.handleSuccessfulRequest();
+    return result.data;
   }
 }

@@ -45,70 +45,99 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
         })?;
     let original_mime = params["original_mime"].as_str();
     let association = params.get("associate_with");
+    // upstream may pass a blob_type hint so non-image originals (e.g. waveforms)
+    // skip the lossy webp re-encode and thumbnail generation while still being
+    // associated with their entity.
+    let blob_type_hint = params["blob_type"].as_str().unwrap_or("original");
+    let is_original = blob_type_hint.eq_ignore_ascii_case("original");
 
     info!(
-        "ConvertWebp job: blob_id={}, original_mime={:?}",
-        blob_id, original_mime
+        "ConvertWebp job: blob_id={}, original_mime={:?}, blob_type={}",
+        blob_id, original_mime, blob_type_hint
     );
 
-    // check if webp data already exists in blob_data table
-    let exists_response = blob_data::blob_data_exists(blob_id).await;
-    let already_converted = exists_response.success && exists_response.data.unwrap_or(false);
+    if is_original {
+        // check if webp data already exists in blob_data table
+        let exists_response = blob_data::blob_data_exists(blob_id).await;
+        let already_converted = exists_response.success && exists_response.data.unwrap_or(false);
 
-    if !already_converted {
-        // get original image data from blob_data
-        let data_response = blob_data::get_blob_data(blob_id).await;
-        if !data_response.success {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("failed to get blob data: {}", data_response.message),
-            });
-        }
+        if !already_converted {
+            crate::jobs::job_events::emit_stage_from_job(
+                job,
+                "converting",
+                Some("converting to webp"),
+            );
+            // get original image data from blob_data
+            let data_response = blob_data::get_blob_data(blob_id).await;
+            if !data_response.success {
+                return Err(JobError::ProcessingFailed {
+                    reason: format!("failed to get blob data: {}", data_response.message),
+                });
+            }
 
-        let image_data = data_response
-            .data
-            .ok_or_else(|| JobError::ProcessingFailed {
-                reason: "no blob data found".to_string(),
+            let image_data = data_response
+                .data
+                .ok_or_else(|| JobError::ProcessingFailed {
+                    reason: "no blob data found".to_string(),
+                })?;
+
+            // convert to WebP (sync function, not async)
+            let webp_data = blob_data::convert_to_webp(&image_data).map_err(|e| {
+                JobError::ProcessingFailed {
+                    reason: format!("webp conversion failed: {}", e),
+                }
             })?;
 
-        // convert to WebP (sync function, not async)
-        let webp_data =
-            blob_data::convert_to_webp(&image_data).map_err(|e| JobError::ProcessingFailed {
-                reason: format!("webp conversion failed: {}", e),
-            })?;
+            // store converted WebP data back to blob_data
+            let store_response = blob_data::store_blob_data(blob_id, webp_data).await;
+            if !store_response.success {
+                return Err(JobError::ProcessingFailed {
+                    reason: format!("failed to store webp data: {}", store_response.message),
+                });
+            }
 
-        // store converted WebP data back to blob_data
-        let store_response = blob_data::store_blob_data(blob_id, webp_data).await;
-        if !store_response.success {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("failed to store webp data: {}", store_response.message),
-            });
+            info!("converted image to webp: blob_id={}", blob_id);
+        } else {
+            info!("image already converted to webp: blob_id={}", blob_id);
         }
 
-        info!("converted image to webp: blob_id={}", blob_id);
-    } else {
-        info!("image already converted to webp: blob_id={}", blob_id);
-    }
-
-    // generate thumbnails (for pre-generation mode, not on-demand)
-    // this ensures thumbnails exist when on_demand is disabled
-    let thumb_result = blob_data::generate_sized_thumbnails(blob_id, job.created_by.clone()).await;
-    if thumb_result.success {
-        if let Some(thumbnails) = thumb_result.data {
-            info!(
-                "generated {} thumbnails for blob_id={}",
-                thumbnails.len(),
-                blob_id
+        // generate thumbnails (for pre-generation mode, not on-demand)
+        // this ensures thumbnails exist when on_demand is disabled
+        crate::jobs::job_events::emit_stage_from_job(
+            job,
+            "thumbnails",
+            Some("generating thumbnails"),
+        );
+        let thumb_result =
+            blob_data::generate_sized_thumbnails(blob_id, job.created_by.clone()).await;
+        if thumb_result.success {
+            if let Some(thumbnails) = thumb_result.data {
+                info!(
+                    "generated {} thumbnails for blob_id={}",
+                    thumbnails.len(),
+                    blob_id
+                );
+            }
+        } else {
+            warn!(
+                "failed to generate thumbnails for blob_id={}: {}",
+                blob_id, thumb_result.message
             );
         }
     } else {
-        warn!(
-            "failed to generate thumbnails for blob_id={}: {}",
-            blob_id, thumb_result.message
+        info!(
+            "skipping webp conversion + thumbnail generation for non-original blob (blob_type={})",
+            blob_type_hint
         );
     }
 
     // handle association if requested
     if let Some(assoc) = association {
+        crate::jobs::job_events::emit_stage_from_job(
+            job,
+            "associating",
+            Some("linking image to entity"),
+        );
         let entity_type =
             assoc["entity_type"]
                 .as_str()
@@ -149,7 +178,8 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
 
     let result = serde_json::json!({
         "blob_id": blob_id,
-        "converted": !already_converted,
+        "converted": is_original,
+        "blob_type": blob_type_hint,
         "associated": association.is_some(),
     });
 
@@ -345,6 +375,11 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
     // - song creation with relationships
     // - falls back to basic import if metadata extraction fails
     // pass original filename so fallback parsing works (file is stored with blob_id as name)
+    crate::jobs::job_events::emit_stage_from_job(
+        job,
+        "extracting",
+        Some(&format!("extracting metadata: {}", filename)),
+    );
     let import_result =
         extract_and_import(&blob_id, file_path, job.created_by.clone(), Some(&filename)).await?;
 
@@ -395,6 +430,7 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
     }
 
     // generate waveform for uploaded audio
+    crate::jobs::job_events::emit_stage_from_job(job, "waveform", Some("generating waveform"));
     let cfg = config::get_config();
     let mut waveform_generated = false;
     match blob_data::create_audio_waveform_blob(

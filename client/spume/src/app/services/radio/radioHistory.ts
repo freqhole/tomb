@@ -82,7 +82,7 @@ export async function getHistoryPage(opts: {
     : await idx.openCursor(null, "prev");
   while (cursor && out.length < opts.limit) {
     const v = cursor.value as RadioHistoryEntry;
-    if (opts.stationId === undefined || v.station_id === opts.stationId) {
+    if (opts.stationId === undefined || opts.stationId === null || v.station_id === opts.stationId) {
       out.push(v);
     }
     cursor = await cursor.continue();

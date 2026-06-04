@@ -39,7 +39,6 @@ fn main() {
     for view_file in [
         "artist_query_view.sql",
         "album_query_view.sql",
-        "genre_query_view.sql",
         "song_query_view.sql",
         "playlist_query_view.sql",
         "playlist_song_query_view.sql",

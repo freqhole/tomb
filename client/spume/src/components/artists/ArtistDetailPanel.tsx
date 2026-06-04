@@ -1,11 +1,11 @@
 // reusable artist detail panel component for displaying artist info and albums
-import { createMemo, For, Index, Show, type JSX } from "solid-js";
+import { createMemo, createSignal, For, Index, Show, type JSX } from "solid-js";
 import {
   useAlbumContextMenu,
   useArtistContextMenu,
   useSongContextMenu,
 } from "../../music/hooks/contextMenu";
-import type { Song, ImageMetadata, GenreRef } from "../../music/services/storage/types";
+import type { Song, ImageMetadata, GenreRef, TaxonRef } from "../../music/services/storage/types";
 import { getArtistAbbreviation } from "../../music/utils/format";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
@@ -18,11 +18,64 @@ import { Rating } from "../ratings/Rating";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
 import { EntityLinks } from "../media/EntityLinks";
+import { TaxonChipList } from "../badges/TaxonChips";
 import { canUpdateArtist } from "../../music/data/permissions";
+import { formatTaxonLabel } from "../../music/utils/format";
 import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { getCurrentRemote } from "../../music/data";
+
+// approx visible-character budget for the collapsed bio. bios from
+// last.fm / audiodb are often 1-3k chars; this gives ~6 lines of body
+// text before the "see more" toggle kicks in.
+const BIO_TRUNCATE_CHARS = 600;
+
+// strip html tags for length comparison only — the actual render is
+// always html (see ArtistBio below).
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]+>/g, "");
+}
+
+// crude bio renderer: shows the first ~600 chars (plain) when collapsed,
+// the full html via innerHTML when expanded. links inside the bio render
+// as real anchors. (the bios come from trusted upstream sources we
+// already pull metadata from — last.fm + audiodb — and admins curate
+// what gets persisted, so the unsafe-html is intentional.)
+function ArtistBio(props: { bio: string; class?: string }): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+  const plain = createMemo(() => stripHtml(props.bio).trim());
+  const isLong = createMemo(() => plain().length > BIO_TRUNCATE_CHARS);
+  const truncated = createMemo(() => {
+    const p = plain();
+    if (p.length <= BIO_TRUNCATE_CHARS) return p;
+    // cut at last word boundary before the limit so we don't break a word
+    const slice = p.slice(0, BIO_TRUNCATE_CHARS);
+    const lastSpace = slice.lastIndexOf(" ");
+    return (lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trimEnd() + "…";
+  });
+
+  return (
+    <div class={`text-sm text-[var(--color-text-secondary)] max-w-2xl ${props.class ?? ""}`}>
+      <Show when={expanded()} fallback={<p class="m-0 whitespace-pre-line">{truncated()}</p>}>
+        <div
+          class="bio-html [&_a]:underline [&_a:hover]:text-[var(--color-accent-primary)]"
+          // eslint-disable-next-line solid/no-innerhtml
+          innerHTML={props.bio}
+        />
+      </Show>
+      <Show when={isLong()}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] underline"
+        >
+          {expanded() ? "see less" : "see more"}
+        </button>
+      </Show>
+    </div>
+  );
+}
 
 export interface ArtistDetailPanelArtist {
   artist_id: string;
@@ -50,6 +103,7 @@ interface AlbumGroup {
   rating?: number;
   genre?: string | null;
   genres?: GenreRef[];
+  taxons?: TaxonRef[];
   tags?: string[];
 }
 
@@ -124,7 +178,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           isFavorite: song.album_is_favorite ?? false,
           rating: song.album_rating,
           genre: song.album_primary_genre_name,
-          genres: song.album_genres,
+          genres: song.album_taxons
+            ?.filter((t) => t.kind_slug === "genre")
+            .map((t) => ({ id: t.id, name: t.label })),
+          taxons: song.album_taxons,
           tags: song.album_tags,
         });
       } else if (
@@ -156,10 +213,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       if (name) {
         genreMap.set(name, { id, name });
       }
-      // album_genres now has {id, name} objects
-      if (song.album_genres) {
-        song.album_genres.forEach((g) => {
-          genreMap.set(g.name, { id: g.id, name: g.name });
+      // album_taxons (kind=genre) backfills genre map for albums missing primary genre id
+      if (song.album_taxons) {
+        song.album_taxons.forEach((t) => {
+          if (t.kind_slug === "genre") {
+            genreMap.set(t.label, { id: t.id, name: t.label });
+          }
         });
       }
     });
@@ -176,6 +235,27 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
     });
     return Array.from(tagSet).sort();
   });
+
+  // aggregate every taxon (across all kinds) seen on any album by this
+  // artist, deduped by `${kind}:${id|label}`. used to render the full
+  // chip set on the artist header (matches what AlbumDetailView shows
+  // per-album: genres + non-genre taxons via TaxonChipList).
+  const aggregatedTaxons = createMemo<TaxonRef[]>(() => {
+    const seen = new Map<string, TaxonRef>();
+    props.songs.forEach((song) => {
+      song.album_taxons?.forEach((t) => {
+        const key = `${t.kind_slug}:${t.id || t.label}`;
+        if (!seen.has(key)) seen.set(key, t);
+      });
+    });
+    return Array.from(seen.values());
+  });
+
+  // collapsed/expanded state for the chips+links row (same UX as the
+  // album detail view — caps the row at ~2 lines on narrow viewports
+  // and reveals a "see more" toggle when content overflows).
+  const [chipsExpanded, setChipsExpanded] = createSignal(false);
+  const [chipsOverflowing, setChipsOverflowing] = createSignal(false);
 
   // create artist abbreviation (up to 3 letters from first words)
   const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
@@ -260,32 +340,51 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                 <MarqueeText text={props.artist.name} hoverOnly={true} />
               </h1>
 
-              {/* bio */}
+              {/* bio (truncated with see-more, renders html so links
+                  + lightweight markup from upstream sources show up) */}
               <Show when={props.artist.bio}>
-                <p class="text-sm text-[var(--color-text-secondary)] line-clamp-2 max-w-2xl">
-                  {props.artist.bio}
-                </p>
+                <ArtistBio bio={props.artist.bio!} />
               </Show>
 
-              {/* genres and tags */}
-              <div class="flex flex-wrap gap-2 items-center text-sm">
-                <Show when={artistGenres().length > 0}>
-                  <div class="flex flex-wrap gap-1.5">
-                    <For each={artistGenres().slice(0, 5)}>
+              {/* genres, taxons, tags — collapsed to ~2 lines on all
+                  breakpoints with a see-more toggle. entity urls live
+                  in their own collapsible row below. */}
+              <Show
+                when={
+                  artistGenres().length > 0 ||
+                  aggregatedTaxons().some((t) => t.kind_slug !== "genre") ||
+                  artistTags().length > 0
+                }
+              >
+                <div class="text-sm">
+                  <div
+                    ref={(el) => {
+                      const check = () => {
+                        if (!chipsExpanded()) {
+                          setChipsOverflowing(el.scrollHeight > el.clientHeight);
+                        }
+                      };
+                      requestAnimationFrame(check);
+                      const obs = new ResizeObserver(check);
+                      obs.observe(el);
+                    }}
+                    class={`flex flex-wrap gap-1.5 items-center ${
+                      !chipsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
+                    }`}
+                  >
+                    <For each={artistGenres()}>
                       {(genre) => (
                         <button
                           class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
                           onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
                           disabled={!genre.id}
                         >
-                          {genre.name}
+                          {formatTaxonLabel(genre.name)}
                         </button>
                       )}
                     </For>
-                  </div>
-                </Show>
-                <Show when={artistTags().length > 0}>
-                  <div class="flex flex-wrap gap-1.5">
+                    {/* non-genre taxons (label, mood, era, region, ...) */}
+                    <TaxonChipList taxons={aggregatedTaxons()} excludeKinds={["genre"]} />
                     <For each={artistTags()}>
                       {(tag) => (
                         <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
@@ -294,11 +393,23 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                       )}
                     </For>
                   </div>
-                </Show>
-              </div>
+                  <Show when={chipsOverflowing() || chipsExpanded()}>
+                    <button
+                      onClick={() => setChipsExpanded((v) => !v)}
+                      class="pb-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                    >
+                      {chipsExpanded() ? "see less" : "see more"}
+                    </button>
+                  </Show>
+                </div>
+              </Show>
 
-              {/* entity links */}
-              <EntityLinks urls={props.artist.urls} />
+              {/* entity links — independently collapsible row */}
+              <Show when={(props.artist.urls?.length ?? 0) > 0}>
+                <div class="text-sm">
+                  <EntityLinks urls={props.artist.urls} collapsible />
+                </div>
+              </Show>
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="flex items-center gap-2">
@@ -327,8 +438,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
-                        getCurrentRemote()?.remote_id,
+                        {
+                          kind: "artist",
+                          artistId: props.artist.artist_id,
+                          artistName: props.artist.name,
+                        },
+                        getCurrentRemote()?.remote_id
                       )
                     }
                   >
@@ -424,12 +539,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
 
               {/* bio */}
               <Show when={props.artist.bio}>
-                <p class="text-xs text-[var(--color-text-secondary)] line-clamp-3 max-w-2xl">
-                  {props.artist.bio}
-                </p>
+                <ArtistBio bio={props.artist.bio!} class="mx-auto" />
               </Show>
 
-              {/* genres and tags */}
+              {/* genres, taxons, tags */}
               <div class="flex flex-wrap gap-2 items-center justify-center text-sm">
                 <Show when={artistGenres().length > 0}>
                   <div class="flex flex-wrap gap-1.5 justify-center">
@@ -440,12 +553,14 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                           onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
                           disabled={!genre.id}
                         >
-                          {genre.name}
+                          {formatTaxonLabel(genre.name)}
                         </button>
                       )}
                     </For>
                   </div>
                 </Show>
+                {/* non-genre taxons */}
+                <TaxonChipList taxons={aggregatedTaxons()} excludeKinds={["genre"]} />
                 <Show when={artistTags().length > 0}>
                   <div class="flex flex-wrap gap-1.5 justify-center">
                     <For each={artistTags()}>
@@ -460,7 +575,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               </div>
 
               {/* entity links */}
-              <EntityLinks urls={props.artist.urls} class="justify-center" />
+              <EntityLinks urls={props.artist.urls} class="justify-center" collapsible />
 
               {/* artist actions: edit, play controls, favorite, rating */}
               <div class="mt-2 flex items-center justify-center flex-wrap gap-2">
@@ -489,8 +604,12 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     size="sm"
                     onClick={() =>
                       void showStationSelector(
-                        { kind: "artist", artistId: props.artist.artist_id, artistName: props.artist.name },
-                        getCurrentRemote()?.remote_id,
+                        {
+                          kind: "artist",
+                          artistId: props.artist.artist_id,
+                          artistName: props.artist.name,
+                        },
+                        getCurrentRemote()?.remote_id
                       )
                     }
                   >
@@ -578,6 +697,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     rating={album().rating}
                     genre={album().genre}
                     genres={album().genres}
+                    taxons={album().taxons}
                     tags={album().tags}
                     onRatingChange={(rating) =>
                       props.onAlbumRatingChange?.(album().albumId, rating)

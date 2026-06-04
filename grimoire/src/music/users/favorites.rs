@@ -447,6 +447,102 @@ impl FavoritesService {
             Err(err) => GrimoireResponse::failure("Failed to remove favorites", vec![err.into()]),
         }
     }
+
+    /// list distinct album + artist ids "beloved" by any user on this
+    /// remote — direct album/artist favorites unioned with album/artist
+    /// ids derived from song favorites. soft-deleted rows are excluded.
+    pub async fn list_beloved_ids(&self) -> GrimoireResponse<(Vec<String>, Vec<String>)> {
+        let pool = match database::connect().await {
+            Ok(pool) => pool,
+            Err(err) => {
+                return GrimoireResponse::failure("failed to connect to database", vec![err.into()])
+            }
+        };
+
+        // direct album favorites + album ids derived from song favorites.
+        let album_rows = sqlx::query!(
+            r#"
+            SELECT DISTINCT a.id as "id!"
+              FROM albumz a
+             WHERE a.deleted_at IS NULL
+               AND (
+                 EXISTS (
+                   SELECT 1 FROM user_favoritez f
+                    WHERE f.target_type = 'album' AND f.target_id = a.id
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM user_favoritez f
+                     JOIN album_songz als ON als.song_id = f.target_id
+                     JOIN songz s ON s.id = als.song_id
+                    WHERE f.target_type = 'song'
+                      AND als.album_id = a.id
+                      AND s.deleted_at IS NULL
+                 )
+               )
+            "#
+        )
+        .fetch_all(&pool)
+        .await;
+        let album_ids: Vec<String> = match album_rows {
+            Ok(rows) => rows.into_iter().map(|r| r.id).collect(),
+            Err(err) => {
+                let detail = err.to_string();
+                return GrimoireResponse::failure(
+                    "failed to list beloved albums",
+                    vec![crate::error::ErrorDetail::new(
+                        "db_error",
+                        "database error",
+                        &detail,
+                    )],
+                );
+            }
+        };
+
+        let artist_rows = sqlx::query!(
+            r#"
+            SELECT DISTINCT a.id as "id!"
+              FROM artistz a
+             WHERE a.deleted_at IS NULL
+               AND (
+                 EXISTS (
+                   SELECT 1 FROM user_favoritez f
+                    WHERE f.target_type = 'artist' AND f.target_id = a.id
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM user_favoritez f
+                     JOIN artist_songz ars ON ars.song_id = f.target_id
+                     JOIN songz s ON s.id = ars.song_id
+                    WHERE f.target_type = 'song'
+                      AND ars.artist_id = a.id
+                      AND s.deleted_at IS NULL
+                 )
+               )
+            "#
+        )
+        .fetch_all(&pool)
+        .await;
+        let artist_ids: Vec<String> = match artist_rows {
+            Ok(rows) => rows.into_iter().map(|r| r.id).collect(),
+            Err(err) => {
+                let detail = err.to_string();
+                return GrimoireResponse::failure(
+                    "failed to list beloved artists",
+                    vec![crate::error::ErrorDetail::new(
+                        "db_error",
+                        "database error",
+                        &detail,
+                    )],
+                );
+            }
+        };
+
+        let msg = format!(
+            "found {} beloved albums, {} beloved artists",
+            album_ids.len(),
+            artist_ids.len()
+        );
+        GrimoireResponse::success(&msg, (album_ids, artist_ids))
+    }
 }
 
 impl Default for FavoritesService {
@@ -514,7 +610,7 @@ mod tests {
             FavoriteTarget::Song,
             FavoriteTarget::Artist,
             FavoriteTarget::Album,
-            FavoriteTarget::Genre,
+            FavoriteTarget::Taxon,
             FavoriteTarget::Playlist,
         ];
 

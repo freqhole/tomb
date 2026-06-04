@@ -65,6 +65,13 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         .filter(|f| f.enabled)
         .map(|f| f.knocking_enabled);
 
+    // enrichment service flags so clients can hide ui for sources the
+    // operator hasn't configured. lastfm/audiodb additionally require a
+    // non-empty api key to count as enabled.
+    let musicbrainz_enabled = Some(config.musicbrainz.enabled);
+    let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
+    let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
+
     Ok(Json(ServerInfoResponse {
         name,
         description,
@@ -72,5 +79,8 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         image_url,
         image_blob_id,
         knocking_enabled,
+        musicbrainz_enabled,
+        lastfm_enabled,
+        audiodb_enabled,
     }))
 }

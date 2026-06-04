@@ -633,8 +633,9 @@ export default function SettingsView() {
                     }}
                   >
                     route audio through the lower-level audio engine instead of
-                    the html5 audio element. experimental on macos/windows; the
-                    default on linux.
+                    the web audio element. experimental! you will lose system
+                    media player controls. use this if you are having playback
+                    issues (most likely on linux).
                   </div>
                   <Show when={rodioError()}>
                     <div

@@ -168,7 +168,7 @@ async function setQueue(songs: Song[]): Promise<void> {
       plain.queue_entry_id = generateUUID();
     }
     if (song.album_tags) plain.album_tags = [...song.album_tags];
-    if (song.album_genres) plain.album_genres = song.album_genres.map(g => ({ ...g }));
+    if (song.album_taxons) plain.album_taxons = song.album_taxons.map(t => ({ ...t }));
     if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));
     if (song.artist_images) plain.artist_images = song.artist_images.map(img => ({ ...img }));
     if (song.images) plain.images = song.images.map(img => ({ ...img }));
@@ -230,6 +230,25 @@ async function setAutoDownloadEnabled(enabled: boolean): Promise<void> {
 // get auto-download enabled setting (default: false)
 function getAutoDownloadEnabled(): boolean {
   return appState()?.auto_download_enabled ?? false;
+}
+
+// default display name for the web local library (used as fallback when
+// the user hasn't customized it via the topnav rename action).
+const DEFAULT_LOCAL_LIBRARY_NAME = "local library";
+
+// get the user-configured local library display name (reactive when read
+// inside a tracked scope via `appState()`).
+function getLocalLibraryName(): string {
+  const name = appState()?.local_library_name?.trim();
+  return name && name.length > 0 ? name : DEFAULT_LOCAL_LIBRARY_NAME;
+}
+
+// set the local library display name. empty/whitespace clears back to default.
+async function setLocalLibraryName(name: string): Promise<void> {
+  const trimmed = name.trim();
+  await updateAppState({
+    local_library_name: trimmed.length > 0 ? trimmed : undefined,
+  });
 }
 
 // set active remote id
@@ -374,6 +393,8 @@ export {
   getPendingRemoteByPeerAddr,
   getP2PIdentity,
   getSyncQueueToLocal,
+  getLocalLibraryName,
+  DEFAULT_LOCAL_LIBRARY_NAME,
   initAppDB,
   loadAppState,
   saveP2PIdentity,
@@ -383,6 +404,7 @@ export {
   setQueue,
   setQueueOpen,
   setSyncQueueToLocal,
+  setLocalLibraryName,
   updateAppState,
   updatePendingRemote,
   updateSongInQueue,

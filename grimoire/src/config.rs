@@ -23,6 +23,12 @@ pub struct GrimoireConfig {
     pub media: MediaConfig,
     /// MusicBrainz integration
     pub musicbrainz: MusicBrainzConfig,
+    /// last.fm integration (optional)
+    #[serde(default)]
+    pub lastfm: LastFmConfig,
+    /// theaudiodb integration (optional)
+    #[serde(default)]
+    pub audiodb: AudioDbConfig,
     /// Logging configuration
     pub logging: LoggingConfig,
     /// Server configuration (optional - only needed for server mode)
@@ -39,12 +45,36 @@ pub struct GrimoireConfig {
     /// charnel host via a tauri command on app boot.
     #[serde(default)]
     pub client: Option<ClientConfig>,
+    /// background job processor configuration (concurrency, etc.)
+    #[serde(default)]
+    pub jobs: JobsConfig,
+    /// native audio backend tuning (rodio/cpal). all fields optional;
+    /// omit the whole section to accept defaults.
+    #[serde(default)]
+    pub audio: AudioConfig,
 
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
     /// back to disk without re-running cwd-based config discovery.
     #[serde(default, skip)]
     pub loaded_from: Option<PathBuf>,
+}
+
+/// native audio backend (rodio/cpal) tuning. used by the
+/// `rodio-playback` feature; ignored when the feature is off. all
+/// fields are optional — omit the `[audio]` section to accept the
+/// built-in defaults.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AudioConfig {
+    /// linux-only: cpal output period size, in frames. raise on
+    /// pipewire/pulseaudio systems that still glitch under load
+    /// (vm guests, busy desktops). when unset, the backend uses
+    /// 2048 (~43ms @ 48k). try 4096 or 8192 if 2048 still stutters;
+    /// each doubling roughly doubles output latency but adds
+    /// proportional headroom against scheduler jitter. ignored on
+    /// macos / windows.
+    #[serde(default)]
+    pub linux_buffer_frames: Option<u32>,
 }
 
 /// Database configuration
@@ -177,11 +207,68 @@ fn default_supported_audio_formats() -> Vec<String> {
 }
 
 /// MusicBrainz integration configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MusicBrainzConfig {
     /// Enable MusicBrainz API integration (default: false)
     #[serde(default)]
     pub enabled: bool,
+    /// preferred country code for release tiebreaks. matched case-sensitively
+    /// against MB `release.country`. "XW" (worldwide) always outranks any
+    /// specific country, so this only affects the second-place tier.
+    /// default: "US"
+    #[serde(default = "default_mb_preferred_country")]
+    pub preferred_country: String,
+}
+
+fn default_mb_preferred_country() -> String {
+    "US".to_string()
+}
+impl Default for MusicBrainzConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preferred_country: default_mb_preferred_country(),
+        }
+    }
+}
+
+/// last.fm web api integration. requires a free api key from
+/// <https://www.last.fm/api/account/create>.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LastFmConfig {
+    /// enable last.fm enrichment (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// last.fm api key. write-style endpoints would also need a shared
+    /// secret, but read-only enrichment only needs this.
+    #[serde(default)]
+    pub api_key: String,
+}
+
+/// theaudiodb integration. test key `123` is the public free key for low
+/// volume non-commercial requests; donate at theaudiodb.com to get a real
+/// key. `AUDIODB_API_KEY` env var overrides any value here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioDbConfig {
+    /// enable theaudiodb enrichment (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// api key (default: "123", the public free key)
+    #[serde(default = "default_audiodb_api_key")]
+    pub api_key: String,
+}
+
+impl Default for AudioDbConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_key: default_audiodb_api_key(),
+        }
+    }
+}
+
+fn default_audiodb_api_key() -> String {
+    "123".to_string()
 }
 
 /// federation/p2p configuration for peer-to-peer music sharing
@@ -500,6 +587,36 @@ fn default_queue_size_limit() -> u32 {
     150
 }
 
+/// background job processor configuration.
+///
+/// `max_concurrency` controls how many jobs run in parallel. `None`
+/// (or `0`) means "auto" — pick a sensible value from the host's
+/// available parallelism (capped to avoid swamping sqlite writers).
+/// any positive value pins the worker count explicitly.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JobsConfig {
+    /// max number of jobs run in parallel. omit / null / 0 = auto
+    /// (uses `std::thread::available_parallelism()`, capped at 8).
+    #[serde(default)]
+    pub max_concurrency: Option<u32>,
+}
+
+impl JobsConfig {
+    /// resolve the configured value to a concrete worker count.
+    /// auto = available parallelism, capped at 8 to keep sqlite
+    /// write contention manageable; never returns 0.
+    pub fn resolved_max_concurrency(&self) -> usize {
+        let explicit = self.max_concurrency.unwrap_or(0);
+        if explicit > 0 {
+            return explicit as usize;
+        }
+        let auto = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        auto.clamp(1, 8)
+    }
+}
+
 /// Fetch music configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FetchMusicConfig {
@@ -671,6 +788,61 @@ impl GrimoireConfig {
     }
 }
 
+/// Initialize a minimal in-memory config for unit tests.
+///
+/// idempotent and safe to call from multiple tests; later calls
+/// overwrite the installed config via the inner RwLock. only
+/// intended for #[cfg(test)] callers — production code should use
+/// `init_config(...)`.
+#[doc(hidden)]
+pub fn init_config_for_tests() {
+    let config = GrimoireConfig {
+        data_dir: PathBuf::from("/tmp/grimoire-test"),
+        database: DatabaseConfig {
+            filename: "test.db".to_string(),
+            max_connections: default_max_connections(),
+            acquire_timeout_seconds: default_acquire_timeout_seconds(),
+            idle_timeout_seconds: default_idle_timeout_seconds(),
+        },
+        media: MediaConfig {
+            max_fs_file_size: default_max_fs_file_size(),
+            supported_audio_formats: default_supported_audio_formats(),
+            ffmpeg_path: default_ffmpeg_path(),
+            ffprobe_path: None,
+            ffprobe_duration_args: default_ffprobe_duration_args(),
+            ffprobe_properties_args: default_ffprobe_properties_args(),
+            extract_album_art_args: default_extract_album_art_args(),
+            generate_waveform_args: default_generate_waveform_args(),
+            skip_duplicates: default_skip_duplicates(),
+            generate_scan_duplicate_report: default_generate_scan_duplicate_report(),
+            thumbnail_sizes: default_thumbnail_sizes(),
+            thumbnail_on_demand_enabled: false,
+        },
+        musicbrainz: MusicBrainzConfig::default(),
+        lastfm: LastFmConfig::default(),
+        audiodb: AudioDbConfig::default(),
+        logging: LoggingConfig {
+            level: "info".to_string(),
+            log_file: String::new(),
+        },
+        server: None,
+        federation: None,
+        radio: None,
+        client: None,
+        jobs: JobsConfig::default(),
+        audio: AudioConfig::default(),
+        loaded_from: None,
+    };
+    match CONFIG.get() {
+        Some(lock) => {
+            *lock.write().unwrap() = config;
+        }
+        None => {
+            let _ = CONFIG.set(RwLock::new(config));
+        }
+    }
+}
+
 /// Initialize or reload global config from file path
 ///
 /// First call initializes the config. Subsequent calls reload from disk,
@@ -822,6 +994,9 @@ pub fn create_config_with_server_info(
         None,  // server_enabled (use template default: true)
         None,  // federation_enabled (use template default: false)
         None,  // knocking_enabled (use template default: false)
+        None,  // remote_admin_enabled (use template default: false)
+        None,  // radio_enabled (use template default: false)
+        None,  // fetch_music_enabled (use template default: false)
     )
 }
 
@@ -843,6 +1018,9 @@ pub fn create_config_with_server_info(
 /// * `server_enabled` - Optional server enabled flag (default: true)
 /// * `federation_enabled` - Optional federation enabled flag (default: false)
 /// * `knocking_enabled` - Optional knocking enabled flag (default: false)
+/// * `remote_admin_enabled` - Optional federation.remote_admin enabled flag (default: false)
+/// * `radio_enabled` - Optional radio enabled flag (default: false)
+/// * `fetch_music_enabled` - Optional server.fetch_music enabled flag (default: false)
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -860,6 +1038,9 @@ pub fn create_config_full(
     server_enabled: Option<bool>,
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
+    remote_admin_enabled: Option<bool>,
+    radio_enabled: Option<bool>,
+    fetch_music_enabled: Option<bool>,
 ) -> Result<PathBuf, ConfigError> {
     let path = output_path.unwrap_or_else(|| PathBuf::from("freqhole-config.toml"));
     let data = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -901,6 +1082,9 @@ pub fn create_config_full(
         server_enabled,
         federation_enabled,
         knocking_enabled,
+        remote_admin_enabled,
+        radio_enabled,
+        fetch_music_enabled,
     );
 
     // write file
@@ -931,6 +1115,9 @@ fn generate_config_template(
     server_enabled: Option<bool>,
     federation_enabled: Option<bool>,
     knocking_enabled: Option<bool>,
+    remote_admin_enabled: Option<bool>,
+    radio_enabled: Option<bool>,
+    fetch_music_enabled: Option<bool>,
 ) -> String {
     let mut doc = CONFIG_TEMPLATE
         .parse::<DocumentMut>()
@@ -989,8 +1176,9 @@ fn generate_config_template(
         auth["allowed_origins"] = value(origins);
     }
 
-    // update fetch_music
-    doc["server"]["fetch_music"]["enabled"] = value(ytdlp_available);
+    // update fetch_music. explicit toggle wins; otherwise keep the
+    // previous behavior (enable when yt-dlp is available).
+    doc["server"]["fetch_music"]["enabled"] = value(fetch_music_enabled.unwrap_or(ytdlp_available));
     doc["server"]["fetch_music"]["output_dir"] = value(fetch_dir.display().to_string());
 
     // update fetch commands with absolute yt-dlp path if provided
@@ -1002,7 +1190,7 @@ fn generate_config_template(
                 value(format!("{} --print-json --no-download", ytdlp_str));
             // fetch_command uses yt-dlp
             fetch_music["fetch_command"] = value(format!(
-                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath",
+                "{} --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath",
                 ytdlp_str
             ));
         }
@@ -1021,6 +1209,16 @@ fn generate_config_template(
     // set federation.knocking_enabled (default: false in template)
     if let Some(enabled) = knocking_enabled {
         doc["federation"]["knocking_enabled"] = value(enabled);
+    }
+
+    // set federation.remote_admin.enabled (default: false in template)
+    if let Some(enabled) = remote_admin_enabled {
+        doc["federation"]["remote_admin"]["enabled"] = value(enabled);
+    }
+
+    // set radio.enabled (default: false in template)
+    if let Some(enabled) = radio_enabled {
+        doc["radio"]["enabled"] = value(enabled);
     }
 
     doc.to_string()
@@ -1085,6 +1283,25 @@ pub fn set_config_values(
     }
 
     Ok(())
+}
+
+/// convenience wrapper for the rathole repl: set both autostart
+/// toggles (`server.enabled` + `federation.enabled`) in one call so
+/// callers don't have to depend on `toml_edit` directly. takes
+/// effect on the next process launch; current subprocesses (if any)
+/// are unaffected and must be stopped separately.
+pub fn set_autostart(
+    config_path: &Path,
+    server_enabled: bool,
+    federation_enabled: bool,
+) -> Result<(), ConfigError> {
+    set_config_values(
+        config_path,
+        &[
+            ("server.enabled", server_enabled.into()),
+            ("federation.enabled", federation_enabled.into()),
+        ],
+    )
 }
 
 /// helper to set a value at a dot-separated path, creating intermediate tables as needed
@@ -1484,7 +1701,9 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1492,6 +1711,9 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
+            jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 
@@ -1524,7 +1746,9 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {
                 level: "invalid".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1532,6 +1756,9 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
+            jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 
@@ -1562,7 +1789,9 @@ mod tests {
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
             },
-            musicbrainz: MusicBrainzConfig { enabled: false },
+            musicbrainz: MusicBrainzConfig::default(),
+            lastfm: LastFmConfig::default(),
+            audiodb: AudioDbConfig::default(),
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
@@ -1570,6 +1799,9 @@ mod tests {
             server: None,
             federation: None,
             radio: None,
+            client: None,
+            jobs: JobsConfig::default(),
+            audio: AudioConfig::default(),
             loaded_from: None,
         };
 

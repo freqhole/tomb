@@ -105,62 +105,6 @@ pub async fn delete_album_if_unused(album_id: &str) -> GrimoireResponse<bool> {
     }
 }
 
-/// soft delete a genre if it's not used by any albums
-/// returns true if deleted, false if still in use
-pub async fn delete_genre_if_unused(genre_id: &str) -> GrimoireResponse<bool> {
-    let pool = match database::connect().await {
-        Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![e.into()])
-        }
-    };
-
-    // check if genre is used by any albums via junction table
-    let album_count = match sqlx::query_scalar!(
-        r#"
-        SELECT COUNT(*) as "count!"
-        FROM album_genrez ag
-        JOIN albumz a ON ag.album_id = a.id
-        WHERE ag.genre_id = ? AND a.deleted_at IS NULL
-        "#,
-        genre_id
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to check genre usage in albums",
-                vec![e.into()],
-            )
-        }
-    };
-
-    if album_count > 0 {
-        // genre still in use, don't delete
-        return GrimoireResponse::success("Genre is still in use by albums", false);
-    }
-
-    // not in use, safe to soft delete
-    let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    match sqlx::query!(
-        r#"
-        UPDATE genrez
-        SET deleted_at = ?, deleted_by = NULL
-        WHERE id = ? AND deleted_at IS NULL
-        "#,
-        now,
-        genre_id
-    )
-    .execute(&pool)
-    .await
-    {
-        Ok(_) => GrimoireResponse::success("Genre deleted successfully", true),
-        Err(e) => GrimoireResponse::failure("Failed to delete genre", vec![e.into()]),
-    }
-}
-
 /// remove a song from all playlists
 /// used when deleting a song to clean up playlist associations
 pub async fn remove_song_from_all_playlists(song_id: &str) -> GrimoireResponse<()> {

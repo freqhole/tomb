@@ -426,8 +426,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         const remotes = await getAllPendingRemotes();
         setPendingRemotes(remotes);
 
-        // move to auth step - P2P requires registration
-        setStep("auth");
+        // P2P requires registration. when the server has knocking
+        // enabled, default to the knock-request form (most common path)
+        // and let the user opt into the invite-code flow via a link.
+        if (info.knocking_enabled) {
+          setShowKnockOption(true);
+          setStep("url");
+        } else {
+          setStep("auth");
+        }
       } catch (err) {
         // ignore if cancelled
         if (controller.signal.aborted) return;
@@ -1192,8 +1199,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           right: 0,
           bottom: 0,
           "z-index": 1050,
-          "margin-top": "env(safe-area-inset-top, 0px)",
-          height: "calc(100% - env(safe-area-inset-top, 0px))",
+          "margin-top": "var(--safe-area-top, 0px)",
+          height: "calc(100% - var(--safe-area-top, 0px))",
         }}
         onClick={handleClose}
       >
@@ -1413,6 +1420,27 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     </div>
                   </Show>
 
+                  {/* let users with an invite code skip the knock
+                          flow and go straight to register/login. */}
+                  <Show when={peerAddr() && serverInfo()}>
+                    <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
+                      <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                        have an invite code?{" "}
+                        <button
+                          type="button"
+                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                          onClick={() => {
+                            setShowKnockOption(false);
+                            setError(null);
+                            setStep("auth");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          use it to register
+                        </button>
+                      </p>
+                    </div>
+                  </Show>
                   {/* hint: use current origin if it's a valid server */}
                   <Show when={originHint() && !showKnockOption()}>
                     <div class="text-center pt-2 border-t border-[var(--color-border-default)]">

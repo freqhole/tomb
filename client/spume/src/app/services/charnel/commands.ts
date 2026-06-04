@@ -122,3 +122,20 @@ export async function fetchLocalNodeId(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * update server.name / server.description in the freqhole config toml.
+ * used by the rename flow for the charnel-managed local-library remote so
+ * the new name survives an app restart (otherwise startup re-seeds the
+ * remote row from config).
+ */
+export async function updateServerInfo(args: {
+  name?: string;
+  description?: string;
+}): Promise<void> {
+  const invoke = await getInvoke();
+  await invoke("update_server_info", {
+    name: args.name ?? null,
+    description: args.description ?? null,
+  });
+}

@@ -125,9 +125,37 @@ thumbnail_on_demand_enabled = false
 # ============================================================================
 [musicbrainz]
 # OPTIONAL: enable MusicBrainz API integration for enhanced metadata (default: false)
-# allows searching for album/artist information and cover art
 enabled = true
+# OPTIONAL: preferred country code for release tiebreaks (default: "US")
+preferred_country = "US"
 # note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
+
+# ============================================================================
+# last.fm integration for metadata enrichment
+# ============================================================================
+# fetches album wiki summaries, artist bios, top tags (folksonomy), and
+# similar artists. requires a free api key from:
+#   https://www.last.fm/api/account/create
+# the `LASTFM_API_KEY` env var overrides the value here.
+[lastfm]
+# OPTIONAL: enable last.fm enrichment (default: false)
+enabled = false
+# OPTIONAL: last.fm api key (default: "")
+# read-only enrichment only needs the api key (no shared secret).
+api_key = ""
+
+# ============================================================================
+# theaudiodb integration for metadata enrichment
+# ============================================================================
+# fetches artist bios, artist images (thumbnails, banners, fanart), album
+# artwork, and genre/style tags. the `AUDIODB_API_KEY` env var overrides
+# the value here.
+[audiodb]
+# OPTIONAL: enable theaudiodb enrichment (default: false)
+enabled = true
+# OPTIONAL: api key (default: "123", the public free test key for low-volume
+# non-commercial use). donate at https://www.theaudiodb.com/ for a real key.
+api_key = "123"
 
 # ============================================================================
 # logging configuration
@@ -158,6 +186,38 @@ log_file = "freqhole.log"
 queue_size_limit = 150
 
 # ============================================================================
+# OPTIONAL: background job processor
+# the worker pool that drains the jobz queue (scans, file imports,
+# metadata enrichment, etc.). by default the pool sizes itself from
+# the host's available cpu cores (capped at 8 to keep sqlite write
+# contention manageable). pin an explicit value if you want fewer
+# parallel jobs (e.g. on a noisy shared machine) or to override the
+# cap on a beefy box.
+# ============================================================================
+[jobs]
+# OPTIONAL: max number of jobs the processor will run concurrently.
+# omit, set to 0, or leave commented out for "auto" (= number of
+# logical cpu cores, capped at 8). any positive integer pins the
+# worker count exactly.
+max_concurrency = 0
+
+# ============================================================================
+# OPTIONAL: native audio backend (rodio/cpal) tuning
+# only consumed when the `rodio-playback` cargo feature is on (charnel
+# desktop app, cli `serve`). headless / web-only builds ignore it.
+# the whole section is optional; omit it to accept defaults.
+# ============================================================================
+[audio]
+# OPTIONAL (linux only): cpal output period size, in frames.
+# raise this if you hear stutters / xruns under load on linux \u2014
+# typical culprits are pipewire/pulseaudio on busy desktops, vm
+# guests, or low-power boards. each doubling roughly doubles output
+# latency but adds proportional headroom against scheduler jitter.
+# default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
+# 8192 (~170ms) if 2048 still glitches. ignored on macos / windows.
+linux_buffer_frames = 4096
+
+# ============================================================================
 # OPTIONAL: server configuration
 # this entire section is optional - only needed when running the HTTP server
 # if you only use the CLI, you can omit or comment out this section
@@ -175,7 +235,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.23"
+version = "0.1.27"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 
@@ -351,12 +411,21 @@ precheck_command = "yt-dlp --print-json --no-download"
 #   --no-overwrites: don't overwrite existing files
 #   --output: filename template (include %(id)s to prevent duplicates)
 #   --print after_move:filepath: output final file path for each download
+#   --newline: force progress output on separate lines (machine-parseable)
+#   --progress: enable progress reporting
+#   --progress-template: custom progress format for per-item tracking
 #
 # output pattern explained:
 #   %(uploader)s: channel/artist name
 #   %(title)s: video/track title
 #   %(id)s: unique content ID (prevents duplicates!)
 #   %(ext)s: file extension
+#
+# progress templates:
+#   download: emits per-item download progress (id, status, bytes, filename)
+#   postprocess: emits per-item postprocessing status (converting/tagging)
+#   these enable live per-item progress in the UI. omitting them is safe
+#   (back-compat) but users lose granular fetch progress.
 #
 # CRITICAL: do NOT wrap the --output template in quotes!
 #   BAD:  --output '%(uploader)s - %(title)s.%(ext)s'
@@ -369,11 +438,11 @@ precheck_command = "yt-dlp --print-json --no-download"
 # also: avoid spaces and special characters in filenames - use hyphens
 # single quotes in filenames can cause issues with shell commands
 #
-# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 #
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
-# it should print one downloaded file path per line to stdout
-fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --print after_move:filepath"
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 
 # ============================================================================
 # OPTIONAL: federation/P2P configuration

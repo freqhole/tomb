@@ -1,21 +1,28 @@
 //! rodio audio backend.
 //!
 //! takes [`PlayerCommand`]s on an mpsc receiver, drives a rodio
-//! [`Sink`] on a dedicated audio thread, and emits [`PlayerEvent`]s
+//! [`Player`] on a dedicated audio thread, and emits [`PlayerEvent`]s
 //! to a broadcast channel.
 //!
 //! design notes:
 //!
 //! - rodio + cpal are blocking apis with strong thread-affinity for
-//!   the [`OutputStream`] (it owns the cpal device handle and is not
-//!   `Send`). we keep it on a dedicated `std::thread` and bridge to
-//!   tokio via channels.
+//!   the [`MixerDeviceSink`] (it owns the cpal device handle and is
+//!   not `Send`). we keep it on a dedicated `std::thread` and bridge
+//!   to tokio via channels.
 //! - **no `unwrap` / `expect` / `panic!`** in the audio loop. every
 //!   error path emits a structured [`PlayerEvent::Error`] and keeps
 //!   the loop alive. only an unexpected return from [`audio_loop`]
 //!   triggers the supervisor's restart logic.
 //! - the loop polls the command channel with a short timeout so it
 //!   can also emit ~4 hz progress events while playing.
+//! - on linux we set `cpal::BufferSize::Fixed(2048)` explicitly.
+//!   rodio's default already aims for ~50ms (post-0.21), but pipewire
+//!   under gui load (webkit2gtk in tauri) still bursts cpu enough to
+//!   underrun at small periods; 2048 frames @ 48k is ~43ms with
+//!   plenty of headroom. linux also enables cpal's `pulseaudio`
+//!   feature so we route through pulse/pipewire-pulse instead of bare
+//!   alsa, which is far more robust on modern desktops.
 //!
 //! this module is gated behind the `rodio-playback` cargo feature
 //! so headless builds can omit cpal entirely.
@@ -24,7 +31,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::mixer::Mixer;
+use rodio::source::Buffered;
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
@@ -75,10 +84,14 @@ pub(crate) fn spawn(
 fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
     // open default output device. failure here is terminal for this
     // run of the loop — supervisor decides whether to retry.
-    let (_stream, handle) = match OutputStream::try_default() {
-        Ok(p) => {
-            info!(target: "player", "[player] rodio backend started; default output stream opened");
-            p
+    let stream = match open_device_sink() {
+        Ok(s) => {
+            info!(
+                target: "player",
+                config = ?s.config(),
+                "[player] rodio backend started; default output stream opened"
+            );
+            s
         }
         Err(e) => {
             emit(
@@ -94,8 +107,9 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
             return;
         }
     };
+    let mixer = stream.mixer();
 
-    let mut sink: Option<Sink> = None;
+    let mut sink: Option<Player> = None;
     let mut queue: Vec<String> = Vec::new();
     let mut current_index: Option<usize> = None;
     let mut total_per_track: Vec<Duration> = Vec::new();
@@ -111,7 +125,7 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
         match cmd_rx.recv_timeout(RECV_TIMEOUT) {
             Ok(cmd) => handle_command(
                 cmd,
-                &handle,
+                mixer,
                 &events,
                 &mut sink,
                 &mut queue,
@@ -165,9 +179,9 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
 #[allow(clippy::too_many_arguments)]
 fn handle_command(
     cmd: PlayerCommand,
-    handle: &rodio::OutputStreamHandle,
+    mixer: &Mixer,
     events: &broadcast::Sender<PlayerEvent>,
-    sink: &mut Option<Sink>,
+    sink: &mut Option<Player>,
     queue: &mut Vec<String>,
     current_index: &mut Option<usize>,
     total_per_track: &mut Vec<Duration>,
@@ -176,13 +190,7 @@ fn handle_command(
 ) {
     match cmd {
         PlayerCommand::Load { paths } => {
-            let new_sink = match Sink::try_new(handle) {
-                Ok(s) => s,
-                Err(e) => {
-                    emit_error(events, "sink_create_failed", "Sink Create Failed", e);
-                    return;
-                }
-            };
+            let new_sink = Player::connect_new(mixer);
             new_sink.set_volume(*volume);
 
             let mut loaded_totals: Vec<Duration> = Vec::with_capacity(paths.len());
@@ -273,7 +281,7 @@ fn handle_command(
             if sink.is_none() {
                 handle_command(
                     PlayerCommand::Load { paths },
-                    handle,
+                    mixer,
                     events,
                     sink,
                     queue,
@@ -364,7 +372,7 @@ fn handle_command(
             // sink from `current_index + 1` onward. acceptable for v1
             // because Load/Next/Previous all rebuild the source list.
             advance(
-                handle,
+                mixer,
                 events,
                 sink,
                 queue,
@@ -378,7 +386,7 @@ fn handle_command(
         PlayerCommand::Previous => {
             info!(target: "player", "[player] rodio sink Previous");
             advance(
-                handle,
+                mixer,
                 events,
                 sink,
                 queue,
@@ -429,9 +437,9 @@ fn handle_command(
 /// `Previous`. negative deltas walk backward.
 #[allow(clippy::too_many_arguments)]
 fn advance(
-    handle: &rodio::OutputStreamHandle,
+    mixer: &Mixer,
     events: &broadcast::Sender<PlayerEvent>,
-    sink: &mut Option<Sink>,
+    sink: &mut Option<Player>,
     queue: &[String],
     current_index: &mut Option<usize>,
     total_per_track: &mut Vec<Duration>,
@@ -454,13 +462,7 @@ fn advance(
     }
     let next_idx = next as usize;
 
-    let new_sink = match Sink::try_new(handle) {
-        Ok(s) => s,
-        Err(e) => {
-            emit_error(events, "sink_create_failed", "Sink Create Failed", e);
-            return;
-        }
-    };
+    let new_sink = Player::connect_new(mixer);
     new_sink.set_volume(volume);
 
     let mut new_totals: Vec<Duration> = Vec::new();
@@ -546,7 +548,13 @@ fn advance(
 /// loop survives and can advance to the next queued track.
 fn load_source(
     path: &str,
-) -> Result<(Decoder<std::io::BufReader<std::fs::File>>, Duration), ErrorDetail> {
+) -> Result<
+    (
+        Buffered<Decoder<std::io::BufReader<std::fs::File>>>,
+        Duration,
+    ),
+    ErrorDetail,
+> {
     let p = std::path::Path::new(path);
     if !p.exists() {
         return Err(ErrorDetail::new(
@@ -595,15 +603,14 @@ fn load_source(
             format!("{path}: {e}"),
         )
     })?;
-    let reader = std::io::BufReader::new(file);
-    // wrap Decoder::new in catch_unwind: rodio's symphonia adapter
-    // can panic at decoder/symphonia.rs:45 ("Seek errors should not
-    // occur during initialization") on certain malformed inputs.
-    // AssertUnwindSafe is needed because BufReader<File> isn't
-    // declared UnwindSafe, but it's safe here since we drop it on
-    // panic and don't observe broken state.
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || Decoder::new(reader)));
+    // wrap Decoder::try_from in catch_unwind: rodio's symphonia
+    // adapter has historically panicked on certain malformed inputs
+    // during init rather than returning Err. AssertUnwindSafe is
+    // needed because File isn't declared UnwindSafe, but it's safe
+    // here since we drop it on panic and don't observe broken state.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        Decoder::try_from(file)
+    }));
     let src = match result {
         Ok(Ok(src)) => src,
         Ok(Err(e)) => {
@@ -629,7 +636,35 @@ fn load_source(
         }
     };
     let dur = src.total_duration().unwrap_or(Duration::ZERO);
-    Ok((src, dur))
+    // wrap in Source::buffered() so disk-read stalls don't starve the
+    // cpal mixer. cheap insurance on top of the larger cpal period
+    // we set on linux; harmless elsewhere.
+    Ok((src.buffered(), dur))
+}
+
+/// open the default audio output device. on linux we explicitly
+/// request a `BufferSize::Fixed(N)` period; the frame count comes
+/// from `[audio].linux_buffer_frames` in the toml when set, else
+/// defaults to 2048 (~43ms @ 48k) — the consensus fix for
+/// pipewire/pulseaudio underruns under gui load (see rodio#827).
+/// raise the config value (4096 / 8192) on vms / noisy hosts that
+/// still glitch. on other targets we let rodio pick its default
+/// (which post-0.21 already aims for ~50ms).
+fn open_device_sink() -> Result<MixerDeviceSink, rodio::stream::DeviceSinkError> {
+    #[cfg(target_os = "linux")]
+    {
+        let frames = crate::config::get_config()
+            .audio
+            .linux_buffer_frames
+            .unwrap_or(2048);
+        DeviceSinkBuilder::from_default_device()?
+            .with_buffer_size(cpal::BufferSize::Fixed(frames))
+            .open_sink_or_fallback()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        DeviceSinkBuilder::open_default_sink()
+    }
 }
 
 /// extract a best-effort string message from a `catch_unwind`

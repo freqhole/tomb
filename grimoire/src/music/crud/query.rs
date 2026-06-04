@@ -8,12 +8,10 @@ use crate::database;
 
 use crate::media_blobz::{BlobType, MediaBlob};
 use crate::music::crud::models::{
-    AlbumQueryResult, ArtistQueryResult, EntityUrl, GenreQueryResult, ImageMetadata, QueryParams,
+    AlbumQueryResult, AlbumStatusCounts, ArtistQueryResult, EntityUrl, ImageMetadata, QueryParams,
     QueryResult, SongQueryResult,
 };
-use crate::music::entities::{
-    albums::Album, albums::GenreRef, artists::Artist, genres::Genre, songs::Song,
-};
+use crate::music::entities::{albums::Album, albums::GenreRef, artists::Artist, songs::Song};
 use crate::response::GrimoireResponse;
 
 // Table identifiers for type-safe queries
@@ -75,6 +73,8 @@ enum AlbumView {
     AlbumTotalDuration,
     #[iden = "album_song_count"]
     AlbumSongCount,
+    #[iden = "album_mb_lookup_status"]
+    AlbumMbLookupStatus,
 }
 
 #[derive(Iden)]
@@ -98,25 +98,19 @@ enum ArtistView {
 }
 
 #[derive(Iden)]
-enum GenreView {
-    #[iden = "genre_query_view"]
-    Table,
-    #[iden = "genre_name"]
-    GenreName,
-    #[iden = "genre_created_at"]
-    GenreCreatedAt,
-}
-
-#[derive(Iden)]
 enum CommonColumns {
     #[iden = "artist_id"]
     ArtistId,
+    #[iden = "artist_name"]
+    ArtistName,
     #[iden = "album_id"]
     AlbumId,
     #[iden = "album_genres"]
     AlbumGenres,
     #[iden = "album_tags"]
     AlbumTags,
+    #[iden = "album_taxons"]
+    AlbumTaxons,
 }
 
 // Row structures
@@ -174,6 +168,7 @@ pub struct SongViewRow {
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_taxons: Option<String>, // JSON array of {id, kind_slug, label, ...} from view
     album_tags: Option<String>,   // JSON array of tag names from view
     album_images: Option<String>, // JSON array from album_imagez
     // User context fields from view joins
@@ -219,6 +214,15 @@ impl SongViewRow {
         let album_genres = self
             .album_genres
             .and_then(|json_str| serde_json::from_str::<Vec<GenreRef>>(&json_str).ok())
+            .map(crate::JsonVec);
+
+        // parse album taxons JSON array (cross-kind labels)
+        let album_taxons = self
+            .album_taxons
+            .and_then(|json_str| {
+                serde_json::from_str::<Vec<crate::music::entities::taxonomy::TaxonRef>>(&json_str)
+                    .ok()
+            })
             .map(crate::JsonVec);
 
         // parse album images JSON array
@@ -286,6 +290,7 @@ impl SongViewRow {
                 release_date: self.album_release_date,
                 label: self.album_label,
                 genres: album_genres,
+                taxons: album_taxons,
                 images: album_images,
                 urls: None,
                 song_count: self.album_song_count.unwrap_or(0),
@@ -298,6 +303,10 @@ impl SongViewRow {
                 updated_by: self.album_updated_by,
                 created_by_username: None,
                 updated_by_username: None,
+                metadata: None,
+                mb_lookup_status: None,
+                mb_lookup_at: None,
+                mb_lookup_by: None,
             })
         } else {
             None
@@ -490,9 +499,14 @@ pub struct AlbumViewRow {
     album_created_by_username: Option<String>,
     album_updated_by_username: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
+    album_taxons: Option<String>, // JSON array of {id, kind_slug, label, ...} from view
     album_images: Option<String>, // JSON array from view
     album_tags: Option<String>,   // JSON array of tag names from view
     album_urls: Option<String>,   // JSON array of entity URLs from view
+    album_metadata: Option<String>, // raw json blob (parse via albums::metadata)
+    album_mb_lookup_status: Option<String>,
+    album_mb_lookup_at: Option<i64>,
+    album_mb_lookup_by: Option<String>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_images: Option<String>, // JSON array from view
@@ -565,6 +579,22 @@ impl AlbumViewRow {
             }
         });
 
+        // parse album taxons JSON array (cross-kind labels)
+        let album_taxons = self.album_taxons.and_then(|json_str| {
+            match serde_json::from_str::<Vec<crate::music::entities::taxonomy::TaxonRef>>(&json_str)
+            {
+                Ok(taxons) => Some(crate::JsonVec(taxons)),
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to parse album taxons JSON: {} - error: {}",
+                        json_str,
+                        e
+                    );
+                    None
+                }
+            }
+        });
+
         // parse artist images JSON array
         let artist_images = self
             .artist_images
@@ -584,6 +614,7 @@ impl AlbumViewRow {
             release_date: self.album_release_date,
             label: self.album_label,
             genres: album_genres,
+            taxons: album_taxons,
             images: images.clone().map(crate::JsonVec),
             urls: album_urls,
             song_count: self.album_song_count.unwrap_or(0),
@@ -596,6 +627,10 @@ impl AlbumViewRow {
             updated_by: self.album_updated_by,
             created_by_username: self.album_created_by_username,
             updated_by_username: self.album_updated_by_username,
+            metadata: self.album_metadata,
+            mb_lookup_status: self.album_mb_lookup_status,
+            mb_lookup_at: self.album_mb_lookup_at,
+            mb_lookup_by: self.album_mb_lookup_by,
         };
 
         let artist = if self.artist_id.is_some() {
@@ -649,48 +684,6 @@ impl AlbumViewRow {
     }
 }
 
-#[derive(sqlx::FromRow)]
-pub struct GenreViewRow {
-    genre_id: String,
-    genre_name: String,
-    genre_created_at: i64,
-    // aggregated stats
-    song_count: i64,
-    album_count: i64,
-    // User context fields from view joins (no ratings for genres)
-    #[allow(dead_code)]
-    favorite_id: Option<String>,
-    favorite_user_id: Option<String>,
-    favorited_at: Option<i64>,
-}
-
-impl GenreViewRow {
-    pub fn to_genre_query_result(self, user_id: Option<&str>) -> GenreQueryResult {
-        let genre = Genre {
-            id: self.genre_id,
-            name: self.genre_name,
-            created_at: self.genre_created_at,
-        };
-
-        // Determine favorite status based on user_id match
-        let (is_favorite, favorited_at) = if let Some(uid) = user_id {
-            let is_fav = self.favorite_user_id.as_ref() == Some(&uid.to_string());
-            let fav_at = if is_fav { self.favorited_at } else { None };
-            (Some(is_fav), fav_at)
-        } else {
-            (None, None)
-        };
-
-        GenreQueryResult {
-            genre,
-            song_count: Some(self.song_count),
-            album_count: Some(self.album_count),
-            is_favorite,
-            favorited_at,
-        }
-    }
-}
-
 // Shared filter logic
 fn add_global_filters(
     query: &mut SelectStatement,
@@ -713,6 +706,40 @@ fn add_global_filters(
     // Handle ID filters (using proper column names from the view)
     if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
         query.and_where(Expr::col(CommonColumns::ArtistId).eq(artist_id));
+    }
+
+    // Batch variant of artist_id: artist_ids = [..]. used by the graph
+    // viz artist-walk expansion to fetch albums for many related artists
+    // in one request rather than N (phase 3, 2026-05-26). silently
+    // ignores non-string entries; empty array is a no-op (no filter
+    // added, matches existing artist_id behaviour when absent).
+    if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = artist_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            query.and_where(Expr::col(CommonColumns::ArtistId).is_in(ids));
+        }
+    }
+
+    // Name-based batch filter for cross-remote lookups, where artist_ids
+    // are remote-local and not shared. matches on `artist_name` from the
+    // album view exactly (case-sensitive — clients should normalize
+    // beforehand if they want a slug match). silently ignores
+    // non-string entries; empty array is a no-op.
+    if let Some(artist_names) = params
+        .filters
+        .get("artist_names")
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = artist_names
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !names.is_empty() {
+            query.and_where(Expr::col(CommonColumns::ArtistName).is_in(names));
+        }
     }
 
     if let Some(album_id) = params.filters.get("album_id").and_then(|v| v.as_str()) {
@@ -738,6 +765,72 @@ fn add_global_filters(
                 .is_not_null()
                 .and(Expr::col(CommonColumns::AlbumGenres).like(json_pattern)),
         );
+    }
+
+    // taxon_id: singular convenience — delegates to the array path.
+    if let Some(tid) = params.filters.get("taxon_id").and_then(|v| v.as_str()) {
+        let json_pattern = format!("%\"id\":\"{}\"%", tid);
+        query.and_where(
+            Expr::col(CommonColumns::AlbumTaxons)
+                .is_not_null()
+                .and(Expr::col(CommonColumns::AlbumTaxons).like(json_pattern)),
+        );
+    }
+
+    // taxon_ids: album must have at least one matching taxon (OR logic).
+    if let Some(taxon_ids) = params.filters.get("taxon_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = taxon_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            let mut cond = Cond::any();
+            for id in ids {
+                let json_pattern = format!("%\"id\":\"{}\"%", id);
+                cond = cond.add(
+                    Expr::col(CommonColumns::AlbumTaxons)
+                        .is_not_null()
+                        .and(Expr::col(CommonColumns::AlbumTaxons).like(json_pattern)),
+                );
+            }
+            query.cond_where(cond);
+        }
+    }
+
+    // unassigned_for_kind: keep only albums that have no album_taxonz row
+    // pointing at a taxon of the given kind. when the value is an empty
+    // string (or `*`), match albums with no taxons at all (any kind).
+    // slug input is validated to a-z0-9_- to keep the inlined sql safe.
+    if let Some(raw) = params
+        .filters
+        .get("unassigned_for_kind")
+        .and_then(|v| v.as_str())
+    {
+        let trimmed = raw.trim();
+        let is_safe = |s: &str| {
+            !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        };
+        if trimmed.is_empty() || trimmed == "*" {
+            query.and_where(Expr::cust(
+                "NOT EXISTS (SELECT 1 FROM album_taxonz at_unassigned \
+                 JOIN taxonz t_unassigned ON t_unassigned.id = at_unassigned.taxon_id \
+                 WHERE at_unassigned.album_id = album_query_view.album_id \
+                 AND t_unassigned.deleted_at IS NULL)",
+            ));
+        } else if is_safe(trimmed) {
+            let sql = format!(
+                "NOT EXISTS (SELECT 1 FROM album_taxonz at_unassigned \
+                 JOIN taxonz t_unassigned ON t_unassigned.id = at_unassigned.taxon_id \
+                 JOIN taxon_kindz k_unassigned ON k_unassigned.id = t_unassigned.kind_id \
+                 WHERE at_unassigned.album_id = album_query_view.album_id \
+                 AND t_unassigned.deleted_at IS NULL \
+                 AND k_unassigned.slug = '{}')",
+                trimmed
+            );
+            query.and_where(Expr::cust(&sql));
+        }
     }
 
     // Handle tag filters (include_tags and exclude_tags)
@@ -996,6 +1089,40 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
+    // ── count query (same WHERE, no LIMIT/OFFSET) — gives real total_count ──
+    let mut count_q = Query::select();
+    count_q.expr(Expr::cust("COUNT(*)")).from(AlbumView::Table);
+    add_global_filters(
+        &mut count_q,
+        &params,
+        AlbumView::AlbumTitle,
+        AlbumView::ArtistName,
+        AlbumView::AlbumTitle,
+    );
+    if let Some(ref statuses) = params.mb_lookup_status {
+        if !statuses.is_empty() {
+            count_q.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
+        }
+    }
+    let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
+    let mut count_sqlx = sqlx::query_scalar::<_, i64>(&count_sql);
+    for v in count_values.0 {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                count_sqlx = count_sqlx.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i as i64);
+            }
+            _ => {}
+        }
+    }
+    let total_count = count_sqlx.fetch_one(&pool).await.unwrap_or(0);
+
+    // ── data query ————————————————————————————————————————————
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(AlbumView::Table);
 
@@ -1006,6 +1133,13 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         AlbumView::ArtistName,
         AlbumView::AlbumTitle,
     );
+
+    // server-side mb_lookup_status filter (replaces client-side filtering)
+    if let Some(ref statuses) = params.mb_lookup_status {
+        if !statuses.is_empty() {
+            query.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
+        }
+    }
 
     let sort_direction = match params.sort_direction.as_deref() {
         Some("desc") => Order::Desc,
@@ -1019,7 +1153,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         Some("artist") => {
             query.order_by(AlbumView::ArtistName, sort_direction);
         }
-        Some("release_date") => {
+        Some("release_date") | Some("year") => {
             query.order_by(AlbumView::AlbumReleaseDate, sort_direction);
         }
         Some("duration") => {
@@ -1029,7 +1163,13 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
             query.order_by(AlbumView::AlbumSongCount, sort_direction);
         }
         _ => {
-            query.order_by(AlbumView::AlbumCreatedAt, Order::Desc);
+            // default ("added_at" or unknown) sorts by created_at and
+            // honors sort_direction (defaults to desc upstream)
+            let dir = match params.sort_direction.as_deref() {
+                Some("asc") => Order::Asc,
+                _ => Order::Desc,
+            };
+            query.order_by(AlbumView::AlbumCreatedAt, dir);
         }
     }
 
@@ -1078,12 +1218,98 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         format!("Found {} album(s)", album_count),
         QueryResult {
             items: albums,
-            total_count: album_count as i64,
-            has_more: album_count == limit as usize,
+            total_count,
+            has_more: (offset as i64 + album_count as i64) < total_count,
             limit: limit as i64,
             offset: offset as i64,
             query_time_ms: Some(start_time.elapsed().as_millis() as u64),
         },
+    )
+}
+
+/// returns per-status album counts for the current library/filter context.
+/// intentionally does NOT apply the `mb_lookup_status` filter itself —
+/// the counts tell the client how many albums each filter chip would return.
+pub async fn query_album_status_counts(params: QueryParams) -> GrimoireResponse<AlbumStatusCounts> {
+    let pool = match database::connect().await {
+        Ok(pool) => pool,
+        Err(err) => {
+            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
+        }
+    };
+
+    // build base WHERE (same global filters as query_albums, minus status filter)
+    let mut base_q = Query::select();
+    base_q
+        .column(AlbumView::AlbumMbLookupStatus)
+        .from(AlbumView::Table);
+    add_global_filters(
+        &mut base_q,
+        &params,
+        AlbumView::AlbumTitle,
+        AlbumView::ArtistName,
+        AlbumView::AlbumTitle,
+    );
+    let (base_sql, base_values) = base_q.build(SqliteQueryBuilder);
+
+    // status counts: GROUP BY on the base subquery
+    let counts_sql = format!(
+        "SELECT COALESCE(album_mb_lookup_status, 'not_attempted') AS s, COUNT(*) AS n \
+         FROM ({}) AS __t GROUP BY s",
+        base_sql
+    );
+    let total_sql = format!("SELECT COUNT(*) FROM ({}) AS __t", base_sql);
+
+    // helper: bind sea_query values to a generic sqlx query string
+    // we need to bind the same values twice so clone the Vec
+    let bind_vals: Vec<sea_query::Value> = base_values.0;
+
+    // total count
+    let mut total_q = sqlx::query_scalar::<_, i64>(&total_sql);
+    for v in &bind_vals {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                total_q = total_q.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                total_q = total_q.bind(*i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                total_q = total_q.bind(*i as i64);
+            }
+            _ => {}
+        }
+    }
+    let total = total_q.fetch_one(&pool).await.unwrap_or(0);
+
+    // per-status counts
+    #[derive(sqlx::FromRow)]
+    struct StatusCount {
+        s: String,
+        n: i64,
+    }
+    let mut counts_q = sqlx::query_as::<_, StatusCount>(&counts_sql);
+    for v in &bind_vals {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                counts_q = counts_q.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                counts_q = counts_q.bind(*i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                counts_q = counts_q.bind(*i as i64);
+            }
+            _ => {}
+        }
+    }
+    let rows = counts_q.fetch_all(&pool).await.unwrap_or_default();
+    let by_status: std::collections::HashMap<String, i64> =
+        rows.into_iter().map(|r| (r.s, r.n)).collect();
+
+    GrimoireResponse::success(
+        "album status counts".to_string(),
+        AlbumStatusCounts { total, by_status },
     )
 }
 
@@ -1116,6 +1342,38 @@ pub async fn query_artists(
     // Handle artist_id filter for querying specific artist
     if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
         query.and_where(Expr::col(ArtistView::ArtistId).eq(artist_id));
+    }
+
+    // Batch variant: artist_ids = [..]. used by the graph viz
+    // artist-walk expansion to load multiple artist payloads in one
+    // request (phase 3, 2026-05-26).
+    if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = artist_ids
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !ids.is_empty() {
+            query.and_where(Expr::col(ArtistView::ArtistId).is_in(ids));
+        }
+    }
+
+    // Name-based batch filter for cross-remote lookups, where artist_ids
+    // are remote-local and not shared. matches on artist_name exactly
+    // (case-sensitive — clients should normalize beforehand if they
+    // want a slug match). silently ignores non-string entries; empty
+    // array is a no-op.
+    if let Some(artist_names) = params
+        .filters
+        .get("artist_names")
+        .and_then(|v| v.as_array())
+    {
+        let names: Vec<String> = artist_names
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if !names.is_empty() {
+            query.and_where(Expr::col(ArtistView::ArtistName).is_in(names));
+        }
     }
 
     // Handle starts_with filter for artists
@@ -1215,94 +1473,6 @@ pub async fn query_artists(
     )
 }
 
-pub async fn query_genres(params: QueryParams) -> GrimoireResponse<QueryResult<GenreQueryResult>> {
-    let start_time = Instant::now();
-    let pool = match database::connect().await {
-        Ok(pool) => pool,
-        Err(err) => {
-            return GrimoireResponse::failure("Failed to connect to database", vec![err.into()])
-        }
-    };
-    let limit = params.limit.unwrap_or(50).min(1000);
-    let offset = params.offset.unwrap_or(0);
-
-    let mut query = Query::select();
-    query.column(sea_query::Asterisk).from(GenreView::Table);
-
-    // Genre-specific search filter
-    if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
-        let pattern = format!("%{}%", search_term);
-        query.cond_where(Expr::col(GenreView::GenreName).like(pattern));
-    }
-
-    let sort_direction = match params.sort_direction.as_deref() {
-        Some("desc") => Order::Desc,
-        _ => Order::Asc,
-    };
-
-    match params.sort_by.as_deref() {
-        Some("name") => {
-            query.order_by(GenreView::GenreName, sort_direction);
-        }
-        Some("created_at") => {
-            query.order_by(GenreView::GenreCreatedAt, sort_direction);
-        }
-        _ => {
-            query.order_by(GenreView::GenreName, Order::Asc);
-        }
-    }
-
-    query.limit(limit as u64).offset(offset as u64);
-
-    let (sql, values) = query.build(SqliteQueryBuilder);
-
-    let mut sqlx_query = sqlx::query_as::<_, GenreViewRow>(&sql);
-    for value in values.0 {
-        match value {
-            sea_query::Value::String(Some(s)) => {
-                sqlx_query = sqlx_query.bind(s.as_ref().to_string());
-            }
-            sea_query::Value::BigInt(Some(i)) => {
-                sqlx_query = sqlx_query.bind(i);
-            }
-            sea_query::Value::BigUnsigned(Some(i)) => {
-                sqlx_query = sqlx_query.bind(i as i64);
-            }
-            _ => {}
-        }
-    }
-
-    let rows = match sqlx_query.fetch_all(&pool).await {
-        Ok(rows) => rows,
-        Err(err) => return GrimoireResponse::failure("Failed to query genres", vec![err.into()]),
-    };
-
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
-    let mut genres: Vec<GenreQueryResult> = rows
-        .into_iter()
-        .map(|r| r.to_genre_query_result(user_id_ref))
-        .collect();
-
-    // apply user favorites if user_id provided (genres don't have ratings)
-    if let Some(uid) = &params.user_id {
-        user_prefs::apply_user_preferences_genres(&mut genres, uid).await;
-    }
-
-    let genre_count = genres.len();
-
-    GrimoireResponse::success(
-        format!("Found {} genre(s)", genre_count),
-        QueryResult {
-            items: genres,
-            total_count: genre_count as i64,
-            has_more: genre_count == limit as usize,
-            limit: limit as i64,
-            offset: offset as i64,
-            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
-        },
-    )
-}
-
 // Legacy compatibility functions (temporary)
 pub async fn list_recent_songs(
     limit: Option<u32>,
@@ -1318,6 +1488,7 @@ pub async fn list_recent_songs(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1338,6 +1509,7 @@ pub async fn search_songs(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1364,6 +1536,7 @@ pub async fn list_songs_by_artist(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1390,6 +1563,7 @@ pub async fn list_songs_by_album(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1416,6 +1590,7 @@ pub async fn list_songs_by_genre(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_songs(params).await
 }
@@ -1442,6 +1617,83 @@ pub async fn list_albums_by_artist(
         user_id: None,
         favorites_only: None,
         min_rating: None,
+        mb_lookup_status: None,
     };
     query_albums(params).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Query, SqliteQueryBuilder};
+
+    fn album_sql_with_filters(
+        filters: std::collections::HashMap<String, serde_json::Value>,
+    ) -> (String, sea_query::Values) {
+        let params = crate::music::crud::models::QueryParams {
+            q: None,
+            search_fields: None,
+            filters,
+            sort_by: None,
+            sort_direction: None,
+            limit: None,
+            offset: None,
+            user_id: None,
+            favorites_only: None,
+            min_rating: None,
+            mb_lookup_status: None,
+        };
+        let mut q = Query::select();
+        q.column(sea_query::Asterisk).from(AlbumView::Table);
+        add_global_filters(
+            &mut q,
+            &params,
+            AlbumView::AlbumTitle,
+            AlbumView::ArtistName,
+            AlbumView::AlbumTitle,
+        );
+        q.build(SqliteQueryBuilder)
+    }
+
+    #[test]
+    fn taxon_id_filter_targets_album_taxons_column() {
+        let mut filters = std::collections::HashMap::new();
+        filters.insert("taxon_id".to_string(), serde_json::json!("taxon-abc-123"));
+        let (sql, values) = album_sql_with_filters(filters);
+        assert!(
+            sql.contains("album_taxons"),
+            "expected album_taxons in sql, got: {sql}"
+        );
+        assert!(sql.contains("LIKE"), "expected LIKE in sql, got: {sql}");
+        let found = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-abc-123")));
+        assert!(found, "expected taxon-abc-123 in bound params");
+    }
+
+    #[test]
+    fn taxon_ids_filter_uses_or_for_multiple_ids() {
+        let mut filters = std::collections::HashMap::new();
+        filters.insert(
+            "taxon_ids".to_string(),
+            serde_json::json!(["taxon-a", "taxon-b"]),
+        );
+        let (sql, values) = album_sql_with_filters(filters);
+        assert!(
+            sql.contains("album_taxons"),
+            "expected album_taxons in sql, got: {sql}"
+        );
+        assert!(sql.contains("LIKE"), "expected LIKE in sql, got: {sql}");
+        let has_a = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-a")));
+        let has_b = values
+            .0
+            .iter()
+            .any(|v| matches!(v, sea_query::Value::String(Some(s)) if s.contains("taxon-b")));
+        assert!(has_a, "expected taxon-a in bound params");
+        assert!(has_b, "expected taxon-b in bound params");
+    }
 }

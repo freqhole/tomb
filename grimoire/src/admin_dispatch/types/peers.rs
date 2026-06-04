@@ -5,6 +5,8 @@
 //! - `peers_list_for_user` -> `Vec<AdminPeerNodeSummary>`
 //! - `peers_remove` -> `EmptyResponse`
 //! - `peers_restore` -> `EmptyResponse`
+//! - `peers_hard_delete` -> `AdminPeersHardDeleteResponse`
+//! - `peers_reassign_user` -> `EmptyResponse`
 //! - `peers_allow` -> `AdminPeersAllowResponse`
 
 use serde::{Deserialize, Serialize};
@@ -98,6 +100,28 @@ pub struct AdminPeersRemoveRequest {
 pub struct AdminPeersRestoreRequest {
     pub user_id: String,
     pub node_id: String,
+}
+
+/// request for `peers_hard_delete` (permanent delete by node id).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminPeersHardDeleteRequest {
+    pub node_id: String,
+}
+
+/// response for `peers_hard_delete`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminPeersHardDeleteResponse {
+    pub deleted_rows: u64,
+}
+
+/// request for `peers_reassign_user`.
+///
+/// moves an existing peer node to a different user and clears soft-delete
+/// state on the peer row.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AdminPeersReassignUserRequest {
+    pub node_id: String,
+    pub user_id: String,
 }
 
 /// request for `peers_allow`.

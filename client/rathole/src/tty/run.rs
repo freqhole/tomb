@@ -70,6 +70,10 @@ async fn run_inner(
     let player = super::player::RodioPlayer::spawn(action_tx.clone());
     let mut app = App::new(state, transport, commands).with_player(player);
 
+    // hydrate the knock indicator from current pending requests so
+    // the header is correct on startup even before new events arrive.
+    sync_pending_knocks(&app, &action_tx);
+
     // build the serve subprocess monitor. uses the same binary the
     // user invoked (so dev `cargo run --bin freqhole` keeps using
     // the dev build) and forwards the same --config path so both
@@ -127,61 +131,21 @@ async fn run_inner(
         })
     };
 
-    // forward grimoire broadcast events (job progress, knock create/
-    // process) into the ui loop so the top-bar badges + bell stay
-    // current. uses tokio::spawn (not spawn_local) so the broadcast
-    // receiver lives outside the LocalSet — `AppAction` is Send.
+    // forward grimoire broadcast events into the ui loop.
+    // split into two tasks: knock events via the legacy grimoire events
+    // broadcast, job-lifecycle events via the typed job_events broker.
+    // uses tokio::spawn (not spawn_local) so the receivers live
+    // outside the LocalSet — `AppAction` is Send.
+
+    // knock events (KnockCreated / KnockProcessed)
     let grimoire_events_handle = {
         let tx = action_tx.clone();
         tokio::spawn(async move {
             let mut rx = grimoire::events::subscribe();
-            // remember the kind we classified each session as, so the
-            // top-bar label doesn't flip from "fetch" to "scan" once
-            // the FetchMedia row finishes and child ProcessFile rows
-            // start emitting progress with concrete file paths.
-            let mut session_kinds: std::collections::HashMap<String, &'static str> =
-                std::collections::HashMap::new();
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
                         let action = match ev {
-                            grimoire::events::GrimoireEvent::JobProgress {
-                                session_id,
-                                directory,
-                                songs_added,
-                                jobs_pending,
-                                jobs_total,
-                            } => {
-                                // first event for a session classifies
-                                // it; subsequent events keep the same
-                                // label even if `directory` switches
-                                // shape (fetch → child file paths).
-                                let kind =
-                                    *session_kinds.entry(session_id.clone()).or_insert_with(|| {
-                                        if directory.starts_with("fetch://")
-                                            || directory.starts_with("http://")
-                                            || directory.starts_with("https://")
-                                        {
-                                            "fetch"
-                                        } else {
-                                            "scan"
-                                        }
-                                    });
-                                AppAction::JobProgress {
-                                    session_id,
-                                    kind: kind.to_string(),
-                                    songs_added,
-                                    jobs_pending,
-                                    jobs_total,
-                                }
-                            }
-                            grimoire::events::GrimoireEvent::JobSessionComplete {
-                                session_id,
-                                ..
-                            } => {
-                                session_kinds.remove(&session_id);
-                                AppAction::JobSessionComplete { session_id }
-                            }
                             grimoire::events::GrimoireEvent::KnockCreated {
                                 id, username, ..
                             } => AppAction::KnockCreated {
@@ -203,8 +167,86 @@ async fn run_inner(
         })
     };
 
+    // job-lifecycle events (Progress / Completed) from the typed broker
+    let job_events_handle = {
+        let tx = action_tx.clone();
+        tokio::spawn(async move {
+            use grimoire::jobs::job_events::JobEvent;
+            let mut rx = grimoire::jobs::job_events::subscribe();
+            // remember the kind we classified each session as, so the
+            // top-bar label doesn't flip from "fetch" to "scan" once
+            // the FetchMedia row finishes and child ProcessFile rows
+            // start emitting progress with concrete file paths.
+            let mut session_kinds: std::collections::HashMap<String, &'static str> =
+                std::collections::HashMap::new();
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        let action = match ev {
+                            JobEvent::Progress {
+                                session_id,
+                                details: Some(d),
+                                ..
+                            } => {
+                                let directory = d
+                                    .get("directory")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                // first event for a session classifies
+                                // it; subsequent events keep the same
+                                // label even if `directory` switches
+                                // shape (fetch -> child file paths).
+                                let kind =
+                                    *session_kinds.entry(session_id.clone()).or_insert_with(|| {
+                                        if directory.starts_with("enrich://") {
+                                            "enrich"
+                                        } else if directory.starts_with("fetch://")
+                                            || directory.starts_with("http://")
+                                            || directory.starts_with("https://")
+                                        {
+                                            "fetch"
+                                        } else {
+                                            "scan"
+                                        }
+                                    });
+                                let songs_added =
+                                    d.get("songs_added").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                let jobs_pending =
+                                    d.get("jobs_pending").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                let jobs_total =
+                                    d.get("jobs_total").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                AppAction::JobProgress {
+                                    session_id,
+                                    kind: kind.to_string(),
+                                    songs_added,
+                                    jobs_pending,
+                                    jobs_total,
+                                }
+                            }
+                            JobEvent::Completed { session_id, .. } => {
+                                session_kinds.remove(&session_id);
+                                AppAction::JobSessionComplete { session_id }
+                            }
+                            _ => continue,
+                        };
+                        if tx.send(action).is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    };
+
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
+    let mut last_knock_sync = std::time::Instant::now();
 
     while !app.exit {
         terminal.draw(|f| views::draw(f, &mut app))?;
@@ -220,6 +262,14 @@ async fn run_inner(
                 if let Some(m) = serve_monitor.as_mut() {
                     m.refresh();
                     sync_serve_badge(&mut app, m);
+                }
+                // grimoire's event bus is process-local. if knocks
+                // are created in a separate process (e.g. standalone
+                // server or `freqhole serve` subprocess), we won't get
+                // a live event here, so periodically reconcile.
+                if last_knock_sync.elapsed() >= Duration::from_secs(5) {
+                    sync_pending_knocks(&app, &action_tx);
+                    last_knock_sync = std::time::Instant::now();
                 }
             }
             Some(action) = action_rx.recv() => {
@@ -244,6 +294,7 @@ async fn run_inner(
         tracing::warn!("rathole: job processor did not stop within 5s ({e}); abandoning");
     }
     grimoire_events_handle.abort();
+    job_events_handle.abort();
     Ok(())
 }
 
@@ -534,6 +585,130 @@ fn sync_serve_badge(app: &mut App, monitor: &super::serve_monitor::ServeMonitor)
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
         AppAction::AdminDispatchResult { command, response } => {
+            let refresh_pending_knocks = response.success
+                && matches!(
+                    command.as_str(),
+                    "knocks_accept" | "knocks_reject" | "knocks_delete" | "knocks_reject_all"
+                );
+            if command == "library_scan" && response.success {
+                if let Some(sid) = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("session_id"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    let jobs_created = response
+                        .data
+                        .as_ref()
+                        .and_then(|d| d.get("jobs_created"))
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    app.state.ephemeral.scan_status = Some(crate::ratcore::app::ScanStatus {
+                        session_id: sid.to_string(),
+                        jobs_total: jobs_created,
+                        jobs_pending: jobs_created,
+                        percent: 0,
+                        active: jobs_created > 0,
+                    });
+                    app.state.ephemeral.scan_abort_confirm_for = None;
+                }
+                // submitting scan should immediately land on the scan monitor
+                // so progress is visible without requiring `/scan` again.
+                app.state.ephemeral.form = None;
+                render_scan_monitor(app);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                app.state.ephemeral.last_dispatch_scroll = 0;
+                return;
+            }
+            if command == "jobs_cancel_session" && response.success {
+                if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                    scan.active = false;
+                    scan.jobs_pending = 0;
+                    scan.percent = 100;
+                }
+                app.state.ephemeral.scan_abort_confirm_for = None;
+            }
+            if command == "library_scan_status" && response.success {
+                if let Some(d) = response.data.as_ref() {
+                    let pending = d
+                        .get("pending")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let running = d
+                        .get("running")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let completed = d
+                        .get("completed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let failed = d
+                        .get("failed")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let total = d
+                        .get("total")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    let done = completed.saturating_add(failed);
+                    let percent = if total > 0 {
+                        ((done as u64 * 100) / total as u64) as u8
+                    } else {
+                        0
+                    };
+                    let bar = scan_bar(percent);
+                    app.state.ephemeral.scan_status = app
+                        .state
+                        .ephemeral
+                        .scan_status
+                        .as_ref()
+                        .map(|s| crate::ratcore::app::ScanStatus {
+                            session_id: s.session_id.clone(),
+                            jobs_total: total,
+                            jobs_pending: pending.saturating_add(running),
+                            percent,
+                            active: pending.saturating_add(running) > 0,
+                        })
+                        .or_else(|| {
+                            Some(crate::ratcore::app::ScanStatus {
+                                session_id: "(unknown)".to_string(),
+                                jobs_total: total,
+                                jobs_pending: pending.saturating_add(running),
+                                percent,
+                                active: pending.saturating_add(running) > 0,
+                            })
+                        });
+                    app.state.ephemeral.last_dispatch = Some(LastDispatch {
+                        command: "scan_monitor".to_string(),
+                        success: true,
+                        message: format!(
+                            "scan session: {}\n{} {}%  (pending {} running {} done {} failed {})\n\ncommands: /scan add <path> [tags], /scan abort",
+                            app.state
+                                .ephemeral
+                                .scan_status
+                                .as_ref()
+                                .map(|s| s.session_id.clone())
+                                .unwrap_or_else(|| "(unknown)".to_string()),
+                            bar,
+                            percent,
+                            pending,
+                            running,
+                            done,
+                            failed
+                        ),
+                        data_pretty: response
+                            .data
+                            .as_ref()
+                            .map(|v| serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())),
+                        rows: vec![],
+                        cursor: 0,
+                        pending: false,
+                        progress: vec![],
+                    });
+                    app.state.ephemeral.last_dispatch_scroll = 0;
+                    return;
+                }
+            }
             let data_pretty = response
                 .data
                 .as_ref()
@@ -571,6 +746,16 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            // preserve progress lines so the user can see the final
+            // "done" line alongside the resolved response.
+            let prior_progress = app
+                .state
+                .ephemeral
+                .last_dispatch
+                .as_ref()
+                .filter(|ld| ld.command == command)
+                .map(|ld| ld.progress.clone())
+                .unwrap_or_default();
             app.state.ephemeral.last_dispatch = Some(LastDispatch {
                 command,
                 success: response.success,
@@ -578,7 +763,25 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 data_pretty,
                 rows,
                 cursor: 0,
+                pending: false,
+                progress: prior_progress,
             });
+            if refresh_pending_knocks {
+                sync_pending_knocks(app, action_tx);
+            }
+        }
+        AppAction::AdminDispatchProgress { command, line } => {
+            if let Some(ld) = app.state.ephemeral.last_dispatch.as_mut() {
+                if ld.command == command {
+                    ld.progress.push(line);
+                    // cap to avoid unbounded growth on huge runs.
+                    let max_lines = 2000;
+                    if ld.progress.len() > max_lines {
+                        let drop = ld.progress.len() - max_lines;
+                        ld.progress.drain(0..drop);
+                    }
+                }
+            }
         }
         AppAction::SelectFromOptionsReady {
             command,
@@ -594,25 +797,46 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             let Some(field) = form.fields.get_mut(field_index) else {
                 return;
             };
-            let FieldState::SelectFrom {
-                options: opts,
-                loading,
-                error,
-                selected,
-            } = field
-            else {
-                return;
-            };
-            *loading = false;
-            match options {
-                Ok(list) => {
-                    *selected = 0;
-                    *error = None;
-                    *opts = Some(list);
+            match field {
+                FieldState::SelectFrom {
+                    options: opts,
+                    loading,
+                    error,
+                    selected,
+                } => {
+                    *loading = false;
+                    match options {
+                        Ok(list) => {
+                            *selected = 0;
+                            *error = None;
+                            *opts = Some(list);
+                        }
+                        Err(e) => {
+                            *error = Some(e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    *error = Some(e);
+                FieldState::MultiSelect {
+                    options: opts,
+                    loading,
+                    error,
+                    cursor,
+                    checked,
+                } => {
+                    *loading = false;
+                    match options {
+                        Ok(list) => {
+                            *cursor = 0;
+                            *error = None;
+                            *checked = vec![false; list.len()];
+                            *opts = Some(list);
+                        }
+                        Err(e) => {
+                            *error = Some(e);
+                        }
+                    }
                 }
+                _ => return,
             }
         }
         // tty shell never produces these (no peer concept), but the
@@ -788,20 +1012,115 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 jobs_total,
                 jobs_pending,
             });
-            let _ = session_id;
+            if app
+                .state
+                .ephemeral
+                .scan_status
+                .as_ref()
+                .map(|s| s.session_id == session_id)
+                .unwrap_or(false)
+            {
+                app.state.ephemeral.scan_status = Some(crate::ratcore::app::ScanStatus {
+                    session_id: session_id.clone(),
+                    jobs_total,
+                    jobs_pending,
+                    percent,
+                    active: jobs_pending > 0,
+                });
+                if app
+                    .state
+                    .ephemeral
+                    .last_dispatch
+                    .as_ref()
+                    .map(|ld| ld.command == "scan_monitor")
+                    .unwrap_or(false)
+                {
+                    render_scan_monitor(app);
+                }
+            }
         }
-        AppAction::JobSessionComplete { session_id: _ } => {
+        AppAction::JobSessionComplete { session_id } => {
             app.state.ephemeral.jobs_status = None;
+            if app
+                .state
+                .ephemeral
+                .scan_status
+                .as_ref()
+                .map(|s| s.session_id == session_id)
+                .unwrap_or(false)
+            {
+                if let Some(scan) = app.state.ephemeral.scan_status.as_mut() {
+                    scan.active = false;
+                    scan.jobs_pending = 0;
+                    scan.percent = 100;
+                }
+                if app
+                    .state
+                    .ephemeral
+                    .last_dispatch
+                    .as_ref()
+                    .map(|ld| ld.command == "scan_monitor")
+                    .unwrap_or(false)
+                {
+                    render_scan_monitor(app);
+                }
+            }
         }
-        AppAction::KnockCreated { id: _, username: _ } => {
+        AppAction::KnockCreated { id: _, username } => {
             app.state.ephemeral.pending_knocks =
                 app.state.ephemeral.pending_knocks.saturating_add(1);
+            if app.state.ephemeral.pending_knocks == 1 {
+                app.state.ephemeral.pending_knock_username = username;
+            } else {
+                app.state.ephemeral.pending_knock_username = None;
+            }
         }
         AppAction::KnockProcessed { id: _ } => {
             app.state.ephemeral.pending_knocks =
                 app.state.ephemeral.pending_knocks.saturating_sub(1);
+            if app.state.ephemeral.pending_knocks != 1 {
+                app.state.ephemeral.pending_knock_username = None;
+            }
+        }
+        AppAction::PendingKnocksSynced { count, username } => {
+            app.state.ephemeral.pending_knocks = count;
+            app.state.ephemeral.pending_knock_username = if count == 1 { username } else { None };
         }
     }
+}
+
+fn sync_pending_knocks(app: &App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let resp = transport
+            .admin_dispatch("knocks_list", serde_json::json!({}))
+            .await;
+        if !resp.success {
+            return;
+        }
+        let count = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .map(|arr| arr.len() as u32)
+            .unwrap_or(0);
+        let username = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.as_array())
+            .and_then(|arr| {
+                if arr.len() == 1 {
+                    arr.first()
+                        .and_then(|row| row.get("username"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            });
+        let _ = tx.send(AppAction::PendingKnocksSynced { count, username });
+    });
 }
 
 fn apply_music_event(
@@ -849,7 +1168,10 @@ fn apply_music_event(
 // =========================================================================
 
 /// dispatch an admin command on the tty's local transport and forward
-/// the result back through the action channel.
+/// the result back through the action channel. handler progress lines
+/// emitted via `grimoire::progress::report` are forwarded as
+/// `AdminDispatchProgress` actions so the result panel can stream them
+/// while the dispatch is still in flight.
 fn spawn_admin_dispatch(
     app: &App,
     name: &str,
@@ -860,7 +1182,24 @@ fn spawn_admin_dispatch(
     let tx = tx.clone();
     let name = name.to_string();
     tokio::task::spawn_local(async move {
-        let response = transport.admin_dispatch(&name, body).await;
+        let (prog_tx, mut prog_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+        // drain progress lines into the ui action channel.
+        let forward_name = name.clone();
+        let forward_tx = tx.clone();
+        let forwarder = tokio::task::spawn_local(async move {
+            while let Some(line) = prog_rx.recv().await {
+                let _ = forward_tx.send(AppAction::AdminDispatchProgress {
+                    command: forward_name.clone(),
+                    line,
+                });
+            }
+        });
+
+        let response =
+            grimoire::progress::scope(prog_tx, transport.admin_dispatch(&name, body)).await;
+        // closing the sender (it was moved into scope) ends the forwarder.
+        let _ = forwarder.await;
         let _ = tx.send(AppAction::AdminDispatchResult {
             command: name,
             response,
@@ -942,6 +1281,8 @@ fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
                             data_pretty: Some(pretty),
                             rows: vec![],
                             cursor: 0,
+                            pending: false,
+                            progress: vec![],
                         });
                         eph.last_dispatch_scroll = 0;
                         return;
@@ -1026,13 +1367,22 @@ fn on_form_key(
         KeyCode::PageDown => {
             form.scroll = form.scroll.saturating_add(5);
         }
-        // Tab tries path completion when the focused Text/LongText
-        // field looks path-like; otherwise advances the wizard.
+        // Up/Down cycles form fields (wrapping) without entering
+        // confirm/submit.
+        KeyCode::Up => {
+            form.focus_prev();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        KeyCode::Down => {
+            form.focus_next();
+            form.error = None;
+            maybe_fetch_select_options(app, tx);
+        }
+        // Tab is reserved for path completion in Text/LongText
+        // fields that look path-like.
         KeyCode::Tab => {
-            let did_complete = try_form_path_complete(form);
-            if !did_complete {
-                advance_form(app, tx);
-            }
+            let _ = try_form_path_complete(form);
         }
         // Enter advances UNLESS the focused field is a LongText
         // editor, in which case it inserts a newline.
@@ -1165,6 +1515,69 @@ fn on_form_key(
                         }
                     }
                 }
+                (
+                    FieldState::MultiSelect {
+                        options, cursor, ..
+                    },
+                    KeyCode::Up | KeyCode::Char('k'),
+                ) => {
+                    if options.is_some() {
+                        *cursor = cursor.saturating_sub(1);
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, cursor, ..
+                    },
+                    KeyCode::Down | KeyCode::Char('j'),
+                ) => {
+                    if let Some(opts) = options {
+                        if !opts.is_empty() {
+                            *cursor = (*cursor + 1).min(opts.len() - 1);
+                        }
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options,
+                        cursor,
+                        checked,
+                        ..
+                    },
+                    KeyCode::Char(' '),
+                ) => {
+                    if let Some(opts) = options {
+                        if !opts.is_empty() {
+                            let idx = (*cursor).min(opts.len() - 1);
+                            if checked.len() != opts.len() {
+                                checked.resize(opts.len(), false);
+                            }
+                            if let Some(slot) = checked.get_mut(idx) {
+                                *slot = !*slot;
+                            }
+                        }
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, checked, ..
+                    },
+                    KeyCode::Char('a'),
+                ) => {
+                    if let Some(opts) = options {
+                        *checked = vec![true; opts.len()];
+                    }
+                }
+                (
+                    FieldState::MultiSelect {
+                        options, checked, ..
+                    },
+                    KeyCode::Char('n'),
+                ) => {
+                    if let Some(opts) = options {
+                        *checked = vec![false; opts.len()];
+                    }
+                }
                 _ => {}
             }
         }
@@ -1181,13 +1594,18 @@ fn on_form_key(
 /// fills in fully (with trailing `/` for dirs); multi-match fills
 /// in the longest common prefix.
 fn try_form_path_complete(form: &mut CommandForm) -> bool {
+    let focused = form.focused;
     let Some(field) = form.fields.get_mut(form.focused) else {
+        form.path_tab_cycle = None;
         return false;
     };
     let (buf, cursor) = match field {
         FieldState::Text { buf, cursor } => (buf, cursor),
         FieldState::LongText { buf, cursor } => (buf, cursor),
-        _ => return false,
+        _ => {
+            form.path_tab_cycle = None;
+            return false;
+        }
     };
     let prefix: String = buf.chars().take(*cursor).collect();
     let suffix: String = buf.chars().skip(*cursor).collect();
@@ -1198,18 +1616,46 @@ fn try_form_path_complete(form: &mut CommandForm) -> bool {
         .unwrap_or(0);
     let token = &prefix[token_start..];
     if !looks_like_path(token) {
+        form.path_tab_cycle = None;
         return false;
     }
-    let Some(completion) = path_complete(token) else {
+    let Some(mut cycle) = path_completion_candidates(token) else {
+        form.path_tab_cycle = None;
         return false;
     };
+
+    // if this tab press continues the same seed on the same field,
+    // rotate to the next candidate; otherwise start at the first.
+    if let Some(prev) = &form.path_tab_cycle {
+        if prev.field_index == focused
+            && prev.seed_token == cycle.seed_token
+            && !prev.candidates.is_empty()
+            && prev.candidates == cycle.candidates
+        {
+            let cur_idx = prev
+                .candidates
+                .iter()
+                .position(|c| c == token)
+                .unwrap_or(prev.selected);
+            cycle.selected = (cur_idx + 1) % prev.candidates.len();
+        }
+    }
+
+    cycle.field_index = focused;
+    let completion = cycle
+        .candidates
+        .get(cycle.selected)
+        .cloned()
+        .unwrap_or_else(|| token.to_string());
     if completion == token {
+        form.path_tab_cycle = Some(cycle);
         return false;
     }
     let new_prefix = format!("{}{}", &prefix[..token_start], completion);
     let new_cursor = new_prefix.chars().count();
     *buf = format!("{new_prefix}{suffix}");
     *cursor = new_cursor;
+    form.path_tab_cycle = Some(cycle);
     form.error = None;
     true
 }
@@ -1218,7 +1664,7 @@ fn looks_like_path(s: &str) -> bool {
     s.starts_with('/') || s.starts_with("~/") || s.starts_with("./") || s.starts_with("../")
 }
 
-fn path_complete(token: &str) -> Option<String> {
+fn path_completion_candidates(token: &str) -> Option<crate::ratcore::app::events::PathTabCycle> {
     use std::path::PathBuf;
     // expand leading ~/ to $HOME for fs lookups; preserve in the
     // completion so the user keeps their tilde-style path.
@@ -1270,19 +1716,8 @@ fn path_complete(token: &str) -> Option<String> {
     }
     matches.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // longest common prefix across all matches.
-    let common = longest_common_prefix(matches.iter().map(|(n, _)| n.as_str()));
-    let chosen = if common.len() > leaf.len() {
-        common
-    } else if matches.len() == 1 {
-        matches[0].0.clone()
-    } else {
-        return None;
-    };
-
-    // rebuild the full token: original root (`~/` or empty) +
-    // parent's portion of the original token (everything before the
-    // leaf) + completed name + trailing `/` if it's a dir + single match.
+    // rebuild full tokens for every match so Tab can cycle through
+    // the complete candidate set.
     let parent_in_token = if token.ends_with('/') {
         token.to_string()
     } else {
@@ -1291,42 +1726,30 @@ fn path_complete(token: &str) -> Option<String> {
         let cut = token_chars.len().saturating_sub(leaf_chars);
         token_chars[..cut].iter().collect::<String>()
     };
-    let mut out = if !original_root.is_empty() && parent_in_token.is_empty() {
+    let base = if !original_root.is_empty() && parent_in_token.is_empty() {
         original_root.to_string()
     } else {
         parent_in_token
     };
-    out.push_str(&chosen);
-    if matches.len() == 1 && matches[0].1 && !out.ends_with('/') {
-        out.push('/');
+    let candidates: Vec<String> = matches
+        .iter()
+        .map(|(name, is_dir)| {
+            let mut out = format!("{base}{name}");
+            if *is_dir && !out.ends_with('/') {
+                out.push('/');
+            }
+            out
+        })
+        .collect();
+    if candidates.is_empty() {
+        return None;
     }
-    Some(out)
-}
-
-fn longest_common_prefix<'a, I: IntoIterator<Item = &'a str>>(iter: I) -> String {
-    let mut iter = iter.into_iter();
-    let Some(first) = iter.next() else {
-        return String::new();
-    };
-    let mut prefix = first.to_string();
-    for s in iter {
-        let new_len = prefix
-            .chars()
-            .zip(s.chars())
-            .take_while(|(a, b)| a == b)
-            .count();
-        prefix.truncate(
-            prefix
-                .char_indices()
-                .nth(new_len)
-                .map(|(i, _)| i)
-                .unwrap_or(prefix.len()),
-        );
-        if prefix.is_empty() {
-            break;
-        }
-    }
-    prefix
+    Some(crate::ratcore::app::events::PathTabCycle {
+        field_index: 0,
+        seed_token: token.to_string(),
+        candidates,
+        selected: 0,
+    })
 }
 
 /// Enter pressed on a wizard field: validate it locally, then
@@ -1394,6 +1817,26 @@ fn validate_focused(form: &CommandForm) -> Result<(), String> {
                 None => Err(format!("{} not loaded yet", label)),
             }
         }
+        FieldState::MultiSelect {
+            options,
+            loading,
+            error,
+            ..
+        } => {
+            if *loading {
+                return Err(format!("{} is still loading", label));
+            }
+            if let Some(e) = error {
+                return Err(format!("{}: {}", label, e));
+            }
+            match options {
+                Some(opts) if opts.is_empty() => {
+                    Err(format!("{} has no options to pick from", label))
+                }
+                Some(_) => Ok(()),
+                None => Err(format!("{} not loaded yet", label)),
+            }
+        }
     }
 }
 
@@ -1436,6 +1879,8 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                     data_pretty: Some(pretty),
                     rows: vec![],
                     cursor: 0,
+                    pending: false,
+                    progress: vec![],
                 });
                 eph.last_dispatch_scroll = 0;
                 eph.focus = Focus::ResultPanel;
@@ -1680,7 +2125,10 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     let Some(state) = form.fields.get(field_idx) else {
         return;
     };
-    if !matches!(state, FieldState::SelectFrom { .. }) {
+    if !matches!(
+        state,
+        FieldState::SelectFrom { .. } | FieldState::MultiSelect { .. }
+    ) {
         return;
     }
     let Some(cmd) = app.commands.iter().find(|c| c.name == cmd_name).cloned() else {
@@ -1689,36 +2137,65 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     let Some(spec) = cmd.args.get(field_idx).cloned() else {
         return;
     };
-    let ArgKind::SelectFrom {
-        source_command,
-        source_body,
-        body_from_fields,
-        data_path,
-        value_field,
-        label_field,
-    } = spec.kind
-    else {
-        return;
-    };
+    let (source_command, source_body, body_from_fields, data_path, value_field, label_field) =
+        match spec.kind {
+            ArgKind::SelectFrom {
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            }
+            | ArgKind::MultiSelectFrom {
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            } => (
+                source_command,
+                source_body,
+                body_from_fields,
+                data_path,
+                value_field,
+                label_field,
+            ),
+            _ => return,
+        };
+    let include_blank = !spec.required && spec.name == "user_id";
     // when the body depends on sibling fields, options can go stale
     // any time those siblings change, so clear cached options on each
     // (re-)focus and re-fetch. for static-body fields, only fetch when
     // we don't have options yet.
     let depends_on_siblings = !body_from_fields.is_empty();
-    let needs_fetch = if let Some(FieldState::SelectFrom {
-        options, loading, ..
-    }) = form.fields.get_mut(field_idx)
-    {
-        if *loading {
-            false
-        } else if depends_on_siblings {
-            *options = None;
-            true
-        } else {
-            options.is_none()
+    let needs_fetch = match form.fields.get_mut(field_idx) {
+        Some(FieldState::SelectFrom {
+            options, loading, ..
+        }) => {
+            if *loading {
+                false
+            } else if depends_on_siblings {
+                *options = None;
+                true
+            } else {
+                options.is_none()
+            }
         }
-    } else {
-        false
+        Some(FieldState::MultiSelect {
+            options, loading, ..
+        }) => {
+            if *loading {
+                false
+            } else if depends_on_siblings {
+                *options = None;
+                true
+            } else {
+                options.is_none()
+            }
+        }
+        _ => false,
     };
     if !needs_fetch {
         return;
@@ -1734,15 +2211,23 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
     ) {
         Ok(b) => b,
         Err(msg) => {
-            if let Some(FieldState::SelectFrom { error, .. }) = form.fields.get_mut(field_idx) {
-                *error = Some(msg);
+            match form.fields.get_mut(field_idx) {
+                Some(FieldState::SelectFrom { error, .. })
+                | Some(FieldState::MultiSelect { error, .. }) => {
+                    *error = Some(msg);
+                }
+                _ => {}
             }
             return;
         }
     };
-    if let Some(FieldState::SelectFrom { loading, error, .. }) = form.fields.get_mut(field_idx) {
-        *loading = true;
-        *error = None;
+    match form.fields.get_mut(field_idx) {
+        Some(FieldState::SelectFrom { loading, error, .. })
+        | Some(FieldState::MultiSelect { loading, error, .. }) => {
+            *loading = true;
+            *error = None;
+        }
+        _ => {}
     }
     let transport = app.transport.clone();
     let tx = tx.clone();
@@ -1756,6 +2241,7 @@ fn maybe_fetch_select_options(app: &mut App, tx: &mpsc::UnboundedSender<AppActio
                 &data_path,
                 &value_field,
                 &label_field,
+                include_blank,
             )
         };
         let _ = tx.send(AppAction::SelectFromOptionsReady {
@@ -1775,6 +2261,7 @@ fn extract_options(
     data_path: &str,
     value_field: &str,
     label_field: &str,
+    include_blank: bool,
 ) -> Result<Vec<SelectOption>, String> {
     let Some(mut node) = data else {
         return Err("source command returned no data".to_string());
@@ -1789,7 +2276,14 @@ fn extract_options(
     let arr = node
         .as_array()
         .ok_or_else(|| "source data is not an array".to_string())?;
-    let mut out = Vec::with_capacity(arr.len());
+    let mut out = Vec::with_capacity(arr.len() + if include_blank { 1 } else { 0 });
+    if include_blank {
+        out.push(SelectOption {
+            value: String::new(),
+            label: "(none — create user from username)".to_string(),
+            row: serde_json::json!({}),
+        });
+    }
     for el in arr {
         let value = el
             .get(value_field)
@@ -2600,6 +3094,10 @@ fn on_repl_key(
     match code {
         KeyCode::Esc => rk::handle_escape(&mut app.state),
         KeyCode::Enter => {
+            // if the flyout has a highlighted selection, commit it
+            // into the input first so enter activates the chosen
+            // entry rather than whatever was partially typed.
+            rk::commit_flyout_on_enter(&mut app.state);
             let line = app.state.ephemeral.repl.input.trim().to_string();
             let action = crate::ratcore::slash::parse(&line);
             let mut exit = false;
@@ -2826,19 +3324,334 @@ fn execute_slash_with_player(
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
         }
+        SlashAction::Autostart { mode } => {
+            use crate::ratcore::slash::AutostartMode;
+            app.state.ephemeral.repl.clear_input();
+            let cfg = grimoire::config::get_config();
+            let http_on = cfg.server.as_ref().map(|s| s.enabled).unwrap_or(false);
+            let p2p_on = cfg.federation.as_ref().map(|f| f.enabled).unwrap_or(false);
+            if matches!(mode, AutostartMode::Show) {
+                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                    "autostart: http={} p2p={} (edit via /autostart off|http|p2p|auto)",
+                    http_on, p2p_on
+                )));
+                rk::leave(&mut app.state);
+            } else {
+                let (want_http, want_p2p) = match mode {
+                    AutostartMode::Off => (false, false),
+                    AutostartMode::Http => (true, false),
+                    AutostartMode::P2p => (false, true),
+                    AutostartMode::Both => (true, true),
+                    AutostartMode::Show => unreachable!(),
+                };
+                let cfg_path = grimoire::config::get_config_path();
+                match cfg_path {
+                    None => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                            "autostart: no config file path known; cannot persist",
+                        ));
+                    }
+                    Some(path) => {
+                        match grimoire::config::set_autostart(&path, want_http, want_p2p) {
+                            Ok(()) => {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                                    "autostart updated: http={} p2p={} (takes effect on next launch; use /serve-stop to stop the current subprocess)",
+                                    want_http, want_p2p
+                                )));
+                            }
+                            Err(e) => {
+                                app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                                    "autostart: failed to update config: {e}"
+                                )));
+                            }
+                        }
+                    }
+                }
+                rk::leave(&mut app.state);
+            }
+        }
         SlashAction::AdminDispatch { name, body } => {
+            if name == "__invite_form__"
+                || name == "__invite_link_form__"
+                || name == "__invite_revoke_form__"
+                || name == "__invite_update_role_form__"
+            {
+                let (target_cmd, status_msg) = match name {
+                    "__invite_form__" => ("invites_generate", "invite form opened"),
+                    "__invite_link_form__" => (
+                        "users_generate_account_link",
+                        "account-link invite form opened",
+                    ),
+                    "__invite_revoke_form__" => ("invites_revoke", "invite revoke form opened"),
+                    "__invite_update_role_form__" => {
+                        ("invites_update_role", "invite update-role form opened")
+                    }
+                    _ => unreachable!(),
+                };
+                if let Some(cmd) = app.commands.iter().find(|c| c.name == target_cmd).cloned() {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info(status_msg.to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(format!(
+                    "invite form command not found: {target_cmd}"
+                )));
+                return;
+            }
+            if name == "__scan_monitor__" {
+                if app.state.ephemeral.scan_status.is_some() {
+                    render_scan_monitor(app);
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "scan monitor opened (use /scan add <path> [tags] to enqueue more)"
+                            .to_string(),
+                    ));
+                    app.state.ephemeral.repl.clear_input();
+                    rk::leave(&mut app.state);
+                    app.state.ephemeral.focus = Focus::ResultPanel;
+                    return;
+                }
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_scan")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("scan form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+            }
+            if name == "__enrich_tags_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "music_enrichment_bulk_auto")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("enrichment tag picker opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "enrichment form command not found".to_string(),
+                ));
+                return;
+            }
+            if name == "__scan_add__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session; start one with /scan <path> or /scan form"
+                            .to_string(),
+                    ));
+                    return;
+                };
+                if !scan.active {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "last scan session is complete; start a new one with /scan <path>"
+                            .to_string(),
+                    ));
+                    return;
+                }
+                let mut add_body = body;
+                add_body["session_id"] = serde_json::json!(scan.session_id);
+                spawn_admin_dispatch(app, "library_scan", add_body, tx);
+                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                    "adding directory to active scan…".to_string(),
+                ));
+                app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                return;
+            }
+            if name == "__scan_abort__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session to abort".to_string(),
+                    ));
+                    return;
+                };
+                app.state.ephemeral.scan_abort_confirm_for = Some(scan.session_id.clone());
+                app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                    "confirm abort with /scan abort confirm".to_string(),
+                ));
+                return;
+            }
+            if name == "__scan_abort_confirm__" {
+                let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                        "no active scan session to abort".to_string(),
+                    ));
+                    return;
+                };
+                if app.state.ephemeral.scan_abort_confirm_for.as_deref()
+                    != Some(scan.session_id.as_str())
+                {
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "abort not armed; run /scan abort first".to_string(),
+                    ));
+                    return;
+                }
+                spawn_admin_dispatch(
+                    app,
+                    "jobs_cancel_session",
+                    serde_json::json!({"session_id": scan.session_id}),
+                    tx,
+                );
+                app.state.ephemeral.scan_abort_confirm_for = None;
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::info("aborting scan session…".to_string()));
+                app.state.ephemeral.repl.clear_input();
+                rk::leave(&mut app.state);
+                app.state.ephemeral.focus = Focus::ResultPanel;
+                return;
+            }
+            // /scan with no args opens the existing rich library_scan form
+            // (path tab-complete + field-level validation + submit feedback).
+            if name == "__scan_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_scan")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::info("scan form opened".to_string()));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status =
+                    Some(ReplStatus::err("scan form command not found".to_string()));
+                return;
+            }
+            // /scan move opens the library_move_directory form
+            if name == "__scan_move_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_move_directory")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "move scan directory form opened".to_string(),
+                    ));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "move directory command not found".to_string(),
+                ));
+                return;
+            }
+            // /scan remove opens the library_remove_directory form
+            if name == "__scan_remove_form__" {
+                if let Some(cmd) = app
+                    .commands
+                    .iter()
+                    .find(|c| c.name == "library_remove_directory")
+                    .cloned()
+                {
+                    app.state.ephemeral.form = Some(crate::ratcore::app::CommandForm::new(&cmd));
+                    app.state.ephemeral.focus = Focus::CommandForm;
+                    app.state.ephemeral.repl.status = Some(ReplStatus::info(
+                        "remove scan directory form opened".to_string(),
+                    ));
+                    app.state.ephemeral.repl.clear_input();
+                    maybe_fetch_select_options(app, tx);
+                    return;
+                }
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                    "remove directory command not found".to_string(),
+                ));
+                return;
+            }
             // generic admin-rpc dispatch from /knock /users /analytics
             // /radio subcommands. result lands in the result panel
             // like any other admin call.
             spawn_admin_dispatch(app, name, body, tx);
             app.state.ephemeral.repl.status =
                 Some(ReplStatus::info(format!("dispatching {name}\u{2026}")));
+            // seed the result panel with a "running" placeholder so
+            // the user sees immediate feedback (especially important
+            // for long-running maintenance ops). gets replaced when
+            // the AdminDispatchResult action arrives.
+            app.state.ephemeral.last_dispatch = Some(LastDispatch {
+                command: name.to_string(),
+                success: true,
+                message: format!(
+                    "running {name}\u{2026} (this may take a while for long maintenance ops)"
+                ),
+                data_pretty: None,
+                rows: vec![],
+                cursor: 0,
+                pending: true,
+                progress: vec![],
+            });
+            app.state.ephemeral.last_dispatch_scroll = 0;
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
             app.state.ephemeral.focus = Focus::ResultPanel;
         }
         _ => {}
     }
+}
+
+fn scan_bar(percent: u8) -> String {
+    let width = 24usize;
+    let filled = ((percent as usize) * width) / 100;
+    format!(
+        "[{}{}]",
+        "#".repeat(filled),
+        "-".repeat(width.saturating_sub(filled))
+    )
+}
+
+fn render_scan_monitor(app: &mut App) {
+    let Some(scan) = app.state.ephemeral.scan_status.as_ref() else {
+        return;
+    };
+    let bar = scan_bar(scan.percent);
+    let state = if scan.active { "running" } else { "complete" };
+    app.state.ephemeral.last_dispatch = Some(LastDispatch {
+        command: "scan_monitor".to_string(),
+        success: true,
+        message: format!(
+            "scan session {state}: {}\n{} {}%  (pending {} / total {})\n\ncommands: /scan add <path> [tags], /scan abort",
+            scan.session_id, bar, scan.percent, scan.jobs_pending, scan.jobs_total
+        ),
+        data_pretty: Some(
+            serde_json::to_string_pretty(&serde_json::json!({
+                "session_id": scan.session_id,
+                "jobs_total": scan.jobs_total,
+                "jobs_pending": scan.jobs_pending,
+                "percent": scan.percent,
+                "active": scan.active,
+            }))
+            .unwrap_or_default(),
+        ),
+        rows: vec![],
+        cursor: 0,
+        pending: false,
+        progress: vec![],
+    });
+    app.state.ephemeral.last_dispatch_scroll = 0;
 }
 
 /// load the most-recently-active remote's `peer_addr` from grimoire's

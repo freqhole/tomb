@@ -8,8 +8,7 @@ import {
   Show,
 } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 
@@ -34,9 +33,23 @@ interface ValidatePathResult {
   is_readable: boolean;
 }
 
-// progress payload mirrors GrimoireEvent::JobProgress emitted by the
-// runner and forwarded through charnel's grimoire-event subscription
-// (see client/charnel/src-tauri/src/lib.rs ~line 513).
+interface MoveScanDirectoryResult {
+  old_path: string;
+  new_path: string;
+  blobs_under_old: number;
+  relocated_exact_path: number;
+  relocated_parent: number;
+  relocated_filename: number;
+  ambiguous_skipped: number;
+  new_files_unmatched: number;
+  unmatched_old_blobs: number;
+  unmatched_old_blobs_soft_deleted: number;
+  fs_store_refresh_failures: number;
+  dry_run: boolean;
+}
+
+// progress payload mirrors JobEvent.Progress.details emitted by the runner
+// and forwarded through the typed job_events broker.
 interface JobProgressPayload {
   session_id: string;
   directory?: string;
@@ -52,11 +65,6 @@ interface JobSessionCompletePayload {
   artists_added: number;
 }
 
-type FreqholeEvent =
-  | { type: "job-progress"; data: JobProgressPayload }
-  | { type: "job-session-complete"; data: JobSessionCompletePayload }
-  | { type: string; data: unknown };
-
 export default function LibraryView() {
   const admin = useAdminTransport();
   const [directories, setDirectories] = createSignal<ScannedDir[]>([]);
@@ -64,8 +72,6 @@ export default function LibraryView() {
   const [showAddModal, setShowAddModal] = createSignal(false);
   const [pendingPath, setPendingPath] = createSignal("");
   const [pendingTags, setPendingTags] = createSignal("");
-  // remote-mode: user types the path manually; we validate before scan
-  const [pendingPathEditable, setPendingPathEditable] = createSignal(false);
   const [pathValidating, setPathValidating] = createSignal(false);
   const [pathValidation, setPathValidation] =
     createSignal<ValidatePathResult | null>(null);
@@ -79,28 +85,82 @@ export default function LibraryView() {
     createSignal<JobProgressPayload | null>(null);
   const [scanSummary, setScanSummary] =
     createSignal<JobSessionCompletePayload | null>(null);
+  // move directory modal state
+  const [showMoveModal, setShowMoveModal] = createSignal(false);
+  const [moveOldPath, setMoveOldPath] = createSignal("");
+  const [moveNewPath, setMoveNewPath] = createSignal("");
+  const [moveNewPathValidation, setMoveNewPathValidation] =
+    createSignal<ValidatePathResult | null>(null);
+  const [moveNewPathValidating, setMoveNewPathValidating] = createSignal(false);
+  const [movePreviewResult, setMovePreviewResult] =
+    createSignal<MoveScanDirectoryResult | null>(null);
+  const [moveInProgress, setMoveInProgress] = createSignal(false);
+  const [moveError, setMoveError] = createSignal("");
 
   let unlistenScan: (() => void) | null = null;
 
   onMount(async () => {
     await loadDirectories();
-    // listen for job progress / completion events emitted by grimoire and
-    // forwarded by charnel as freqhole:event. these fire for any active
-    // ProcessFile session, so they cover both new scans and rescans.
+    // subscribe to job lifecycle events via the typed broker channel.
+    // these fire for any active ProcessFile session, covering new scans and rescans.
     try {
-      unlistenScan = await listen<FreqholeEvent>("freqhole:event", (event) => {
-        if (event.payload.type === "job-progress") {
-          const data = event.payload.data as JobProgressPayload;
-          setScanProgress(data);
+      const channel = new Channel<{
+        kind: string;
+        evt?: unknown;
+        reason?: unknown;
+      }>();
+      channel.onmessage = (frame) => {
+        if (frame.kind !== "event") return;
+        const evt = frame.evt as
+          | {
+              kind?: string;
+              session_id?: string;
+              details?: Record<string, unknown>;
+            }
+          | undefined;
+        if (!evt) return;
+        if (evt.kind === "progress") {
+          const d = (evt.details ?? {}) as {
+            directory?: string;
+            songs_added?: number;
+            jobs_pending?: number;
+            jobs_total?: number;
+          };
+          setScanProgress({
+            session_id: evt.session_id ?? "",
+            directory: d.directory,
+            songs_added: d.songs_added ?? 0,
+            jobs_pending: d.jobs_pending ?? 0,
+            jobs_total: d.jobs_total ?? 0,
+          });
           setScanSummary(null);
-        } else if (event.payload.type === "job-session-complete") {
-          const summary = event.payload.data as JobSessionCompletePayload;
-          setScanSummary(summary);
+        } else if (evt.kind === "completed") {
+          const d = (evt.details ?? {}) as {
+            songs_added?: number;
+            albums_added?: number;
+            artists_added?: number;
+          };
+          setScanSummary({
+            session_id: evt.session_id ?? "",
+            songs_added: d.songs_added ?? 0,
+            albums_added: d.albums_added ?? 0,
+            artists_added: d.artists_added ?? 0,
+          });
           setScanProgress(null);
           // refresh directory file counts after scan completes
           void loadDirectories();
         }
+      };
+      const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
+        filter: null,
+        events: channel,
+        targetPeer: null,
       });
+      unlistenScan = () => {
+        void invoke("jobs_events_unsubscribe", {
+          sessionId: jobEventsSessionId,
+        });
+      };
     } catch (e) {
       console.error("failed to listen for job events:", e);
     }
@@ -139,15 +199,21 @@ export default function LibraryView() {
   }
 
   async function browseDirectory() {
+    // open the add-directory section with an editable text input;
+    // the user can either type a path or click "browse..." inside
+    // the modal (local mode only) to fill it from the os file picker.
+    // they must press "confirm" to actually submit.
+    setPendingPath("");
+    setPendingTags("");
+    setPathValidation(null);
+    setShowAddModal(true);
+  }
+
+  async function browseAndFillPath() {
+    // local-only: open the os file picker and write the selected path into
+    // the text input. does NOT auto-submit; the user still has to press
+    // "confirm" in the modal.
     if (admin.isRemote()) {
-      // remote mode: open the modal with an editable path field; the user
-      // types a server-side absolute path and we validate via
-      // library_validate_path before scanning.
-      setPendingPath("");
-      setPendingTags("");
-      setPendingPathEditable(true);
-      setPathValidation(null);
-      setShowAddModal(true);
       return;
     }
     try {
@@ -157,15 +223,27 @@ export default function LibraryView() {
         title: "choose music directory to scan",
       });
       if (selected) {
-        setPendingPath(await resolvePath(selected as string));
-        setPendingTags("");
-        setPendingPathEditable(false);
+        const resolved = await resolvePath(selected as string);
+        setPendingPath(resolved);
         setPathValidation(null);
-        setShowAddModal(true);
       }
     } catch (e) {
       console.error("browse error:", e);
     }
+  }
+
+  // basic non-empty + plausible filesystem-path sanity check (used for
+  // local-mode confirm; remote mode still requires the server-side
+  // library_validate_path round-trip).
+  function isPathPlausible(p: string): boolean {
+    const trimmed = p.trim();
+    if (!trimmed) return false;
+    // absolute unix path, home-relative, or windows drive letter
+    return (
+      trimmed.startsWith("/") ||
+      trimmed.startsWith("~") ||
+      /^[a-zA-Z]:[\\/]/.test(trimmed)
+    );
   }
 
   async function validatePendingPath() {
@@ -198,14 +276,24 @@ export default function LibraryView() {
     const path = pendingPath().trim();
     if (!path) return;
 
-    // for remote, require a successful validation pass first
-    if (admin.isRemote()) {
-      const v = pathValidation();
-      if (!v || !v.exists || !v.is_dir || !v.is_readable) {
-        setLastResult("path is not a readable directory on the remote");
-        return;
-      }
+    // always validate against the active transport (local or remote)
+    // before closing the modal so the user can fix typos in place.
+    // re-use any fresh validation result for the same path; otherwise
+    // perform a round-trip now.
+    let v = pathValidation();
+    if (!v || v.path !== path) {
+      await validatePendingPath();
+      v = pathValidation();
     }
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      // leave the modal open so the user can edit the path. inline
+      // status is already shown by the pathValidation() block.
+      return;
+    }
+
+    // use the resolved/expanded path returned by the validator
+    // (tilde expansion happens server-side).
+    const resolvedPath = v.path || path;
 
     const tags = pendingTags()
       .split(",")
@@ -218,7 +306,7 @@ export default function LibraryView() {
     setPathValidation(null);
 
     // scan the directory (which also records it in the database)
-    await scanDirectory(path, tags);
+    await scanDirectory(resolvedPath, tags);
   }
 
   function cancelAddDirectory() {
@@ -236,6 +324,120 @@ export default function LibraryView() {
       console.error("failed to remove directory:", e);
     }
     setConfirmRemove(null);
+  }
+
+  function openMoveModal(oldPath: string) {
+    setMoveOldPath(oldPath);
+    setMoveNewPath("");
+    setMoveNewPathValidation(null);
+    setMovePreviewResult(null);
+    setMoveError("");
+    setShowMoveModal(true);
+  }
+
+  function closeMoveModal() {
+    setShowMoveModal(false);
+    setMoveOldPath("");
+    setMoveNewPath("");
+    setMoveNewPathValidation(null);
+    setMovePreviewResult(null);
+    setMoveError("");
+  }
+
+  async function validateMoveNewPath() {
+    const path = moveNewPath().trim();
+    if (!path) {
+      setMoveNewPathValidation(null);
+      return;
+    }
+    setMoveNewPathValidating(true);
+    try {
+      const result = await admin.dispatchOrThrow<ValidatePathResult>(
+        "library_validate_path",
+        { path },
+      );
+      setMoveNewPathValidation(result);
+    } catch (e) {
+      setMoveNewPathValidation({
+        path,
+        exists: false,
+        is_dir: false,
+        is_readable: false,
+      });
+      console.error("path validation failed:", e);
+    } finally {
+      setMoveNewPathValidating(false);
+    }
+  }
+
+  async function previewMove() {
+    const oldPath = moveOldPath();
+    const newPath = moveNewPath().trim();
+    if (!oldPath || !newPath) return;
+
+    // validate new path first
+    let v = moveNewPathValidation();
+    if (!v || v.path !== newPath) {
+      await validateMoveNewPath();
+      v = moveNewPathValidation();
+    }
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      return;
+    }
+
+    setMoveInProgress(true);
+    setMoveError("");
+    setMovePreviewResult(null);
+    try {
+      const result = await admin.dispatchOrThrow<MoveScanDirectoryResult>(
+        "library_move_directory",
+        {
+          old_path: oldPath,
+          new_path: v.path || newPath,
+          dry_run: true,
+        },
+      );
+      setMovePreviewResult(result);
+    } catch (e) {
+      setMoveError(`preview failed: ${e}`);
+      console.error("move preview failed:", e);
+    } finally {
+      setMoveInProgress(false);
+    }
+  }
+
+  async function confirmMove() {
+    const oldPath = moveOldPath();
+    const newPath = moveNewPath().trim();
+    if (!oldPath || !newPath) return;
+
+    const v = moveNewPathValidation();
+    if (!v || !v.exists || !v.is_dir || !v.is_readable) {
+      return;
+    }
+
+    setMoveInProgress(true);
+    setMoveError("");
+    try {
+      const result = await admin.dispatchOrThrow<MoveScanDirectoryResult>(
+        "library_move_directory",
+        {
+          old_path: oldPath,
+          new_path: v.path || newPath,
+          dry_run: false,
+        },
+      );
+      await loadDirectories();
+      closeMoveModal();
+      setLastResult(
+        `moved directory: ${result.relocated_exact_path + result.relocated_parent + result.relocated_filename} files relocated`,
+      );
+    } catch (e) {
+      setMoveError(`move failed: ${e}`);
+      console.error("move failed:", e);
+    } finally {
+      setMoveInProgress(false);
+    }
   }
 
   async function scanDirectory(path: string, tags: string[]) {
@@ -359,6 +561,13 @@ export default function LibraryView() {
                     >
                       {scanning() === dir.path ? "scanning..." : "scan"}
                     </button>
+                    <button
+                      class="secondary small"
+                      onClick={() => openMoveModal(dir.path)}
+                      disabled={scanning() !== null}
+                    >
+                      edit path
+                    </button>
                     <Show when={confirmRemove() === dir.path}>
                       <button
                         class="danger small"
@@ -397,15 +606,19 @@ export default function LibraryView() {
               class="secondary"
               onClick={rescanAll}
               disabled={scanning() !== null}
+              title="re-scan every tracked directory: import new music, restore songs whose files came back, soft-delete songs whose files are gone, purge scan dirs that no longer exist"
             >
-              {scanning() === "__all__" ? "rescanning..." : "rescan all"}
+              {scanning() === "__all__" ? "repairing..." : "repair library"}
             </button>
           </Show>
         </div>
 
         <Show when={directories().length > 0}>
           <p class="hint">
-            "scan" finds new files. "rescan all" also finds deleted files.
+            "scan" finds new files in one directory. "repair library" walks
+            every tracked directory: imports new music, relocates moved files,
+            restores songs whose files came back, and soft-deletes songs whose
+            files are gone.
           </p>
         </Show>
 
@@ -484,54 +697,66 @@ export default function LibraryView() {
             <h2>add scan directory</h2>
             <div class="form-group">
               <label>path</label>
-              <Show when={pendingPathEditable()}>
-                <input
-                  type="text"
-                  value={pendingPath()}
-                  placeholder="/absolute/path/on/remote"
-                  onInput={(e) => {
-                    setPendingPath(e.currentTarget.value);
-                    setPathValidation(null);
-                  }}
-                  onBlur={validatePendingPath}
-                />
+              {/* always show an editable text input. local mode also
+                  exposes a "browse..." button that fills the input via
+                  the os file picker; user still has to press confirm.
+                  remote mode exposes a "validate" button + onBlur
+                  validation against the server. */}
+              <input
+                type="text"
+                value={pendingPath()}
+                placeholder={
+                  admin.isRemote()
+                    ? "/absolute/path/on/remote"
+                    : "/absolute/path/to/music or ~/Music"
+                }
+                onInput={(e) => {
+                  setPendingPath(e.currentTarget.value);
+                  setPathValidation(null);
+                }}
+                onBlur={validatePendingPath}
+              />
+              <Show when={admin.isRemote()}>
                 <p class="hint">
                   enter a path that exists on the remote server. press tab or
                   click "validate" to check.
                 </p>
-                <div class="button-row">
-                  <button
-                    class="secondary small"
-                    onClick={validatePendingPath}
-                    disabled={pathValidating() || !pendingPath().trim()}
-                  >
-                    {pathValidating() ? "validating..." : "validate"}
-                  </button>
-                </div>
-                <Show when={pathValidation()}>
-                  {(v) => {
-                    const ok = () =>
-                      v().exists && v().is_dir && v().is_readable;
-                    return (
-                      <p class={ok() ? "scan-progress" : "scan-progress error"}>
-                        {ok()
-                          ? "✓ readable directory"
-                          : !v().exists
-                            ? "path does not exist on remote"
-                            : !v().is_dir
-                              ? "path is not a directory"
-                              : "path is not readable"}
-                      </p>
-                    );
-                  }}
-                </Show>
               </Show>
-              <Show when={!pendingPathEditable()}>
-                <input
-                  type="text"
-                  value={pendingPath()}
-                  onInput={(e) => setPendingPath(e.currentTarget.value)}
-                />
+              <Show when={!admin.isRemote()}>
+                <p class="hint">
+                  type a path (supports `~/...`) or click "browse..." to pick
+                  one. press tab or "validate" to check.
+                </p>
+              </Show>
+              <div class="button-row">
+                <button
+                  class="secondary small"
+                  onClick={validatePendingPath}
+                  disabled={pathValidating() || !pendingPath().trim()}
+                >
+                  {pathValidating() ? "validating..." : "validate"}
+                </button>
+                <Show when={!admin.isRemote()}>
+                  <button class="secondary small" onClick={browseAndFillPath}>
+                    browse...
+                  </button>
+                </Show>
+              </div>
+              <Show when={pathValidation()}>
+                {(v) => {
+                  const ok = () => v().exists && v().is_dir && v().is_readable;
+                  return (
+                    <p class={ok() ? "scan-progress" : "scan-progress error"}>
+                      {ok()
+                        ? `✓ readable directory (${v().path})`
+                        : !v().exists
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
+                    </p>
+                  );
+                }}
               </Show>
             </div>
             <div class="form-group">
@@ -554,14 +779,187 @@ export default function LibraryView() {
                 class="primary"
                 onClick={confirmAddDirectory}
                 disabled={
-                  pendingPathEditable() &&
-                  (!pathValidation() ||
-                    !pathValidation()!.exists ||
-                    !pathValidation()!.is_dir ||
-                    !pathValidation()!.is_readable)
+                  admin.isRemote()
+                    ? !pathValidation() ||
+                      !pathValidation()!.exists ||
+                      !pathValidation()!.is_dir ||
+                      !pathValidation()!.is_readable
+                    : !isPathPlausible(pendingPath())
                 }
               >
                 add & scan
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* move directory modal */}
+      <Show when={showMoveModal()}>
+        <div class="modal-overlay" onClick={closeMoveModal}>
+          <div class="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>move scan directory</h2>
+            <p class="section-desc">
+              update the path for files that were moved on disk. matches files
+              by name and size (no rehashing required).
+            </p>
+
+            <div class="form-group">
+              <label>current path</label>
+              <input type="text" value={moveOldPath()} disabled />
+            </div>
+
+            <div class="form-group">
+              <label>new path</label>
+              <input
+                type="text"
+                value={moveNewPath()}
+                placeholder={
+                  admin.isRemote()
+                    ? "/new/absolute/path/on/remote"
+                    : "/new/absolute/path or ~/NewMusicFolder"
+                }
+                onInput={(e) => {
+                  setMoveNewPath(e.currentTarget.value);
+                  setMoveNewPathValidation(null);
+                  setMovePreviewResult(null);
+                }}
+                onBlur={validateMoveNewPath}
+                disabled={moveInProgress()}
+              />
+              <p class="hint">
+                enter the path where the music files are now located
+              </p>
+              <div class="button-row">
+                <button
+                  class="secondary small"
+                  onClick={validateMoveNewPath}
+                  disabled={moveNewPathValidating() || !moveNewPath().trim()}
+                >
+                  {moveNewPathValidating() ? "validating..." : "validate"}
+                </button>
+              </div>
+              <Show when={moveNewPathValidation()}>
+                {(v) => {
+                  const ok = () => v().exists && v().is_dir && v().is_readable;
+                  return (
+                    <p class={ok() ? "scan-progress" : "scan-progress error"}>
+                      {ok()
+                        ? `✓ readable directory (${v().path})`
+                        : !v().exists
+                          ? `path does not exist: ${v().path}`
+                          : !v().is_dir
+                            ? "path is not a directory"
+                            : "path is not readable"}
+                    </p>
+                  );
+                }}
+              </Show>
+            </div>
+
+            <Show when={movePreviewResult()}>
+              {(result) => {
+                const totalRelocated = () =>
+                  result().relocated_exact_path +
+                  result().relocated_parent +
+                  result().relocated_filename;
+                return (
+                  <div class="scan-progress-card">
+                    <div class="scan-progress-header">
+                      <strong>preview results</strong>
+                    </div>
+                    <div class="scan-progress-stats">
+                      <p>
+                        <strong>{totalRelocated()}</strong> files will be
+                        relocated
+                      </p>
+                      <Show when={result().relocated_exact_path > 0}>
+                        <p>
+                          · {result().relocated_exact_path} exact path matches
+                        </p>
+                      </Show>
+                      <Show when={result().relocated_parent > 0}>
+                        <p>
+                          · {result().relocated_parent} parent+filename matches
+                        </p>
+                      </Show>
+                      <Show when={result().relocated_filename > 0}>
+                        <p>
+                          · {result().relocated_filename} filename-only matches
+                        </p>
+                      </Show>
+                      <Show when={result().ambiguous_skipped > 0}>
+                        <p class="scan-progress error">
+                          · {result().ambiguous_skipped} ambiguous files skipped
+                        </p>
+                      </Show>
+                      <Show when={result().new_files_unmatched > 0}>
+                        <p>
+                          · {result().new_files_unmatched} new files unmatched
+                        </p>
+                      </Show>
+                      <Show when={result().unmatched_old_blobs > 0}>
+                        <p>
+                          · {result().unmatched_old_blobs} old files unmatched
+                          <Show
+                            when={result().unmatched_old_blobs_soft_deleted > 0}
+                          >
+                            {" "}
+                            ({result().unmatched_old_blobs_soft_deleted} will be
+                            soft-deleted)
+                          </Show>
+                        </p>
+                      </Show>
+                      <Show when={result().fs_store_refresh_failures > 0}>
+                        <p class="scan-progress error">
+                          · {result().fs_store_refresh_failures} blob store
+                          refresh failures
+                        </p>
+                      </Show>
+                    </div>
+                  </div>
+                );
+              }}
+            </Show>
+
+            <Show when={moveError()}>
+              <p class="scan-progress error">{moveError()}</p>
+            </Show>
+
+            <div class="button-row">
+              <button
+                class="secondary"
+                onClick={closeMoveModal}
+                disabled={moveInProgress()}
+              >
+                cancel
+              </button>
+              <button
+                class="secondary"
+                onClick={previewMove}
+                disabled={
+                  moveInProgress() ||
+                  !moveNewPath().trim() ||
+                  !moveNewPathValidation() ||
+                  !moveNewPathValidation()!.exists ||
+                  !moveNewPathValidation()!.is_dir ||
+                  !moveNewPathValidation()!.is_readable
+                }
+              >
+                {moveInProgress() ? "previewing..." : "preview"}
+              </button>
+              <button
+                class="primary"
+                onClick={confirmMove}
+                disabled={
+                  moveInProgress() ||
+                  !moveNewPathValidation() ||
+                  !moveNewPathValidation()!.exists ||
+                  !moveNewPathValidation()!.is_dir ||
+                  !moveNewPathValidation()!.is_readable
+                }
+              >
+                {moveInProgress() ? "moving..." : "confirm move"}
               </button>
             </div>
           </div>

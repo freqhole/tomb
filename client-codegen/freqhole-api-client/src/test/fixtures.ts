@@ -96,7 +96,6 @@ export const updateSongsRequest: s.UpdateSongsRequest = {
   release_date: null,
   label: null,
   genre: null,
-  sub_genre: null,
   add_tags: null,
   remove_tags: null,
   replace_tags: null,
@@ -170,11 +169,6 @@ export const removePlaylistThumbnailRequest: s.RemovePlaylistThumbnailRequest =
     cleanup_blob: false,
     deleted_by: null,
   };
-
-// Genres
-export const getGenreRequest: s.GetGenreRequest = {
-  id: PLACEHOLDER_ID,
-};
 
 // Favorites
 export const listFavoritesRequest: s.ListFavoritesRequest = {
@@ -417,9 +411,6 @@ export const fixtures = {
   removeSongsFromPlaylist: removeSongsFromPlaylistRequest,
   reorderPlaylistSongs: reorderPlaylistSongsRequest,
   removePlaylistThumbnail: removePlaylistThumbnailRequest,
-
-  // genres
-  getGenre: getGenreRequest,
 
   // favorites
   listFavorites: listFavoritesRequest,

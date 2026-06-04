@@ -2,16 +2,23 @@
 // provides a reactive signal-based approach instead of manual DOM manipulation
 
 import { createSignal } from "solid-js";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 
 interface PlaylistSelectorState {
   isOpen: boolean;
   songIds: string[];
+  /** when set, the modal scopes its queries/mutations to this remote
+   *  rather than the globally-active data source. used by context-menu
+   *  actions on songs that came from a remote different from the
+   *  current source. */
+  remote?: Remote;
   resolve: (() => void) | null;
 }
 
 const defaultState: PlaylistSelectorState = {
   isOpen: false,
   songIds: [],
+  remote: undefined,
   resolve: null,
 };
 
@@ -28,11 +35,15 @@ const [playlistSelectorState, setPlaylistSelectorState] =
  * // modal is now closed and songs have been added (or user cancelled)
  * ```
  */
-export function showPlaylistSelector(songIds: string[]): Promise<void> {
+export function showPlaylistSelector(
+  songIds: string[],
+  remote?: Remote,
+): Promise<void> {
   return new Promise((resolve) => {
     setPlaylistSelectorState({
       isOpen: true,
       songIds,
+      remote,
       resolve,
     });
   });

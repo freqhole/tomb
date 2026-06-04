@@ -70,7 +70,7 @@ pub async fn clear_scan_cache(session_id: &str) {
 }
 
 /// stream SHA256 hash of a file by reading in chunks (avoids loading entire file into memory)
-async fn stream_sha256_hash(file_path: &str) -> Result<String, std::io::Error> {
+pub(crate) async fn stream_sha256_hash(file_path: &str) -> Result<String, std::io::Error> {
     let mut file = tokio::fs::File::open(file_path).await?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 8192]; // 8KB chunks

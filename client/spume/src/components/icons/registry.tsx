@@ -37,6 +37,7 @@ import {
   DiscoverIcon,
   FilterIcon,
   GenreIcon,
+  GraphBackIcon,
   GridIcon,
   HomeIcon,
   LibraryIcon,
@@ -47,6 +48,14 @@ import {
   RecentIcon,
   SearchIcon,
   SortIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+  FitIcon,
+  SelectSingleIcon,
+  SelectMultiIcon,
+  LassoIcon,
+  EyeIcon,
+  EyeOffIcon,
 } from "./navigation";
 
 import type { IconProps } from "./types";
@@ -243,9 +252,11 @@ export const SendIcon = (props: IconProps) => (
 );
 
 export const ShareIcon = (props: IconProps) => (
-  <BaseIcon {...props} aria-label={props["aria-label"] ?? "Share"}>
-    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z" />
-  </BaseIcon>
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Share"}>
+    {/* paper airplane: outer hull + fold crease */}
+    <path d="M21.5 2.5L2 10.5l7.5 3 3 7.5 9-18.5z" />
+    <path d="M21.5 2.5L9.5 13.5" />
+  </StrokeBaseIcon>
 );
 
 export const CheckIcon = (props: IconProps) => (
@@ -472,6 +483,14 @@ export const IconRegistry = {
   discover: DiscoverIcon,
   recent: RecentIcon,
   search: SearchIcon,
+  zoomIn: ZoomInIcon,
+  zoomOut: ZoomOutIcon,
+  fit: FitIcon,
+  selectSingle: SelectSingleIcon,
+  selectMulti: SelectMultiIcon,
+  lasso: LassoIcon,
+  eye: EyeIcon,
+  eyeOff: EyeOffIcon,
 
   // Layout & view
   menu: MenuIcon,
@@ -485,6 +504,7 @@ export const IconRegistry = {
   arrowDown: ArrowDownIcon,
   arrowLeft: ArrowLeftIcon,
   arrowRight: ArrowRightIcon,
+  graphBack: GraphBackIcon,
   chevronUp: ChevronUpIcon,
   chevronDown: ChevronDownIcon,
   chevronLeft: ChevronLeftIcon,
@@ -572,6 +592,14 @@ export const IconNames = {
   discover: "discover",
   recent: "recent",
   search: "search",
+  zoomIn: "zoomIn",
+  zoomOut: "zoomOut",
+  fit: "fit",
+  selectSingle: "selectSingle",
+  selectMulti: "selectMulti",
+  lasso: "lasso",
+  eye: "eye",
+  eyeOff: "eyeOff",
 
   // Layout & view
   menu: "menu",
@@ -585,6 +613,7 @@ export const IconNames = {
   arrowDown: "arrowDown",
   arrowLeft: "arrowLeft",
   arrowRight: "arrowRight",
+  graphBack: "graphBack",
   chevronUp: "chevronUp",
   chevronDown: "chevronDown",
   chevronLeft: "chevronLeft",

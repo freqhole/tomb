@@ -13,9 +13,8 @@ pub use events::{
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use repl::{ReplState, ReplStatus, ReplStatusLevel};
 pub use state::{
-    AppState, EphemeralState, Focus, JobsStatus, LocalRef, PersistedState, RemoteEntry, ServeBadge,
-    ServeMode,
-    UiPrefs,
+    AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,
+    RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
 };
 
 use super::transport::{MusicPlayer, Transport};

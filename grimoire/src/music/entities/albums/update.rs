@@ -4,16 +4,15 @@
 use super::models::{Album, UpdateAlbumRequest};
 use crate::database;
 use crate::error::ErrorDetail;
-use crate::music::crud::create_or_update::{
-    find_or_create_album_for_artist, find_or_create_artist, find_or_create_genre,
-};
-use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
 use crate::music::analytics::feed_events::{
     handle_album_feed_reassignment, handle_artist_feed_reassignment,
 };
+use crate::music::crud::create_or_update::{
+    find_or_create_album_for_artist, find_or_create_artist,
+};
+use crate::music::crud::delete::{delete_album_if_unused, delete_artist_if_unused};
 use crate::music::crud::ArtistImportRequest;
 use crate::music::crud::ImageMetadata;
-use crate::music::entities::genres;
 use crate::music::EntityUrl;
 use crate::response::GrimoireResponse;
 use crate::JsonVec;
@@ -73,24 +72,27 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
-    // verify album exists (including deleted ones)
+    // verify album exists (including deleted ones). label/release_date
+    // no longer live on `albumz` (migration 039) - source them from the
+    // album_query_view so callers still get the synthesized values.
     let existing_album = match sqlx::query!(
         r#"SELECT
-            id as "id!",
-            title as "title!",
-            album_type as "album_type!",
-            release_date,
-            label,
-            song_count as "song_count!",
-            total_duration as "total_duration!",
-            created_at as "created_at!",
-            updated_at as "updated_at!",
-            deleted_at,
-            deleted_by,
-            created_by,
-            updated_by
-        FROM albumz
-        WHERE id = ?"#,
+            a.id as "id!",
+            a.title as "title!",
+            a.album_type as "album_type!",
+            v.album_release_date as "release_date?",
+            v.album_label as "label?",
+            a.song_count as "song_count!",
+            a.total_duration as "total_duration!",
+            a.created_at as "created_at!",
+            a.updated_at as "updated_at!",
+            a.deleted_at,
+            a.deleted_by,
+            a.created_by,
+            a.updated_by
+        FROM albumz a
+        LEFT JOIN album_query_view v ON v.album_id = a.id
+        WHERE a.id = ?"#,
         req.album_id
     )
     .fetch_optional(&pool)
@@ -103,6 +105,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             release_date: row.release_date,
             label: row.label,
             genres: None,
+            taxons: None,
             song_count: row.song_count,
             total_duration: row.total_duration,
             created_at: row.created_at,
@@ -115,6 +118,10 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             updated_by_username: None,
             images: None,
             urls: None,
+            metadata: None,
+            mb_lookup_status: None,
+            mb_lookup_at: None,
+            mb_lookup_by: None,
         },
         Ok(None) => {
             return GrimoireResponse::failure(
@@ -200,9 +207,9 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await;
 
-        // carry over genres that don't already exist on the target
+        // carry over genre/taxon links that don't already exist on the target
         let _ = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id) SELECT ?, genre_id FROM album_genrez WHERE album_id = ?",
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin) SELECT ?, taxon_id, origin FROM album_taxonz WHERE album_id = ?",
             target_id,
             req.album_id
         )
@@ -219,25 +226,16 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         .execute(&pool)
         .await;
 
-        // fill in label and release_date on target only if the target doesn't have them
-        let _ = sqlx::query!(
-            "UPDATE albumz SET label = COALESCE(label, (SELECT label FROM albumz WHERE id = ?)), release_date = COALESCE(release_date, (SELECT release_date FROM albumz WHERE id = ?)), updated_at = unixepoch() WHERE id = ?",
-            req.album_id,
-            req.album_id,
-            target_id
-        )
-        .execute(&pool)
-        .await;
+        // label and release_date are now taxon links (kind=label,
+        // kind=release_date), already carried over by the album_taxonz
+        // INSERT OR IGNORE above. nothing else to copy on `albumz`.
 
         // clean up the now-empty source album
         let delete_result = delete_album_if_unused(&req.album_id).await;
         if delete_result.data == Some(true) {
-            let _ = handle_album_feed_reassignment(
-                &req.album_id,
-                target_id,
-                req.updated_by.as_deref(),
-            )
-            .await;
+            let _ =
+                handle_album_feed_reassignment(&req.album_id, target_id, req.updated_by.as_deref())
+                    .await;
         }
 
         // return the target album
@@ -291,74 +289,13 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         None
     };
 
-    // resolve genres - combine existing IDs with newly created genres
-    let genre_ids_to_set: Option<Vec<String>> = {
-        let mut all_ids: Vec<String> = Vec::new();
-        let mut has_any_genre_input = false;
-
-        // first, validate and add existing genre IDs
-        if let Some(ref genre_ids) = req.genre_ids {
-            has_any_genre_input = true;
-            for genre_id in genre_ids {
-                match sqlx::query_scalar!(
-                    r#"SELECT id as "id!" FROM genrez WHERE id = ? AND deleted_at IS NULL"#,
-                    genre_id
-                )
-                .fetch_optional(&pool)
-                .await
-                {
-                    Ok(Some(id)) => {
-                        if !all_ids.contains(&id) {
-                            all_ids.push(id);
-                        }
-                    }
-                    Ok(None) => {
-                        return GrimoireResponse::failure(
-                            "genre not found",
-                            vec![ErrorDetail::new(
-                                "genre_not_found",
-                                "Genre Not Found",
-                                &format!("genre with id '{}' does not exist", genre_id),
-                            )],
-                        )
-                    }
-                    Err(e) => {
-                        return GrimoireResponse::failure("failed to query genre", vec![e.into()])
-                    }
-                }
-            }
-        }
-
-        // then, find or create genres by name and add their IDs
-        if let Some(ref genre_names) = req.genres {
-            has_any_genre_input = true;
-            for genre_name in genre_names {
-                match find_or_create_genre(genre_name.clone()).await {
-                    GrimoireResponse {
-                        success: true,
-                        data: Some((genre, _)),
-                        ..
-                    } => {
-                        if !all_ids.contains(&genre.id) {
-                            all_ids.push(genre.id);
-                        }
-                    }
-                    response => {
-                        return GrimoireResponse::failure(
-                            "failed to find or create genre",
-                            response.errors,
-                        )
-                    }
-                }
-            }
-        }
-
-        if has_any_genre_input {
-            Some(all_ids)
-        } else {
-            None
-        }
-    };
+    // genres are no longer accepted on this endpoint — clients edit
+    // every taxon kind (genre, label, mood, era, region, ...) via the
+    // dedicated taxonomy routes (`add_album_taxon`, `remove_album_taxon`,
+    // `find_or_create_taxon`). this branch used to resolve incoming
+    // genre_ids/genre_names into a Vec<String> for `set_album_genres`;
+    // both the request fields and the writer have been removed.
+    let genre_ids_to_set: Option<Vec<String>> = None;
 
     // handle artist change - this is the complex part
     let (new_album_id, _old_album_id, _old_artist_ids) = if req.artist_id.is_some()
@@ -621,11 +558,11 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
             return GrimoireResponse::failure("failed to copy images to new album", vec![e.into()]);
         }
 
-        // copy genres from old album to new album
+        // copy taxon links (genre + label + ...) from old album to new album
         if let Err(e) = sqlx::query!(
-            "INSERT OR IGNORE INTO album_genrez (album_id, genre_id)
-             SELECT ?, genre_id
-             FROM album_genrez
+            "INSERT OR IGNORE INTO album_taxonz (album_id, taxon_id, origin)
+             SELECT ?, taxon_id, origin
+             FROM album_taxonz
              WHERE album_id = ?",
             new_album.id,
             existing_album.id
@@ -719,20 +656,18 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         (req.album_id.clone(), None, Vec::new())
     };
 
-    // update the album record (either the new one or existing one)
+    // update the album record (either the new one or existing one).
+    // label and release_date are now taxon-backed; routed below via
+    // sync_album_user_taxon.
     let _final_album = match sqlx::query!(
         r#"UPDATE albumz
         SET title = COALESCE(?, title),
             album_type = COALESCE(?, album_type),
-            release_date = COALESCE(?, release_date),
-            label = COALESCE(?, label),
             updated_by = COALESCE(?, updated_by),
             updated_at = unixepoch()
         WHERE id = ?"#,
         req.title,
         req.album_type,
-        parsed_date,
-        req.label,
         req.updated_by,
         new_album_id
     )
@@ -743,15 +678,40 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
         Err(e) => return GrimoireResponse::failure("failed to update album", vec![e.into()]),
     };
 
-    // update genre relationships if provided
-    if let Some(genre_ids) = genre_ids_to_set {
-        match genres::set_album_genres(&new_album_id, &genre_ids).await {
-            GrimoireResponse { success: true, .. } => {}
-            response => {
-                return GrimoireResponse::failure("failed to update album genres", response.errors)
-            }
+    // sync the legacy `label` field through the taxonomy (kind=label,
+    // origin=user). only when caller provided a value (None = no change).
+    if req.label.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &new_album_id,
+            crate::music::entities::taxonomy::KIND_LABEL,
+            req.label.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %new_album_id, "failed to sync label taxon: {}", resp.message);
         }
     }
+    // sync the legacy `release_date` field through the taxonomy
+    // (kind=release_date, origin=user).
+    if parsed_date.is_some() || req.release_date.is_some() {
+        let value = parsed_date.as_deref().or(req.release_date.as_deref());
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &new_album_id,
+            crate::music::entities::taxonomy::KIND_RELEASE_DATE,
+            value,
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %new_album_id, "failed to sync release_date taxon: {}", resp.message);
+        }
+    }
+
+    // genre links are no longer touched here — clients edit them via
+    // taxonomy::add_album_taxon / remove_album_taxon, same as every
+    // other taxon kind. the `genre_ids_to_set` placeholder above stays
+    // permanently None and the legacy `set_album_genres` writer is
+    // intentionally not invoked.
+    let _ = genre_ids_to_set;
 
     // update entity URLs if provided (replace all existing)
     if let Some(ref entity_urls) = req.entity_urls {

@@ -1,10 +1,9 @@
-import { createSignal, For, JSX, Show } from "solid-js";
+import { createSignal, JSX, Show } from "solid-js";
 import { PlayIcon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
-import { Badge } from "../badges/Badge";
 
 // unified collection types
 export interface CollectionCardData {
@@ -248,21 +247,16 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
                 isHovering={isCardHovering}
               />
             </Show>
-            {/* tags */}
+            {/* tags — single-row marquee so a long list scrolls
+                inside the cell instead of wrapping into multiple rows. */}
             <Show when={collection().tags && collection().tags!.length > 0}>
-              <div class="w-full overflow-hidden flex flex-wrap gap-1">
-                <For each={collection().tags}>
-                  {(tag) => (
-                    <Badge
-                      size="sm"
-                      variant="outline"
-                      class="text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors"
-                    >
-                      #{tag}
-                    </Badge>
-                  )}
-                </For>
-              </div>
+              <MarqueeText
+                text={collection()
+                  .tags!.map((t) => `#${t}`)
+                  .join(" • ")}
+                class={`${sizeClasses().meta} text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors`}
+                isHovering={isCardHovering}
+              />
             </Show>
           </div>
         </div>

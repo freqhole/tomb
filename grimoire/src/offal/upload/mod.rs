@@ -369,6 +369,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 
@@ -658,6 +659,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 
@@ -909,13 +911,17 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 continue;
             }
 
-            // create a ProcessFile job for this file
+            // create a ProcessFile job for this file. leave
+            // serialization_group unset so the runner falls back to
+            // parent-dir grouping (siblings of one album dir serialize).
             let params = ProcessFileParams {
                 file_path: path_str.clone(),
                 extract_metadata: true,
                 generate_thumbnail: true,
                 generate_waveform: true,
                 source_url: None,
+                existing_blob_id: None,
+                serialization_group: None,
             };
 
             let job_request = CreateJobRequest {
@@ -925,6 +931,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 max_retries: Some(3),
                 scheduled_at: None,
                 created_by: Some(caller.user_id.clone()),
+                priority: None,
             };
 
             let job_response = create_job(job_request).await;
@@ -1146,6 +1153,7 @@ pub async fn upload_music_by_blake3(
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     })
     .await;
 
@@ -1672,8 +1680,12 @@ fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
     "application/octet-stream".to_string()
 }
 
-/// detect file extension from mime type or filename
-fn detect_extension(mime_type: &str, filename: &str) -> String {
+/// detect file extension from mime type or filename.
+///
+/// tries the filename first (any short trailing extension), then falls back
+/// to a known mime-type table covering the audio + image formats this
+/// codebase actually serves. unknown types resolve to `"bin"`.
+pub fn detect_extension(mime_type: &str, filename: &str) -> String {
     // try to get extension from filename first
     if let Some(ext) = filename.rsplit('.').next() {
         if ext.len() <= 5 && !ext.is_empty() && ext != filename {
@@ -1683,6 +1695,7 @@ fn detect_extension(mime_type: &str, filename: &str) -> String {
 
     // fallback to mime type mapping
     match mime_type {
+        // audio
         "audio/mpeg" => "mp3",
         "audio/flac" => "flac",
         "audio/ogg" | "audio/vorbis" => "ogg",
@@ -1690,6 +1703,14 @@ fn detect_extension(mime_type: &str, filename: &str) -> String {
         "audio/wav" | "audio/wave" => "wav",
         "audio/aac" => "aac",
         "audio/m4a" | "audio/mp4" => "m4a",
+        // images
+        "image/webp" => "webp",
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/avif" => "avif",
+        "image/bmp" => "bmp",
+        "image/svg+xml" => "svg",
         _ => "bin",
     }
     .to_string()

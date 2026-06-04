@@ -100,6 +100,18 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         auth: AdminAuth::Admin,
     },
     AdminCommandInfo {
+        name: "users_add_peer_node",
+        request_type: "AdminUsersAddPeerNodeRequest",
+        response_type: "AdminPeerNodeSummary",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "users_remove_peer_node",
+        request_type: "AdminUsersRemovePeerNodeRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
         name: "users_update_role",
         request_type: "AdminUsersUpdateRoleRequest",
         response_type: "EmptyResponse",
@@ -182,6 +194,18 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
     AdminCommandInfo {
         name: "peers_restore",
         request_type: "AdminPeersRestoreRequest",
+        response_type: "EmptyResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_hard_delete",
+        request_type: "AdminPeersHardDeleteRequest",
+        response_type: "AdminPeersHardDeleteResponse",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "peers_reassign_user",
+        request_type: "AdminPeersReassignUserRequest",
         response_type: "EmptyResponse",
         auth: AdminAuth::Admin,
     },

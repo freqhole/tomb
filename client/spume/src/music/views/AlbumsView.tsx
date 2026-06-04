@@ -1,6 +1,6 @@
 // albums view - displays all albums in a grid with infinite scroll
 import { useNavigate, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -19,7 +19,28 @@ import { playQueue } from "../services/queue/queue";
 import { useAlbumContextMenu } from "../hooks/contextMenu";
 import { buildRoute } from "../utils/routing";
 import { sortSongsCanonical } from "../utils/songSort";
+import { formatTaxonLabel } from "../utils/format";
 import { formatLongDuration } from "../../utils/formatDuration";
+import { Icon } from "../../components/icons/registry";
+import { AlbumsTable } from "../../library/components/AlbumsTable";
+import { AlbumBulkActionBar } from "../../library/components/AlbumBulkActionBar";
+import { MbProgressStrip } from "../../library/components/MbProgressStrip";
+import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
+import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import {
+  useAlbumSelectionLifecycle,
+  useSelectedAlbumIds,
+} from "../../library/hooks/albumSelection";
+import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
+import {
+  enqueueAlbumEnrichment,
+  rehydrateInflightForRemote,
+} from "../../library/hooks/useMbLookupJobs";
+import { startBulkEnrichmentReview } from "../hooks/bulkEnrichmentReview";
+import { getClientForRemote } from "../../app/api/client";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
+import { queryClient } from "../../queryClient";
+import { toast } from "../../components/feedback/Toast";
 
 export interface AlbumsViewProps {
   onAddMusic: () => void;
@@ -109,8 +130,17 @@ export function AlbumsView(props: AlbumsViewProps) {
 
     // map AlbumSummary to CollectionCardData format
     return allAlbums.map((album) => {
-      // format genres (GenreRef[] -> string)
-      const genreText = (album.genres || []).map((g) => g.name).join(" • ") || null;
+      // format genres (GenreRef[] -> string), augmented with non-genre
+      // taxons (label, mood, era, ...) so cross-kind classification is
+      // visible at a glance in the grid. labels get the standard
+      // underscore-→-space treatment; kind prefix is dropped here
+      // since grid cells are too narrow to spare the chars.
+      const genreNames = (album.genres || []).map((g) => formatTaxonLabel(g.name));
+      const otherTaxonLabels = (album.taxons || [])
+        .filter((t) => t.kind_slug !== "genre")
+        .map((t) => formatTaxonLabel(t.label));
+      const allLabels = [...genreNames, ...otherTaxonLabels];
+      const genreText = allLabels.length > 0 ? allLabels.join(" • ") : null;
 
       // extract year from release_date (YYYY, YYYY-MM, or YYYY-MM-DD)
       const year = album.release_date
@@ -135,8 +165,13 @@ export function AlbumsView(props: AlbumsViewProps) {
     });
   });
 
-  // update page info for TopNav
+  // update page info for TopNav.
+  // skip in table mode — AlbumsTable owns pageInfo there (it surfaces
+  // its own sort + status-filter controls), so letting this effect
+  // re-run would clobber statusFilterOptions and cause the topnav
+  // filter picker to flicker / disappear.
   createEffect(() => {
+    if (viewMode() === "table") return;
     const count = albums().length;
     setPageInfo({
       title: "albums",
@@ -257,65 +292,333 @@ export function AlbumsView(props: AlbumsViewProps) {
     );
   };
 
+  // table mode: reactive full remote record (for AlbumsTable + admin checks)
+  const currentRemote = createCurrentRemoteFull();
+
+  // view mode switcher: grid (default) or table (enrichment table).
+  // table mode only available in remote context.
+  const [viewMode, setViewMode] = createSignal<"grid" | "table">("grid");
+
+  // reset to grid when navigating to local (no remote)
+  createEffect(() => {
+    if (!currentRemote()) setViewMode("grid");
+  });
+
+  // selection lifecycle for table mode
+  useAlbumSelectionLifecycle(() => viewMode() === "table");
+  const selectedAlbumIds = useSelectedAlbumIds();
+
+  // reconnect to any in-flight enrichment jobs when the remote changes
+  createEffect(() => {
+    const remote = currentRemote();
+    if (!remote) return;
+    rehydrateInflightForRemote(remote);
+  });
+
+  const isRemoteAdmin = useRemoteIsAdmin(() => currentRemote() ?? undefined);
+
+  // bulk-action modal state
+  const [bulkEditMode, setBulkEditMode] = createSignal<"metadata" | "disc">("metadata");
+  const [showBulkEditModal, setShowBulkEditModal] = createSignal(false);
+  const [bulkEditAlbumIds, setBulkEditAlbumIds] = createSignal<string[]>([]);
+  const [showTagSelectorModal, setShowTagSelectorModal] = createSignal(false);
+  const [tagSelectorAlbumIds, setTagSelectorAlbumIds] = createSignal<string[]>([]);
+
+  const triggerEnrichment = (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = currentRemote();
+    if (!remote) return;
+    void enqueueAlbumEnrichment(remote, albumIds);
+  };
+
+  const triggerReview = (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = currentRemote();
+    if (!remote) return;
+    void startBulkEnrichmentReview(remote, albumIds);
+  };
+
+  const markSelectedDone = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = currentRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
+      return;
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({ album_id: id, status: "enriched" });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ["library-albums", remote.remote_id] });
+    if (failed > 0) toast.error(`marked ${ok} done, ${failed} failed`);
+    else toast.success(`marked ${ok} album${ok === 1 ? "" : "s"} done`);
+  };
+
+  const skipSelected = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = currentRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
+      return;
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({ album_id: id, status: "skipped" });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ["library-albums", remote.remote_id] });
+    if (failed > 0) toast.error(`skipped ${ok}, ${failed} failed`);
+    else toast.success(`skipped ${ok} album${ok === 1 ? "" : "s"} from future lookups`);
+  };
+
+  const unskipSelected = async (albumIds: string[]) => {
+    if (albumIds.length === 0) return;
+    const remote = currentRemote();
+    if (!remote) return;
+    let client;
+    try {
+      client = await getClientForRemote(remote);
+    } catch (err) {
+      toast.error(`failed to reach remote: ${(err as Error).message}`);
+      return;
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const id of albumIds) {
+      try {
+        const resp = await client.music.setMbLookupStatus({
+          album_id: id,
+          status: "not_attempted",
+        });
+        if (resp.success) ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: ["library-albums", remote.remote_id] });
+    if (failed > 0) toast.error(`un-skipped ${ok}, ${failed} failed`);
+    else
+      toast.success(
+        `un-skipped ${ok} album${ok === 1 ? "" : "s"} — they'll appear in future lookups`
+      );
+  };
+
+  // shared switcher buttons (rendered inline above table mode, or
+  // floated as an overlay in the top-right of the grid so the grid
+  // can take the entire viewport height).
+  const viewModeSwitcher = () => (
+    <div
+      class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
+      role="tablist"
+      aria-label="albums view"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode() === "grid"}
+        class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
+        classList={{
+          "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]": viewMode() === "grid",
+          "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
+            viewMode() !== "grid",
+        }}
+        onClick={() => setViewMode("grid")}
+      >
+        <Icon name="grid" size={12} />
+        <span>grid</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode() === "table"}
+        class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors border-none cursor-pointer"
+        classList={{
+          "bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]": viewMode() === "table",
+          "bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]":
+            viewMode() !== "table",
+        }}
+        onClick={() => setViewMode("table")}
+      >
+        <Icon name="list" size={12} />
+        <span>table</span>
+      </button>
+    </div>
+  );
+
   return (
     <div class="flex flex-col h-full">
-      {/* album grid */}
-      <div class="flex-1 overflow-hidden">
-        {albumsQuery.isLoading || isResetting() ? (
-          <div class="flex items-center justify-center h-full">
-            <LoadingState text="loading albums..." />
-          </div>
-        ) : albumsQuery.isError ? (
-          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-            <div class="text-center max-w-md">
-              {albumsQuery.error instanceof RemoteOfflineError ? (
-                <>
-                  <p class="text-lg text-[var(--color-text-secondary)] mb-2">
-                    {(albumsQuery.error as RemoteOfflineError).remoteName} is offline
-                  </p>
-                  <p class="text-sm text-[var(--color-text-muted)]">
-                    switch to a different remote or use local library
-                  </p>
-                </>
+      {/* view-mode switcher — inline above table mode only.
+          in grid mode the switcher floats over the grid (see below) so
+          the album grid can fill the full viewport height. */}
+      <Show when={!!currentRemote() && viewMode() === "table"}>
+        <div class="flex items-center justify-end gap-3 px-4 pt-3 pb-2 flex-wrap">
+          <MbProgressStrip />
+          {viewModeSwitcher()}
+        </div>
+      </Show>
+
+      {/* album grid or table */}
+      <div class="flex-1 min-h-0 overflow-hidden relative">
+        {/* floating switcher overlay — grid mode only, top-right */}
+        <Show when={!!currentRemote() && viewMode() === "grid"}>
+          <div class="absolute top-2 right-4 z-20">{viewModeSwitcher()}</div>
+        </Show>
+        <Show
+          when={viewMode() === "table" && !!currentRemote()}
+          fallback={
+            <div class="h-full overflow-hidden">
+              {albumsQuery.isLoading || isResetting() ? (
+                <div class="flex items-center justify-center h-full">
+                  <LoadingState text="loading albums..." />
+                </div>
+              ) : albumsQuery.isError ? (
+                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                  <div class="text-center max-w-md">
+                    {albumsQuery.error instanceof RemoteOfflineError ? (
+                      <>
+                        <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                          {(albumsQuery.error as RemoteOfflineError).remoteName} is offline
+                        </p>
+                        <p class="text-sm text-[var(--color-text-muted)]">
+                          switch to a different remote or use local library
+                        </p>
+                      </>
+                    ) : (
+                      <p class="text-lg text-[var(--color-text-secondary)] mb-2">
+                        failed to load albums
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : albums().length === 0 ? (
+                <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
+                  <div class="text-center max-w-md">
+                    <p class="text-lg text-[var(--color-text-secondary)] mb-2">no albums found!</p>
+                    <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
+                      add music to import local audio files or download from urls
+                    </p>
+                    <Button variant="primary" onClick={props.onAddMusic}>
+                      add music
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <p class="text-lg text-[var(--color-text-secondary)] mb-2">failed to load albums</p>
+                <>
+                  <VirtualAlbumGrid
+                    albums={albums()}
+                    onAlbumClick={handleAlbumClick}
+                    onAlbumPlay={handleAlbumPlay}
+                    onFavoriteToggle={(album, isFavorite) =>
+                      handleFavoriteToggle(album.id, isFavorite)
+                    }
+                    getContextMenuActions={getContextMenuActions}
+                    onNearEnd={loadMore}
+                    showYear={true}
+                    showGenres={true}
+                    cardSize="medium"
+                    height={gridHeight()}
+                    scrollPaddingTop={100}
+                    scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
+                      .map((f) => f.tag)
+                      .join(",")}`}
+                  />
+                  <LoadingMoreIndicator isLoading={albumsQuery.isFetchingNextPage} />
+                </>
               )}
             </div>
-          </div>
-        ) : albums().length === 0 ? (
-          <div class="flex flex-col items-center justify-center h-full gap-4 p-8">
-            <div class="text-center max-w-md">
-              <p class="text-lg text-[var(--color-text-secondary)] mb-2">no albums found!</p>
-              <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
-                add music to import local audio files or download from urls
-              </p>
-              <Button variant="primary" onClick={props.onAddMusic}>
-                add music
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <VirtualAlbumGrid
-              albums={albums()}
-              onAlbumClick={handleAlbumClick}
-              onAlbumPlay={handleAlbumPlay}
-              onFavoriteToggle={(album, isFavorite) => handleFavoriteToggle(album.id, isFavorite)}
-              getContextMenuActions={getContextMenuActions}
-              onNearEnd={loadMore}
-              showYear={true}
-              showGenres={true}
-              cardSize="medium"
-              height={gridHeight()}
-              scrollPaddingTop={100}
-              scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
-                .map((f) => f.tag)
-                .join(",")}`}
-            />
-            <LoadingMoreIndicator isLoading={albumsQuery.isFetchingNextPage} />
-          </>
-        )}
+          }
+        >
+          <AlbumsTable remote={currentRemote()!} onEnrichAllMatching={triggerEnrichment} />
+        </Show>
+        <Show when={viewMode() === "table" && !!currentRemote()}>
+          <AlbumBulkActionBar
+            isAdmin={isRemoteAdmin()}
+            onEnrich={() => triggerEnrichment(selectedAlbumIds())}
+            onReview={() => triggerReview(selectedAlbumIds())}
+            onMarkDone={() => void markSelectedDone(selectedAlbumIds())}
+            onEditMetadata={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setBulkEditAlbumIds(ids);
+              setBulkEditMode("metadata");
+              setShowBulkEditModal(true);
+            }}
+            onSetDiscNumber={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setBulkEditAlbumIds(ids);
+              setBulkEditMode("disc");
+              setShowBulkEditModal(true);
+            }}
+            onManageTags={() => {
+              const ids = selectedAlbumIds();
+              if (ids.length === 0) return;
+              setTagSelectorAlbumIds(ids);
+              setShowTagSelectorModal(true);
+            }}
+            onSkip={() => void skipSelected(selectedAlbumIds())}
+            onUnskip={() => void unskipSelected(selectedAlbumIds())}
+          />
+        </Show>
       </div>
+
+      <Show when={showBulkEditModal() && !!currentRemote() && bulkEditAlbumIds().length > 0}>
+        <BulkEditAlbumsModal
+          isOpen={true}
+          onClose={() => {
+            setShowBulkEditModal(false);
+            setBulkEditAlbumIds([]);
+          }}
+          albumIds={bulkEditAlbumIds()}
+          remote={currentRemote()!}
+          mode={bulkEditMode()}
+          onSuccess={() => {
+            void queryClient.invalidateQueries({
+              queryKey: ["library-albums", currentRemote()!.remote_id],
+            });
+          }}
+        />
+      </Show>
+
+      <Show when={showTagSelectorModal() && !!currentRemote() && tagSelectorAlbumIds().length > 0}>
+        <TagSelectorModal
+          albumIds={tagSelectorAlbumIds()}
+          remote={currentRemote()!}
+          onClose={() => {
+            setShowTagSelectorModal(false);
+            setTagSelectorAlbumIds([]);
+          }}
+          onSave={() => {
+            const r = currentRemote();
+            if (!r) return;
+            void queryClient.invalidateQueries({
+              queryKey: ["library-albums", r.remote_id],
+            });
+          }}
+        />
+      </Show>
     </div>
   );
 }

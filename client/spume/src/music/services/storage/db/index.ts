@@ -7,6 +7,7 @@ export * from "./songs";
 export * from "./genres";
 export * from "./tags";
 export * from "./albumTags";
+export * from "./taxons";
 export * from "./favorites";
 export * from "./ratings";
 export * from "./queries";

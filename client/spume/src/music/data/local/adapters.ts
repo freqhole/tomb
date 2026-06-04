@@ -10,7 +10,7 @@ export type LocalAlbumSummary = Required<Pick<AlbumSummary,
   | 'song_count' | 'total_duration'
 >> & Partial<Pick<AlbumSummary,
   | 'year' | 'release_date' | 'label'
-  | 'genres' | 'images' | 'is_favorite' | 'user_rating' | 'tags'
+  | 'genres' | 'taxons' | 'images' | 'is_favorite' | 'user_rating' | 'tags'
 >>;
 
 // adapter to convert IDB album query result to domain AlbumSummary type
@@ -30,6 +30,7 @@ export function adaptAlbumFromIDB(result: AlbumQueryResult): LocalAlbumSummary {
     
     // optional fields
     genres: result.genres,
+    taxons: result.taxons,
     images: result.album.images,
     is_favorite: result.album.is_favorite,
     user_rating: result.album.user_rating,

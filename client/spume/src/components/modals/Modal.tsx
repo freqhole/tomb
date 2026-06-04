@@ -45,6 +45,16 @@ export interface ModalProps {
   elevated?: boolean;
   /** disable backdrop click-to-close (for in-progress forms) */
   disableBackdropClose?: boolean;
+  /** when true, the body region scrolls (`overflow-y-auto`) instead of
+   *  clipping (`overflow-hidden`). use when the modal's content can grow
+   *  past the viewport and you want the shell to handle scrolling instead
+   *  of an inner scroll region. default false (preserves the legacy
+   *  "children own their own scroll" contract). */
+  scrollBody?: boolean;
+  /** on wide screens, size the modal to its content (height: auto, still
+   *  capped at `80dvh`) instead of stretching to `80dvh`. has no effect on
+   *  narrow screens — those always go full-screen below the nav. */
+  fitContent?: boolean;
   /** additional classes applied to the modal container */
   class?: string;
   /** content (rendered inside scrollable body) */
@@ -85,7 +95,11 @@ export function Modal(props: ModalProps) {
           }}
           onClick={handleBackdrop}
         >
-          {/* container — full screen below nav on narrow, centered box on wide */}
+          {/* container — full screen below nav on narrow, centered box on wide.
+           *  on wide, `fitContent` lets the modal size to content (still
+           *  capped at `max-h-[80dvh]`) by omitting the inline `height`
+           *  that otherwise forces full-viewport stretching. on narrow we
+           *  always stretch full-height for mobile UX. */}
           <div
             class={`w-full h-full wide:h-auto wide:max-h-[80dvh] ${
               SIZE_CLASS[props.size ?? "lg"]
@@ -93,9 +107,9 @@ export function Modal(props: ModalProps) {
               props.class ?? ""
             }`}
             style={{
-              "margin-top": "env(safe-area-inset-top, 0px)",
-              height: "calc(100% - env(safe-area-inset-top, 0px))",
-              "max-height": "calc(100% - env(safe-area-inset-top, 0px))",
+              "margin-top": "var(--safe-area-top, 0px)",
+              height: props.fitContent ? undefined : "calc(100% - var(--safe-area-top, 0px))",
+              "max-height": "calc(100% - var(--safe-area-top, 0px))",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -122,9 +136,16 @@ export function Modal(props: ModalProps) {
               </div>
             </Show>
 
-            {/* body — children are responsible for their own scroll behavior;
-                we just give them a flex cell that's allowed to shrink */}
-            <div class="flex-1 min-h-0 flex flex-col overflow-hidden">{props.children}</div>
+            {/* body — children are responsible for their own scroll behavior
+             *  by default (preserves the legacy contract); set `scrollBody`
+             *  to have the shell own scroll instead (`overflow-y-auto`). */}
+            <div
+              class={`flex-1 min-h-0 flex flex-col ${
+                props.scrollBody ? "overflow-y-auto" : "overflow-hidden"
+              }`}
+            >
+              {props.children}
+            </div>
 
             {/* footer */}
             <Show when={props.footer}>

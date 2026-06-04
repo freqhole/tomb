@@ -35,6 +35,7 @@ import {
   updateArtist,
   updateSong,
 } from "../../services/storage/db";
+import { getLocalLibraryName } from "../../../app/services/storage/db";
 import { storeBlob } from "../../services/storage/blobs";
 import { adaptAlbumFromIDB } from "./adapters";
 import {
@@ -51,13 +52,11 @@ import {
   type PlaylistSong,
   type Song,
 } from "../../services/storage/types";
-import { sortSongsCanonical } from "../../utils/songSort";
 import type {
   AlbumSummary,
   ArtistSummary,
   FavoriteTarget,
   FavoriteItem,
-  GenreSummary,
   ImageMetadata,
   ListFavoritesParams,
   MusicDataSource,
@@ -361,61 +360,10 @@ export class LocalMusicDataSource implements MusicDataSource {
     };
   }
 
-  // genres
-  async getGenres(
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<GenreSummary>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
-
-    const results = await queryGenres({
-      limit,
-      offset,
-      search: params?.search,
-    });
-
-    const items: GenreSummary[] = results.map((r) => ({
-      genre_id: r.genre.genre_id,
-      name: r.genre.name,
-      album_count: r.album_count,
-      song_count: r.song_count,
-    }));
-
-    return {
-      items,
-      total: items.length,
-      offset,
-      limit,
-      has_more: items.length === limit,
-    };
-  }
-
-  async getGenreSongs(
-    genreId: string,
-    params?: QueryParams,
-  ): Promise<PaginatedResponse<Song>> {
-    const limit = params?.limit ?? 50;
-    const offset = params?.offset ?? 0;
-
-    // use querySongsWithDetails to get fully hydrated songs
-    const results = await querySongsWithDetails({
-      limit,
-      offset,
-      genreId,
-    });
-
-    // enrich with images and apply canonical sorting
-    const songs = enrichSongsWithImages(results);
-    const sortedSongs = sortSongsCanonical(songs);
-
-    return {
-      items: sortedSongs,
-      total: sortedSongs.length,
-      offset,
-      limit,
-      has_more: sortedSongs.length === limit,
-    };
-  }
+  // genres + getGenreSongs were dropped during the taxonomy refactor —
+  // genres are now stored as taxons (kind='genre'). consumers fetch
+  // them via the unified taxonomy queries on the remote, or by walking
+  // each cached song's `album_taxons` locally.
 
   // playlists
   async getPlaylists(
@@ -856,7 +804,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     label?: string;
     genre_id?: string;
     genre?: string;
-    sub_genres?: string[];
     year?: number;
   }): Promise<void> {
     // if genre name is provided without id, create/fetch genre first
@@ -877,22 +824,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.year !== undefined) updates.year = params.year;
     
     await updateAlbum(params.album_id, updates);
-    
-    // if sub_genres were provided, update all songs in this album
-    if (params.sub_genres !== undefined) {
-      const db = await initMusicDB();
-      const allSongs = await db.getAll(STORE_SONGS);
-      const albumSongs = allSongs.filter(song => song.album_id === params.album_id);
-      
-      for (const song of albumSongs) {
-        const updated = {
-          ...song,
-          album_sub_genres: params.sub_genres,
-          updated_at: Date.now(),
-        };
-        await db.put(STORE_SONGS, updated);
-      }
-    }
   }
 
   async updateSong(params: {
@@ -904,8 +835,6 @@ export class LocalMusicDataSource implements MusicDataSource {
     album_id?: string | null;
     genre?: string | null;
     genre_id?: string | null;
-    sub_genre_ids?: string[] | null;
-    sub_genres?: string[] | null;
     track_number?: number | null;
     disc_number?: number | null;
     year?: number | null;
@@ -1405,7 +1334,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           display: result.genre.name,
           highlight: result.genre.name,
           count: result.album_count,
-          suggestion_type: "genre",
+          suggestion_type: "taxon",
           confidence: 1.0,
           metadata: { album_count: result.album_count, song_count: result.song_count },
           entity_id: result.genre.genre_id,
@@ -1554,7 +1483,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     return {
       type: "local",
-      name: "local library",
+      name: getLocalLibraryName(),
       song_count: results.length,
     };
   }

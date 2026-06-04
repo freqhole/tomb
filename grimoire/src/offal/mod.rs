@@ -7,7 +7,7 @@ mod caller;
 mod dispatch;
 
 pub use caller::Caller;
-pub use dispatch::dispatch;
+pub use dispatch::{dispatch, dispatch_stream, EventStream};
 
 // route handlers organized by domain
 pub mod admin;

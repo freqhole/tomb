@@ -36,7 +36,8 @@ pub enum BlobzAction {
     /// Show status of blake3 hash computation
     Blake3Status,
 
-    /// Backfill blake3 hashes for audio files that don't have them
+    /// Backfill blake3 hashes for media blobs that don't have them
+    /// (covers both file-backed audio and db-stored images/thumbnails/waveforms)
     BackfillBlake3 {
         /// Maximum number of blobs to process (omit to process all)
         #[arg(long)]
@@ -45,6 +46,10 @@ pub enum BlobzAction {
         /// Show what would be processed without actually computing
         #[arg(long)]
         dry_run: bool,
+
+        /// Number of blobs to hash in parallel per batch (default 16)
+        #[arg(long, default_value_t = 16)]
+        concurrency: usize,
     },
 
     /// check which of the supplied content hashes already exist locally.
@@ -67,9 +72,9 @@ pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Va
                 let status = Blake3Status {
                     needing_blake3: count,
                     message: if count == 0 {
-                        "all audio blobs have blake3 hashes".to_string()
+                        "all media blobs have blake3 hashes".to_string()
                     } else {
-                        format!("{} audio blobs need blake3 hashes", count)
+                        format!("{} media blobs need blake3 hashes", count)
                     },
                 };
                 CommandOutput::success(
@@ -82,7 +87,11 @@ pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Va
             }
         },
 
-        BlobzAction::BackfillBlake3 { limit, dry_run } => {
+        BlobzAction::BackfillBlake3 {
+            limit,
+            dry_run,
+            concurrency,
+        } => {
             if dry_run {
                 match count_blobs_needing_blake3().await {
                     Ok(count) => {
@@ -125,7 +134,7 @@ pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Va
                         None => BATCH_SIZE,
                     };
 
-                    match backfill_blake3_hashes(batch_limit).await {
+                    match backfill_blake3_hashes(batch_limit, concurrency).await {
                         Ok((processed, rem)) => {
                             total_processed += processed;
                             remaining = rem;

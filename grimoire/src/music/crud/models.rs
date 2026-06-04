@@ -7,7 +7,8 @@ use zod_gen_derive::ZodSchema;
 
 use crate::media_blobz::BlobType;
 use crate::media_blobz::MediaBlob;
-use crate::music::entities::{albums::Album, artists::Artist, genres::Genre, songs::Song};
+use crate::music::crud::create_or_update::Genre;
+use crate::music::entities::{albums::Album, artists::Artist, songs::Song};
 use crate::music::users::models::FavoriteTarget;
 use crate::music::users::models::RatingTarget;
 
@@ -204,6 +205,11 @@ pub struct QueryParams {
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_rating: Option<i32>,
+
+    /// Filter albums by mb_lookup_status (include any of these values)
+    #[arg(long, value_delimiter = ',')]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mb_lookup_status: Option<Vec<String>>,
 }
 
 impl Default for QueryParams {
@@ -219,8 +225,19 @@ impl Default for QueryParams {
             user_id: None,
             favorites_only: None,
             min_rating: None,
+            mb_lookup_status: None,
         }
     }
+}
+
+/// album status counts — total albums and breakdown by mb_lookup_status.
+/// keyed by the raw enum string so the client can fold into groups.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumStatusCounts {
+    /// grand total matching the base filters (no status filter applied)
+    pub total: i64,
+    /// count per raw mb_lookup_status value (null coerced to "not_attempted")
+    pub by_status: std::collections::HashMap<String, i64>,
 }
 
 /// unified query result with pagination metadata
@@ -297,16 +314,6 @@ pub struct AlbumQueryResult {
     pub rating: Option<i32>,                // User's rating (1-5)
     pub favorited_at: Option<i64>,          // When user favorited (unix timestamp)
     pub rating_created_at: Option<i64>,     // When user rated (unix timestamp)
-}
-
-/// genre with optional aggregated metadata for query results
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GenreQueryResult {
-    pub genre: Genre,
-    pub song_count: Option<i64>,   // Could be computed if needed
-    pub album_count: Option<i64>,  // Could be computed if needed
-    pub is_favorite: Option<bool>, // User's favorite status (no ratings for genres)
-    pub favorited_at: Option<i64>, // When user favorited (unix timestamp)
 }
 
 /// playlist with optional aggregated metadata for query results
@@ -479,9 +486,6 @@ pub struct UpdateSongsRequest {
 
     #[arg(long)]
     pub genre: Option<String>,
-
-    #[arg(long)]
-    pub sub_genre: Option<String>,
 
     // tag operations (album-level)
     /// Tags to add (comma-separated)
@@ -938,6 +942,19 @@ pub struct ListFavoritesResponse {
     pub limit: i64,
 }
 
+/// request for listing "beloved" ids — favorited by any user on this
+/// remote. no params for v1.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListBelovedRequest {}
+
+/// response for listing beloved ids. union of direct album/artist
+/// favorites with album/artist ids derived from song favorites.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListBelovedResponse {
+    pub album_ids: Vec<String>,
+    pub artist_ids: Vec<String>,
+}
+
 // ============================================================================
 // Ratings API Types
 // ============================================================================
@@ -976,34 +993,4 @@ pub struct RemoveRatingResponse {
 pub struct RatingStats {
     pub average_rating: f64,
     pub total_ratings: u64,
-}
-
-/// concrete query result type for genres
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GenresQueryResult {
-    pub items: Vec<GenreQueryResult>,
-    pub total_count: i64,
-    pub has_more: bool,
-    pub offset: i64,
-    pub limit: i64,
-    pub query_time_ms: Option<u64>,
-}
-
-impl From<QueryResult<GenreQueryResult>> for GenresQueryResult {
-    fn from(qr: QueryResult<GenreQueryResult>) -> Self {
-        Self {
-            items: qr.items,
-            total_count: qr.total_count,
-            has_more: qr.has_more,
-            offset: qr.offset,
-            limit: qr.limit,
-            query_time_ms: qr.query_time_ms,
-        }
-    }
-}
-
-/// request for getting a genre
-#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GetGenreRequest {
-    pub id: String,
 }

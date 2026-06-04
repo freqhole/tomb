@@ -1,7 +1,7 @@
 //! users command builders.
 
 use crate::ratcore::app::{AdminCommand, ArgKind, ArgSpec, CommandKind};
-use crate::ratcore::catalog::widgets::{pick_user, role_choices};
+use crate::ratcore::catalog::widgets::{pick_user, pick_user_peer_node, role_choices};
 
 pub(in crate::ratcore::catalog) fn get() -> AdminCommand {
     AdminCommand {
@@ -188,14 +188,58 @@ pub(in crate::ratcore::catalog) fn hard_delete_peer_node() -> AdminCommand {
         kind: CommandKind::Admin,
         args: vec![
             pick_user("user_id", "pick the owning user"),
+            pick_user_peer_node(
+                "node_id",
+                "user_id",
+                "pick a peer node belonging to this user",
+            ),
+        ],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn add_peer_node() -> AdminCommand {
+    AdminCommand {
+        name: "users_add_peer_node".to_string(),
+        request_type: "AdminUsersAddPeerNodeRequest".to_string(),
+        response_type: "AdminPeerNodeSummary".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![
+            pick_user("user_id", "pick the user that should own this peer"),
             ArgSpec {
                 name: "node_id".to_string(),
                 kind: ArgKind::Text {
                     placeholder: "iroh node id (64 hex chars)".to_string(),
                 },
                 required: true,
-                help: Some("permanently removes the peer row (no soft-delete)".to_string()),
+                help: Some("node id to add to this user".to_string()),
             },
+            ArgSpec {
+                name: "instance_name".to_string(),
+                kind: ArgKind::Text {
+                    placeholder: "(optional) friendly name".to_string(),
+                },
+                required: false,
+                help: None,
+            },
+        ],
+    }
+}
+
+pub(in crate::ratcore::catalog) fn remove_peer_node() -> AdminCommand {
+    AdminCommand {
+        name: "users_remove_peer_node".to_string(),
+        request_type: "AdminUsersRemovePeerNodeRequest".to_string(),
+        response_type: "EmptyResponse".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: vec![
+            pick_user("user_id", "pick the owning user"),
+            pick_user_peer_node(
+                "node_id",
+                "user_id",
+                "pick the peer node association to remove",
+            ),
         ],
     }
 }

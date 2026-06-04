@@ -118,6 +118,32 @@ pub fn resize_to_square_webp(image_data: &[u8], size: u32) -> GrimoireResult<Vec
     image_to_webp(&resized)
 }
 
+/// decode image bytes, downscale so that the longer edge is at most
+/// `max_dim` pixels (preserving aspect ratio; never upscales), and
+/// encode as webp. returns (webp_bytes, width, height) of the result.
+///
+/// used at ingest time to normalize remote/user-provided art into a
+/// reasonably-sized webp original so we don't persist multi-megabyte
+/// jpegs from sources like cover art archive.
+pub fn resize_to_max_dim_webp(
+    image_data: &[u8],
+    max_dim: u32,
+) -> GrimoireResult<(Vec<u8>, u32, u32)> {
+    let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("failed to decode image: {}", e),
+    })?;
+    let (w, h) = img.dimensions();
+    let resized = if w.max(h) > max_dim {
+        // `resize` preserves aspect ratio and fits within the bounding box
+        img.resize(max_dim, max_dim, FilterType::Lanczos3)
+    } else {
+        img
+    };
+    let (rw, rh) = resized.dimensions();
+    let bytes = image_to_webp(&resized)?;
+    Ok((bytes, rw, rh))
+}
+
 /// generate sized thumbnails for a parent blob
 ///
 /// creates thumbnails for each size in THUMBNAIL_SIZES (50, 200)

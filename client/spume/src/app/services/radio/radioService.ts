@@ -15,6 +15,7 @@ import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import {
   registerStopRadio,
+  registerVolumeMirror,
   stopMusicForRadio,
 } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
@@ -22,11 +23,31 @@ import { recordHistoryEntry } from "./radioHistory";
 import { setCurrentRadioStationPersisted } from "../storage/currentRadioStation";
 import { getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
-import {
-  acknowledgeTimelineUserStart,
-  startQueueModeAdapter,
-  stopQueueModeAdapter,
-} from "./radioQueueAdapter";
+
+// queue-mode adapter api injected at module init via
+// `registerQueueAdapter`. avoids a static import cycle
+// (radioService imports adapter; adapter imports state/helpers from
+// radioService). adapter calls `registerQueueAdapter` once at its
+// module load; AppLayout's static import of the adapter ensures it
+// loads.
+interface QueueAdapterApi {
+  acknowledgeTimelineUserStart: () => void;
+  startQueueModeAdapter: () => void;
+  stopQueueModeAdapter: () => void;
+}
+let queueAdapter: QueueAdapterApi | null = null;
+export function registerQueueAdapter(api: QueueAdapterApi): void {
+  queueAdapter = api;
+}
+function acknowledgeTimelineUserStart(): void {
+  queueAdapter?.acknowledgeTimelineUserStart();
+}
+function startQueueModeAdapter(): void {
+  queueAdapter?.startQueueModeAdapter();
+}
+function stopQueueModeAdapter(): void {
+  queueAdapter?.stopQueueModeAdapter();
+}
 
 const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 
@@ -460,6 +481,11 @@ export function currentRadioSession(): RadioSession | null {
 // register our leave hook so the music player can interrupt us when
 // the user starts playing local songs.
 registerStopRadio(() => leaveRadio());
+
+// mirror the master volume slider onto the radio sink. the html
+// audio backend calls `mirrorVolumeToRadio` from its `setVolume`,
+// which dispatches here without a static cycle.
+registerVolumeMirror((vol) => setRadioVolume(vol));
 
 /**
  * register a persistent <audio> element to receive radio playback. pass
@@ -1311,6 +1337,13 @@ export async function tuneIntoRadio(
   const applyControlSpecial = (msg: { type?: unknown }): boolean => {
     if (!isActiveTune()) return true;
     if (typeof msg.type !== "string") return false;
+    // [radio-skip-debug] #6b — log control-special arrivals (lag / chunk_ready /
+    // timeline) so we can see when broadcaster announces an interstitial.
+    console.info(
+      "[radio-skip-debug] applyControlSpecial",
+      "type=", msg.type,
+      "t=", Date.now(),
+    );
     if (msg.type === "lag") {
       const at = (msg as { resync_at_seq?: unknown }).resync_at_seq;
       if (typeof at === "number") {
@@ -1544,6 +1577,15 @@ export async function tuneIntoRadio(
     if (!isActiveTune()) return;
     try {
       const msg = JSON.parse(metaJson);
+      // [radio-skip-debug] #6a — log every Meta arrival with init_seq +
+      // song_id so we can correlate against audio.error / handleTrackTransition.
+      console.info(
+        "[radio-skip-debug] applyMeta",
+        "type=", (msg as { type?: unknown })?.type ?? null,
+        "init_seq=", msg?.init_seq ?? null,
+        "song_id=", msg?.now_playing?.song_id ?? null,
+        "t=", Date.now(),
+      );
       // dispatch lag / chunk_ready first — these are not metadata
       // updates, they're recovery / heartbeat signals routed through
       // the same json callback.

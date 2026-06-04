@@ -8,10 +8,10 @@ use crate::database;
 use crate::error::GrimoireResult;
 use crate::jobs::{
     create_job, get_scanned_directory_paths, update_session_progress, CreateJobRequest,
-    JobProgress, JobType, ProcessFileParams,
+    DirectoryFileEntry, JobProgress, JobType, ProcessDirectoryParams,
 };
 use crate::users::get_root_user_id;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::debug;
 use walkdir::WalkDir;
@@ -45,9 +45,12 @@ pub async fn scan_directory_and_create_jobs(
         HashSet::new()
     };
 
-    // canonicalize the root path we're scanning (for comparison)
-    let root_path =
-        std::fs::canonicalize(path.trim_end_matches('/')).unwrap_or_else(|_| PathBuf::from(path));
+    // canonicalize the root path we're scanning. this becomes the prefix of every
+    // per-file path we record in media_blobz.local_path, so a non-canonical root
+    // (tilde, symlink chain, flatpak portal path, etc.) would poison every blob
+    // path that we then hand to iroh-blobs FsStore. see `grimoire::paths` docs.
+    let root_path = crate::paths::canonical_path(Path::new(path.trim_end_matches('/')));
+    let walk_root = root_path.clone();
 
     let dirs_to_skip = if skip_tracked_subdirs && !tracked_dirs.is_empty() {
         let count = tracked_dirs.len();
@@ -58,7 +61,7 @@ pub async fn scan_directory_and_create_jobs(
     };
 
     // Build directory walker
-    let mut walker = WalkDir::new(path);
+    let mut walker = WalkDir::new(&walk_root);
 
     if !recursive {
         walker = walker.max_depth(1);
@@ -136,20 +139,27 @@ pub async fn scan_directory_and_create_jobs(
     // get root user ID for job attribution (scanner runs as root user)
     let root_user_id = get_root_user_id().await;
 
-    // Create a processing job for each file (skip if unchanged)
-    let mut jobs_created = 0;
-    let mut files_skipped = 0;
+    // group discovered audio files by their immediate parent directory.
+    // each parent dir becomes one ProcessDirectory job (no chunking —
+    // a dir with 1000s of files is still one job). cheap dedup happens
+    // per-file here so we never even enqueue a dir job whose files are
+    // all unchanged.
+    let mut by_dir: BTreeMap<String, Vec<DirectoryFileEntry>> = BTreeMap::new();
+    let mut files_skipped = 0usize;
+    let mut files_to_process = 0usize;
 
     for file_path in audio_files {
-        // Get file modified time
-        let file_modified_at = std::fs::metadata(&file_path)
-            .ok()
+        // get file modified time and size (cheap dedup signal, no hashing)
+        let file_meta = std::fs::metadata(&file_path).ok();
+        let file_modified_at = file_meta
+            .as_ref()
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
+        let file_size = file_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
 
-        // Check if file already exists in database with same modified time
+        // check if file already exists in database
         let existing_blob = sqlx::query!(
             r#"
             SELECT id, metadata
@@ -164,40 +174,82 @@ pub async fn scan_directory_and_create_jobs(
         .ok()
         .flatten();
 
-        // Check if we can skip this file
-        if let Some(blob) = existing_blob {
-            if let Some(metadata_str) = blob.metadata {
-                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_str) {
-                    if let Some(stored_modified_at) =
-                        metadata.get("file_modified_at").and_then(|v| v.as_i64())
-                    {
-                        if stored_modified_at == file_modified_at {
-                            // File hasn't changed, skip it
-                            debug!("skipping unchanged file: {}", file_path);
-                            files_skipped += 1;
-                            continue;
-                        }
-                    }
+        // when an existing blob is found, decide between cheap-skip and rescan-update
+        let existing_blob_id_for_update = if let Some(blob) = existing_blob {
+            let mut stored_modified_at: Option<i64> = None;
+            let mut stored_size: Option<i64> = None;
+            if let Some(metadata_str) = blob.metadata.as_deref() {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(metadata_str) {
+                    stored_modified_at = metadata.get("file_modified_at").and_then(|v| v.as_i64());
+                    stored_size = metadata.get("file_size").and_then(|v| v.as_i64());
                 }
             }
-        }
 
-        // File is new or has changed, create a processing job
-        let params = ProcessFileParams {
-            file_path: file_path.clone(),
-            extract_metadata: true,
-            generate_thumbnail: true,
-            generate_waveform: true,
-            source_url: None,
+            // cheap unchanged check: both mtime and size match what we recorded
+            let mtime_match = stored_modified_at == Some(file_modified_at);
+            let size_match = match stored_size {
+                Some(s) => s == file_size,
+                // legacy rows without recorded file_size fall back to mtime-only match
+                None => mtime_match,
+            };
+            if mtime_match && size_match {
+                debug!("skipping unchanged file: {}", file_path);
+                files_skipped += 1;
+                continue;
+            }
+
+            // file at this path differs from what we recorded - take the
+            // rescan-update path on the existing record instead of inserting
+            // a duplicate blob/song
+            let blob_id = blob.id.unwrap_or_default();
+            debug!(
+                "file changed since last scan, will update existing record: {} (blob_id={})",
+                file_path, blob_id
+            );
+            if blob_id.is_empty() {
+                None
+            } else {
+                Some(blob_id)
+            }
+        } else {
+            None
+        };
+
+        // bucket by immediate parent directory
+        let parent_dir = Path::new(&file_path)
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| ".".to_string());
+
+        by_dir
+            .entry(parent_dir)
+            .or_default()
+            .push(DirectoryFileEntry {
+                file_path: file_path.clone(),
+                existing_blob_id: existing_blob_id_for_update,
+            });
+        files_to_process += 1;
+    }
+
+    // emit one ProcessDirectory job per non-empty dir bucket
+    let mut jobs_created = 0usize;
+    for (directory_path, files) in by_dir {
+        if files.is_empty() {
+            continue;
+        }
+        let params = ProcessDirectoryParams {
+            directory_path: directory_path.clone(),
+            files,
         };
 
         let job_request = CreateJobRequest {
-            job_type: JobType::ProcessFile,
+            job_type: JobType::ProcessDirectory,
             session_id: Some(session_id.to_string()),
             parameters: serde_json::to_value(&params).unwrap_or_default(),
             max_retries: Some(3),
             scheduled_at: None,
             created_by: root_user_id.clone(),
+            priority: None,
         };
 
         let job_response = create_job(job_request).await;
@@ -210,13 +262,16 @@ pub async fn scan_directory_and_create_jobs(
     }
 
     debug!(
-        "scan complete: {} files found, {} jobs created, {} files skipped (unchanged)",
-        file_count, jobs_created, files_skipped
+        "scan complete: {} files found, {} files queued across {} directory jobs, {} files skipped (unchanged)",
+        file_count, files_to_process, jobs_created, files_skipped
     );
 
-    // record the canonical job total on the session so progress reporting
-    // doesn't depend on jobz row counts (ProcessFile rows are deleted as
-    // jobs complete, which would otherwise make `total` shrink to zero).
+    // record the canonical job total on the session as the number of
+    // ProcessDirectory jobs so the runner's count-derived progress math
+    // (completed = total - in_flight - failed) lines up with reality.
+    // ProcessDirectory rows are deleted on completion so live counts
+    // shrink over time; this snapshot is what the runner reads as
+    // "total". per-file visibility is via dir-handler `info!` logs.
     let _ =
         update_session_progress(session_id, JobProgress::new(0, jobs_created as u64), None).await;
 

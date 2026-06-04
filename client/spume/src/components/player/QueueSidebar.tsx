@@ -795,10 +795,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               : "text-[var(--color-text-primary)]"
                           }`}
                         >
-                          <MarqueeText
-                            text={song()?.title || ""}
-                            isHovering={() => isRowHovered() || isCurrentlyPlaying()}
-                          />
+                          <MarqueeText text={song()?.title || ""} isHovering={isRowHovered} />
                         </h4>
                         <p
                           class={`text-xs m-0 text-shadow-glow ${
@@ -813,7 +810,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 ? song()!.track_artist!
                                 : song()?.artist_name || ""
                             }
-                            isHovering={() => isRowHovered() || isCurrentlyPlaying()}
+                            isHovering={isRowHovered}
                           />
                         </p>
                         <Show when={song()?.album_title}>
@@ -826,7 +823,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           >
                             <MarqueeText
                               text={song()?.album_title || ""}
-                              isHovering={() => isRowHovered() || isCurrentlyPlaying()}
+                              isHovering={isRowHovered}
                             />
                           </p>
                         </Show>

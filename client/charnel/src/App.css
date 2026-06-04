@@ -812,11 +812,26 @@ button.small {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
   padding: 0.75rem;
   background: #18181b;
   border: 1px solid #27272a;
   border-radius: 6px;
   margin-bottom: 0.5rem;
+}
+
+/* expanded peer panel: full-width row beneath the user header */
+.user-item .user-peer-panel {
+  flex-basis: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+.user-peer-panel .peer-node-row {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .user-info {
@@ -1656,6 +1671,19 @@ button.secondary:hover {
 .peer-remove:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* multi-button action cluster (restore + delete forever) for deleted peers.
+ * spans a full row beneath the peer info so it doesn't get crammed
+ * into the same row as the username/node-id/meta cells. */
+.peer-actions {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
 }
 
 /* add peer form styles */

@@ -58,17 +58,32 @@ export function pickBestImage(images?: ImageMetadata[] | null): ImageMetadata | 
 
 // get the best display images for a song, falling back to album images.
 // excludes waveforms since they shouldn't be used as cover art thumbnails.
+//
+// note: in this system, song-level images stored as blob_type "original" are
+// often actually waveforms (the blob taxonomy is fuzzy — waveforms get linked
+// into song_imagez and may carry "original" blob_type). album-level images
+// are more reliably real cover art. so we merge album images FIRST then song
+// images and let pickBestImage rank them. this preserves the behavior where:
+//   - a real song-specific "thumbnail" still wins over album "original"
+//   - an album "original" cover beats a song "original" (likely waveform)
+//   - waveforms with proper blob_type="waveform" are still filtered out
 export function getSongDisplayImages(song: {
+  id?: string;
+  title?: string;
   images?: ImageMetadata[];
   album_images?: ImageMetadata[];
 }): ImageMetadata[] | undefined {
   if (!song) return undefined;
   const songImgs = nonWaveform(song.images);
-  if (songImgs.length > 0) return songImgs;
   const albumImgs = nonWaveform(song.album_images);
-  if (albumImgs.length > 0) return albumImgs;
-  // fall through to undefined so components show their default icon
-  return song.images && song.images.length > 0 ? song.images : undefined;
+
+  // merge album-first so pickBestImage prefers album originals over song
+  // "original"-typed images (which are commonly mistyped waveforms).
+  const merged = [...albumImgs, ...songImgs];
+  if (merged.length > 0) return merged;
+
+  // last-resort raw fallback (only waveforms present? show nothing)
+  return undefined;
 }
 
 /**

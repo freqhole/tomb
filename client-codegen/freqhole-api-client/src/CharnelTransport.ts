@@ -4,6 +4,13 @@
 // app iroh endpoint. no WASM needed.
 
 import type { BlobData, Transport, TransportResponse } from "./transport.js";
+import type {
+  CloseReason,
+  EventFilter,
+  JobEvent,
+  JobStateSnapshot,
+} from "./codegen/schema.js";
+import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -95,18 +102,12 @@ export class CharnelTransport implements Transport {
   async init(): Promise<void> {
     const inv = await ensureInvoke();
 
-    console.debug(
-      "[P2P] init: checking p2p_is_available for peer",
-      this.peerAddr,
-    );
     const available = (await inv("p2p_is_available")) as boolean;
-    console.debug("[P2P] init: p2p_is_available =", available);
     if (!available) {
       throw new Error("P2P not available - federation endpoint not running");
     }
 
     this.nodeId = (await inv("p2p_get_node_id")) as string;
-    console.debug("[P2P] init: got node_id =", this.nodeId);
   }
 
   /**
@@ -126,25 +127,20 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    try {
-      const result = (await inv("p2p_proxy_request", {
-        peerAddr: this.peerAddr,
-        method,
-        path,
-        body: body ?? null,
-      })) as { status: number; body: string };
+    // intentionally no per-error debug log here: the underlying
+    // p2p_proxy_request command already traces failures on the rust
+    // side, and callers (auth-status, health-check, etc.) decide
+    // whether to surface the error. logging at this layer fires once
+    // per request per failed peer and drowns the console for any
+    // peer that's temporarily unreachable.
+    const result = (await inv("p2p_proxy_request", {
+      peerAddr: this.peerAddr,
+      method,
+      path,
+      body: body ?? null,
+    })) as { status: number; body: string };
 
-      return result;
-    } catch (err) {
-      console.debug(
-        "[P2P] p2p_proxy_request ERROR for",
-        method,
-        path,
-        ":",
-        err,
-      );
-      throw err;
-    }
+    return result;
   }
 
   /**
@@ -440,6 +436,107 @@ export class CharnelTransport implements Transport {
     } catch (e) {
       console.error("fetchHelloImage failed:", e);
       return null;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // job events (remote path via freqhole-events/1 ALPN)
+  //
+  // routes through the `jobs_events_snapshot` / `jobs_events_subscribe`
+  // tauri commands, passing `targetPeer` so charnel dials the remote
+  // peer instead of the in-process broker.
+  // -----------------------------------------------------------------
+
+  async snapshotJobEvents(filter?: EventFilter): Promise<JobStateSnapshot[]> {
+    const inv = await ensureInvoke();
+    const out = (await inv("jobs_events_snapshot", {
+      filter: filter ?? null,
+      targetPeer: this.peerAddr,
+    })) as JobStateSnapshot[];
+    return out;
+  }
+
+  subscribeJobEvents(
+    filter?: EventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<JobEvent> {
+    return charnelRemoteJobEventsIterable(this.peerAddr, filter, signal);
+  }
+}
+
+// frame shape emitted by the rust-side `JobsEventsFrame` — mirrors
+// `CharnelLocalTransport.ts`.
+type JobsEventsFrame =
+  | { kind: "event"; evt: JobEvent }
+  | { kind: "closed"; reason: CloseReason };
+
+async function* charnelRemoteJobEventsIterable(
+  peerAddr: string,
+  filter: EventFilter | undefined,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<JobEvent, void, void> {
+  const { invoke: inv, Channel } = await import("@tauri-apps/api/core");
+
+  const queue: JobsEventsFrame[] = [];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  const waitForFrame = () =>
+    new Promise<void>((resolve) => {
+      wake = () => {
+        wake = null;
+        resolve();
+      };
+    });
+
+  const channel = new Channel<JobsEventsFrame>();
+  channel.onmessage = (frame: JobsEventsFrame) => {
+    queue.push(frame);
+    if (frame.kind === "closed") closed = true;
+    wake?.();
+  };
+
+  let sessionId: string;
+  try {
+    sessionId = (await inv("jobs_events_subscribe", {
+      filter: filter ?? null,
+      events: channel,
+      targetPeer: peerAddr,
+    })) as string;
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
+  const onAbort = () => {
+    closed = true;
+    inv("jobs_events_unsubscribe", { sessionId }).catch(() => {});
+    wake?.();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    while (true) {
+      if (queue.length === 0) {
+        if (closed) return;
+        if (signal?.aborted) return;
+        await waitForFrame();
+        continue;
+      }
+      const frame = queue.shift()!;
+      if (frame.kind === "closed") {
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new JobEventsStreamClosed(frame.reason);
+      }
+      yield frame.evt;
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    if (!closed) {
+      try {
+        await inv("jobs_events_unsubscribe", { sessionId });
+      } catch {
+        // session may have already been torn down; nothing to do.
+      }
     }
   }
 }

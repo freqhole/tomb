@@ -13,6 +13,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
 use crate::federation::transport::admin_iroh::AdminProtocol;
 use crate::federation::transport::admin_protocol::ADMIN_ALPN;
+use crate::federation::transport::events_protocol::{EventsProtocol, EVENTS_ALPN};
 use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
 use crate::federation::transport::protocol::FREQHOLE_ALPN;
 use iroh::endpoint::presets;
@@ -156,6 +157,13 @@ impl FederationEndpoint {
         } else {
             builder
         };
+
+        // always-on: freqhole-events/1 streaming subscriptions. visibility
+        // is enforced per-event by `caller_can_see`; unknown peers are
+        // rejected at accept-time by `get_caller_for_peer`. see
+        // docs/bidirectional-job-progress-plan.md (p4).
+        info!("[p2p-endpoint] registering freqhole-events/1 ALPN");
+        let builder = builder.accept(EVENTS_ALPN, EventsProtocol::new());
 
         // let caller add extra protocol handlers
         let builder = customize(builder);

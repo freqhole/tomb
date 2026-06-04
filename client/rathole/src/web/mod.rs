@@ -14,6 +14,7 @@
 mod identity;
 mod local_songs;
 mod peer_store;
+mod pending_remote_store;
 mod player;
 mod remote_store;
 mod run;

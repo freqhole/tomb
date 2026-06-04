@@ -11,20 +11,25 @@ use zod_gen_derive::ZodSchema;
 
 use crate::users::models::AuthError;
 
-/// Target types for favorites
+/// Target types for favorites.
+///
+/// note: "taxon" replaced "genre" in migration 037; the underlying
+/// `target_id` for taxon favorites points at `taxonz.id`, which can be
+/// any kind (genre, label, mood, era, region, ...). today only the genre
+/// kind has UI for favoriting, but the storage layer is kind-agnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FavoriteTarget {
     Song,
     Artist,
     Album,
-    Genre,
+    Taxon,
     Playlist,
 }
 
 impl ZodSchemaTrait for FavoriteTarget {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("genre"), z.literal("playlist")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")])"#.to_string()
     }
 }
 
@@ -34,7 +39,7 @@ impl fmt::Display for FavoriteTarget {
             FavoriteTarget::Song => write!(f, "song"),
             FavoriteTarget::Artist => write!(f, "artist"),
             FavoriteTarget::Album => write!(f, "album"),
-            FavoriteTarget::Genre => write!(f, "genre"),
+            FavoriteTarget::Taxon => write!(f, "taxon"),
             FavoriteTarget::Playlist => write!(f, "playlist"),
         }
     }
@@ -45,7 +50,10 @@ impl From<String> for FavoriteTarget {
         match s.to_lowercase().as_str() {
             "artist" => FavoriteTarget::Artist,
             "album" => FavoriteTarget::Album,
-            "genre" => FavoriteTarget::Genre,
+            // accept the legacy "genre" string for any cached payloads still
+            // floating around (idempotent in-memory rewrite; the db column was
+            // renamed by migration 037)
+            "taxon" | "genre" => FavoriteTarget::Taxon,
             "playlist" => FavoriteTarget::Playlist,
             _ => FavoriteTarget::Song,
         }
@@ -93,7 +101,7 @@ impl From<FavoriteTarget> for Option<RatingTarget> {
             FavoriteTarget::Song => Some(RatingTarget::Song),
             FavoriteTarget::Artist => Some(RatingTarget::Artist),
             FavoriteTarget::Album => Some(RatingTarget::Album),
-            FavoriteTarget::Genre | FavoriteTarget::Playlist => None,
+            FavoriteTarget::Taxon | FavoriteTarget::Playlist => None,
         }
     }
 }

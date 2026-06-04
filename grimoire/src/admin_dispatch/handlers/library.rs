@@ -6,13 +6,23 @@ use crate::offal::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::{json, Value as JsonValue};
 
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{home}/{rest}");
+        }
+    }
+    path.to_string()
+}
+
 pub(in crate::admin_dispatch) async fn validate_path(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    let path = match require_str(&args, "path") {
+    let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let path = expand_tilde(raw_path.trim());
     let p = std::path::Path::new(&path);
     let (exists, is_dir, is_readable) = match std::fs::metadata(p) {
         Ok(m) => {
@@ -39,22 +49,48 @@ pub(in crate::admin_dispatch) async fn validate_path(
 }
 
 pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse<JsonValue> {
-    let path = match require_str(&args, "path") {
+    let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
     };
+    let path = expand_tilde(raw_path.trim());
+    let scan_path = std::path::Path::new(&path);
+    if !scan_path.exists() {
+        return GrimoireResponse::failure(
+            format!("scan path does not exist: {path}"),
+            vec![crate::ErrorDetail::new(
+                "path_not_found",
+                "scan path not found",
+                format!("path does not exist: {path}"),
+            )],
+        );
+    }
+    if !scan_path.is_dir() {
+        return GrimoireResponse::failure(
+            format!("scan path is not a directory: {path}"),
+            vec![crate::ErrorDetail::new(
+                "invalid_scan_path",
+                "invalid scan path",
+                format!("path is not a directory: {path}"),
+            )],
+        );
+    }
     let recursive = opt_bool(&args, "recursive").unwrap_or(true);
 
     // optional tag list to apply to the directory
-    let tags: Vec<String> = args
-        .get("tags")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags: Vec<String> = match args.get("tags") {
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Some(serde_json::Value::String(csv)) => csv
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    };
 
     // session id can be supplied; otherwise create a fresh job session so
     // the scan inherits a real session row (foreign-key requirement).
@@ -90,6 +126,23 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
     let count = resp.data.unwrap_or(0);
     if count > 0 {
         let _ = crate::jobs::record_scanned_directory(&path, count as i64, None).await;
+        // emit an immediate progress event so rathole's header badge
+        // appears as soon as jobs are enqueued (before first file
+        // finishes processing).
+        crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
+            session_id: session_id.clone(),
+            complete: 0,
+            total: count as i64,
+            topic: crate::jobs::JobType::ScanDirectory,
+            entity_ref: None,
+            created_by: None,
+            details: Some(serde_json::json!({
+                "directory": path.clone(),
+                "songs_added": 0,
+                "jobs_pending": count as u32,
+                "jobs_total": count as u32,
+            })),
+        });
     }
 
     if resp.success {
@@ -173,6 +226,41 @@ pub(in crate::admin_dispatch) async fn remove_directory(
     }
 }
 
+/// edit / relocate a previously-scanned directory. used when the user moves
+/// their music library on disk; relocates matched blobs (filename+size cheap
+/// matching) instead of re-hashing every file. see
+/// `crate::music::scanner::move_scanned_directory` for matching tiers + behavior.
+///
+/// args: { old_path: string, new_path: string, dry_run?: bool,
+///         soft_delete_unmatched?: bool, refresh_blobs_store?: bool }
+pub(in crate::admin_dispatch) async fn move_directory(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let old_path = match require_str(&args, "old_path") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let new_path = match require_str(&args, "new_path") {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let mut opts = crate::music::scanner::MoveScanDirectoryOptions::default();
+    if let Some(v) = opt_bool(&args, "dry_run") {
+        opts.dry_run = v;
+    }
+    if let Some(v) = opt_bool(&args, "soft_delete_unmatched") {
+        opts.soft_delete_unmatched = v;
+    }
+    if let Some(v) = opt_bool(&args, "refresh_blobs_store") {
+        opts.refresh_blobs_store = v;
+    }
+    opts.updated_by = Some(caller.user_id.clone());
+
+    let resp = crate::music::scanner::move_scanned_directory(&old_path, &new_path, opts).await;
+    to_value(resp)
+}
+
 /// kick off a `RescanDirectories` background job. mirrors the legacy
 /// `rescan_directories` tauri command shape (`{ success, jobs_created,
 /// message }`); `jobs_created` is always 1 here (the rescan job itself)
@@ -185,6 +273,7 @@ pub(in crate::admin_dispatch) async fn rescan_all(caller: &Caller) -> GrimoireRe
         max_retries: Some(0),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     };
     let resp = crate::jobs::create_job(req).await;
     if resp.success {
@@ -199,6 +288,14 @@ pub(in crate::admin_dispatch) async fn rescan_all(caller: &Caller) -> GrimoireRe
     } else {
         GrimoireResponse::failure(resp.message, resp.errors)
     }
+}
+
+/// one-shot library repair: purge `scanned_directories` rows whose path no
+/// longer exists on disk, then undelete any soft-deleted blobs (cascading to
+/// songs) whose `local_path` exists. use when a library got incorrectly
+/// soft-deleted by a prior rescan / move-dir iteration.
+pub(in crate::admin_dispatch) async fn repair_orphans() -> GrimoireResponse<JsonValue> {
+    crate::jobs::repair_library_orphans().await
 }
 
 /// kick off a `FetchMedia` background job for an external url.
@@ -262,18 +359,25 @@ pub(in crate::admin_dispatch) async fn fetch(
         let _ =
             crate::jobs::update_session_progress(sid, crate::jobs::JobProgress::new(0, 1), None)
                 .await;
-        // emit an immediate JobProgress so the rathole top-bar badge
+        // emit an immediate Progress so the rathole top-bar badge
         // appears the instant /fetch runs. without this, no event
         // fires until the (potentially minutes-long) FetchMedia row
         // completes, leaving the user with no visual feedback that
         // anything is happening. directory = url so subscribers
         // classify it as a fetch.
-        crate::events::emit(crate::events::GrimoireEvent::JobProgress {
+        crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
             session_id: sid.clone(),
-            directory: url.clone(),
-            songs_added: 0,
-            jobs_pending: 1,
-            jobs_total: 1,
+            complete: 0,
+            total: 1,
+            topic: crate::jobs::JobType::FetchMedia,
+            entity_ref: None,
+            created_by: Some(caller.user_id.clone()),
+            details: Some(serde_json::json!({
+                "directory": url.clone(),
+                "songs_added": 0,
+                "jobs_pending": 1,
+                "jobs_total": 1,
+            })),
         });
     }
     let req = crate::jobs::CreateJobRequest {
@@ -283,6 +387,7 @@ pub(in crate::admin_dispatch) async fn fetch(
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
+        priority: None,
     };
     let resp = crate::jobs::create_job(req).await;
     if resp.success {

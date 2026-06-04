@@ -1,9 +1,8 @@
 import { createSignal, Show, onMount, onCleanup, For } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
 import { resolvePath } from "../util/resolvePath";
-import { listen } from "@tauri-apps/api/event";
 
 // step flow: welcome → config → running → admin → music → done
 type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
@@ -85,6 +84,9 @@ export default function SetupView() {
   // federation options
   const [federationEnabled, setFederationEnabled] = createSignal(false);
   const [knockingEnabled, setKnockingEnabled] = createSignal(true);
+  const [remoteAdminEnabled, setRemoteAdminEnabled] = createSignal(false);
+  const [radioEnabled, setRadioEnabled] = createSignal(false);
+  const [fetchMusicEnabled, setFetchMusicEnabled] = createSignal(true);
   // job progress state for done step
   const [jobProgress, setJobProgress] = createSignal<{
     directory: string;
@@ -101,6 +103,7 @@ export default function SetupView() {
       // check external dependencies (ffmpeg, yt-dlp)
       const deps = await invoke<DependencyCheckResult>("check_dependencies");
       setDepCheck(deps);
+      setFetchMusicEnabled(true);
       setDepCheckLoading(false);
 
       // get default data directory (system app data dir)
@@ -124,28 +127,49 @@ export default function SetupView() {
         return;
       }
 
-      // listen for job progress events
-      unlistenProgress = await listen<{
-        type: string;
-        data: {
-          session_id: string;
-          directory: string;
-          songs_added: number;
-          jobs_pending: number;
-          jobs_total: number;
-        };
-      }>("freqhole:event", (event) => {
-        if (event.payload.type === "job-progress") {
+      // subscribe to job lifecycle events via the typed broker channel
+      const channel = new Channel<{
+        kind: string;
+        evt?: unknown;
+        reason?: unknown;
+      }>();
+      channel.onmessage = (frame) => {
+        if (frame.kind !== "event") return;
+        const evt = frame.evt as
+          | { kind?: string; details?: Record<string, unknown> }
+          | undefined;
+        if (!evt) return;
+        if (
+          evt.kind === "progress" &&
+          evt.details &&
+          typeof evt.details === "object"
+        ) {
+          const d = evt.details as {
+            directory?: string;
+            songs_added?: number;
+            jobs_pending?: number;
+            jobs_total?: number;
+          };
           setJobProgress({
-            directory: event.payload.data.directory,
-            songsAdded: event.payload.data.songs_added,
-            jobsPending: event.payload.data.jobs_pending,
-            jobsTotal: event.payload.data.jobs_total,
+            directory: d.directory ?? "",
+            songsAdded: d.songs_added ?? 0,
+            jobsPending: d.jobs_pending ?? 0,
+            jobsTotal: d.jobs_total ?? 0,
           });
-        } else if (event.payload.type === "job-session-complete") {
+        } else if (evt.kind === "completed") {
           setJobsComplete(true);
         }
+      };
+      const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
+        filter: null,
+        events: channel,
+        targetPeer: null,
       });
+      unlistenProgress = () => {
+        void invoke("jobs_events_unsubscribe", {
+          sessionId: jobEventsSessionId,
+        });
+      };
     } catch (e) {
       console.error("init error:", e);
       setDepCheckLoading(false);
@@ -226,6 +250,9 @@ export default function SetupView() {
         fetchMusicDir: fetchMusicDir() || null,
         federationEnabled: federationEnabled(),
         knockingEnabled: knockingEnabled(),
+        remoteAdminEnabled: remoteAdminEnabled(),
+        radioEnabled: radioEnabled(),
+        fetchMusicEnabled: fetchMusicEnabled(),
       });
 
       if (result.success) {
@@ -645,7 +672,73 @@ export default function SetupView() {
                 </span>
               </label>
             </div>
+            <div class="form-group" style={{ "margin-left": "1.5rem" }}>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={remoteAdminEnabled()}
+                  onChange={(e) =>
+                    setRemoteAdminEnabled(e.currentTarget.checked)
+                  }
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">
+                    enable remote admin over P2P
+                  </span>
+                  <span class="checkbox-hint">
+                    allow admin control channels over federation transport.
+                  </span>
+                </span>
+              </label>
+            </div>
           </Show>
+
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={radioEnabled()}
+                onChange={(e) => setRadioEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable radio</span>
+                <span class="checkbox-hint">
+                  enable radio routes and playback services.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-toggle">
+              <input
+                type="checkbox"
+                checked={fetchMusicEnabled()}
+                onChange={(e) => setFetchMusicEnabled(e.currentTarget.checked)}
+              />
+              <span class="checkbox-box">
+                <svg viewBox="0 0 14 14">
+                  <polyline points="2.5 7 5.5 10 11.5 4" />
+                </svg>
+              </span>
+              <span class="checkbox-content">
+                <span class="checkbox-label">enable fetch music routes</span>
+                <span class="checkbox-hint">
+                  controls [server.fetch_music].enabled in config.
+                </span>
+              </span>
+            </label>
+          </div>
 
           {/* advanced toggle */}
           <button

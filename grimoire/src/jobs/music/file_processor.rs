@@ -50,8 +50,13 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     // verify file exists
     if !file_path.exists() {
+        // don't leak the full local path into the broadcast error.
+        let basename = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<unknown>");
         return Err(JobError::ProcessingFailed {
-            reason: format!("file does not exist: {}", params.file_path),
+            reason: format!("file does not exist: {}", basename),
         });
     }
 
@@ -77,6 +82,53 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+
+    // rescan-update path: when the scanner already knows about a media_blobz
+    // row at this local_path, refresh that row (and any song hanging off it)
+    // in-place instead of creating new records. preserves song id and all
+    // references to it (playlists, favorites, ratings, listening sessions).
+    if let Some(existing_blob_id) = params.existing_blob_id.as_deref() {
+        match scanner::update_existing_from_rescan(
+            existing_blob_id,
+            file_path,
+            file_size as i64,
+            file_modified_at,
+        )
+        .await
+        {
+            Ok(update) => {
+                let result = ProcessFileResult {
+                    media_blob_id: update.blob_id,
+                    song_id: update.song_id,
+                    artist_id: None,
+                    album_id: None,
+                    metadata_extracted: update.song_updated,
+                    thumbnail_generated: false,
+                    waveform_generated: false,
+                };
+                info!(
+                    "file rescan-update complete: blob={} sha256_changed={} song_updated={} (total={:?})",
+                    result.media_blob_id,
+                    update.sha256_changed,
+                    update.song_updated,
+                    job_start.elapsed(),
+                );
+                return Ok(Some(serde_json::to_value(result).map_err(|e| {
+                    JobError::ProcessingFailed {
+                        reason: format!("failed to serialize result: {}", e),
+                    }
+                })?));
+            }
+            Err(e) => {
+                // rescan-update failed (eg. existing blob disappeared); fall
+                // through to the normal new-import path
+                warn!(
+                    "rescan-update failed for blob {}, falling back to new-import: {}",
+                    existing_blob_id, e
+                );
+            }
+        }
+    }
 
     // step 1: create media blob in database (includes SHA256 hashing)
     let step_start = std::time::Instant::now();

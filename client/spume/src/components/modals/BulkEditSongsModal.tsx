@@ -178,7 +178,14 @@ export function BulkEditSongsModal(props: BulkEditSongsModalProps) {
           if (e.target === e.currentTarget) props.onClose();
         }}
       >
-        <div class="bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:mx-4 wide:max-h-[calc(100dvh-96px)] flex flex-col overflow-y-auto">
+        <div
+          class="bg-[var(--color-bg-secondary)] wide:border wide:border-[var(--color-border-default)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:mx-4 wide:max-h-[calc(100dvh-96px)] flex flex-col overflow-y-auto"
+          style={{
+            "margin-top": "var(--safe-area-top, 0px)",
+            height: "calc(100% - var(--safe-area-top, 0px))",
+            "max-height": "calc(100% - var(--safe-area-top, 0px))",
+          }}
+        >
           {/* header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-default)] shrink-0">
             <h2 class="text-lg font-medium text-[var(--color-text-primary)]">

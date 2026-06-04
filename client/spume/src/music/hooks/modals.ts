@@ -1,5 +1,6 @@
 // modal state helpers for song, artist, and album editors
 import { createSignal } from "solid-js";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 
 // modal stack to track which modal is topmost for esc key handling
 interface ModalEntry {
@@ -49,24 +50,54 @@ export function popModal(modalId: string) {
   }
 }
 
+/** true when at least one modal is on the global modal stack. used by
+ *  view-level esc handlers to skip their own "close" behaviour when a
+ *  modal is already going to consume the keystroke. */
+export function isAnyModalOpen(): boolean {
+  return modalStack.length > 0;
+}
+
 interface SongEditorOptions {
   songId: string;
+  /** when set, the modal queries/updates against this remote instead of
+   *  the globally-active data source. used by context-menu actions on
+   *  songs that came from a remote different from the current source. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
 }
 
 interface ArtistEditorOptions {
   artistId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. mirrors the album/song editor pattern
+   *  for cases (e.g. graph view) where the displayed entity belongs to
+   *  a non-active remote. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
 }
 
 interface AlbumEditorOptions {
   albumId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. needed because the library view lets
+   *  the user pick a remote independently of `getDataSource()`. */
+  remote?: Remote;
   onSave?: () => void;
   disableNestedModals?: boolean;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /** bulk-enrichment review mode (phase 14.7/14.9). when set, the modal
+   *  renders a header strip + footer toolbar + arrow/`j`/`k` keybindings
+   *  for navigating through the supplied list. */
+  review?: {
+    ids: string[];
+    currentIndex: number;
+    onNext: () => void;
+    onPrev: () => void;
+    onExit: () => void;
+  };
 }
 
 // song editor
@@ -131,6 +162,20 @@ export function showImageCarousel(options: ImageCarouselOptions) {
   setImageCarouselState(options);
 }
 
+// build a consistent header title for the image carousel modal. the
+// count used to be appended ("name — N images") but it was easy to
+// drift out of sync with what the modal actually renders (failed-load
+// dedup happens inside the modal), so we just show the entity name.
+// the `_count` param is kept so existing call sites don't have to
+// change; callers can still pass it but it has no effect.
+export function formatImageCarouselTitle(
+  name: string | null | undefined,
+  _count?: number,
+): string | undefined {
+  const n = (name ?? "").trim();
+  return n || undefined;
+}
+
 export function hideImageCarousel() {
   setImageCarouselState(null);
 }
@@ -143,14 +188,21 @@ export function useImageCarouselState() {
 interface TagSelectorOptions {
   albumIds: string[];
   albumTitle?: string;
+  /** when set, the modal queries/mutates tags on this remote rather
+   *  than the globally-active data source. */
+  remote?: Remote;
   onSave?: () => void;
 }
 
 const [tagSelectorState, setTagSelectorState] =
   createSignal<TagSelectorOptions | null>(null);
 
-export function showTagSelector(albumIds: string[], albumTitle?: string) {
-  setTagSelectorState({ albumIds, albumTitle });
+export function showTagSelector(
+  albumIds: string[],
+  albumTitle?: string,
+  remote?: Remote,
+) {
+  setTagSelectorState({ albumIds, albumTitle, remote });
 }
 
 export function hideTagSelector() {
@@ -180,7 +232,6 @@ export function useAddMusicState() {
 // kept generic via a `source` accessor so callers can pass either a
 // reactive `createCurrentRemoteFull()` or a one-shot snapshot getter.
 import type { ShareTarget } from "../../components/share/types";
-import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { SendPayload } from "../services/send/sendToRemote";
 
 export interface ShareModalOptions {

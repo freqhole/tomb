@@ -152,20 +152,24 @@
    ============================================================================= */
 
 :root {
-  /* safe area insets for mobile status/navigation bars (requires viewport-fit=cover) */
-  --safe-area-top: env(safe-area-inset-top, 0px);
+  /* safe area insets for mobile status/navigation bars.
+     --safe-area-top defaults to 0 and is activated at runtime only on android
+     tauri (where the webview draws behind the system status bar). this prevents
+     ios safari from picking up its own nonzero env() value and adding extra
+     space when running as a plain web app. see index.tsx bootstrap. */
+  --safe-area-top: 0px;
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* player bar: 2-row on narrow (80px), 1-row on wide (64px) */
   --player-height: calc(80px + var(--safe-area-bottom));
-  /* nav bar height (includes safe area on mobile) */
-  --nav-height: calc(56px + var(--safe-area-top));
+  /* nav bar height (42px base + safe area on android webview) */
+  --nav-height: calc(42px + var(--safe-area-top));
 }
 
 @media (min-width: 801px) {
   :root {
     /* single row on wider screens */
     --player-height: 72px;
-    --nav-height: 56px;
+    --nav-height: 42px;
   }
 }
 
@@ -191,6 +195,16 @@ body {
 [data-allow-select] * {
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* prevent ios safari from zooming into inputs on focus.
+   safari zooms whenever a focused input has font-size < 16px.
+   setting 1rem here ensures all inputs meet the threshold without
+   disabling user pinch-zoom (which maximum-scale=1 would do). */
+input,
+textarea,
+select {
+  font-size: max(1rem, 1em);
 }
 
 /* disable backdrop-filter blur (for linux/webkitgtk compatibility)

@@ -5,6 +5,12 @@
 // uses Tauri's asset protocol for blob/audio file access (no HTTP streaming).
 
 import type { Transport, TransportResponse, BlobData } from "./transport.js";
+import type {
+  CloseReason,
+  EventFilter,
+  JobEvent,
+  JobStateSnapshot,
+} from "./codegen/schema.js";
 
 // tauri invoke function type
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -330,7 +336,7 @@ export class CharnelLocalTransport implements Transport {
     }
 
     // need to fetch path (or data) first
-    console.debug(`[CharnelLocalTransport] blob ${blobId}: async path lookup`);
+    // console.debug(`[CharnelLocalTransport] blob ${blobId}: async path lookup`);
     return this.getBlobUrlAsync(blobId);
   }
 
@@ -427,6 +433,34 @@ export class CharnelLocalTransport implements Transport {
     }
     return objectUrl;
   }
+
+  // -----------------------------------------------------------------
+  // job events (local ipc shortcut)
+  //
+  // skips the iroh `freqhole-events/1` hop entirely when charnel is
+  // talking to the in-process grimoire server. uses the
+  // `jobs_events_snapshot` / `jobs_events_subscribe` /
+  // `jobs_events_unsubscribe` tauri commands.
+  //
+  // remote-targeting (open EVENTS_ALPN bistream against a peer) is
+  // deferred — when it lands, charnel will pick local-vs-remote based
+  // on the "currently-targeted remote peer" config.
+  // -----------------------------------------------------------------
+
+  async snapshotJobEvents(filter?: EventFilter): Promise<JobStateSnapshot[]> {
+    const inv = await ensureInvoke();
+    const out = (await inv("jobs_events_snapshot", {
+      filter: filter ?? null,
+    })) as JobStateSnapshot[];
+    return out;
+  }
+
+  subscribeJobEvents(
+    filter?: EventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<JobEvent> {
+    return charnelJobEventsIterable(filter, signal);
+  }
 }
 
 /**
@@ -454,4 +488,111 @@ function errorTypeToStatus(errorType: string): number {
  */
 export function createCharnelLocalTransport(baseUrl: string): CharnelLocalTransport {
   return new CharnelLocalTransport(baseUrl);
+}
+
+// =====================================================================
+// job events iterator (tauri channel -> async iterable adapter)
+// =====================================================================
+
+/**
+ * frame shape emitted by the rust-side `JobsEventsFrame`. mirrors
+ * `EventsServerMsg` from `events_protocol.rs` but flattened — no
+ * per-bistream correlation id (per-channel on tauri makes it unneeded).
+ */
+type JobsEventsFrame =
+  | { kind: "event"; evt: JobEvent }
+  | { kind: "closed"; reason: CloseReason };
+
+async function* charnelJobEventsIterable(
+  filter: EventFilter | undefined,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<JobEvent, void, void> {
+  const inv = await ensureInvoke();
+  // tauri `Channel` is constructed dynamically — same `@tauri-apps/api/core`
+  // module that exports `invoke`. dynamic import here mirrors the pattern
+  // above (the transport may also run in a non-tauri browser context where
+  // the module is absent).
+  const { Channel } = await import("@tauri-apps/api/core");
+
+  // bounded queue of frames the rust side has pushed but js hasn't
+  // consumed yet. wakers signal new arrivals.
+  const queue: JobsEventsFrame[] = [];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  const waitForFrame = () =>
+    new Promise<void>((resolve) => {
+      wake = () => {
+        wake = null;
+        resolve();
+      };
+    });
+
+  const channel = new Channel<JobsEventsFrame>();
+  channel.onmessage = (frame: JobsEventsFrame) => {
+    queue.push(frame);
+    if (frame.kind === "closed") closed = true;
+    wake?.();
+  };
+
+  let sessionId: string;
+  try {
+    sessionId = (await inv("jobs_events_subscribe", {
+      filter: filter ?? null,
+      events: channel,
+    })) as string;
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
+  const onAbort = () => {
+    closed = true;
+    inv("jobs_events_unsubscribe", { sessionId }).catch(() => {});
+    wake?.();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    while (true) {
+      if (queue.length === 0) {
+        if (closed) return;
+        if (signal?.aborted) return;
+        await waitForFrame();
+        continue;
+      }
+      const frame = queue.shift()!;
+      if (frame.kind === "closed") {
+        // surface the close reason as a typed error so consumers can
+        // distinguish `Lagged` (re-snapshot + reconnect) from other
+        // terminal conditions.
+        const reasonKind =
+          (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new JobEventsStreamClosed(frame.reason);
+      }
+      yield frame.evt;
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    if (!closed) {
+      try {
+        await inv("jobs_events_unsubscribe", { sessionId });
+      } catch {
+        // session may have already been torn down server-side; nothing
+        // to do.
+      }
+    }
+  }
+}
+
+/**
+ * thrown by the subscribe iterator on any non-`client_unsubscribed`
+ * `CloseReason`. exported so consumers can `instanceof`-check before
+ * deciding to reconnect.
+ */
+export class JobEventsStreamClosed extends Error {
+  constructor(public readonly reason: CloseReason) {
+    const kind = (reason as { kind: string }).kind ?? "internal";
+    super(`job events stream closed: ${kind}`);
+    this.name = "JobEventsStreamClosed";
+  }
 }

@@ -20,11 +20,18 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { ConnectionProgressModal } from "../components/modals/ConnectionProgressModal";
 import {
   getConnectionProgress,
-  cancelAndNavigate,
+  cancelConnection,
   connectToRemote,
   recheckRemote,
 } from "./services/remotes/connectionProgress";
 import { TopNav } from "../components/navigation/TopNav";
+import {
+  topNavRightContent,
+  topNavSecondaryRowContent,
+  topNavSearchContent,
+  topNavHideSearch,
+  topNavSearchExpanded,
+} from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { QueueSidebar } from "../components/player/QueueSidebar";
@@ -33,7 +40,6 @@ import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
-  clearExternalMediaSession,
   currentTime,
   duration,
   isLoading,
@@ -43,11 +49,14 @@ import {
   playPrevious,
   playSong,
   seek,
-  setExternalMediaSession,
   setPlayerVolume,
   togglePlayback,
   volume,
 } from "../music/services/audio/player";
+import {
+  clearExternalMediaSession,
+  setExternalMediaSession,
+} from "../music/services/audio/mediaSessionBridge";
 import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
 import {
   getLoadingP2PSongIds,
@@ -55,6 +64,7 @@ import {
   resolveBlobUrl,
   usesBlobResolver,
 } from "../music/services/storage/blobResolver";
+import { resolveLocalBlobUrl } from "../music/utils/images";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
@@ -80,7 +90,9 @@ import {
   onRemoteStatusChange,
   onSwitchToLocal,
   deleteRemote,
+  updateRemote,
 } from "./services/remotes/remoteManager";
+import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   type Remote,
@@ -95,8 +107,19 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { showImageCarousel, openAddMusic, showShareModal } from "../music/hooks/modals";
-import { appState, setCurrentSong, setQueueOpen } from "./services/storage/db";
+import {
+  showImageCarousel,
+  openAddMusic,
+  showShareModal,
+  formatImageCarouselTitle,
+} from "../music/hooks/modals";
+import {
+  appState,
+  setCurrentSong,
+  setQueueOpen,
+  getLocalLibraryName,
+  setLocalLibraryName,
+} from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
 import {
   queueHistory,
@@ -109,7 +132,7 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { isCharnelMode, setWindowTitle } from "./services/charnel";
+import { isCharnelMode, setWindowTitle, updateServerInfo } from "./services/charnel";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -237,6 +260,19 @@ export function AppLayout(props: AppLayoutProps) {
     })();
   });
 
+  // keep per-remote auth status warm for topnav/admin affordances.
+  // only refresh remotes that have not been queried yet.
+  createEffect(() => {
+    const list = remotes();
+    if (!list.length) return;
+    void Promise.all(
+      list.map(async (remote) => {
+        if (getAuthInfo(remote.remote_id) !== undefined) return;
+        await refreshRemoteAuthStatus(remote);
+      })
+    );
+  });
+
   const canAdminSkipRadioTrack = createMemo(() => {
     const station = currentRadioStation();
     if (!station?.station_id) return false;
@@ -346,6 +382,25 @@ export function AppLayout(props: AppLayoutProps) {
     } catch (error) {
       console.error("failed to load remotes:", error);
     }
+
+    // seed the reactive `isOnline(id)` map and fire a background wake-up
+    // probe for every offline remote. dedupe + backoff lives in
+    // remoteHealth so it's safe to call this freely.
+    void seedOnlineMap();
+    wakeAllRemotes();
+
+    // re-probe when the tab/window becomes visible again — covers the
+    // "laptop woke from sleep / switched back to tab" case where
+    // stale-offline flags are common.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") wakeAllRemotes();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onVisibility);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onVisibility);
+    });
 
     // listen for remote status changes (offline/online) and refresh remotes list
     const unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
@@ -505,9 +560,44 @@ export function AppLayout(props: AppLayoutProps) {
     }
   };
 
+  // handle renaming a remote (called from topnav context menu).
+  // rename is only offered for "local library" remotes in topnav:
+  //   - web: synthetic row, routed through onRenameLocalLibrary (not here)
+  //   - charnel (android/desktop): the is_charnel_managed sqlite row;
+  //     its name lives in the freqhole config toml and gets re-seeded on
+  //     every startup by `upsertTauriRemote(config.server_name)`. so for
+  //     these we also update server.name in the config to make the
+  //     rename survive a restart.
+  const handleRenameRemote = async (remoteId: string, newName: string): Promise<void> => {
+    try {
+      await updateRemote(remoteId, { name: newName });
+      if (isCharnelMode()) {
+        const target = await getRemoteById(remoteId);
+        if (target?.is_charnel_managed) {
+          try {
+            await updateServerInfo({ name: newName });
+          } catch (err) {
+            console.error("failed to persist server.name to charnel config:", err);
+            // re-throw so the modal surfaces the failure; the IDB write
+            // above will be undone on next startup anyway when charnel
+            // re-seeds from the (un-updated) toml.
+            throw err;
+          }
+        }
+      }
+      const allRemotes = await getAllRemotes();
+      setRemotes(allRemotes);
+      toast.success("remote renamed");
+    } catch (error) {
+      console.error("failed to rename remote:", error);
+      toast.error("failed to rename remote");
+      throw error;
+    }
+  };
+
   const currentSourceName = createMemo(() => {
     const remote = getCurrentRemote();
-    return remote ? remote.name : "local library";
+    return remote ? remote.name : getLocalLibraryName();
   });
 
   // handle navigate to playlists view
@@ -666,7 +756,12 @@ export function AppLayout(props: AppLayoutProps) {
     const song = currentSongData();
     if (!song) return;
 
-    type ImageItem = { blobId?: string; url?: string; serverId?: string };
+    type ImageItem = {
+      blobId?: string;
+      url?: string;
+      serverId?: string;
+      localBlobId?: string;
+    };
     const seen = new Set<string>();
     const imageItems: ImageItem[] = [];
 
@@ -677,14 +772,23 @@ export function AppLayout(props: AppLayoutProps) {
       remote_server_id?: string;
       blob_type: string;
     }) => {
-      if (img.blob_type === "waveform") return;
+      // skip waveforms (audio viz) and the size-derivative variants
+      // (`thumbnail`, `preview`) — those are different blob ids that
+      // visually render as the same logical image, so including them
+      // produces a carousel full of duplicate-looking slides. only
+      // keep `original` (full-res) records for the carousel.
+      if (img.blob_type !== "original") return;
       const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
       if (!key || seen.has(key)) return;
       seen.add(key);
       imageItems.push({
-        blobId: img.remote_blob_id || img.local_blob_id,
-        url: img.remote_url || img.local_blob_id,
+        // remote blob id only — local blob ids aren't fetchable via
+        // the blobResolver path (they're resolved through OPFS via
+        // resolveLocalBlobUrl instead).
+        blobId: img.remote_blob_id,
+        url: img.remote_url,
         serverId: img.remote_server_id,
+        localBlobId: img.local_blob_id,
       });
     };
 
@@ -696,6 +800,48 @@ export function AppLayout(props: AppLayoutProps) {
     // add album images (except waveforms), deduplicate by blob_id
     if (song.album_images?.length) {
       for (const img of song.album_images) addImage(img);
+    }
+
+    // add artist images too — gives the player-bar carousel full
+    // context (song → album → artist art) with the same `seen` set
+    // dedup'ing across all three sources.
+    if (song.artist_images?.length) {
+      for (const img of song.artist_images) addImage(img);
+    }
+
+    // hydrate from the canonical album + artist records. song entries
+    // (especially local OPFS songs, and pre-album_images queue rows)
+    // often carry only the song's own image — the album / artist may
+    // have additional artwork that isn't denormalized onto the song.
+    // fetching here makes the carousel reflect the full set even
+    // when the song row is sparse. errors are swallowed so a failed
+    // lookup doesn't kill the click.
+    try {
+      const ds = getDataSource();
+      const tasks: Promise<void>[] = [];
+      if (song.album_id && ds.getAlbums) {
+        tasks.push(
+          ds
+            .getAlbums({ album_id: song.album_id, limit: 1 })
+            .then((res) => {
+              for (const img of res.items[0]?.images ?? []) addImage(img);
+            })
+            .catch(() => {})
+        );
+      }
+      if (song.artist_id && ds.getArtists) {
+        tasks.push(
+          ds
+            .getArtists({ artist_id: song.artist_id, limit: 1 })
+            .then((res) => {
+              for (const img of res.items[0]?.images ?? []) addImage(img);
+            })
+            .catch(() => {})
+        );
+      }
+      if (tasks.length) await Promise.all(tasks);
+    } catch {
+      // best-effort hydration — proceed with whatever we already have
     }
 
     if (imageItems.length === 0) {
@@ -710,7 +856,8 @@ export function AppLayout(props: AppLayoutProps) {
 
     let imageUrls: string[];
     if (needsResolution) {
-      // resolve all images via blobResolver
+      // resolve all images via blobResolver, with local-OPFS fallback
+      // when the image has no remote blob id (purely local image).
       imageUrls = (
         await Promise.all(
           imageItems.map(async (item) => {
@@ -718,25 +865,58 @@ export function AppLayout(props: AppLayoutProps) {
               try {
                 return await resolveBlobUrl(item.blobId, item.serverId, "image");
               } catch {
-                return item.url ?? null;
+                // fall through to other paths below
+              }
+            }
+            if (item.localBlobId) {
+              try {
+                return await resolveLocalBlobUrl(item.localBlobId);
+              } catch {
+                /* ignore */
               }
             }
             return item.url ?? null;
           })
         )
-      ).filter((u): u is string => u !== null);
+      ).filter((u): u is string => !!u);
     } else {
-      // standard HTTP - use URLs directly
-      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
+      // mixed http remote + local: prefer remote_url, fall back to
+      // an OPFS-resolved object url for local-only images.
+      imageUrls = (
+        await Promise.all(
+          imageItems.map(async (item) => {
+            if (item.url) return item.url;
+            if (item.localBlobId) {
+              try {
+                return await resolveLocalBlobUrl(item.localBlobId);
+              } catch {
+                /* ignore */
+              }
+            }
+            return null;
+          })
+        )
+      ).filter((u): u is string => !!u);
     }
 
     if (imageUrls.length === 0) {
       return;
     }
 
+    // final url-level dedup: distinct blob ids can resolve to the same
+    // URL (e.g. tauri convertFileSrc returning the same OPFS path for
+    // the canonical and a derived image record). drop dupes so the
+    // carousel doesn't show identical slides.
+    const seenUrl = new Set<string>();
+    imageUrls = imageUrls.filter((u) => {
+      if (seenUrl.has(u)) return false;
+      seenUrl.add(u);
+      return true;
+    });
+
     showImageCarousel({
       images: imageUrls,
-      title: `${song.title} images`,
+      title: formatImageCarouselTitle(song.title, imageUrls.length),
     });
   };
 
@@ -862,8 +1042,11 @@ export function AppLayout(props: AppLayoutProps) {
       },
     });
 
-    // navigation actions based on type
+    // navigation actions based on type — scope to the entry's origin
+    // remote (server_remote_id or the first song's remote_server_id), not
+    // the globally-active remote, so links land on the right source.
     const firstSong = entry.songs[0];
+    const entryRemoteId = entry.server_remote_id ?? firstSong?.remote_server_id ?? "local";
     const navActions: MenuAction[] = [];
 
     // for song/album types, show both "view album" and "view artist"
@@ -874,14 +1057,14 @@ export function AppLayout(props: AppLayoutProps) {
         navActions.push({
           label: "view album",
           icon: IconNames.album,
-          onClick: () => navigate(routes.album(albumId)),
+          onClick: () => navigate(routes.albumOn(entryRemoteId, albumId)),
         });
       }
       if (artistId) {
         navActions.push({
           label: "view artist",
           icon: IconNames.artist,
-          onClick: () => navigate(routes.artist(artistId)),
+          onClick: () => navigate(routes.artistOn(entryRemoteId, artistId)),
         });
       }
     } else if (entry.entity_id) {
@@ -889,9 +1072,16 @@ export function AppLayout(props: AppLayoutProps) {
         string,
         { label: string; route: (id: string) => string; icon: IconName }
       > = {
-        artist: { label: "view artist", route: routes.artist, icon: IconNames.artist },
-        playlist: { label: "view playlist", route: routes.playlist, icon: IconNames.playlist },
-        genre: { label: "view genre", route: routes.genre, icon: IconNames.genre },
+        artist: {
+          label: "view artist",
+          route: (id) => routes.artistOn(entryRemoteId, id),
+          icon: IconNames.artist,
+        },
+        playlist: {
+          label: "view playlist",
+          route: (id) => routes.playlistOn(entryRemoteId, id),
+          icon: IconNames.playlist,
+        },
       };
       const nav = typeNavMap[entry.type];
       if (nav) {
@@ -929,7 +1119,6 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "songs", path: `${prefix}/songs` },
       { label: "albums", path: `${prefix}/albums` },
       { label: "artists", path: `${prefix}/artists` },
-      { label: "genres", path: `${prefix}/genres` },
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
     ];
@@ -1016,6 +1205,18 @@ export function AppLayout(props: AppLayoutProps) {
         onRecheckRemote={handleRecheckRemote}
         onAddRemote={() => setIsAddRemoteOpen(true)}
         onDeleteRemote={handleDeleteRemote}
+        onRenameRemote={handleRenameRemote}
+        localLibraryName={getLocalLibraryName()}
+        onRenameLocalLibrary={async (newName) => {
+          try {
+            await setLocalLibraryName(newName);
+            toast.success("local library renamed");
+          } catch (error) {
+            console.error("failed to rename local library:", error);
+            toast.error("failed to rename local library");
+            throw error;
+          }
+        }}
         storageUsage={storageUsage()}
         storageQuota={storageQuota()}
         recentPlaylists={
@@ -1033,6 +1234,11 @@ export function AppLayout(props: AppLayoutProps) {
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
         viewOptions={viewOptions()}
+        rightContent={topNavRightContent()}
+        secondaryRowContent={topNavSecondaryRowContent()}
+        searchComponent={topNavSearchContent()}
+        externalSearchExpanded={topNavSearchExpanded()}
+        hideSearch={topNavHideSearch()}
         mainNavSections={[
           {
             items: [
@@ -1076,13 +1282,6 @@ export function AppLayout(props: AppLayoutProps) {
                 },
               },
               {
-                label: "genres",
-                onClick: () => {
-                  const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
-                  navigate(`${prefix}/genres`);
-                },
-              },
-              {
                 label: "playlists",
                 onClick: () => {
                   const prefix = routeContext.isLocal() ? "/local" : `/${routeContext.remoteId()}`;
@@ -1105,7 +1304,7 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class="flex-1 overflow-hidden flex"
         style={{
-          "padding-top": isNarrow() ? "var(--nav-height, 56px)" : undefined,
+          "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined,
           "padding-bottom": "var(--player-bar-height)",
         }}
       >
@@ -1406,7 +1605,9 @@ export function AppLayout(props: AppLayoutProps) {
               const cs = currentSongData();
               if (!cs || !cs.album_id) return;
               setHighlightedSongId(cs.id);
-              navigate(routes.album(cs.album_id));
+              // scope to the song's origin remote, not the currently-active
+              // one — queue items can come from any remote/local source.
+              navigate(routes.albumOn(cs.remote_server_id ?? "local", cs.album_id));
               return;
             }
 
@@ -1544,21 +1745,25 @@ export function AppLayout(props: AppLayoutProps) {
       <AddRemoteModal
         isOpen={isAddRemoteOpen()}
         onClose={() => setIsAddRemoteOpen(false)}
-        onSuccess={() => {
+        onSuccess={(remote) => {
           debug("AppLayout", "remote added successfully");
-          // reload remotes list
+          // reload remotes, switch source to the new remote, and
+          // route to its default page.
           void (async () => {
             const allRemotes = await getAllRemotes();
             setRemotes(allRemotes);
+
+            const result = await connectToRemote(remote.remote_id, { skipHealthCheck: true });
+            if (result.success) {
+              navigate(getDefaultRoute(remote.remote_id));
+              queryClient.invalidateQueries();
+            }
           })();
         }}
       />
 
       {/* connection progress modal (appears when connecting takes >1s) */}
-      <ConnectionProgressModal
-        state={connectionProgress()}
-        onCancel={() => cancelAndNavigate(navigate)}
-      />
+      <ConnectionProgressModal state={connectionProgress()} onCancel={() => cancelConnection()} />
 
       {/* global confirm dialog */}
       <ConfirmDialog
@@ -1577,6 +1782,7 @@ export function AppLayout(props: AppLayoutProps) {
         isOpen={playlistSelectorState().isOpen}
         onClose={closePlaylistSelector}
         songIds={playlistSelectorState().songIds}
+        remote={playlistSelectorState().remote}
       />
 
       {/* global station selector modal (charnel-only) */}

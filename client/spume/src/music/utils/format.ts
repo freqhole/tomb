@@ -1,5 +1,13 @@
 // format utilities for display strings
 
+// turn a raw taxon/genre label into a display-friendly form. swaps
+// underscores for spaces; trims edges. used everywhere we render
+// taxon labels so values like `post_punk` show as `post punk`.
+export function formatTaxonLabel(label: string | null | undefined): string {
+  if (!label) return "";
+  return label.replace(/_/g, " ").trim();
+}
+
 // format bytes to human-readable size
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes === 0) return "0 B";

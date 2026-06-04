@@ -16,8 +16,8 @@ import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
 import { RemoteOfflineError } from "../data";
-import { showArtistEditor, showImageCarousel } from "../hooks/modals";
-import { useArtistSongsQuery, useArtistsQuery } from "../queries/songs";
+import { showArtistEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
+import { useArtistSongsQuery, useArtistsQuery, useArtistQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useArtistContextMenu } from "../hooks/contextMenu";
@@ -123,14 +123,32 @@ export function ArtistsView(props: ArtistsViewProps) {
     }
   });
 
-  // fetch artists using tanstack query (works with local + remote)
+  // fetch artists using tanstack query (works with local + remote).
+  // on narrow viewports the artist detail view occupies the full screen,
+  // so we skip the (potentially huge) artists list fetch while the
+  // detail is showing — unless the user is searching, in which case
+  // they're explicitly browsing the list.
+  const artistsListEnabled = createMemo(() => {
+    const q = searchParams.q;
+    const hasSearch = !!(Array.isArray(q) ? q[0] : q);
+    if (hasSearch) return true;
+    if (isNarrow() && showingDetailOnNarrow()) return false;
+    return true;
+  });
   const artistsQuery = useArtistsQuery({
     pageSize: 100,
     query: () => {
       const q = searchParams.q;
       return Array.isArray(q) ? q[0] : q;
     },
+    enabled: artistsListEnabled,
   });
+
+  // independent single-artist fetch for the detail panel. this lets the
+  // detail render as soon as its own (small, fast) query resolves —
+  // without waiting on the full artists list to flatten + sort. crucial
+  // on slow connections + large libraries.
+  const selectedArtistQuery = useArtistQuery(() => selectedArtistId() ?? undefined);
 
   // rating mutation
   const setRatingMutation = useSetRatingMutation();
@@ -225,11 +243,15 @@ export function ArtistsView(props: ArtistsViewProps) {
     });
   });
 
-  // get selected artist data
+  // get selected artist data. prefer the dedicated single-artist query
+  // (resolves fast) and fall back to the list result so wide-viewport
+  // browsing still works seamlessly when the list arrives first.
   const selectedArtist = createMemo(() => {
     const id = selectedArtistId();
     if (!id) return null;
-    return sortedArtists().find((a) => a.artist_id === id);
+    const fromDetail = selectedArtistQuery.data;
+    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
+    return sortedArtists().find((a) => a.artist_id === id) ?? null;
   });
 
   // convert to list items
@@ -548,14 +570,13 @@ export function ArtistsView(props: ArtistsViewProps) {
 
     showImageCarousel({
       images: imageUrls,
-      title: `${artist.name} images`,
+      title: formatImageCarouselTitle(artist.name, imageUrls.length),
     });
   };
 
-  // navigate to genre detail
-  const handleGenreClick = (genreId: string, _genreName: string) => {
-    navigate(buildRoute(`/genres/${genreId}`));
-  };
+  // genre detail view was removed in the taxonomy refactor; chip clicks
+  // are kept as no-ops until phase-9 replaces them with a taxon picker.
+  const handleGenreClick = (_genreId: string, _genreName: string) => {};
 
   // build context menu actions for each artist
   const getContextMenuActions = (item: ListItem, _index: number) => {
@@ -627,6 +648,12 @@ export function ArtistsView(props: ArtistsViewProps) {
   // handle back navigation on narrow
   const handleBack = () => {
     setShowingDetailOnNarrow(false);
+    // the artists list query is disabled while detail is showing on narrow
+    // (to avoid a heavy fetch on initial deep-link load). flipping
+    // showingDetailOnNarrow above re-enables it, but tanstack query won't
+    // fire until the next scheduler tick. eagerly refetch now so the list
+    // is already loading by the time the list column becomes visible.
+    void artistsQuery.refetch();
   };
 
   // left column - artist list

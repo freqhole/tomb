@@ -56,13 +56,20 @@ pub struct RadioFiltersRemoveRequest {
 /// search and returns up to `limit` matches.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct RadioSeedSuggestRequest {
-    /// one of `"tag"`, `"genre"`, `"artist"`, `"album"`, `"song"`, `"playlist"`
+    /// one of `"tag"`, `"taxon"`, `"artist"`, `"album"`, `"song"`, `"playlist"`.
+    /// legacy `"genre"` is accepted as an alias for `"taxon"` with
+    /// `kind_slug = "genre"` implied.
     pub kind: String,
     /// search prefix; empty string returns top results when supported
     pub query: String,
     /// max suggestions to return (server caps at 50)
     #[serde(default)]
     pub limit: Option<u32>,
+    /// optional taxon kind filter (e.g. `"genre"`, `"label"`, `"mood"`).
+    /// only consulted when `kind == "taxon"`; `None` returns matches
+    /// across every kind.
+    #[serde(default)]
+    pub kind_slug: Option<String>,
 }
 
 /// single suggestion row returned by `radio_seed_suggest`.

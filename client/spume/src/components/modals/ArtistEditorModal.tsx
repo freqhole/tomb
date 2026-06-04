@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateArtist, canDeleteArtist } from "../../music/data/permissions";
 import { useUpdateArtistMutation } from "../../music/queries/mutations";
@@ -21,6 +22,9 @@ import { error as errorLog } from "../../utils/logger";
 
 interface ArtistEditorModalProps {
   artistId: string;
+  /** when set, the modal queries against this remote instead of the
+   *  globally-active data source. mirrors the album editor pattern. */
+  remote?: Remote;
   onClose: () => void;
   onSave?: () => void;
   /** if true, hides buttons that would open other modals (prevents infinite recursion) */
@@ -35,7 +39,10 @@ interface FormData {
 
 export function ArtistEditorModal(props: ArtistEditorModalProps) {
   const queryClient = useQueryClient();
-  const artistQuery = useArtistQuery(() => props.artistId);
+  const artistQuery = useArtistQuery(
+    () => props.artistId,
+    () => props.remote
+  );
   const updateMutation = useUpdateArtistMutation();
 
   const [formData, setFormData] = createSignal<FormData>({
@@ -226,10 +233,13 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       });
 
       // poll for job completion
-      const remote = getCurrentRemote();
+      const remote = props.remote ?? getCurrentRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) =>
+            setProcessingJob({ status: "processing", message: message ?? "processing image..." }),
+        });
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);

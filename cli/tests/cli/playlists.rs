@@ -43,11 +43,11 @@ fn test_playlists_create() {
         "Should create playlist successfully"
     );
     assert!(
-        result["data"][0]["id"].is_string(),
+        result["data"]["id"].is_string(),
         "Should return playlist ID"
     );
     assert_eq!(
-        result["data"][0]["title"], "Test Playlist",
+        result["data"]["title"], "Test Playlist",
         "Title should match"
     );
 }
@@ -77,15 +77,15 @@ fn test_playlists_query() {
 fn test_playlists_list() {
     let ctx = TestContext::from_snapshot();
 
-    // List all playlists
-    let result = ctx.run_json(&["music", "list-playlists"]);
+    // query all playlists
+    let result = ctx.run_json(&["music", "query-playlists", "--limit", "100"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
         "Should list playlists successfully"
     );
     assert!(
-        result["data"].is_array(),
+        result["data"]["items"].is_array(),
         "Should return array of playlists"
     );
 }
@@ -121,7 +121,7 @@ fn test_playlists_add_songs() {
         "--created-by-id",
         user_id,
     ]);
-    let playlist_id = playlist_result["data"][0]["id"].as_str().unwrap();
+    let playlist_id = playlist_result["data"]["id"].as_str().unwrap();
 
     // Get some song IDs
     let songs_result = ctx.run_json(&["music", "query-songs", "--limit", "3"]);
@@ -158,16 +158,16 @@ fn test_playlists_add_songs() {
 fn test_playlists_query_songs() {
     let ctx = TestContext::from_snapshot();
 
-    // First, try to find a playlist with songs
-    let playlists_result = ctx.run_json(&["music", "list-playlists"]);
-    let playlists = playlists_result["data"].as_array().unwrap();
+    // first, try to find a playlist with songs
+    let playlists_result = ctx.run_json(&["music", "query-playlists", "--limit", "100"]);
+    let playlists = playlists_result["data"]["items"].as_array().unwrap();
 
     if playlists.is_empty() {
         // Skip test if no playlists
         return;
     }
 
-    let playlist_id = playlists[0]["id"].as_str().unwrap();
+    let playlist_id = playlists[0]["playlist"]["id"].as_str().unwrap();
 
     // Query songs in the playlist
     let result = ctx.run_json(&[
@@ -224,7 +224,7 @@ fn test_playlists_update() {
         "--created-by-id",
         user_id,
     ]);
-    let playlist_id = playlist_result["data"][0]["id"].as_str().unwrap();
+    let playlist_id = playlist_result["data"]["id"].as_str().unwrap();
 
     // Update the playlist
     let result = ctx.run_json(&[
@@ -241,7 +241,7 @@ fn test_playlists_update() {
         "Should update playlist successfully"
     );
     assert_eq!(
-        result["data"][0]["title"], "Updated Title",
+        result["data"]["title"], "Updated Title",
         "Title should be updated"
     );
 }
@@ -277,7 +277,7 @@ fn test_playlists_delete() {
         "--created-by-id",
         user_id,
     ]);
-    let playlist_id = playlist_result["data"][0]["id"].as_str().unwrap();
+    let playlist_id = playlist_result["data"]["id"].as_str().unwrap();
 
     // Delete the playlist
     let result = ctx.run_json(&["music", "delete-playlist", "--playlist-id", playlist_id]);
@@ -292,15 +292,8 @@ fn test_playlists_delete() {
 fn test_playlists_search() {
     let ctx = TestContext::from_snapshot();
 
-    // Search for playlists
-    let result = ctx.run_json(&[
-        "music",
-        "search-playlists",
-        "--query",
-        "test",
-        "--limit",
-        "10",
-    ]);
+    // search for playlists via query-playlists
+    let result = ctx.run_json(&["music", "query-playlists", "--q", "test", "--limit", "10"]);
 
     assert!(
         result["success"].as_bool().unwrap(),
@@ -344,10 +337,10 @@ fn test_playlists_user_list() {
         user_id,
     ]);
 
-    // List user's playlists
+    // list user's playlists via query-playlists --user-id
     let result = ctx.run_json(&[
         "music",
-        "list-user-playlists",
+        "query-playlists",
         "--user-id",
         user_id,
         "--limit",
@@ -399,7 +392,7 @@ fn test_playlists_complete_workflow() {
         user_id,
     ]);
     assert!(playlist_result["success"].as_bool().unwrap());
-    let playlist_id = playlist_result["data"][0]["id"].as_str().unwrap();
+    let playlist_id = playlist_result["data"]["id"].as_str().unwrap();
 
     // 3. Get songs
     let songs_result = ctx.run_json(&["music", "query-songs", "--limit", "3"]);
@@ -454,11 +447,11 @@ fn test_playlists_complete_workflow() {
     let delete_result = ctx.run_json(&["music", "delete-playlist", "--playlist-id", playlist_id]);
     assert!(delete_result["success"].as_bool().unwrap());
 
-    // 8. Verify deletion
-    let list_result = ctx.run_json(&["music", "list-playlists"]);
-    let playlists = list_result["data"].as_array().unwrap();
+    // 8. verify deletion
+    let list_result = ctx.run_json(&["music", "query-playlists", "--limit", "100"]);
+    let playlists = list_result["data"]["items"].as_array().unwrap();
     assert!(
-        !playlists.iter().any(|p| p["id"] == playlist_id),
+        !playlists.iter().any(|p| p["playlist"]["id"] == playlist_id),
         "Playlist should be deleted"
     );
 }

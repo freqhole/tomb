@@ -1,6 +1,6 @@
 // search input with dropdown suggestions
 // plain input + custom dropdown — no kobalte, no pointer-drift bugs
-import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
@@ -13,6 +13,8 @@ export interface SearchSuggestion {
   id: string;
   text: string;
   category?: string;
+  /** small second line under the category badge (e.g. originating remote) */
+  categoryDetail?: { label: string; title?: string };
   highlight?: string;
   images?: ImageMetadata[];
   isFavorite?: boolean;
@@ -56,6 +58,8 @@ export interface SearchInputProps {
    * (otherwise the flyout escapes the root and loses its styles).
    */
   flyoutMount?: Node;
+  /** optional content rendered at the bottom of the dropdown (status, hints) */
+  footerContent?: JSX.Element;
 }
 
 export function SearchInput(props: SearchInputProps) {
@@ -225,11 +229,20 @@ export function SearchInput(props: SearchInputProps) {
       {/* portal: hint + flyout rendered outside overflow-hidden parents */}
       <Show when={props.hintMessage || (isOpen() && (suggestions().length > 0 || props.loading))}>
         <Portal mount={props.flyoutMount as HTMLElement | undefined}>
-          {/* backdrop — only when flyout is open */}
+          {/* backdrop — only when flyout is open. starts below the topnav
+              so taps on the search-icon button always reach the topnav's
+              own click handler instead of being eaten by the backdrop. */}
           <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
             <div
               class="bg-black/10"
-              style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1001 }}
+              style={{
+                position: "fixed",
+                top: "var(--nav-height, 56px)",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                "z-index": 1001,
+              }}
               onClick={() => props.onOpenChange?.(false)}
             />
           </Show>
@@ -300,6 +313,12 @@ export function SearchInput(props: SearchInputProps) {
               <Show when={!props.loading && suggestions().length === 0}>
                 <div class="px-4 py-3 text-sm text-[var(--color-text-tertiary)] text-center">
                   no suggestions found
+                </div>
+              </Show>
+
+              <Show when={props.footerContent}>
+                <div class="border-t border-[var(--color-border-subtle)]">
+                  {props.footerContent}
                 </div>
               </Show>
             </div>
@@ -382,11 +401,38 @@ function SuggestionRow(props: {
         <FavoriteHeart isFavorite={true} readonly={true} size="sm" class="flex-shrink-0" />
       </Show>
 
-      {/* category badge */}
+      {/* category badge. for taxon rows, the badge shows the taxon
+       *  kind (genre/mood/tag/style/etc) instead of the generic
+       *  "taxon" wire value, so users can distinguish what kind of
+       *  match a row is at a glance. FEDERATION-COMPAT-LEGACY-GENRE-TYPE:
+       *  legacy peers still send "genre" — treat it the same. */}
       <Show when={props.suggestion.category}>
-        <div class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]">
-          {props.suggestion.category}
-        </div>
+        {(() => {
+          const apiData = props.suggestion.data as
+            | { suggestion_type?: string; metadata?: { kind_slug?: string } }
+            | undefined;
+          const isTaxon =
+            apiData?.suggestion_type === "taxon" || apiData?.suggestion_type === "genre";
+          const kindSlug = apiData?.metadata?.kind_slug;
+          const badgeLabel = isTaxon && kindSlug ? kindSlug : props.suggestion.category;
+          return (
+            <div class="px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] flex flex-col items-end leading-tight max-w-[140px]">
+              <span>{badgeLabel}</span>
+              <Show when={props.suggestion.categoryDetail}>
+                <div class="text-[9px] opacity-70 w-full">
+                  <HighlightedMarqueeText
+                    text={props.suggestion.categoryDetail!.label}
+                    title={
+                      props.suggestion.categoryDetail!.title ??
+                      props.suggestion.categoryDetail!.label
+                    }
+                    isHovering={props.highlighted}
+                  />
+                </div>
+              </Show>
+            </div>
+          );
+        })()}
       </Show>
     </div>
   );

@@ -4,6 +4,14 @@
 // blobs are cached in Cache API for audio playback.
 
 import type { BlobData, Transport, TransportResponse } from "./transport.js";
+import { snapshotJobEventsViaRequest } from "./transport.js";
+import type {
+  CloseReason,
+  EventFilter,
+  JobEvent,
+  JobStateSnapshot,
+} from "./codegen/schema.js";
+import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 
 /**
  * interface matching midden's BlobResult WASM class
@@ -12,6 +20,22 @@ export interface BlobResultLike {
   data(): Uint8Array;
   size(): number;
   content_type(): string | undefined;
+}
+
+/**
+ * interface matching midden's BiStream WASM class. used for raw
+ * bi-directional streams over arbitrary ALPNs (e.g. freqhole-events/1).
+ */
+export interface BiStreamLike {
+  peer_node_id(): string;
+  alpn(): string;
+  write_line(line: string): Promise<void>;
+  read_line(): Promise<string | null>;
+  // length-prefixed framing (unused here, but matches the wasm class)
+  write_message?(data: Uint8Array): Promise<void>;
+  read_message?(): Promise<Uint8Array | null>;
+  // raw byte primitives (read_to_end / write_raw_and_finish exist too)
+  close(): void;
 }
 
 /**
@@ -100,6 +124,9 @@ export interface MiddenNodeLike {
     on_meta: (json: string) => void,
     on_chunk: (seq: number, is_init: boolean, bytes: Uint8Array) => void,
   ): Promise<RadioHandleLike>;
+  // open a raw bi-directional stream on an arbitrary ALPN. used for
+  // job events (freqhole-events/1) and other custom protocols.
+  open_bi?(peer_addr: string, alpn: string): Promise<BiStreamLike>;
 }
 
 /**
@@ -882,5 +909,169 @@ export class WasmTransport implements Transport {
     const contentType = result.content_type ?? "image/png";
 
     return { data, contentType };
+  }
+
+  // -----------------------------------------------------------------
+  // job events (freqhole-events/1 ALPN over midden bi-stream).
+  //
+  // snapshot opens a one-shot stream: subscribe, read snapshot, send
+  // unsubscribe, close. subscribe opens a long-lived stream that yields
+  // each Event frame. ndjson framing matches the rust EventsClientMsg/
+  // EventsServerMsg wire format.
+  //
+  // if midden's `open_bi` is missing (older midden build), both methods
+  // fall back to http snapshot / polling so callers don't need to
+  // feature-detect.
+  // -----------------------------------------------------------------
+
+  async snapshotJobEvents(filter?: EventFilter): Promise<JobStateSnapshot[]> {
+    if (!this.node.open_bi) {
+      return snapshotJobEventsViaRequest(this, filter);
+    }
+    const stream = await this.node.open_bi(this.peerAddr, EVENTS_ALPN);
+    try {
+      const id = 1;
+      await stream.write_line(
+        JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }),
+      );
+      // first server frame is always Snapshot for this id
+      const snapLine = await stream.read_line();
+      if (snapLine === null) {
+        throw new Error("snapshotJobEvents: stream closed before snapshot");
+      }
+      const frame = JSON.parse(snapLine) as EventsServerWire;
+      if (frame.type !== "snapshot") {
+        if (frame.type === "close") {
+          throw new JobEventsStreamClosed(frame.reason);
+        }
+        throw new Error(`snapshotJobEvents: unexpected frame type ${frame.type}`);
+      }
+      // best-effort unsubscribe; ignore errors
+      try {
+        await stream.write_line(JSON.stringify({ type: "unsubscribe", id }));
+      } catch {
+        /* noop */
+      }
+      return frame.items;
+    } finally {
+      try {
+        stream.close();
+      } catch {
+        /* noop */
+      }
+    }
+  }
+
+  subscribeJobEvents(
+    filter?: EventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<JobEvent> {
+    if (!this.node.open_bi) {
+      return wasmFallbackPollingIterable(this, filter, signal);
+    }
+    return wasmSubscribeJobEventsIterable(
+      this.node,
+      this.peerAddr,
+      filter,
+      signal,
+    );
+  }
+}
+
+// fallback when midden lacks open_bi (older build): same polling iterator
+// HttpTransport uses, lazily imported to avoid a hard cycle with transport.js.
+async function* wasmFallbackPollingIterable(
+  transport: Transport,
+  filter: EventFilter | undefined,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<JobEvent, void, void> {
+  const { pollingJobEvents } = await import("./transport.js");
+  yield* pollingJobEvents(transport, filter, signal);
+}
+
+// ---------------------------------------------------------------------
+// wire types for the freqhole-events/1 ndjson protocol
+// (mirrors grimoire/src/federation/transport/events_protocol.rs)
+// ---------------------------------------------------------------------
+
+const EVENTS_ALPN = "freqhole-events/1";
+
+type EventsServerWire =
+  | { type: "snapshot"; id: number; items: JobStateSnapshot[] }
+  | { type: "event"; id: number; evt: JobEvent }
+  | { type: "close"; id: number; reason: CloseReason };
+
+/**
+ * async-iterable subscribe over a midden bi-stream. opens once, writes
+ * one `subscribe`, reads `snapshot`+events, surfaces `close` as a
+ * `JobEventsStreamClosed` error (except for `client_unsubscribed`).
+ *
+ * the snapshot itself is *not* yielded as an event — consumers that
+ * want both should call `snapshotJobEvents()` separately. this matches
+ * the contract `pollingJobEvents` / `charnelJobEventsIterable` follow.
+ */
+async function* wasmSubscribeJobEventsIterable(
+  node: MiddenNodeLike,
+  peerAddr: string,
+  filter: EventFilter | undefined,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<JobEvent, void, void> {
+  if (!node.open_bi) {
+    throw new Error("midden node has no open_bi method (rebuild midden)");
+  }
+  const stream = await node.open_bi(peerAddr, EVENTS_ALPN);
+  const id = 1;
+
+  const onAbort = () => {
+    // best-effort: write unsubscribe + close. errors are swallowed
+    // because the stream may already be torn down.
+    stream
+      .write_line(JSON.stringify({ type: "unsubscribe", id }))
+      .catch(() => {})
+      .finally(() => {
+        try {
+          stream.close();
+        } catch {
+          /* noop */
+        }
+      });
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    await stream.write_line(
+      JSON.stringify({ type: "subscribe", id, filter: filter ?? {} }),
+    );
+
+    while (true) {
+      if (signal?.aborted) return;
+      const line = await stream.read_line();
+      if (line === null) {
+        // stream finished without an explicit close frame
+        throw new JobEventsStreamClosed({ kind: "internal" } as CloseReason);
+      }
+      const frame = JSON.parse(line) as EventsServerWire;
+      if (frame.type === "snapshot") {
+        // server always sends snapshot first; we just skip it here
+        continue;
+      }
+      if (frame.type === "event") {
+        yield frame.evt;
+        continue;
+      }
+      if (frame.type === "close") {
+        const reasonKind =
+          (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new JobEventsStreamClosed(frame.reason);
+      }
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    try {
+      stream.close();
+    } catch {
+      /* noop */
+    }
   }
 }

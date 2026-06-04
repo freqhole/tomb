@@ -30,7 +30,6 @@
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import type { PlayerBackend } from "./backend";
 import { DummyBackend } from "./backends/dummy";
-import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { RodioBackend } from "./backends/rodioBackend";
 
 /// localStorage fallback key — only consulted in non-charnel mode.
@@ -107,20 +106,26 @@ function readLocalFallback(): boolean {
 
 /// pick the appropriate backend for the current host.
 ///
-/// **callers must pass `htmlBackend`** \u2014 the always-allocated
+/// **callers must pass `htmlBackend`** - the always-allocated
 /// html instance owned by the player facade. when html is the
 /// chosen backend, we return that same instance (not a fresh one)
 /// so its dom event stream is the single source of truth feeding
 /// `playerStateSync`. constructing a second `HtmlAudioBackend`
 /// would create a "ghost" instance whose audio element plays but
-/// whose events nobody is listening to \u2014 the UI would freeze
+/// whose events nobody is listening to - the UI would freeze
 /// while audio kept going.
+///
+/// the parameter is typed as `PlayerBackend` rather than
+/// `HtmlAudioBackend` to avoid a static import edge
+/// `select.ts → htmlAudio.ts` (which would close cycles via
+/// `htmlAudio → mediaSessionBridge → ...`). the player facade is
+/// the only caller and always passes its own `htmlBackend` instance.
 ///
 /// returns:
 /// - `RodioBackend` in tauri/charnel when the user opted in
 /// - the passed-in html instance in tauri (rodio off) and in browsers
 /// - `DummyBackend` only when the dom isn't available (tests, ssr)
-export function selectBackend(htmlBackend: HtmlAudioBackend): PlayerBackend {
+export function selectBackend(htmlBackend: PlayerBackend): PlayerBackend {
   if (isCharnelMode() && isRodioEnabled()) {
     return new RodioBackend();
   }

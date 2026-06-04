@@ -9,7 +9,7 @@
 // - session auto-completes when progress reaches total_songs
 
 import { createSignal } from "solid-js";
-import { getClientForRemote, type Remote, type RemoteRef } from "../../../app/api/client";
+import { getClientForRemote, type Remote, type RemoteRef, isNetworkError } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { debug, warn } from "../../../utils/logger";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
@@ -256,6 +256,17 @@ async function sendProgress(session: RemoteSession): Promise<void> {
       );
       remoteSessions.delete(session.remoteId);
       updatePrimarySessionId();
+      return;
+    }
+
+    // transient connectivity blips with the remote peer (iroh discovery
+    // miss, peer offline, etc.) shouldn't spam the console — progress is
+    // resent on the next song boundary anyway.
+    if (isNetworkError(result)) {
+      warn(
+        "serverSession",
+        `transient network error updating progress on remote ${session.remoteId} — will retry next tick`,
+      );
       return;
     }
 

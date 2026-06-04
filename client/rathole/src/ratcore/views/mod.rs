@@ -151,8 +151,9 @@ fn header_line(app: &App) -> Line<'static> {
         Span::raw("   "),
     ];
 
-    // remote name (or `local`) in brackets — replaces the previous
+    // remote name (or local server name) in brackets — replaces the previous
     // [home]/[admin] focus label.
+    let local_name = local_server_name();
     let remote_label = if app.state.ephemeral.connected_peer.is_some() {
         if let Some(name) = app
             .state
@@ -165,12 +166,12 @@ fn header_line(app: &App) -> Line<'static> {
         } else if let Some(peer) = &app.state.ephemeral.connected_peer {
             format!("[{}]", short_id(peer))
         } else {
-            "[local]".to_string()
+            format!("[{local_name} local]")
         }
     } else if app.state.ephemeral.local_node_id.is_some() {
-        "[local p2p]".to_string()
+        format!("[{local_name} local p2p]")
     } else {
-        "[local]".to_string()
+        format!("[{local_name} local]")
     };
     spans.push(Span::styled(
         remote_label,
@@ -198,6 +199,22 @@ fn header_line(app: &App) -> Line<'static> {
     push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
 
     Line::from(spans)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn local_server_name() -> String {
+    let cfg = grimoire::config::get_config();
+    let name = cfg.server.as_ref().map(|s| s.name.trim()).unwrap_or("");
+    if name.is_empty() {
+        "local".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn local_server_name() -> String {
+    "local".to_string()
 }
 
 fn push_serve_badges(spans: &mut Vec<Span<'static>>, badge: &crate::ratcore::app::ServeBadge) {
@@ -271,7 +288,34 @@ fn knock_indicator_text(app: &App) -> Option<String> {
         return None;
     }
     // ascii-only bell stand-in; lowercase prose, no emoji.
+    if n == 1 {
+        if let Some(username) = app
+            .state
+            .ephemeral
+            .pending_knock_username
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            let short = truncate_header_text(username.trim(), 20);
+            return Some(format!(" knock {short} "));
+        }
+    }
     Some(format!(" knock {n} "))
+}
+
+fn truncate_header_text(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let len = s.chars().count();
+    if len <= max_chars {
+        return s.to_string();
+    }
+    if max_chars <= 3 {
+        return "...".chars().take(max_chars).collect();
+    }
+    let head: String = s.chars().take(max_chars - 3).collect();
+    format!("{head}...")
 }
 
 #[allow(dead_code)]

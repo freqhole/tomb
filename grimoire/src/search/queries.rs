@@ -210,14 +210,16 @@ pub async fn search_artists(
             rating.rating as "user_rating: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64",
             (SELECT GROUP_CONCAT(name, ', ')
-             FROM (SELECT DISTINCT genre.name as name
+             FROM (SELECT DISTINCT taxon.label as name
                    FROM artist_songz asong2
                    JOIN album_songz alsong ON asong2.song_id = alsong.song_id
                    JOIN albumz alb ON alsong.album_id = alb.id
-                   JOIN album_genrez ag ON alb.id = ag.album_id
-                   JOIN genrez genre ON ag.genre_id = genre.id
+                   JOIN album_taxonz at ON alb.id = at.album_id
+                   JOIN taxonz taxon ON at.taxon_id = taxon.id
+                   JOIN taxon_kindz kind ON kind.id = taxon.kind_id
                    WHERE asong2.artist_id = artist.id
-                     AND genre.deleted_at IS NULL
+                     AND kind.slug = 'genre'
+                     AND taxon.deleted_at IS NULL
                      AND alb.deleted_at IS NULL)
             ) as "genres: String"
         FROM artistz_fts fts
@@ -349,10 +351,13 @@ pub async fn search_albums(
             fts.rank as "fts_rank!: f64",
             (SELECT COUNT(DISTINCT asong2.song_id) FROM album_songz asong2 WHERE asong2.album_id = album.id) as "song_count!: i64",
             (SELECT GROUP_CONCAT(name, ', ')
-             FROM (SELECT DISTINCT g.name as name
-                   FROM album_genrez ag
-                   JOIN genrez g ON ag.genre_id = g.id
-                   WHERE ag.album_id = album.id AND g.deleted_at IS NULL)
+             FROM (SELECT DISTINCT t.label as name
+                   FROM album_taxonz at
+                   JOIN taxonz t ON at.taxon_id = t.id
+                   JOIN taxon_kindz k ON k.id = t.kind_id
+                   WHERE at.album_id = album.id
+                     AND k.slug = 'genre'
+                     AND t.deleted_at IS NULL)
             ) as "genre_names: String",
             rating.rating as "user_rating: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64",
@@ -452,7 +457,7 @@ pub async fn search_genres(
     limit: u32,
     offset: u32,
 ) -> GrimoireResult<Vec<GenreSearchResult>> {
-    // FTS search on genrez_fts with aggregates
+    // FTS search on taxonz_fts (filtered to kind='genre') with aggregates
     // tag filtering: only show genres that appear on albums with matching tags
     // collect sub-genres, count songs/artists, get representative data
 
@@ -488,29 +493,44 @@ pub async fn search_genres(
         r#"
         SELECT
             genre.id as "genre_id!: String",
-            genre.name as "genre_name!: String",
+            genre.label as "genre_name!: String",
             fts.rank as "fts_rank!: f64",
-            (SELECT COUNT(DISTINCT s.id) FROM album_genrez ag JOIN albumz alb ON ag.album_id = alb.id JOIN album_songz asong ON alb.id = asong.album_id JOIN songz s ON asong.song_id = s.id WHERE ag.genre_id = genre.id AND alb.deleted_at IS NULL AND s.deleted_at IS NULL) as "song_count!: i64",
-            (SELECT COUNT(DISTINCT arsong.artist_id) FROM album_genrez ag JOIN albumz alb ON ag.album_id = alb.id JOIN album_songz asong ON alb.id = asong.album_id JOIN artist_songz arsong ON asong.song_id = arsong.song_id WHERE ag.genre_id = genre.id AND alb.deleted_at IS NULL) as "artist_count!: i64"
-        FROM genrez_fts fts
-        JOIN genrez genre ON fts.genre_id = genre.id
-        WHERE genrez_fts MATCH ?
+            (SELECT COUNT(DISTINCT s.id)
+                FROM album_taxonz at
+                JOIN albumz alb ON at.album_id = alb.id
+                JOIN album_songz asong ON alb.id = asong.album_id
+                JOIN songz s ON asong.song_id = s.id
+                WHERE at.taxon_id = genre.id
+                  AND alb.deleted_at IS NULL
+                  AND s.deleted_at IS NULL) as "song_count!: i64",
+            (SELECT COUNT(DISTINCT arsong.artist_id)
+                FROM album_taxonz at
+                JOIN albumz alb ON at.album_id = alb.id
+                JOIN album_songz asong ON alb.id = asong.album_id
+                JOIN artist_songz arsong ON asong.song_id = arsong.song_id
+                WHERE at.taxon_id = genre.id
+                  AND alb.deleted_at IS NULL) as "artist_count!: i64"
+        FROM taxonz_fts fts
+        JOIN taxonz genre ON fts.taxon_id = genre.id
+        JOIN taxon_kindz kind ON kind.id = genre.kind_id
+        WHERE taxonz_fts MATCH ?
+            AND kind.slug = 'genre'
             AND genre.deleted_at IS NULL
             -- tag include filter (OR logic - genre must appear on at least one album with these tags)
             AND (NOT ? OR EXISTS (
-                SELECT 1 FROM album_genrez ag_filter
-                JOIN album_tagz atag ON atag.album_id = ag_filter.album_id
-                WHERE ag_filter.genre_id = genre.id
+                SELECT 1 FROM album_taxonz at_filter
+                JOIN album_tagz atag ON atag.album_id = at_filter.album_id
+                WHERE at_filter.taxon_id = genre.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
             -- tag exclude filter (AND NOT logic - genre must not appear on any albums with these tags)
             AND (NOT ? OR NOT EXISTS (
-                SELECT 1 FROM album_genrez ag_filter
-                JOIN album_tagz atag ON atag.album_id = ag_filter.album_id
-                WHERE ag_filter.genre_id = genre.id
+                SELECT 1 FROM album_taxonz at_filter
+                JOIN album_tagz atag ON atag.album_id = at_filter.album_id
+                WHERE at_filter.taxon_id = genre.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
-        GROUP BY genre.id, genre.name, fts.rank
+        GROUP BY genre.id, genre.label, fts.rank
         ORDER BY fts.rank DESC
         LIMIT ? OFFSET ?
         "#,
@@ -527,17 +547,15 @@ pub async fn search_genres(
 
     let results = rows
         .into_iter()
-        .map(|row| {
-            GenreSearchResult {
-                genre: row.genre_name,
-                genre_id: row.genre_id,
-                song_count: row.song_count,
-                artist_count: row.artist_count,
-                representative_song_id: None,
-                representative_thumbnail: None,
-                avg_rating: None,
-                search_rank: row.fts_rank as f32,
-            }
+        .map(|row| GenreSearchResult {
+            genre: row.genre_name,
+            genre_id: row.genre_id,
+            song_count: row.song_count,
+            artist_count: row.artist_count,
+            representative_song_id: None,
+            representative_thumbnail: None,
+            avg_rating: None,
+            search_rank: row.fts_rank as f32,
         })
         .collect();
 

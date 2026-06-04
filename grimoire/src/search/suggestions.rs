@@ -23,6 +23,9 @@ pub async fn get_song_suggestions(
         song_title: String,
         images: Option<String>, // JSON array
         album_id: Option<String>,
+        album_title: Option<String>,
+        artist_ids: Option<String>,   // JSON array of artistz.id
+        artist_names: Option<String>, // JSON array of artistz.name, parallel order
         fts_rank: f64,
         user_rating: Option<i64>,
         is_favorite: i64,
@@ -42,6 +45,16 @@ pub async fn get_song_suggestions(
              JOIN media_blobz mb ON si.media_blob_id = mb.id
              WHERE si.song_id = song.id) as "images: String",
             (SELECT album_id FROM album_songz WHERE song_id = song.id LIMIT 1) as "album_id: String",
+            (SELECT al.title FROM album_songz als JOIN albumz al ON al.id = als.album_id
+             WHERE als.song_id = song.id AND al.deleted_at IS NULL LIMIT 1) as "album_title: String",
+            (SELECT json_group_array(id) FROM (
+                SELECT ar.id AS id FROM artist_songz asj JOIN artistz ar ON ar.id = asj.artist_id
+                WHERE asj.song_id = song.id AND ar.deleted_at IS NULL ORDER BY ar.id
+             )) as "artist_ids: String",
+            (SELECT json_group_array(name) FROM (
+                SELECT ar.name AS name FROM artist_songz asj JOIN artistz ar ON ar.id = asj.artist_id
+                WHERE asj.song_id = song.id AND ar.deleted_at IS NULL ORDER BY ar.id
+             )) as "artist_names: String",
             fts.rank as "fts_rank!: f64",
             rating.rating as "user_rating: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
@@ -90,7 +103,10 @@ pub async fn get_song_suggestions(
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
                     "images": row.images,
-                    "album_id": row.album_id
+                    "album_id": row.album_id,
+                    "album_title": row.album_title,
+                    "artist_ids": row.artist_ids,
+                    "artist_names": row.artist_names
                 })),
                 entity_id: row.song_id,
                 is_favorite: row.is_favorite != 0,
@@ -210,7 +226,9 @@ pub async fn get_album_suggestions(
     struct AlbumSuggestionRow {
         album_id: String,
         album_title: String,
-        images: Option<String>, // JSON array
+        images: Option<String>,       // JSON array
+        artist_ids: Option<String>,   // JSON array of artistz.id
+        artist_names: Option<String>, // JSON array of artistz.name, parallel order
         fts_rank: f64,
         song_count: i64,
         user_rating: Option<i64>,
@@ -230,6 +248,14 @@ pub async fn get_album_suggestions(
              FROM album_imagez ai
              JOIN media_blobz mb ON ai.media_blob_id = mb.id
              WHERE ai.album_id = album.id) as "images: String",
+            (SELECT json_group_array(id) FROM (
+                SELECT ar.id AS id FROM artist_albumz aaj JOIN artistz ar ON ar.id = aaj.artist_id
+                WHERE aaj.album_id = album.id AND ar.deleted_at IS NULL ORDER BY ar.id
+             )) as "artist_ids: String",
+            (SELECT json_group_array(name) FROM (
+                SELECT ar.name AS name FROM artist_albumz aaj JOIN artistz ar ON ar.id = aaj.artist_id
+                WHERE aaj.album_id = album.id AND ar.deleted_at IS NULL ORDER BY ar.id
+             )) as "artist_names: String",
             fts.rank as "fts_rank!: f64",
             COUNT(DISTINCT album_song.song_id) as "song_count!: i64",
             rating.rating as "user_rating: i64",
@@ -280,7 +306,9 @@ pub async fn get_album_suggestions(
                 confidence,
                 metadata: Some(serde_json::json!({
                     "match_type": "title",
-                    "images": row.images
+                    "images": row.images,
+                    "artist_ids": row.artist_ids,
+                    "artist_names": row.artist_names
                 })),
                 entity_id: row.album_id,
                 is_favorite: row.is_favorite != 0,
@@ -291,29 +319,37 @@ pub async fn get_album_suggestions(
     Ok(suggestions)
 }
 
-/// get genre suggestions from FTS
-pub async fn get_genre_suggestions(
+/// get taxon suggestions from FTS across every taxon kind.
+///
+/// queries `taxonz_fts(taxon_id, kind_slug, label)` with a prefix
+/// match (`label:partial*`). previously this was scoped to
+/// `kind.slug = 'genre'`; the filter was dropped so the autocomplete
+/// surfaces any taxon kind (genre, tag, mood, style, era, label,
+/// user-defined). callers / consumers discriminate via the
+/// `metadata.kind_slug` field carried on each Suggestion.
+pub async fn get_taxon_suggestions(
     pool: &SqlitePool,
     partial: &str,
 ) -> GrimoireResult<Vec<Suggestion>> {
-    // query genrez_fts with prefix match: `name:partial*`
-    // join to genrez for full details and count associated albums/songs
-    // calculate confidence (no user prefs for genres)
-
     let match_query = sanitize_fts_query(partial);
 
     let rows = sqlx::query!(
         r#"
         SELECT
-            genre.id as "genre_id!: String",
-            genre.name as "genre_name!: String",
+            taxon.id as "taxon_id!: String",
+            taxon.label as "taxon_label!: String",
+            kind.slug as "kind_slug!: String",
             fts.rank as "fts_rank!: f64",
-            (SELECT COUNT(DISTINCT ag.album_id) FROM album_genrez ag JOIN albumz a ON ag.album_id = a.id WHERE ag.genre_id = genre.id AND a.deleted_at IS NULL) as "song_count!: i64"
-        FROM genrez_fts fts
-        JOIN genrez genre ON fts.genre_id = genre.id
-        WHERE genrez_fts MATCH ?
-            AND genre.deleted_at IS NULL
-        GROUP BY genre.id, genre.name, fts.rank
+            (SELECT COUNT(DISTINCT at.album_id)
+                FROM album_taxonz at
+                JOIN albumz a ON at.album_id = a.id
+                WHERE at.taxon_id = taxon.id AND a.deleted_at IS NULL) as "song_count!: i64"
+        FROM taxonz_fts fts
+        JOIN taxonz taxon ON fts.taxon_id = taxon.id
+        JOIN taxon_kindz kind ON kind.id = taxon.kind_id
+        WHERE taxonz_fts MATCH ?
+            AND taxon.deleted_at IS NULL
+        GROUP BY taxon.id, taxon.label, kind.slug, fts.rank
         ORDER BY fts.rank DESC
         LIMIT 100
         "#,
@@ -325,20 +361,21 @@ pub async fn get_genre_suggestions(
     let suggestions = rows
         .into_iter()
         .map(|row| {
-            let confidence = calculate_confidence(partial, &row.genre_name, row.fts_rank as f32);
-            let highlight = generate_highlight(&row.genre_name, partial);
+            let confidence = calculate_confidence(partial, &row.taxon_label, row.fts_rank as f32);
+            let highlight = generate_highlight(&row.taxon_label, partial);
 
             Suggestion {
-                value: row.genre_name.clone(),
-                display: row.genre_name.clone(),
+                value: row.taxon_label.clone(),
+                display: row.taxon_label.clone(),
                 highlight,
                 count: row.song_count,
-                suggestion_type: SuggestionType::Genre,
+                suggestion_type: SuggestionType::Taxon,
                 confidence,
                 metadata: Some(serde_json::json!({
-                    "match_type": "name"
+                    "match_type": "name",
+                    "kind_slug": row.kind_slug
                 })),
-                entity_id: row.genre_id,
+                entity_id: row.taxon_id,
                 is_favorite: false,
             }
         })

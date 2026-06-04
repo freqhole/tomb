@@ -272,7 +272,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     // P2P remotes: use blobResolver
     if (song.remote_server_id && await isP2PRemote(song.remote_server_id)) {
       try {
-        // `media_blob_id` is the *remote's* media_blobz.id pk \u2014 the
+        // `media_blob_id` is the *remote's* media_blobz.id pk - the
         // only id `/api/blobs/{id}/*` accepts. sha256 (the content
         // hash) is NOT a valid route param; if media_blob_id is
         // somehow missing, bail rather than fabricate a doomed call.

@@ -1,6 +1,24 @@
 # rathole Makefile — tty + web build targets
 
-.PHONY: build build-tty build-web build-web-release check check-tty check-web run serve clean deploy-spume
+.DEFAULT_GOAL := help
+
+.PHONY: help build build-tty build-web build-web-release check check-tty check-web run serve clean deploy-spume
+
+help:
+	@echo "rathole make targets"
+	@echo ""
+	@echo "  help               show this help"
+	@echo "  build-tty          build tty binary"
+	@echo "  check-tty          cargo check tty target"
+	@echo "  run                run tty shell"
+	@echo "  check-web          cargo check wasm web target"
+	@echo "  build-web          build wasm web bundle (dev)"
+	@echo "  build-web-release  build wasm web bundle (release)"
+	@echo "  build              build tty + web"
+	@echo "  check              check tty + web"
+	@echo "  serve              build web and serve index.html on :5173"
+	@echo "  deploy-spume       stage rathole html+pkg into spume dist"
+	@echo "  clean              remove rathole build artifacts"
 
 # ----------------------------------------------------------------------
 # llvm paths for wasm32-unknown-unknown on apple silicon. mirrors

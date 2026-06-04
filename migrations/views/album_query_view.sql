@@ -7,8 +7,32 @@ SELECT
     al.id as album_id,
     al.title as album_title,
     al.album_type as album_album_type,
-    al.release_date as album_release_date,
-    al.label as album_label,
+    -- album_release_date: first taxon under kind='release_date' linked
+    -- to this album. preserves the legacy `album_release_date` column
+    -- contract for callers that still expect a string. populated from
+    -- `album_taxonz` so `albumz.release_date` can be dropped.
+    (SELECT t.label
+       FROM album_taxonz at
+       JOIN taxonz t ON t.id = at.taxon_id
+       JOIN taxon_kindz k ON k.id = t.kind_id
+      WHERE at.album_id = al.id
+        AND k.slug = 'release_date'
+        AND t.deleted_at IS NULL
+      ORDER BY at.created_at ASC
+      LIMIT 1) as album_release_date,
+    -- album_label: first taxon under kind='label' linked to this album.
+    -- preserves the legacy `album_label` column contract for callers
+    -- that still expect a string. populated from `album_taxonz` so
+    -- `albumz.label` can be dropped without breaking consumers.
+    (SELECT t.label
+       FROM album_taxonz at
+       JOIN taxonz t ON t.id = at.taxon_id
+       JOIN taxon_kindz k ON k.id = t.kind_id
+      WHERE at.album_id = al.id
+        AND k.slug = 'label'
+        AND t.deleted_at IS NULL
+      ORDER BY at.created_at ASC
+      LIMIT 1) as album_label,
     al.song_count as album_song_count,
     al.total_duration as album_total_duration,
     al.created_at as album_created_at,
@@ -19,23 +43,51 @@ SELECT
     al.updated_by as album_updated_by,
     ucb_album.username as album_created_by_username,
     uub_album.username as album_updated_by_username,
+    al.metadata as album_metadata,
+    al.mb_lookup_status as album_mb_lookup_status,
+    al.mb_lookup_at as album_mb_lookup_at,
+    al.mb_lookup_by as album_mb_lookup_by,
 
-    -- genres as JSON array of objects with id and name
+    -- genres as JSON array of objects with id and name (legacy contract)
+    -- sourced from album_taxonz filtered to kind='genre'
     COALESCE(
-        (SELECT json_group_array(json_object('id', g.id, 'name', g.name))
-         FROM album_genrez ag
-         INNER JOIN genrez g ON ag.genre_id = g.id
-         WHERE ag.album_id = al.id
-         ORDER BY g.name ASC),
+        (SELECT json_group_array(json_object('id', t.id, 'name', t.label))
+         FROM album_taxonz at
+         INNER JOIN taxonz t ON t.id = at.taxon_id
+         INNER JOIN taxon_kindz k ON k.id = t.kind_id
+         WHERE at.album_id = al.id
+           AND k.slug = 'genre'
+           AND t.deleted_at IS NULL),
         '[]'
     ) as album_genres,
 
-    -- images as JSON array
+    -- new: every taxon linked to this album, across all kinds. consumers
+    -- preferring kind-aware iteration should read this instead of
+    -- `album_genres`.
+    COALESCE(
+        (SELECT json_group_array(json_object(
+            'id', t.id,
+            'kind_slug', k.slug,
+            'label', t.label,
+            'origin', at.origin,
+            'confidence', at.confidence
+         ))
+         FROM album_taxonz at
+         INNER JOIN taxonz t ON t.id = at.taxon_id
+         INNER JOIN taxon_kindz k ON k.id = t.kind_id
+         WHERE at.album_id = al.id
+           AND t.deleted_at IS NULL),
+        '[]'
+    ) as album_taxons,
+
+    -- images as JSON array (waveforms excluded — audio peak
+    -- data should never surface as cover art, even if a remote
+    -- accidentally tagged a waveform as is_primary)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM album_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.album_id = al.id),
+         WHERE ai.album_id = al.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as album_images,
 
@@ -63,12 +115,13 @@ SELECT
     ar.created_at as artist_created_at,
     ar.updated_at as artist_updated_at,
 
-    -- artist images as JSON array
+    -- artist images as JSON array (waveforms excluded — they're
+    -- audio peak data, not visual art)
     COALESCE(
         (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', ai.is_primary, 'blob_type', mb.blob_type))
          FROM artist_imagez ai
          JOIN media_blobz mb ON ai.media_blob_id = mb.id
-         WHERE ai.artist_id = ar.id),
+         WHERE ai.artist_id = ar.id AND mb.blob_type != 'waveform'),
         '[]'
     ) as artist_images,
 

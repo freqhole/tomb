@@ -319,29 +319,33 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         None
     };
 
-    // spawn job runner if enabled (only when running HTTP server)
-    let job_runner_handle = if start_http {
-        let server_config = config
+    // spawn job runner for any active server mode that can enqueue jobs
+    // (HTTP and/or P2P). if there's no `[server]` block, default to enabled
+    // for P2P-only deployments so upload/enrichment jobs are still processed.
+    let should_start_job_runner = if start_http || start_p2p {
+        config
             .server
             .as_ref()
-            .expect("server config validated above");
-        if server_config.start_job_runner {
-            tracing::info!("spawning job runner task...");
-            let token = job_cancellation_token.clone();
-            Some(tokio::spawn(async move {
-                tracing::info!("job runner started");
-                let result = grimoire::jobs::run_job_processor_with_token(token).await;
-                if result.success {
-                    tracing::info!("job runner stopped gracefully");
-                } else {
-                    tracing::error!("job runner failed: {}", result.message);
-                }
-            }))
-        } else {
-            tracing::info!("job runner disabled - use CLI to process jobs");
-            None
-        }
+            .map(|s| s.start_job_runner)
+            .unwrap_or(true)
     } else {
+        false
+    };
+
+    let job_runner_handle = if should_start_job_runner {
+        tracing::info!("spawning job runner task...");
+        let token = job_cancellation_token.clone();
+        Some(tokio::spawn(async move {
+            tracing::info!("job runner started");
+            let result = grimoire::jobs::run_job_processor_with_token(token).await;
+            if result.success {
+                tracing::info!("job runner stopped gracefully");
+            } else {
+                tracing::error!("job runner failed: {}", result.message);
+            }
+        }))
+    } else {
+        tracing::info!("job runner disabled - use CLI to process jobs");
         None
     };
 

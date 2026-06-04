@@ -105,12 +105,18 @@ pub struct StationFilter {
 }
 
 /// known filter-type values. wire form is the lowercase string.
+///
+/// note: `Taxon` replaced `Genre` in migration 038. the underlying FK
+/// (`taxon_id`) targets `taxonz(id)` of any kind — genre, label, mood,
+/// era, region, ... — so a single station can mix kinds in its seed
+/// filters. legacy `"genre"` strings are accepted on input as an alias
+/// for `"taxon"`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StationFilterType {
     Artist,
     Album,
-    Genre,
+    Taxon,
     Tag,
     Track,
     Playlist,
@@ -121,7 +127,7 @@ impl StationFilterType {
         match self {
             Self::Artist => "artist",
             Self::Album => "album",
-            Self::Genre => "genre",
+            Self::Taxon => "taxon",
             Self::Tag => "tag",
             Self::Track => "track",
             Self::Playlist => "playlist",
@@ -132,7 +138,8 @@ impl StationFilterType {
         match s.trim().to_ascii_lowercase().as_str() {
             "artist" => Some(Self::Artist),
             "album" => Some(Self::Album),
-            "genre" => Some(Self::Genre),
+            // accept legacy "genre" string from cached payloads / older clients
+            "taxon" | "genre" => Some(Self::Taxon),
             "tag" => Some(Self::Tag),
             "track" => Some(Self::Track),
             "playlist" => Some(Self::Playlist),

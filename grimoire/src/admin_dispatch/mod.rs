@@ -52,7 +52,7 @@ pub async fn handle(
         // -- knocks --
         "knocks_list" => {
             let resp = knock::list_knocks(false).await;
-            tracing::info!(
+            tracing::debug!(
                 "[admin-dispatch] knocks_list success={} count={}",
                 resp.success,
                 resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
@@ -60,8 +60,8 @@ pub async fn handle(
             to_value(resp)
         }
         "knocks_list_all" => {
-            let resp = knock::list_knocks(true).await;
-            tracing::info!(
+            let resp: GrimoireResponse<Vec<knock::KnockRequest>> = knock::list_knocks(true).await;
+            tracing::debug!(
                 "[admin-dispatch] knocks_list_all success={} count={}",
                 resp.success,
                 resp.data.as_ref().map(|v| v.len()).unwrap_or(0)
@@ -75,6 +75,7 @@ pub async fn handle(
 
         // -- users --
         "users_list" => handlers::users::list(args, caller).await,
+        "users_list_assignable" => handlers::users::list_assignable(args, caller).await,
         "users_get" => handlers::users::get(args).await,
         "users_create" => handlers::users::create(args).await,
         "users_update_role" => handlers::users::update_role(args, caller).await,
@@ -85,6 +86,8 @@ pub async fn handle(
         "users_generate_api_key" => handlers::users::generate_api_key(args).await,
         "users_revoke_api_key" => handlers::users::revoke_api_key(args).await,
         "users_hard_delete_peer_node" => handlers::users::hard_delete_peer_node(args).await,
+        "users_add_peer_node" => handlers::users::add_peer_node(args).await,
+        "users_remove_peer_node" => handlers::users::remove_peer_node(args).await,
 
         // -- invites --
         "invites_list" => handlers::invites::list(args, caller).await,
@@ -98,6 +101,8 @@ pub async fn handle(
         "peers_list_for_user" => handlers::peers::list_for_user(args).await,
         "peers_remove" => handlers::peers::remove(args).await,
         "peers_restore" => handlers::peers::restore(args).await,
+        "peers_hard_delete" => handlers::peers::hard_delete(args).await,
+        "peers_reassign_user" => handlers::peers::reassign_user(args).await,
         "peers_allow" => handlers::peers::allow(args).await,
 
         // -- library --
@@ -107,7 +112,9 @@ pub async fn handle(
         "library_image_upload" => handlers::library::image_upload(args, caller).await,
         "library_list_directories" => handlers::library::list_directories().await,
         "library_remove_directory" => handlers::library::remove_directory(args).await,
+        "library_move_directory" => handlers::library::move_directory(args, caller).await,
         "library_rescan_all" => handlers::library::rescan_all(caller).await,
+        "library_repair_orphans" => handlers::library::repair_orphans().await,
         "library_fetch" => handlers::library::fetch(args, caller).await,
 
         // -- config / server --
@@ -164,6 +171,7 @@ pub async fn handle(
             handlers::maintenance::cleanup_orphaned_genres(args).await
         }
         "maintenance_cleanup_all" => handlers::maintenance::cleanup_all(args).await,
+        "maintenance_backfill_blake3" => handlers::maintenance::backfill_blake3(args).await,
         "maintenance_backfill_thumbnails_count" => {
             handlers::maintenance::backfill_thumbnails_count().await
         }
@@ -212,6 +220,16 @@ pub async fn handle(
         // -- jobs --
         "jobs_list" => handlers::jobs::list(args).await,
         "jobs_stats" => handlers::jobs::stats().await,
+        "jobs_cancel_session" => handlers::jobs::cancel_session(args).await,
+
+        // -- music enrichment --
+        "music_enrichment_tags" => handlers::enrichment::tags().await,
+        "music_enrichment_resolve" => handlers::enrichment::resolve(args).await,
+        "music_enrichment_bulk_start" => handlers::enrichment::bulk_start(args, caller).await,
+        "music_enrichment_bulk_auto_confirm" => {
+            handlers::enrichment::bulk_auto_confirm(args, caller).await
+        }
+        "music_enrichment_bulk_auto" => handlers::enrichment::bulk_auto(args, caller).await,
 
         // -- genres --
         "genres_list" => handlers::genres::list().await,

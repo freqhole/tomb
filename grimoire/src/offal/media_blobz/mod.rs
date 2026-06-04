@@ -63,6 +63,20 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "HasBlobsResponse",
         auth: RouteAuth::Authenticated,
     },
+    // atlas-packed thumbnail batches for the graph view. response is a
+    // binary wire format ([u32 le manifest_len][manifest JSON][image bytes]),
+    // not JSON — the server has a custom handler that bypasses offal
+    // dispatch. the route is still registered here so codegen + auth
+    // gating stay consistent with the rest of the surface.
+    RouteInfo {
+        name: "build_atlas",
+        path: "/api/blobs/atlas",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "BuildAtlasRequest",
+        response_type: "AtlasManifest",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// collect all route metadata from media_blobz domain

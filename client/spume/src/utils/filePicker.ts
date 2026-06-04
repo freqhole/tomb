@@ -62,8 +62,19 @@ const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"];
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
 
 // accept attribute for <input type=file> on the web.
+// ios safari mishandles `audio/*` wildcard — it grays out audio files and
+// enables video files instead. listing explicit mime types + extensions fixes
+// this while still working everywhere else.
 const WEB_ACCEPT: Record<FileKind, string> = {
-  audio: "audio/*",
+  audio: [
+    "audio/mpeg", "audio/mp3",
+    "audio/flac", "audio/x-flac",
+    "audio/wav", "audio/x-wav", "audio/wave",
+    "audio/mp4", "audio/x-m4a", "audio/m4a",
+    "audio/ogg",
+    "audio/aac", "audio/x-aac",
+    ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".alac", ".wma",
+  ].join(","),
   image: "image/*",
 };
 

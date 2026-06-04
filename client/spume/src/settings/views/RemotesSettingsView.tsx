@@ -325,8 +325,6 @@ export function RemotesSettingsView() {
       setRemotes(updated);
       if (isOnline) {
         toast.success(`${remote.name} is online`);
-      } else {
-        toast.warning(`${remote.name} is offline`);
       }
     } catch (err) {
       toast.error("failed to check server status");

@@ -3,7 +3,8 @@
 use crate::admin_dispatch::helpers::{bad_request, decode, map_response, parse_role, to_value};
 use crate::admin_dispatch::types::peers::{
     AdminPeerNodeSummary, AdminPeerSummary, AdminPeersAllowRequest, AdminPeersAllowResponse,
-    AdminPeersListAllRequest, AdminPeersListForUserRequest, AdminPeersRemoveRequest,
+    AdminPeersHardDeleteRequest, AdminPeersHardDeleteResponse, AdminPeersListAllRequest,
+    AdminPeersListForUserRequest, AdminPeersReassignUserRequest, AdminPeersRemoveRequest,
     AdminPeersRestoreRequest,
 };
 use crate::response::GrimoireResponse;
@@ -66,6 +67,42 @@ pub(in crate::admin_dispatch) async fn restore(args: JsonValue) -> GrimoireRespo
     };
     let resp = UserService::new()
         .restore_peer_node(&req.user_id, &req.node_id)
+        .await;
+    to_value(map_response(resp, |_| ()))
+}
+
+pub(in crate::admin_dispatch) async fn hard_delete(args: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: AdminPeersHardDeleteRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let resp = UserService::new()
+        .hard_delete_peer_node_by_node_id(&req.node_id)
+        .await;
+    to_value(map_response(resp, |deleted_rows| {
+        AdminPeersHardDeleteResponse { deleted_rows }
+    }))
+}
+
+pub(in crate::admin_dispatch) async fn reassign_user(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let req: AdminPeersReassignUserRequest = match decode(args) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+
+    let svc = UserService::new();
+    let target = match svc.get_user(&req.user_id).await.data {
+        Some(u) => u,
+        None => return bad_request(format!("user not found: {}", req.user_id)),
+    };
+    if target.role == UserRole::Root || target.username.eq_ignore_ascii_case("freqroot") {
+        return bad_request("cannot assign peers to the root user".to_string());
+    }
+
+    let resp = svc
+        .reassign_peer_node_user(&req.node_id, &req.user_id)
         .await;
     to_value(map_response(resp, |_| ()))
 }

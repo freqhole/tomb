@@ -1,0 +1,77 @@
+// stories/GraphWalker.stories.tsx — storybook stories for the graph2 walker.
+// three stories, each starting at a different point in the walk:
+//   Root       — pivot = root, shows both remotes as children
+//   Genres     — pivot = local genres relation hub, genre values fan out
+//   Ambient    — pivot = ambient genre value, artists fan out with album chains
+
+import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { fn } from "storybook/test";
+import WalkCanvas from "../src/components/graph/WalkCanvas";
+import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
+import { MOCK_GRAPH } from "../src/components/graph/mockData";
+
+const meta: Meta<typeof WalkCanvas> = {
+  title: "Graph2/WalkCanvas",
+  component: WalkCanvas,
+  parameters: {
+    layout: "fullscreen",
+    backgrounds: { default: "dark", values: [{ name: "dark", value: "#111827" }] },
+  },
+  // explicit spies for every optional callback prop so storybook 8+ doesn't
+  // warn about "implicit action args during render". every story inherits
+  // these via args merging; override per-story if a callback needs real
+  // behavior. `driver` is required; stories share a single per-render
+  // walker driver instance.
+  args: {
+    driver: createWalkerDriver(),
+    onSelect: fn(),
+    onPivot: fn(),
+    onReady: fn(),
+    onBreadcrumbChange: fn(),
+    interceptClick: fn(),
+  },
+};
+
+export default meta;
+type Story = StoryObj<typeof WalkCanvas>;
+
+// ---- story 1: root ---------------------------------------------------------
+// both remotes visible as children of the virtual root node.
+
+export const Root: Story = {
+  args: {
+    graph: MOCK_GRAPH,
+    initialPivot: "root",
+    // no width/height — fills the storybook iframe
+  },
+};
+
+// ---- story 2: drilled into genres ------------------------------------------
+// breadcrumb = [root → local remote → genres relation]
+// pivot = genres, all genre value hubs fan outward.
+
+export const GenresDrilled: Story = {
+  args: {
+    graph: MOCK_GRAPH,
+    initialPivot: "relation::local::genres",
+    initialBreadcrumb: ["root", "remote::local", "relation::local::genres"],
+  },
+};
+
+// ---- story 3: drilled into ambient genre value ----------------------------
+// breadcrumb = [root → local → genres → ambient]
+// pivot = ambient, ambient's artists (Grouper, Sunn O))), Low, GY!BE) fan out
+// each artist will show its albums as chains when expanded further.
+
+export const AmbientDrilled: Story = {
+  args: {
+    graph: MOCK_GRAPH,
+    initialPivot: "value::genres::ambient",
+    initialBreadcrumb: [
+      "root",
+      "remote::local",
+      "relation::local::genres",
+      "value::genres::ambient",
+    ],
+  },
+};

@@ -54,17 +54,17 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     let knocking = is_knocking_enabled();
 
     if known {
-        info!(
+        debug!(
             "[p2p-handler] connection from known peer: {}",
             node_id_short
         );
     } else if resolved {
-        info!(
+        debug!(
             "[p2p-handler] connection from haruspex-resolved peer: {}",
             node_id_short
         );
     } else if knocking {
-        info!(
+        debug!(
             "[p2p-handler] connection from unknown peer (knocking): {}",
             node_id_short
         );
@@ -79,7 +79,7 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
         debug!("[p2p-handler] waiting for stream from {}", node_id_short);
         match conn.accept_bi().await {
             Ok((send, recv)) => {
-                info!("[p2p-handler] accepted stream from {}", node_id_short);
+                debug!("[p2p-handler] accepted stream from {}", node_id_short);
                 let node_id_str = node_id_str.clone();
                 let node_id_short = node_id_short.to_string();
 
@@ -91,7 +91,7 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
                 });
             }
             Err(e) => {
-                info!(
+                debug!(
                     "[p2p-handler] connection closed from {}: {}",
                     node_id_short, e
                 );
@@ -487,7 +487,7 @@ fn path_matches(template: &str, actual: &str) -> bool {
 ///
 /// looks up the user associated with this peer's iroh node_id
 /// and creates a Caller with their user_id and role.
-async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
+pub(crate) async fn get_caller_for_peer(node_id: &str) -> Option<Caller> {
     let service = UserService::new();
     // use repository directly via service's internal access
     match service.get_user_by_peer_node_id(node_id).await {

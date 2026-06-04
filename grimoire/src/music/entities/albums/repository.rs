@@ -2,7 +2,7 @@
 //! album repository
 //! clean business logic using sqlx::query_as! with no fallbacks
 
-use super::models::{Album, CreateAlbumRequest, GenreRef};
+use super::models::{Album, CreateAlbumRequest, GenreRef, SetMbLookupStatusRequest};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::music::crud::ImageMetadata;
@@ -30,13 +30,11 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
     let now = OffsetDateTime::now_utc().unix_timestamp();
 
     let album_id = match sqlx::query_scalar!(
-        r#"INSERT INTO albumz (title, album_type, release_date, label, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?)
+        r#"INSERT INTO albumz (title, album_type, created_by, updated_by)
+         VALUES (?, ?, ?, ?)
          RETURNING id"#,
         req.title,
         album_type,
-        req.release_date,
-        req.label,
         req.created_by,
         req.created_by
     )
@@ -52,6 +50,33 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         }
     };
 
+    // route legacy `label` / `release_date` request fields through the
+    // taxonomy as user-origin links. these columns no longer live on
+    // `albumz` (migration 039); the album_query_view synthesizes them
+    // back into `Album.label` / `Album.release_date`.
+    if req.label.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &album_id,
+            crate::music::entities::taxonomy::KIND_LABEL,
+            req.label.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %album_id, "failed to sync label taxon: {}", resp.message);
+        }
+    }
+    if req.release_date.is_some() {
+        let resp = crate::music::entities::taxonomy::sync_album_user_taxon(
+            &album_id,
+            crate::music::entities::taxonomy::KIND_RELEASE_DATE,
+            req.release_date.as_deref(),
+        )
+        .await;
+        if !resp.success {
+            tracing::warn!(album_id = %album_id, "failed to sync release_date taxon: {}", resp.message);
+        }
+    }
+
     // return the album directly without fetching from view
     // (the view filters out albums with song_count = 0)
     let album = Album {
@@ -61,6 +86,7 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         release_date: req.release_date,
         label: req.label,
         genres: None,
+        taxons: None,
         images: None,
         urls: None,
         song_count: 0,
@@ -73,6 +99,10 @@ pub async fn create_album(req: CreateAlbumRequest) -> GrimoireResponse<Album> {
         updated_by: req.created_by,
         created_by_username: None,
         updated_by_username: None,
+        metadata: None,
+        mb_lookup_status: None,
+        mb_lookup_at: None,
+        mb_lookup_by: None,
     };
 
     GrimoireResponse::success("album created successfully", album)
@@ -101,6 +131,7 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_release_date as "release_date?",
             album_label as "label?",
             album_genres as "genres: crate::JsonVec<GenreRef>",
+            album_taxons as "taxons: crate::JsonVec<crate::music::entities::taxonomy::TaxonRef>",
             album_song_count as "song_count!",
             album_total_duration as "total_duration!",
             album_created_at as "created_at!",
@@ -112,7 +143,11 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_created_by_username as "created_by_username?",
             album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
-            NULL as "urls: JsonVec<EntityUrl>"
+            NULL as "urls: JsonVec<EntityUrl>",
+            album_metadata as "metadata?",
+            album_mb_lookup_status as "mb_lookup_status?",
+            album_mb_lookup_at as "mb_lookup_at?",
+            album_mb_lookup_by as "mb_lookup_by?"
            FROM album_query_view
            ORDER BY album_title ASC
            LIMIT ? OFFSET ?"#,
@@ -153,6 +188,7 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_release_date as "release_date?",
             album_label as "label?",
             album_genres as "genres: crate::JsonVec<GenreRef>",
+            album_taxons as "taxons: crate::JsonVec<crate::music::entities::taxonomy::TaxonRef>",
             album_song_count as "song_count!",
             album_total_duration as "total_duration!",
             album_created_at as "created_at!",
@@ -164,7 +200,11 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_created_by_username as "created_by_username?",
             album_updated_by_username as "updated_by_username?",
             album_images as "images: JsonVec<ImageMetadata>",
-            NULL as "urls: JsonVec<EntityUrl>"
+            NULL as "urls: JsonVec<EntityUrl>",
+            album_metadata as "metadata?",
+            album_mb_lookup_status as "mb_lookup_status?",
+            album_mb_lookup_at as "mb_lookup_at?",
+            album_mb_lookup_by as "mb_lookup_by?"
            FROM album_query_view
            WHERE album_id = ?"#,
         id
@@ -183,6 +223,459 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
     };
 
     GrimoireResponse::success("album retrieved successfully", album)
+}
+
+/// read and parse the metadata blob for an album.
+///
+/// returns the parsed `AlbumMetadata` (default if the row has NULL/empty
+/// metadata or if parsing fails — failures are logged via `tracing::warn`).
+pub async fn read_album_metadata(id: &str) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let raw = match sqlx::query_scalar!(
+        r#"SELECT metadata FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to read album metadata",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let parsed = match super::metadata::parse(raw.as_deref()) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(
+                "album {} metadata is malformed json; returning default ({})",
+                id,
+                e
+            );
+            super::metadata::AlbumMetadata::default()
+        }
+    };
+
+    GrimoireResponse::success("album metadata retrieved", parsed)
+}
+
+/// deep-merge a json patch into an album's metadata blob.
+///
+/// reads the current blob, deep-merges the patch (objects merge recursively;
+/// arrays in the patch REPLACE arrays in the base), and writes the result
+/// back. always sets `version = CURRENT_VERSION`. concurrent writers from
+/// different jobs that touch different sub-trees compose cleanly.
+pub async fn merge_album_metadata(
+    id: &str,
+    patch: &serde_json::Value,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // read current
+    let raw = match sqlx::query_scalar!(
+        r#"SELECT metadata FROM albumz WHERE id = ? AND deleted_at IS NULL"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(raw)) => raw,
+        Ok(None) => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to read album metadata for merge",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let base = super::metadata::parse(raw.as_deref()).unwrap_or_default();
+    let merged = match super::metadata::merge_patch(&base, patch) {
+        Ok(m) => m,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to merge album metadata patch",
+                vec![ErrorDetail::new(
+                    "metadata_merge_failed",
+                    "Bad Patch",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let serialized = match super::metadata::to_string(&merged) {
+        Ok(s) => s,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to serialize merged album metadata",
+                vec![ErrorDetail::new(
+                    "metadata_serialize_failed",
+                    "Serialization Error",
+                    &e.to_string(),
+                )],
+            )
+        }
+    };
+
+    if let Err(e) = sqlx::query!(
+        r#"UPDATE albumz SET metadata = ?, updated_at = unixepoch() WHERE id = ?"#,
+        serialized,
+        id
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to write merged album metadata",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success("album metadata merged", merged)
+}
+
+/// update the `mb_lookup_status` tracking column.
+///
+/// `user_id = None` means the change was driven by an automated job; `Some`
+/// records which admin made the change (used by the audit/log surface). also
+/// stamps `mb_lookup_at = now`.
+pub async fn update_mb_lookup_status(
+    id: &str,
+    status: super::metadata::MbLookupStatus,
+    user_id: Option<&str>,
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let status_str = status.as_str();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let result = sqlx::query!(
+        r#"UPDATE albumz
+           SET mb_lookup_status = ?, mb_lookup_at = ?, mb_lookup_by = ?
+           WHERE id = ? AND deleted_at IS NULL"#,
+        status_str,
+        now,
+        user_id,
+        id
+    )
+    .execute(&pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => {
+            let err = GrimoireError::AlbumNotFound { id: id.to_string() };
+            GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)])
+        }
+        Ok(_) => GrimoireResponse::success("mb lookup status updated", ()),
+        Err(e) => GrimoireResponse::failure(
+            "failed to update mb lookup status",
+            vec![ErrorDetail::from(e)],
+        ),
+    }
+}
+
+/// confirm a candidate as the canonical match. merges the chosen ids and
+/// confirmation stamp into `metadata.musicbrainz`, then flips
+/// `mb_lookup_status` to `Confirmed`. the candidate list is intentionally
+/// preserved so the user can revisit alternatives later.
+pub async fn confirm_mb_match(
+    album_id: &str,
+    release_group_id: &str,
+    release_id: Option<&str>,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let patch =
+        super::metadata::patch_mb_confirmation(release_group_id, release_id, now, Some(user_id));
+
+    let merged = merge_album_metadata(album_id, &patch).await;
+    if merged.data.is_none() {
+        return merged;
+    }
+
+    let status_resp = update_mb_lookup_status(
+        album_id,
+        super::metadata::MbLookupStatus::Confirmed,
+        Some(user_id),
+    )
+    .await;
+    if status_resp.data.is_none() {
+        return GrimoireResponse::failure(status_resp.message, status_resp.errors);
+    }
+
+    // enqueue a detail-fetch job so the row progresses Confirmed ->
+    // FetchingDetail -> Enriched. failures here don't roll back the
+    // confirmation; the user can retry via re-enrichment.
+    let detail_params = crate::jobs::MbAlbumDetailParams {
+        album_id: album_id.to_string(),
+        release_group_id: release_group_id.to_string(),
+        release_id: release_id.map(|s| s.to_string()),
+    };
+    if let Ok(parameters) = serde_json::to_value(&detail_params) {
+        let _ = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+            job_type: crate::jobs::JobType::MbAlbumDetail,
+            session_id: None,
+            parameters,
+            max_retries: Some(2),
+            scheduled_at: None,
+            created_by: Some(user_id.to_string()),
+            priority: None,
+        })
+        .await;
+    }
+
+    merged
+}
+
+/// reject all candidates for an album. clears the candidate list (so the
+/// next lookup starts fresh) and flips `mb_lookup_status` to `Rejected`.
+pub async fn reject_mb_match(
+    album_id: &str,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AlbumMetadata> {
+    // empty array in the patch will REPLACE the existing candidates array
+    // (per merge_patch contract). also clear release ids if present.
+    let patch = serde_json::json!({
+        "musicbrainz": {
+            "candidates": [],
+            "release_id": serde_json::Value::Null,
+            "release_group_id": serde_json::Value::Null,
+        },
+    });
+
+    let merged = merge_album_metadata(album_id, &patch).await;
+    if merged.data.is_none() {
+        return merged;
+    }
+
+    let status_resp = update_mb_lookup_status(
+        album_id,
+        super::metadata::MbLookupStatus::Rejected,
+        Some(user_id),
+    )
+    .await;
+    if status_resp.data.is_none() {
+        return GrimoireResponse::failure(status_resp.message, status_resp.errors);
+    }
+
+    merged
+}
+
+/// auto-confirm the top musicbrainz candidate for each album whose stored
+/// candidates pass two thresholds: top `local_confidence >= min_confidence`
+/// AND `(top - second) >= min_gap`. albums with no candidates, no top
+/// candidate over the threshold, or already `Confirmed`/`Enriched` are
+/// skipped (returned in `skipped`). errors per-album are collected but do
+/// not abort the whole batch.
+///
+/// returns a per-album breakdown so the caller can show "auto-confirmed N
+/// of M" inline.
+pub async fn auto_confirm_mb_matches(
+    album_ids: &[String],
+    min_confidence: f64,
+    min_gap: f64,
+    user_id: &str,
+) -> GrimoireResponse<super::metadata::AutoConfirmMbMatchesResult> {
+    let mut confirmed: Vec<String> = Vec::new();
+    let mut skipped: Vec<super::metadata::AutoConfirmSkip> = Vec::new();
+    let mut errors: Vec<super::metadata::AutoConfirmSkip> = Vec::new();
+
+    for album_id in album_ids {
+        // gate eligibility on `mb_lookup_status` (the canonical source
+        // of truth, what the review ui shows). only `Candidates` and
+        // `NeedsReview` are open for bulk auto-confirm. anything else
+        // — including a stale `match_confirmed_at` left in metadata
+        // by a pre-clear-on-stale-pointer re-query — is skipped here.
+        let album_resp = get_album(album_id).await;
+        let status_str = match album_resp.data.as_ref() {
+            Some(a) => a.mb_lookup_status.clone(),
+            None => {
+                errors.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("read_album failed: {}", album_resp.message),
+                });
+                continue;
+            }
+        };
+        let status = super::metadata::MbLookupStatus::parse_opt(status_str.as_deref())
+            .unwrap_or(super::metadata::MbLookupStatus::NotAttempted);
+        match status {
+            super::metadata::MbLookupStatus::Candidates
+            | super::metadata::MbLookupStatus::NeedsReview => {}
+            other => {
+                skipped.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("status {:?} not eligible", other),
+                });
+                continue;
+            }
+        }
+
+        let meta_resp = read_album_metadata(album_id).await;
+        let meta = match meta_resp.data {
+            Some(m) => m,
+            None => {
+                errors.push(super::metadata::AutoConfirmSkip {
+                    album_id: album_id.clone(),
+                    reason: format!("read_metadata failed: {}", meta_resp.message),
+                });
+                continue;
+            }
+        };
+
+        let mut cands: Vec<&super::metadata::MbCandidate> = meta
+            .musicbrainz
+            .as_ref()
+            .map(|mb| mb.candidates.iter().collect())
+            .unwrap_or_default();
+        if cands.is_empty() {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: "no candidates".to_string(),
+            });
+            continue;
+        }
+        cands.sort_by(|a, b| {
+            b.local_confidence
+                .unwrap_or(0.0)
+                .partial_cmp(&a.local_confidence.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let top = cands[0];
+        let top_conf = top.local_confidence.unwrap_or(0.0);
+        let second_conf = cands.get(1).and_then(|c| c.local_confidence).unwrap_or(0.0);
+
+        if top_conf < min_confidence {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!(
+                    "top confidence {:.2} below min {:.2}",
+                    top_conf, min_confidence
+                ),
+            });
+            continue;
+        }
+        if (top_conf - second_conf) < min_gap {
+            skipped.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!("gap {:.2} below min {:.2}", top_conf - second_conf, min_gap),
+            });
+            continue;
+        }
+
+        let resp = confirm_mb_match(
+            album_id,
+            &top.release_group_id,
+            top.release_id.as_deref(),
+            user_id,
+        )
+        .await;
+        if resp.data.is_some() {
+            confirmed.push(album_id.clone());
+
+            // flip status to `auto_applying` so the library table can
+            // show a spinner until the upstream lastfm/audiodb chain
+            // finishes and the auto-apply processor accepts every
+            // available proposal.
+            let _ = update_mb_lookup_status(
+                album_id,
+                super::metadata::MbLookupStatus::AutoApplying,
+                Some(user_id),
+            )
+            .await;
+
+            // enqueue the auto-apply job. delayed start gives the
+            // mb-detail + lastfm/audiodb chain a head start so the
+            // first attempt usually finds fresh snapshots ready.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let params = crate::jobs::AutoApplyAlbumEnrichmentParams {
+                album_id: album_id.clone(),
+                user_id: user_id.to_string(),
+                username: None,
+                attempts: 0,
+                auto_confirm_top_match: false,
+                min_confidence: None,
+                min_gap: None,
+            };
+            match serde_json::to_value(&params) {
+                Ok(parameters) => {
+                    let job_resp = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+                        job_type: crate::jobs::JobType::AutoApplyAlbumEnrichment,
+                        session_id: None,
+                        parameters,
+                        max_retries: Some(2),
+                        scheduled_at: Some(now + 30),
+                        created_by: Some(user_id.to_string()),
+                        priority: None,
+                    })
+                    .await;
+                    if !job_resp.success {
+                        tracing::warn!(
+                            "auto-apply enqueue failed for {}: {}",
+                            album_id,
+                            job_resp.message
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("auto-apply param serialize failed for {}: {}", album_id, e);
+                }
+            }
+        } else {
+            errors.push(super::metadata::AutoConfirmSkip {
+                album_id: album_id.clone(),
+                reason: format!("confirm failed: {}", resp.message),
+            });
+        }
+    }
+
+    GrimoireResponse::success(
+        format!("auto-confirmed {} of {}", confirmed.len(), album_ids.len()),
+        super::metadata::AutoConfirmMbMatchesResult {
+            confirmed,
+            skipped,
+            errors,
+        },
+    )
 }
 
 /// soft delete an album
@@ -527,4 +1020,166 @@ pub async fn clear_album_images(album_id: &str) -> GrimoireResponse<()> {
             GrimoireResponse::failure("Failed to clear album images", vec![ErrorDetail::from(e)])
         }
     }
+}
+
+/// flip an album's `mb_lookup_status`. validates `status` against the
+/// `MbLookupStatus` enum (snake_case wire form). also stamps
+/// `mb_lookup_at = unixepoch()` so callers can tell when the user
+/// last touched the album. used by the bulk-enrichment review wizard
+/// for save (`enriched`) and skip (`skipped`).
+pub async fn set_mb_lookup_status(req: SetMbLookupStatusRequest) -> GrimoireResponse<()> {
+    use super::metadata::MbLookupStatus;
+    if MbLookupStatus::parse(&req.status).is_none() {
+        return GrimoireResponse::failure(
+            "invalid mb lookup status",
+            vec![ErrorDetail::new(
+                "invalid_mb_lookup_status",
+                "invalid mb lookup status",
+                &format!(
+                    "status `{}` is not a recognized MbLookupStatus variant",
+                    req.status
+                ),
+            )],
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    let result = sqlx::query!(
+        r#"UPDATE albumz
+           SET mb_lookup_status = ?, mb_lookup_at = unixepoch(), updated_at = unixepoch()
+           WHERE id = ? AND deleted_at IS NULL"#,
+        req.status,
+        req.album_id,
+    )
+    .execute(&pool)
+    .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 0 => {
+            let err = GrimoireError::AlbumNotFound {
+                id: req.album_id.clone(),
+            };
+            GrimoireResponse::failure("album not found", vec![ErrorDetail::from(&err)])
+        }
+        Ok(_) => GrimoireResponse::success("mb lookup status updated", ()),
+        Err(e) => GrimoireResponse::failure(
+            "failed to update mb lookup status",
+            vec![ErrorDetail::from(e)],
+        ),
+    }
+}
+
+// =============================================================================
+// tag-based album id resolution
+// =============================================================================
+
+/// controls how multiple tag_ids are combined when filtering albums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TagFilterMode {
+    /// return albums that have ANY of the given tags.
+    Any,
+    /// return albums that have ALL of the given tags.
+    All,
+}
+
+/// resolve album ids filtered by tag. when `tag_ids` is empty, returns
+/// all non-deleted album ids. otherwise applies `mode` logic:
+/// - `Any`: albums with at least one of the specified tags.
+/// - `All`: albums that have every one of the specified tags.
+pub async fn resolve_album_ids_by_tags(
+    tag_ids: &[String],
+    mode: TagFilterMode,
+) -> GrimoireResponse<Vec<String>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "database error",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if tag_ids.is_empty() {
+        let ids = match sqlx::query_scalar!(
+            r#"SELECT id as "id!" FROM albumz WHERE deleted_at IS NULL"#
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "query failed",
+                    vec![ErrorDetail::from(e)],
+                )
+            }
+        };
+        return GrimoireResponse::success(
+            format!("resolved {} album ids", ids.len()),
+            ids,
+        );
+    }
+
+    let ids: Vec<String> = match mode {
+        TagFilterMode::Any => {
+            let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+                "SELECT DISTINCT a.id FROM albumz a \
+                 JOIN album_tagz at ON at.album_id = a.id \
+                 WHERE at.tag_id IN (",
+            );
+            {
+                let mut sep = qb.separated(", ");
+                for id in tag_ids {
+                    sep.push_bind(id);
+                }
+            }
+            qb.push(") AND a.deleted_at IS NULL");
+            match qb.build_query_scalar::<String>().fetch_all(&pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "query failed",
+                        vec![ErrorDetail::from(e)],
+                    )
+                }
+            }
+        }
+        TagFilterMode::All => {
+            let n = tag_ids.len() as i64;
+            let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+                "SELECT a.id FROM albumz a \
+                 JOIN album_tagz at ON at.album_id = a.id \
+                 WHERE at.tag_id IN (",
+            );
+            {
+                let mut sep = qb.separated(", ");
+                for id in tag_ids {
+                    sep.push_bind(id);
+                }
+            }
+            qb.push(") AND a.deleted_at IS NULL GROUP BY a.id HAVING COUNT(DISTINCT at.tag_id) = ");
+            qb.push_bind(n);
+            match qb.build_query_scalar::<String>().fetch_all(&pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "query failed",
+                        vec![ErrorDetail::from(e)],
+                    )
+                }
+            }
+        }
+    };
+
+    GrimoireResponse::success(format!("resolved {} album ids", ids.len()), ids)
 }

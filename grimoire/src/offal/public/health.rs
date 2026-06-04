@@ -70,6 +70,12 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         .filter(|f| f.enabled)
         .map(|f| f.knocking_enabled);
 
+    // enrichment service flags (exposed so clients can hide ui for
+    // sources the server doesn't have configured).
+    let musicbrainz_enabled = Some(config.musicbrainz.enabled);
+    let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
+    let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
+
     let response = ServerInfoResponse {
         name,
         description,
@@ -77,6 +83,9 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         image_url,
         image_blob_id,
         knocking_enabled,
+        musicbrainz_enabled,
+        lastfm_enabled,
+        audiodb_enabled,
     };
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())

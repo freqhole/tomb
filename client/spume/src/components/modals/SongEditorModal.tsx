@@ -1,7 +1,9 @@
 // song editor modal - edit single song metadata
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getDataSource, getCurrentRemote } from "../../music/data";
+import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 import { getRemoteMediaUrl } from "../../utils/urls";
 import { canUpdateSong, canDeleteSong } from "../../music/data/permissions";
 import { showAlbumEditor, showArtistEditor } from "../../music/hooks/modals";
@@ -30,6 +32,10 @@ interface SongEditorModalProps {
   onSave?: () => void;
   /** if true, hides buttons that would open other modals (prevents infinite recursion) */
   disableNestedModals?: boolean;
+  /** when set, the modal queries/updates against this remote rather than
+   *  the globally-active data source. used by context-menu actions on
+   *  songs that came from a remote different from the current source. */
+  remote?: Remote;
 }
 
 interface FormData {
@@ -44,8 +50,24 @@ interface FormData {
 }
 
 export function SongEditorModal(props: SongEditorModalProps) {
-  const songQuery = useSongQuery(() => props.songId);
+  const songQuery = useSongQuery(
+    () => props.songId,
+    () => props.remote
+  );
   const updateMutation = useUpdateSongsMutation();
+
+  // pick the data source for direct (non-query-hook) calls below.
+  // honors props.remote when supplied (context menu actions on
+  // songs from a non-active remote), otherwise the active source.
+  const pickSource = () => {
+    if (props.remote && props.remote.remote_id) {
+      return new RemoteMusicDataSource(props.remote);
+    }
+    return getDataSource();
+  };
+  // pick the remote for image/job polling. props.remote wins; falls
+  // back to the currently-active remote.
+  const pickRemote = () => props.remote ?? getCurrentRemote();
 
   const [activeTab, setActiveTab] = createSignal("info");
   const [formData, setFormData] = createSignal<FormData>({
@@ -221,7 +243,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
 
     try {
-      await updateMutation.mutateAsync(updates);
+      await updateMutation.mutateAsync({ ...updates, remote: props.remote });
       props.onSave?.();
       props.onClose();
     } catch (error) {
@@ -272,7 +294,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
 
     if (confirmed) {
       try {
-        const dataSource = getDataSource();
+        const dataSource = pickSource();
         if (dataSource.deleteSong) {
           await dataSource.deleteSong(props.songId);
           toast.success(`deleted "${song.title}"`);
@@ -316,7 +338,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     setProcessingJob({ status: "uploading", message: "uploading image..." });
 
     try {
-      const datasource = await getDataSource();
+      const datasource = await pickSource();
       const result = await datasource.uploadImage?.({
         ...params,
         entityType: "song",
@@ -333,10 +355,13 @@ export function SongEditorModal(props: SongEditorModalProps) {
       const { blob_id, job_id } = result;
 
       // poll for job completion
-      const remote = getCurrentRemote();
+      const remote = pickRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
-        const pollResult = await pollJobUntilComplete(remote, job_id, 10000);
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) =>
+            setProcessingJob({ status: "processing", message: message ?? "processing image..." }),
+        });
         if (pollResult === "failed") {
           toast.error("image processing failed");
           setProcessingJob(null);
@@ -412,7 +437,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
     }
 
     try {
-      const datasource = getDataSource();
+      const datasource = pickSource();
       await datasource.setPrimaryImage?.({
         entityType: "song",
         entityId: props.songId,
@@ -445,7 +470,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       }
 
       // call API to remove image association
-      const dataSource = getDataSource();
+      const dataSource = pickSource();
       if (!dataSource.removeImage) {
         toast.error("image removal not supported");
         return;
