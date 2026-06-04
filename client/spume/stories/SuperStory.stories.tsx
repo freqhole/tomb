@@ -147,6 +147,48 @@ export function FullAppDemoBody() {
   const [queueSongs, setQueueSongs] = createSignal<Song[]>([]);
   const [currentQueueIndex, setCurrentQueueIndex] = createSignal(0);
 
+  // demo-only: a single shared <audio> element backs the fake playerbar so
+  // play/pause/volume toggles produce real sound. file is staged at
+  // /demo/summa-samba.mp3 by the freqhole.net public dir.
+  let demoAudio: HTMLAudioElement | null = null;
+  const ensureAudio = () => {
+    if (demoAudio) return demoAudio;
+    if (typeof Audio === "undefined") return null;
+    demoAudio = new Audio("/demo/summa-samba.mp3");
+    demoAudio.loop = true;
+    demoAudio.volume = volume();
+    demoAudio.addEventListener("pause", () => {
+      if (isPlaying()) setIsPlaying(false);
+    });
+    demoAudio.addEventListener("play", () => {
+      if (!isPlaying()) setIsPlaying(true);
+    });
+    return demoAudio;
+  };
+  createEffect(() => {
+    const a = ensureAudio();
+    if (!a) return;
+    if (isPlaying()) {
+      void a.play().catch(() => {
+        // autoplay blocked; reflect that in the ui state
+        setIsPlaying(false);
+      });
+    } else {
+      a.pause();
+    }
+  });
+  createEffect(() => {
+    const a = demoAudio;
+    if (a) a.volume = Math.max(0, Math.min(1, volume()));
+  });
+  onCleanup(() => {
+    if (demoAudio) {
+      demoAudio.pause();
+      demoAudio.src = "";
+      demoAudio = null;
+    }
+  });
+
   // responsive: track if viewport is narrow (<= 800px)
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
   // track viewport height for virtualized list sizing
