@@ -32,6 +32,7 @@ import WalkCanvas from "../src/components/graph/WalkCanvas";
 import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import type { Song as DomainSong } from "../src/music/data/types";
+import type { ImageMetadata } from "../src/music/services/storage/types";
 import { isNarrowViewport } from "../src/config/breakpoints";
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import {
@@ -151,6 +152,7 @@ export function FullAppDemoBody() {
   // play/pause/volume toggles produce real sound. file is staged at
   // /demo/summa-samba.mp3 by the freqhole.net public dir.
   let demoAudio: HTMLAudioElement | null = null;
+  const [demoAudioDuration, setDemoAudioDuration] = createSignal(0);
   const ensureAudio = () => {
     if (demoAudio) return demoAudio;
     if (typeof Audio === "undefined") return null;
@@ -163,8 +165,28 @@ export function FullAppDemoBody() {
     demoAudio.addEventListener("play", () => {
       if (!isPlaying()) setIsPlaying(true);
     });
+    demoAudio.addEventListener("loadedmetadata", () => {
+      if (demoAudio && isFinite(demoAudio.duration)) {
+        setDemoAudioDuration(demoAudio.duration);
+      }
+    });
+    demoAudio.addEventListener("timeupdate", () => {
+      if (demoAudio) setCurrentTime(demoAudio.currentTime);
+    });
     return demoAudio;
   };
+  // rAF-driven ticker keeps the seek bar smooth (timeupdate fires only
+  // every ~250ms in most browsers).
+  let tickRaf = 0;
+  const tickSeek = () => {
+    if (demoAudio && !demoAudio.paused) {
+      setCurrentTime(demoAudio.currentTime);
+    }
+    tickRaf = requestAnimationFrame(tickSeek);
+  };
+  if (typeof requestAnimationFrame !== "undefined") {
+    tickRaf = requestAnimationFrame(tickSeek);
+  }
   createEffect(() => {
     const a = ensureAudio();
     if (!a) return;
@@ -182,6 +204,7 @@ export function FullAppDemoBody() {
     if (a) a.volume = Math.max(0, Math.min(1, volume()));
   });
   onCleanup(() => {
+    if (tickRaf) cancelAnimationFrame(tickRaf);
     if (demoAudio) {
       demoAudio.pause();
       demoAudio.src = "";
@@ -2759,19 +2782,30 @@ export function FullAppDemoBody() {
                   song().album_title ?? song().title
                 ),
                 isFavorite: song().is_favorite ?? false,
+                // demo-only: synthetic waveform image so the playerbar's
+                // progress bar shows the real summa-samba waveform.
+                images: [
+                  {
+                    blob_type: "waveform",
+                    remote_url: "/demo/summa-samba.waveform.png",
+                  } as ImageMetadata,
+                ],
               }}
               isPlaying={isPlaying()}
               volume={volume()}
               currentTime={currentTime()}
-              duration={song().duration_seconds}
+              duration={demoAudioDuration() || song().duration_seconds}
               queueOpen={queueOpen()}
               onPlayPause={handlePlayPause}
               onPrevious={() => handleSkip("prev")}
               onNext={() => handleSkip("next")}
               onSeek={(percentage) => {
-                const duration = song().duration_seconds;
-                const timeInSeconds = (percentage / 100) * duration;
+                const dur = demoAudioDuration() || song().duration_seconds;
+                const timeInSeconds = (percentage / 100) * dur;
                 setCurrentTime(timeInSeconds);
+                if (demoAudio && demoAudioDuration() > 0) {
+                  demoAudio.currentTime = timeInSeconds;
+                }
               }}
               onVolumeChange={(vol) => setVolume(vol)}
               onQueueToggle={() => setQueueOpen(!queueOpen())}
