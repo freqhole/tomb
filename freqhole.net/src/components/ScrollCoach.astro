@@ -1,0 +1,768 @@
+---
+// scroll-coach host — sticky-centered demo stage with scroll-driven steps.
+//
+// embeds the freqhole spume demo as a <freqhole-coach-demo> custom element.
+// the bundle (built by `npm run build:coach:wc` in client/spume) lives in
+// freqhole.net/public/demo/. CSS is loaded via <link>; JS registers the
+// custom element + exposes window.__FREQHOLE_DEMO__.
+//
+// behavior:
+//   - tall outer section (steps * 100vh) gives native scroll the runway it
+//     needs
+//   - sticky stage hosts the demo
+//   - scroll listener maps section progress -> step index
+//   - touch handler (swipe up/down) drives next/prev on mobile
+//   - calls window.__FREQHOLE_DEMO__.goToStep(idx) on each transition
+
+interface Props {
+  /** total step count, must match coachSteps.length in the runtime */
+  steps?: number;
+  /** extra scroll buffer (in vh) appended after the last step. lets the
+   *  final slide "dwell" before the page scrolls past the demo. */
+  outroVh?: number;
+}
+
+const { steps = 12, outroVh = 80 } = Astro.props as Props;
+const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dwell
+---
+
+<section
+  class="scroll-coach not-content"
+  data-steps={steps}
+  data-outro-vh={outroVh}
+  style={`height: ${sectionVh}vh;`}
+>
+  <div class="stage">
+    {/* mobile-only touch interceptor — covers the entire sticky stage so
+        no swipe ever reaches the demo or its inner virtualized lists. nav
+        buttons + dots sit on a higher z-index and stay tappable.
+        desktop = display: none. */}
+    <div class="stage-touch-blocker" aria-hidden="true"></div>
+    <div class="layout">
+      <div class="frame">
+        {/* scaler wrapper: on mobile we render the demo at desktop size
+            and CSS-scale it down to fit the frame. this avoids the demo's
+            own mobile-responsive layout (bottom sheets, narrow stacks, etc.)
+            which had its own internal scroll containers. */}
+        <div class="frame-scaler">
+          <freqhole-coach-demo></freqhole-coach-demo>
+        </div>
+      </div>
+      <aside class="info" aria-live="polite">
+        <div class="info-title" data-coach-info-title>loading...</div>
+        <div class="info-body" data-coach-info-body>
+          scroll to step through the demo.
+        </div>
+        <div class="info-footer">
+          <div class="info-dots" data-coach-dots role="tablist" aria-label="steps"></div>
+          <div class="info-nav">
+            <button
+              type="button"
+              class="info-nav-btn"
+              data-coach-prev
+              aria-label="previous step"
+              title="previous"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <div class="info-counter">
+              <span data-coach-info-current>1</span>
+              <span class="info-counter-sep">/</span>
+              <span data-coach-info-total>{steps}</span>
+            </div>
+            <button
+              type="button"
+              class="info-nav-btn"
+              data-coach-next
+              aria-label="next step"
+              title="next"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="hint" aria-hidden="true">scroll ↓</div>
+  </div>
+</section>
+
+{/* back-to-top: shown after the user scrolls past the entire coach demo. */}
+<div class="scroll-coach-outro not-content">
+  <button type="button" class="back-to-top" data-coach-back-to-top>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+    <span>back to top</span>
+  </button>
+</div>
+
+<script type="module" src="/demo/freqhole-coach-demo.js"></script>
+
+<script is:inline>
+  (function () {
+    const section = document.querySelector(".scroll-coach");
+    if (!(section instanceof HTMLElement)) return;
+    const totalSteps = Number(section.dataset.steps || 1);
+    let lastStep = -1;
+
+    // ---- DEBUG (temporary) ---------------------------------------------
+    // toggle: append ?nocoachdbg to URL to silence.
+    const DEBUG = !/[?&]nocoachdbg\b/.test(location.search);
+    let scrollCount = 0;
+    let touchCount = 0;
+    function dlog(tag, extra) {
+      if (!DEBUG) return;
+      const rect = section.getBoundingClientRect();
+      const headerH =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--sl-nav-height"
+          )
+        ) || 64;
+      const stageH = window.innerHeight - headerH;
+      const total = section.offsetHeight - stageH;
+      const scrolled = Math.min(Math.max(-rect.top, 0), Math.max(total, 1));
+      const progress = total > 0 ? scrolled / total : 0;
+      // single-line log so it's easy to grep + copy/paste from console.
+      console.log(
+        `[coach:${tag}]`,
+        `step=${lastStep + 1}/${totalSteps}`,
+        `scrollY=${Math.round(window.scrollY)}`,
+        `rect.top=${Math.round(rect.top)}`,
+        `secH=${section.offsetHeight}`,
+        `stageH=${Math.round(stageH)}`,
+        `total=${Math.round(total)}`,
+        `scrolled=${Math.round(scrolled)}`,
+        `prog=${(progress * 100).toFixed(1)}%`,
+        `scrollEvts=${scrollCount}`,
+        `touchEvts=${touchCount}`,
+        extra || ""
+      );
+    }
+    if (DEBUG) {
+      window.addEventListener(
+        "touchstart",
+        (e) => {
+          touchCount++;
+          dlog("touchstart", `target=${(e.target && e.target.tagName) || "?"}`);
+        },
+        { passive: true }
+      );
+      window.addEventListener(
+        "touchmove",
+        () => {
+          touchCount++;
+        },
+        { passive: true }
+      );
+
+      // log every programmatic scroll attempt with a stack trace.
+      const origScrollTo = window.scrollTo.bind(window);
+      window.scrollTo = function () {
+        const args = Array.prototype.slice.call(arguments);
+        const stack = new Error().stack || "";
+        if (!stack.includes("scrollToStep")) {
+          console.log("[coach:window.scrollTo]", args, "\n" + stack.split("\n").slice(1, 6).join("\n"));
+        }
+        return origScrollTo.apply(window, args);
+      };
+      const origScrollBy = window.scrollBy.bind(window);
+      window.scrollBy = function () {
+        const args = Array.prototype.slice.call(arguments);
+        const stack = new Error().stack || "";
+        console.log("[coach:window.scrollBy]", args, "\n" + stack.split("\n").slice(1, 6).join("\n"));
+        return origScrollBy.apply(window, args);
+      };
+      const origSIV = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function () {
+        const args = Array.prototype.slice.call(arguments);
+        const stack = new Error().stack || "";
+        const tag = this.tagName || "?";
+        const cls = this.className || "";
+        console.log(
+          "[coach:scrollIntoView]",
+          `tag=${tag}`,
+          `class=${typeof cls === "string" ? cls.slice(0, 60) : "?"}`,
+          args,
+          "\n" + stack.split("\n").slice(1, 6).join("\n")
+        );
+        return origSIV.apply(this, args);
+      };
+      // patch scrollTop setter on Element (catches docEl.scrollTop = ...,
+      // body.scrollTop = ..., and any inner-scroller assignment).
+      const elProto = Element.prototype;
+      const stDesc = Object.getOwnPropertyDescriptor(elProto, "scrollTop");
+      if (stDesc && stDesc.set) {
+        const origSet = stDesc.set;
+        const origGet = stDesc.get;
+        Object.defineProperty(elProto, "scrollTop", {
+          configurable: true,
+          get: function () {
+            return origGet.call(this);
+          },
+          set: function (v) {
+            const before = origGet.call(this);
+            if (
+              this === document.documentElement ||
+              this === document.body ||
+              this === document.scrollingElement
+            ) {
+              const stack = new Error().stack || "";
+              console.log(
+                "[coach:docScrollTop=]",
+                `${this.tagName} ${before} -> ${v}`,
+                "\n" + stack.split("\n").slice(1, 7).join("\n")
+              );
+            }
+            return origSet.call(this, v);
+          },
+        });
+      }
+      window.addEventListener("hashchange", (e) => {
+        console.log("[coach:hashchange]", e.oldURL, "->", e.newURL);
+      });
+      // poll for sudden scroll jumps that happen between scroll events
+      let lastY = window.scrollY;
+      setInterval(() => {
+        const y = window.scrollY;
+        if (Math.abs(y - lastY) > 100) {
+          console.log(
+            "[coach:scroll-jump]",
+            `${lastY} -> ${y} (delta ${y - lastY})`,
+            `activeEl=${document.activeElement && document.activeElement.tagName}`,
+            `hash=${location.hash || "none"}`
+          );
+        }
+        lastY = y;
+      }, 50);
+    }
+    // --------------------------------------------------------------------
+
+    const titleEl = section.querySelector("[data-coach-info-title]");
+    const bodyEl = section.querySelector("[data-coach-info-body]");
+    const currentEl = section.querySelector("[data-coach-info-current]");
+    const dotsEl = section.querySelector("[data-coach-dots]");
+    let dotButtons = [];
+
+    function buildDots() {
+      const api = window.__FREQHOLE_DEMO__;
+      if (!api || !api.steps || !dotsEl) return;
+      if (dotButtons.length === api.steps.length) return;
+      dotsEl.textContent = "";
+      dotButtons = api.steps.map((s, i) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "info-dot";
+        btn.setAttribute("role", "tab");
+        btn.setAttribute("aria-label", `step ${i + 1}: ${s.title}`);
+        // inline styles so starlight's button reset doesn't clobber us
+        btn.style.width = "0.55rem";
+        btn.style.height = "0.55rem";
+        btn.style.padding = "0";
+        btn.style.border = "0";
+        btn.style.borderRadius = "9999px";
+        btn.style.cursor = "pointer";
+        btn.style.background = "var(--sl-color-gray-5, #444)";
+        btn.style.transition =
+          "width 0.18s ease, background-color 0.18s ease";
+        btn.addEventListener("click", () => {
+          // scroll the page to the position that maps to this step
+          const rect = section.getBoundingClientRect();
+          const headerH =
+            parseFloat(
+              getComputedStyle(document.documentElement).getPropertyValue(
+                "--sl-nav-height"
+              )
+            ) || 64;
+          const stageH = window.innerHeight - headerH;
+          const total = section.offsetHeight - stageH;
+          const outroVh = Number(section.dataset.outroVh || 0);
+          const outroPx = (outroVh / 100) * window.innerHeight;
+          const active = Math.max(1, total - outroPx);
+          const ratio = totalSteps > 1 ? i / (totalSteps - 1) : 0;
+          const targetTop = section.offsetTop + Math.round(active * ratio);
+          window.scrollTo({ top: targetTop, behavior: "smooth" });
+        });
+        dotsEl.appendChild(btn);
+        return btn;
+      });
+    }
+
+    function updateInfo(idx) {
+      const api = window.__FREQHOLE_DEMO__;
+      if (!api || !api.steps) return;
+      buildDots();
+      const s = api.steps[idx];
+      if (!s) return;
+      if (titleEl) titleEl.textContent = s.title;
+      if (bodyEl) bodyEl.textContent = s.body;
+      if (currentEl) currentEl.textContent = String(idx + 1);
+      dotButtons.forEach((btn, i) => {
+        const active = i === idx;
+        btn.style.width = active ? "1.4rem" : "0.55rem";
+        btn.style.background = active
+          ? "var(--sl-color-accent, #d63384)"
+          : "var(--sl-color-gray-5, #444)";
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      // hide prev/next at boundaries (no slide to go to)
+      const prevB = section.querySelector("[data-coach-prev]");
+      const nextB = section.querySelector("[data-coach-next]");
+      if (prevB) prevB.style.visibility = idx <= 0 ? "hidden" : "visible";
+      if (nextB)
+        nextB.style.visibility = idx >= totalSteps - 1 ? "hidden" : "visible";
+    }
+
+    function computeStep() {
+      const rect = section.getBoundingClientRect();
+      const headerH =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--sl-nav-height"
+          )
+        ) || 64;
+      const stageH = window.innerHeight - headerH;
+      const total = section.offsetHeight - stageH;
+      if (total <= 0) return { step: 0, sub: 0 };
+      // outroVh extends the section past the last step so the final slide
+      // gets dwell time before the page scrolls into the next section. cap
+      // the "active" scroll range at (total - outroPx) so progress reaches
+      // 1.0 at the start of the buffer rather than at the very bottom.
+      const outroVh = Number(section.dataset.outroVh || 0);
+      const outroPx = (outroVh / 100) * window.innerHeight;
+      const active = Math.max(1, total - outroPx);
+      const scrolled = Math.min(Math.max(-rect.top, 0), active);
+      const progress = scrolled / active;
+      // each slide owns a slice [i/(N-1) .. (i+1)/(N-1)] of overall progress.
+      // sub = how far through that slice we currently are.
+      const lanes = Math.max(1, totalSteps - 1);
+      const raw = progress * lanes;
+      const step = Math.min(totalSteps - 1, Math.max(0, Math.floor(raw)));
+      const sub = Math.max(0, Math.min(1, raw - step));
+      return { step, sub };
+    }
+
+    function tick() {
+      scrollCount++;
+      const { step, sub } = computeStep();
+      const api = window.__FREQHOLE_DEMO__;
+      // continuous: always send sub-progress so per-slide animations track
+      // scroll smoothly even when the discrete step hasn't changed.
+      if (api && api.setStepProgress) api.setStepProgress(step, sub);
+      if (step === lastStep) return;
+      const prev = lastStep;
+      lastStep = step;
+      if (api && api.goToStep) api.goToStep(step);
+      updateInfo(step);
+      dlog("transition", `${prev + 1} -> ${step + 1}`);
+    }
+
+    window.addEventListener("scroll", tick, { passive: true });
+    window.addEventListener("resize", tick);
+    requestAnimationFrame(tick);
+
+    // FIX: programmatic .focus() inside the demo's shadow DOM causes the
+    // browser to scroll the focused element into view, yanking us back a
+    // step. patch HTMLElement/SVGElement.prototype.focus to inject
+    // preventScroll:true ONLY when the target is inside .scroll-coach.
+    // outside the coach (starlight nav, search, etc.) focus behaves normally.
+    (function patchFocus() {
+      const protos = [HTMLElement.prototype];
+      if (typeof SVGElement !== "undefined") protos.push(SVGElement.prototype);
+      for (const proto of protos) {
+        const orig = proto.focus;
+        if (!orig || orig.__coachPatched) continue;
+        const wrapped = function (opts) {
+          // is this element inside the coach (light DOM or shadow DOM host)?
+          let inCoach = false;
+          try {
+            inCoach =
+              !!(this.closest && this.closest(".scroll-coach")) ||
+              this.tagName === "FREQHOLE-COACH-DEMO" ||
+              !!(
+                this.getRootNode &&
+                this.getRootNode().host &&
+                this.getRootNode().host.tagName === "FREQHOLE-COACH-DEMO"
+              );
+          } catch (_) {}
+          if (!inCoach) return orig.call(this, opts);
+          const merged = Object.assign({}, opts || {}, { preventScroll: true });
+          if (DEBUG) {
+            console.log(
+              "[coach:focus()]",
+              `tag=${this.tagName}`,
+              `id=${this.id || ""}`,
+              `cls=${(this.className || "").toString().slice(0, 60)}`
+            );
+          }
+          return orig.call(this, merged);
+        };
+        wrapped.__coachPatched = true;
+        proto.focus = wrapped;
+      }
+    })();
+
+    // FIX: when something inside the demo gets focused (e.g. search input),
+    // the browser scrolls it into view, which yanks us back a step. our prior
+    // approach (capture preY at focusin) was too late — by the time focusin
+    // fires the bounce-back has already happened. instead, track the LAST
+    // user-driven scroll position and snap back to it on focusin.
+    let lastStableY = 0;
+    let userScrolling = false;
+    let userScrollTimer = 0;
+    window.addEventListener(
+      "scroll",
+      () => {
+        userScrolling = true;
+        lastStableY = window.scrollY;
+        clearTimeout(userScrollTimer);
+        userScrollTimer = setTimeout(() => {
+          userScrolling = false;
+        }, 50);
+      },
+      { passive: true }
+    );
+    document.addEventListener(
+      "focusin",
+      (e) => {
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        if (!t.closest(".scroll-coach")) return;
+        // if we're not actively scrolling, this focusin is from automation
+        // (e.g. coach script auto-opening search). restore the last stable Y.
+        if (userScrolling) return;
+        dlog("focusin", `target=${t.tagName} restoreTo=${lastStableY} curY=${window.scrollY}`);
+        let frames = 0;
+        const restore = () => {
+          if (Math.abs(window.scrollY - lastStableY) > 1) {
+            window.scrollTo({ top: lastStableY, behavior: "instant" });
+          }
+          frames++;
+          if (frames < 8) requestAnimationFrame(restore);
+        };
+        requestAnimationFrame(restore);
+      },
+      true
+    );
+    // re-tick once the bundle has had a chance to attach __FREQHOLE_DEMO__
+    setTimeout(() => {
+      lastStep = -1;
+      tick();
+    }, 500);
+
+    // prev/next buttons — scroll the page to the matching position rather
+    // than just calling api.next/prev (which would desync from scroll state).
+    //
+    // tracks the in-flight smooth-scroll target so rapid prev/next clicks
+    // chain off the intended destination instead of the (still-animating)
+    // scroll position. also rounds visible step so clicking "next" while
+    // mid-slice always advances to the *following* full step.
+    let smoothTarget = null;
+    let smoothTimer = 0;
+    function visibleStep() {
+      const { step, sub } = computeStep();
+      // if more than ~30% into the next slice, treat that as the visible step
+      // (matches what the user perceives because per-slide animations are
+      // already showing the next slide's content).
+      return sub > 0.3 ? Math.min(totalSteps - 1, step + 1) : step;
+    }
+    function scrollToStep(idx) {
+      const headerH =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--sl-nav-height"
+          )
+        ) || 64;
+      const stageH = window.innerHeight - headerH;
+      const total = section.offsetHeight - stageH;
+      const outroVh = Number(section.dataset.outroVh || 0);
+      const outroPx = (outroVh / 100) * window.innerHeight;
+      const active = Math.max(1, total - outroPx);
+      const clamped = Math.max(0, Math.min(totalSteps - 1, idx));
+      const ratio = totalSteps > 1 ? clamped / (totalSteps - 1) : 0;
+      const targetTop = section.offsetTop + Math.round(active * ratio);
+      smoothTarget = clamped;
+      clearTimeout(smoothTimer);
+      smoothTimer = setTimeout(() => {
+        smoothTarget = null;
+      }, 700);
+      window.scrollTo({ top: targetTop, behavior: "smooth" });
+    }
+    function stepBasis() {
+      // when a smooth scroll is in-flight, chain off its target so quick
+      // double-clicks don't skip slides. otherwise use the visible step.
+      return smoothTarget !== null ? smoothTarget : visibleStep();
+    }
+    const prevBtn = section.querySelector("[data-coach-prev]");
+    const nextBtn = section.querySelector("[data-coach-next]");
+    if (prevBtn) prevBtn.addEventListener("click", () => scrollToStep(stepBasis() - 1));
+    if (nextBtn) nextBtn.addEventListener("click", () => scrollToStep(stepBasis() + 1));
+
+    // mobile-only: render the demo at a fixed base width but match the
+    // FRAME'S aspect ratio for the height — so on a portrait phone the demo
+    // is a tall vertical render, not a horizontal letterboxed strip.
+    function updateFrameScale() {
+      const isNarrow = window.matchMedia("(max-width: 768px)").matches;
+      if (!isNarrow) {
+        section.style.removeProperty("--frame-scale");
+        section.style.removeProperty("--frame-scaled-h");
+        return;
+      }
+      const frame = section.querySelector(".frame");
+      if (!(frame instanceof HTMLElement)) return;
+      const fw = frame.clientWidth;
+      const fh = frame.clientHeight;
+      if (fw <= 0 || fh <= 0) return;
+      // baseW < spume's NARROW_MAX_WIDTH (800) so the demo renders its
+      // narrow/mobile breakpoint while still being modestly zoomed-out
+      // to fit the frame.
+      const baseW = 500;
+      const scale = fw / baseW;
+      // base height in unscaled units, derived from frame aspect ratio.
+      const baseH = fh / scale;
+      section.style.setProperty("--frame-scale", String(scale));
+      section.style.setProperty("--frame-scaled-h", baseH + "px");
+    }
+    window.addEventListener("resize", updateFrameScale);
+    window.addEventListener("orientationchange", updateFrameScale);
+    requestAnimationFrame(updateFrameScale);
+    setTimeout(updateFrameScale, 600);
+
+    // back-to-top button — scrolls back to the start of the coach section.
+    const backBtn = document.querySelector("[data-coach-back-to-top]");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        window.scrollTo({ top: section.offsetTop, behavior: "smooth" });
+      });
+    }
+  })();
+</script>
+
+<style>
+  .scroll-coach {
+    position: relative;
+    width: 100%;
+    /* break out of starlight's content max-width so the stage feels demo-y */
+    margin-inline: calc(50% - 50vw);
+    width: 100vw;
+  }
+  .stage {
+    position: sticky;
+    top: var(--sl-nav-height, 64px);
+    height: calc(100vh - var(--sl-nav-height, 64px));
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    box-sizing: border-box;
+    gap: 0.75rem;
+  }
+  .stage-touch-blocker {
+    /* desktop default: invisible + non-blocking. */
+    display: none;
+  }
+  .layout {
+    display: flex;
+    flex-direction: row;
+    gap: 1.5rem;
+    width: min(100%, 1400px);
+    height: 100%;
+    align-items: stretch;
+    min-height: 0;
+  }
+  .frame {
+    flex: 0 0 75%;
+    height: 100%;
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+    border-radius: 12px;
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.35),
+      0 2px 8px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    background: var(--sl-color-bg, #0a0a0a);
+    position: relative;
+  }
+  .frame-scaler {
+    width: 100%;
+    height: 100%;
+    transform-origin: top left;
+  }
+  freqhole-coach-demo {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .info {
+    flex: 1 1 25%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    overflow-y: auto;
+  }
+  .info-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--sl-color-white, #fff);
+  }
+  .info-body {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-2, #ccc);
+  }
+  .info-counter {
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+  }
+  .info-counter-sep { margin: 0 0.25rem; }
+  .info-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+  }
+  .info-nav-btn {
+    appearance: none;
+    background: var(--sl-color-gray-6, #1a1a1a);
+    color: var(--sl-color-white, #fff);
+    border: 1px solid var(--sl-color-gray-5, #333);
+    border-radius: 9999px;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .info-nav-btn:hover {
+    background: var(--sl-color-gray-5, #2a2a2a);
+    border-color: var(--sl-color-accent, #d63384);
+  }
+  .info-nav-btn:active {
+    transform: scale(0.95);
+  }
+  .info-footer {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 0.5rem;
+  }
+  .info-dots {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+    align-items: center;
+  }
+  .hint {
+    font-size: 0.75rem;
+    opacity: 0.5;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* narrow viewports: stack with frame on top (75% h), info below (25% h) */
+  @media (max-width: 768px) {
+    .stage {
+      padding: 0.5rem;
+      position: sticky; /* re-state */
+    }
+    /* the always-on touch interceptor — covers the entire sticky stage so
+       no swipe ever reaches the demo or its inner virtualized lists. native
+       page scroll wins because touch-action below is pan-y. */
+    .stage-touch-blocker {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 100;
+      background: transparent;
+      pointer-events: auto;
+      touch-action: pan-y;
+    }
+    /* lift the info panel ABOVE the blocker so dots/buttons are tappable. */
+    .info {
+      position: relative;
+      z-index: 101;
+    }
+    .layout {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .frame {
+      flex: 0 0 75%;
+      width: 100%;
+      border-radius: 8px;
+    }
+    /* render the demo at a phone-ish width (< spume's 800px narrow
+       breakpoint) so the narrow responsive layout actually renders, then
+       css-scale it to fit the frame. wrapper height is set in JS to match
+       the frame's aspect ratio so the demo isn't a letterboxed strip. */
+    .frame-scaler {
+      width: 500px;
+      height: var(--frame-scaled-h, 720px);
+      transform: scale(var(--frame-scale, 0.7));
+      transform-origin: top left;
+    }
+    .info {
+      flex: 0 0 25%;
+      padding: 0.5rem 0.75rem;
+      gap: 0.5rem;
+      overflow: hidden;
+    }
+    .info-title { font-size: 1.125rem; }
+    .info-body { font-size: 0.85rem; }
+    /* belt + suspenders: pan-y everywhere in the section. */
+    .scroll-coach,
+    .scroll-coach * {
+      touch-action: pan-y !important;
+    }
+    /* nav buttons must remain tappable on mobile (they sit OUTSIDE the
+       touch blocker, in .info / its footer, so they're fine). */
+  }
+
+  /* outro panel that follows the sticky stage — gives the user something
+     after the last step instead of dumping them into adjacent content. */
+  .scroll-coach-outro {
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+    padding: 3rem 1.5rem 4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sl-color-bg, transparent);
+  }
+  .back-to-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--sl-color-gray-5, rgba(255, 255, 255, 0.15));
+    background: var(--sl-color-gray-6, rgba(255, 255, 255, 0.05));
+    color: var(--sl-color-text, inherit);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  }
+  .back-to-top:hover {
+    background: var(--sl-color-accent, #d63384);
+    border-color: var(--sl-color-accent, #d63384);
+    color: white;
+    transform: translateY(-1px);
+  }
+  .back-to-top:active {
+    transform: translateY(0);
+  }
+</style>

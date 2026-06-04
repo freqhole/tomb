@@ -16,7 +16,10 @@
     "lint:full": "ESLINT_FULL=true eslint src --ext .ts,.tsx",
     "lint:full:fix": "ESLINT_FULL=true eslint src --ext .ts,.tsx --fix",
     "lint:circular": "npx madge --circular --extensions ts,tsx src/",
-    "ts-prune": "ts-prune"
+    "ts-prune": "ts-prune",
+    "build:coach:wc": "vite build --config vite.coach-demo.config.ts --mode wc",
+    "build:coach:html": "vite build --config vite.coach-demo.config.ts --mode html",
+    "dev:coach": "vite --config vite.coach-demo.config.ts --mode html stories/coach"
   },
   "dependencies": {
     "@fontsource/atkinson-hyperlegible-next": "^5.2.7",

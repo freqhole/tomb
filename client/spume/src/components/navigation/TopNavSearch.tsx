@@ -24,6 +24,8 @@ export interface TopNavSearchProps {
   onExpandedChange?: (expanded: boolean) => void;
   /** whether the parent nav is being hovered */
   navHovered?: boolean;
+  /** optional element to mount the suggestions flyout into (for shadow-root embeds) */
+  flyoutMount?: Node;
   /**
    * optional resolver: given a suggestion, return the remoteId it belongs
    * to. when set, navigation uses `routes.*On(remoteId, ...)` so the
@@ -501,6 +503,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
             onEndReached={handleEndReached}
             loadingMore={!!props.hasMoreSuggestions && !!props.isLoadingSuggestions}
             hintMessage={hintMessage()}
+            flyoutMount={props.flyoutMount}
             onHintClick={hintClick}
             footerContent={props.footerContent}
             class="w-64"

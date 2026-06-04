@@ -1,0 +1,148 @@
+---
+title: scanning your library
+description: importing music into freqhole
+---
+
+freqhole scans directories to import music files into your library.
+
+## configuring scan directories
+
+scan directories are passed as arguments to the scan command — there's no config file section for them. supported audio formats are configured in `[media].supported_audio_formats`.
+
+### in desktop app
+
+settings → library → add folder
+
+---
+
+## running a scan
+
+### CLI
+
+```bash
+freqhole music scan --path ~/Music
+```
+
+rescan all previously tracked directories:
+
+```bash
+freqhole music scan rescan
+```
+
+### desktop app
+
+library → scan now
+
+### web app
+
+settings → library → scan (member/admin only)
+
+---
+
+## what happens during scan
+
+1. **discover files**: find all audio files in configured directories
+2. **extract metadata**: read ID3/Vorbis tags from files
+3. **extract artwork**: pull embedded cover art
+4. **deduplicate**: skip files already in library (by path)
+5. **create entities**: songs → albums → artists (linked)
+6. **index for search**: update full-text search index
+
+---
+
+## metadata extraction
+
+### supported tags
+
+- title, artist, album artist
+- album, track number, disc number
+- year, genre
+- duration, bitrate, sample rate
+
+### embedded artwork
+
+cover art is extracted from:
+
+- ID3 APIC frames (MP3)
+- Vorbis METADATA_BLOCK_PICTURE (FLAC/OGG)
+- MP4 covr atom (M4A)
+
+stored as blobs, deduplicated by content hash.
+
+---
+
+## file formats
+
+| format     | extension | notes             |
+| ---------- | --------- | ----------------- |
+| MP3        | .mp3      | ID3v2 tags        |
+| FLAC       | .flac     | Vorbis comments   |
+| Ogg Vorbis | .ogg      | Vorbis comments   |
+| AAC        | .m4a      | iTunes-style tags |
+| WAV        | .wav      | limited metadata  |
+| Opus       | .opus     | Vorbis comments   |
+
+---
+
+## handling duplicates
+
+freqhole tracks files by path. if the same file is moved:
+
+- old path: shows as missing
+- new path: imports as new song
+
+to clean up missing files:
+
+```bash
+freqhole maintenance cleanup-orphans
+```
+
+---
+
+## incremental vs full scan
+
+### incremental (default)
+
+- only processes new files (not in database)
+- fast for adding new music
+- does not update changed tags
+
+### rescan
+
+```bash
+freqhole music scan rescan
+```
+
+- reprocesses all previously tracked directories
+- slower but ensures everything is up to date
+
+---
+
+## troubleshooting
+
+### files not appearing
+
+check:
+
+1. file extension in `[media].supported_audio_formats`?
+2. file readable by the freqhole process?
+3. valid audio file (not corrupted)?
+
+### wrong metadata
+
+tags embedded in the file take priority. to fix:
+
+1. update tags in the file (with Mp3tag, Picard, etc.)
+2. run `freqhole music scan rescan`
+
+or edit in the web app (overrides file tags).
+
+### scan is slow
+
+normal for large libraries on first scan. subsequent scans are incremental.
+
+tips:
+
+- exclude non-music directories
+- use SSD for database
+- reduce extensions list

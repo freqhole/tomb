@@ -1,0 +1,51 @@
+---
+title: prerequisites
+description: external tools freqhole needs — ffmpeg and yt-dlp
+---
+
+freqhole can use [ffmpeg](https://ffmpeg.org/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+these are optional, but recommended.
+
+---
+
+## ffmpeg
+
+`ffmpeg` handles generating audio waveform images and using `ffprobe` for metadata. freqhole will look for it in your PATH and common install locations (`/opt/homebrew/bin`, `/usr/local/bin`, etc.).
+
+**macOS**:
+
+```bash
+brew install ffmpeg
+```
+
+**Linux**:
+
+```bash
+sudo apt install ffmpeg   # debian/ubuntu
+sudo dnf install ffmpeg   # fedora
+```
+
+---
+
+## yt-dlp
+
+needed only if you want freqhole to fetch music from URLs. install via pip or download the binary directly,
+
+**see** [github.com/yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) for best installation instructions.
+
+```bash
+# pip (into a venv or with --break-system-packages on newer distros)
+pip install yt-dlp
+
+# or download the binary directly
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+chmod +x ~/.local/bin/yt-dlp
+```
+
+freqhole will find yt-dlp automatically if it's in your PATH or a common install location. for non-standard paths, set it explicitly in `freqhole-config.toml`:
+
+```toml
+[server.fetch_music]
+fetch_command = "/full/path/to/yt-dlp ..."
+```

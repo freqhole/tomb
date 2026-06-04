@@ -1,0 +1,172 @@
+---
+title: sharing with friends
+description: setting up P2P sharing and managing access
+---
+
+freqhole lets you share your music library with friends via peer-to-peer connections — no port forwarding or public IP needed.
+
+## enabling federation
+
+### in config file
+
+```toml
+[federation]
+enabled = true
+```
+
+### in desktop app
+
+settings → network → enable P2P
+
+after enabling, your server gets a unique **node ID** — your P2P identity.
+
+---
+
+## finding your node ID
+
+### CLI
+
+```bash
+freqhole federation status
+```
+
+### desktop app
+
+settings → network → your node ID
+
+### node ID format
+
+looks like:
+
+```
+2bfzgvv4jqzhxqq5izn4k4u3whx7xh7c4qmdknhfhdyqbhnxlmaa
+```
+
+this never changes for your server. share it to let friends connect.
+
+---
+
+## inviting a friend
+
+1. **create invite code**
+
+   ```bash
+   freqhole auth create-invite --role viewer
+   ```
+
+2. **share with friend**
+
+   send them:
+   - your node ID
+   - the invite code
+
+3. **friend connects**
+
+   they add your node ID as a remote and enter the code.
+
+---
+
+## connecting to a friend's server
+
+1. **get their info**
+
+   you need:
+   - their node ID
+   - an invite code
+
+2. **add as remote**
+
+   in web app: remotes → add → enter node ID
+
+3. **register**
+
+   enter invite code and create username.
+
+4. **done**
+
+   their library appears in your remotes.
+
+---
+
+## knock requests
+
+an alternative to sharing invite codes ahead of time.
+
+### what is a knock?
+
+when someone tries to connect without an invite code, it creates a "knock request" — they're asking for access.
+
+### enabling knocks
+
+```toml
+[federation]
+knocking_enabled = true
+```
+
+### responding to knocks
+
+in desktop app:
+
+notifications → pending knocks → approve/deny
+
+in CLI:
+
+```bash
+freqhole federation list-knocks
+freqhole federation accept-knock <knock-id>
+freqhole federation reject-knock <knock-id>
+```
+
+approved users get **viewer** role by default (you can set a different role in freqhole-config.toml).
+
+---
+
+## managing peers
+
+### allowing a peer by node ID
+
+if you know a friend's node ID, you can grant them access directly:
+
+```bash
+freqhole federation allow-peer <node-id> --username alice --role viewer
+```
+
+---
+
+## what gets shared
+
+### visible to viewers
+
+- song metadata (title, artist, album, duration)
+- album artwork
+- stream access (can play songs)
+- search functionality
+- feed of server activity: new music, listening sessions, favorites & ratings
+
+### not shared
+
+- file paths on your disk
+- your playback history
+- server configuration
+
+---
+
+## bandwidth considerations
+
+### relay fallback
+
+if direct connection fails, data routes through relay server:
+
+- same bandwidth used
+- added latency
+- relay sees traffic volume, not content
+
+---
+
+## security notes
+
+- all P2P connections are encrypted
+- node ID is cryptographic identity
+- authentication still required (invite/knock)
+- viewers can only read, not modify
+- can revoke access anytime

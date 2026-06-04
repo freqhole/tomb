@@ -1,0 +1,642 @@
+---
+import { Icon } from "@astrojs/starlight/components";
+import { VERSION } from "../version";
+
+// download picker with platform/arch detection.
+// asset filenames must match tomb/Makefile output names. version is baked
+// at build time from src/version.ts (kept in sync by `make bump-version`).
+
+interface Props {
+  heroOnly?: boolean;
+  buttonOnly?: boolean;
+}
+const { heroOnly = false, buttonOnly = false } = Astro.props;
+
+const REPO = "freqhole/tomb";
+const BASE = `https://github.com/${REPO}/releases/download/${VERSION}`;
+
+const ASSETS: Record<string, string> = {
+  "charnel-mac-arm": `freqhole_charnel_${VERSION}_aarch64.dmg`,
+  "charnel-mac-intel": `freqhole_charnel_${VERSION}_x86_64.dmg`,
+  "charnel-linux-x86-flatpak": `freqhole_charnel_${VERSION}_x86_64.flatpak`,
+  "charnel-linux-x86-deb": `freqhole_charnel_${VERSION}_x86_64.deb`,
+  "charnel-linux-x86-rpm": `freqhole_charnel_${VERSION}_x86_64.rpm`,
+  "charnel-linux-arm-flatpak": `freqhole_charnel_${VERSION}_aarch64.flatpak`,
+  "charnel-linux-arm-deb": `freqhole_charnel_${VERSION}_aarch64.deb`,
+  "charnel-linux-arm-rpm": `freqhole_charnel_${VERSION}_aarch64.rpm`,
+  "charnel-android": `freqhole_charnel_${VERSION}_android-universal.apk`,
+  "charnel-android-arm64": `freqhole_charnel_${VERSION}_android-arm64.apk`,
+  "cli-mac-arm": `rathole_${VERSION}_darwin-aarch64`,
+  "cli-mac-intel": `rathole_${VERSION}_darwin-x86_64`,
+  "cli-linux-x86": `rathole_${VERSION}_linux-x86_64`,
+  "cli-linux-arm64": `rathole_${VERSION}_linux-aarch64`,
+  "cli-linux-armv7": `rathole_${VERSION}_linux-armv7`,
+};
+
+const url = (key: string) => `${BASE}/${ASSETS[key]}`;
+const urlsJson = JSON.stringify(
+  Object.fromEntries(Object.keys(ASSETS).map((k) => [k, url(k)])),
+);
+---
+
+<div data-dl-picker data-version={VERSION} data-dl-urls={urlsJson} class:list={["dl-picker", "not-content", { "dl-button-only": buttonOnly }]}>
+  {!buttonOnly && (
+  <div class="dl-hero" data-dl-hero>
+    <div class="dl-hero-icon" data-dl-hero-icon aria-hidden="true">
+      <span class="dl-icon-slot" data-icon-slot="apple"><Icon name="apple" size="3rem" /></span>
+      <span class="dl-icon-slot" data-icon-slot="linux" hidden><Icon name="linux" size="3rem" /></span>
+      <span class="dl-icon-slot" data-icon-slot="laptop" hidden><Icon name="laptop" size="3rem" /></span>
+      <span class="dl-icon-slot" data-icon-slot="cloud" hidden><Icon name="cloud" size="3rem" /></span>
+    </div>
+    <div class="dl-hero-body">
+      <div class="dl-hero-eyebrow" data-dl-hero-eyebrow>detected platform</div>
+      <h2 class="dl-hero-title" data-dl-hero-title>charnel desktop app</h2>
+      <p class="dl-hero-sub" data-dl-hero-sub>the recommended freqhole experience</p>
+      <a
+        class="dl-hero-button"
+        data-dl-hero-button
+        href="https://github.com/freqhole/tomb/releases/latest"
+        rel="noopener"
+      >
+        <span class="dl-hero-button-label" data-dl-hero-button-label>download charnel</span>
+        <span class="dl-hero-button-meta" data-dl-hero-button-meta></span>
+      </a>
+      <a
+        class="dl-hero-secondary"
+        data-dl-hero-secondary
+        href="https://spume.freqhole.net"
+        rel="noopener"
+        hidden
+      >
+        prefer the web app? goto spume.freqhole.net <span aria-hidden="true">&rarr;</span>
+      </a>
+    </div>
+  </div>
+  )}
+
+  {buttonOnly && (
+    <a
+      class="dl-hero-button dl-button-standalone"
+      data-dl-hero-button
+      href="https://github.com/freqhole/tomb/releases/latest"
+      rel="noopener"
+    >
+      <span class="dl-hero-button-label" data-dl-hero-button-label>download charnel</span>
+      <span class="dl-hero-button-meta" data-dl-hero-button-meta></span>
+    </a>
+  )}
+
+  {!buttonOnly && !heroOnly && (
+  <div class="dl-more">
+    <h2 class="dl-more-title">all releases</h2>
+    <h3 class="dl-section-title">
+      <span class="dl-section-icon"><Icon name="laptop" size="1.1rem" /></span>
+      charnel <small>(gui app)</small>
+    </h3>
+
+    <div class="dl-platform-grid">
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="apple" size="1.1rem" /></span> macOS</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">apple silicon</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-mac-arm" href={url("charnel-mac-arm")}>.dmg</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">intel</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-mac-intel" href={url("charnel-mac-intel")}>.dmg</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="linux" size="1.1rem" /></span> linux</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">x86_64</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-linux-x86-flatpak" href={url("charnel-linux-x86-flatpak")}>.flatpak</a></li>
+              <li><a data-dl="charnel-linux-x86-deb" href={url("charnel-linux-x86-deb")}>.deb</a></li>
+              <li><a data-dl="charnel-linux-x86-rpm" href={url("charnel-linux-x86-rpm")}>.rpm</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">aarch64 (raspberry pi 4+)</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-linux-arm-flatpak" href={url("charnel-linux-arm-flatpak")}>.flatpak</a></li>
+              <li><a data-dl="charnel-linux-arm-deb" href={url("charnel-linux-arm-deb")}>.deb</a></li>
+              <li><a data-dl="charnel-linux-arm-rpm" href={url("charnel-linux-arm-rpm")}>.rpm</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="laptop" size="1.1rem" /></span> android</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">universal</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-android" href={url("charnel-android")}>.apk</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">arm64</div>
+            <ul class="dl-list">
+              <li><a data-dl="charnel-android-arm64" href={url("charnel-android-arm64")}>.apk</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <h3 class="dl-section-title">
+      <span class="dl-section-icon"><Icon name="seti:powershell" size="1.1rem" /></span>
+      rathole <small>(tui binary)</small>
+    </h3>
+
+    <div class="dl-platform-grid">
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="apple" size="1.1rem" /></span> macOS</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">apple silicon</div>
+            <ul class="dl-list">
+              <li><a data-dl="cli-mac-arm" href={url("cli-mac-arm")}>aarch64-apple-darwin</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">intel</div>
+            <ul class="dl-list">
+              <li><a data-dl="cli-mac-intel" href={url("cli-mac-intel")}>x86_64-apple-darwin</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="dl-plat">
+        <h4><span class="dl-plat-icon"><Icon name="linux" size="1.1rem" /></span> linux</h4>
+        <div class="dl-arch-row">
+          <div class="dl-arch">
+            <div class="dl-arch-label">x86_64</div>
+            <ul class="dl-list">
+              <li><a data-dl="cli-linux-x86" href={url("cli-linux-x86")}>x86_64-unknown-linux-gnu</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">aarch64 (raspberry pi 4+)</div>
+            <ul class="dl-list">
+              <li><a data-dl="cli-linux-arm64" href={url("cli-linux-arm64")}>aarch64-unknown-linux-gnu</a></li>
+            </ul>
+          </div>
+          <div class="dl-arch">
+            <div class="dl-arch-label">armv7 (raspi armv7)</div>
+            <ul class="dl-list">
+              <li><a data-dl="cli-linux-armv7" href={url("cli-linux-armv7")}>armv7-unknown-linux-gnueabihf</a></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <h3 class="dl-section-title">
+      <span class="dl-section-icon"><Icon name="cloud" size="1.1rem" /></span>
+      web
+    </h3>
+    <ul class="dl-list dl-web-list">
+      <li><a href="https://spume.freqhole.net" rel="noopener">spume.freqhole.net</a> — hosted web app</li>
+      <li>self-hosted: bundled with the server, available at <code>http://your-server:8080</code></li>
+    </ul>
+
+    <p class="dl-foot">
+      see all assets on <a href="https://github.com/freqhole/tomb/releases/latest" rel="noopener">github releases</a>. using a different platform? you might be able to build it from the source code: <a href="https://github.com/freqhole/tomb/" rel="noopener">/freqhole/tomb/ on github</a>
+    </p>
+  </div>
+  )}
+</div>
+
+<script>
+  (() => {
+    const root = document.querySelector("[data-dl-picker]");
+    if (!root) return;
+
+    const REPO = "freqhole/tomb";
+    const FALLBACK_RELEASES = `https://github.com/${REPO}/releases/latest`;
+    const SPUME_URL = "https://spume.freqhole.net";
+
+    function detect() {
+      const ua = navigator.userAgent || "";
+      const uaData = /** @type {any} */ (navigator).userAgentData;
+
+      let os = "unknown";
+      let arch = "unknown";
+
+      if (uaData?.platform) {
+        const p = uaData.platform.toLowerCase();
+        if (p.includes("mac")) os = "mac";
+        else if (p.includes("windows")) os = "windows";
+        else if (p.includes("linux")) os = "linux";
+        else if (p.includes("android")) os = "android";
+      }
+      if (os === "unknown") {
+        if (/android/i.test(ua)) os = "android";
+        else if (/iphone|ipad|ipod/i.test(ua)) os = "ios";
+        else if (/mac os x|macintosh/i.test(ua)) os = "mac";
+        else if (/windows/i.test(ua)) os = "windows";
+        else if (/linux/i.test(ua)) os = "linux";
+      }
+
+      if (/aarch64|arm64/i.test(ua)) arch = "arm64";
+      else if (/armv7|armhf/i.test(ua)) arch = "armv7";
+      else if (/x86_64|x64|win64|wow64|amd64/i.test(ua)) arch = "x86_64";
+      else if (/i[3-6]86|x86/i.test(ua)) arch = "x86";
+
+      if (os === "mac" && arch === "unknown") {
+        arch = /intel mac/i.test(ua) ? "x86_64" : "arm64";
+      }
+      if (os === "windows" && arch === "unknown") arch = "x86_64";
+
+      if (uaData?.getHighEntropyValues) {
+        uaData
+          .getHighEntropyValues(["architecture", "bitness"])
+          .then((v) => {
+            const a = (v.architecture || "").toLowerCase();
+            const b = v.bitness || "";
+            if (a === "arm" && b === "64") refine("arm64");
+            else if (a === "arm") refine("armv7");
+            else if (a === "x86" && b === "64") refine("x86_64");
+            else if (a === "x86") refine("x86");
+          })
+          .catch(() => {});
+      }
+
+      return { os, arch };
+    }
+
+    /** @type {{os:string, arch:string}} */
+    let detected = detect();
+
+    function refine(newArch) {
+      if (newArch !== detected.arch) {
+        detected = { ...detected, arch: newArch };
+        renderHero();
+      }
+    }
+
+    function pickHero({ os, arch }) {
+      if (os === "windows" || os === "ios" || os === "unknown") {
+        return {
+          kind: "web",
+          icon: os === "windows" ? "laptop" : "cloud",
+          label: os === "windows" ? "windows" : os === "ios" ? "iOS" : "your browser",
+          buttonLabel: "open web app",
+          sub: "freqhole runs in your browser via spume",
+          href: SPUME_URL,
+          meta: "spume.freqhole.net",
+        };
+      }
+      if (os === "mac") {
+        const isArm = arch === "arm64" || arch === "unknown";
+        return {
+          kind: "charnel",
+          icon: "apple",
+          label: isArm ? "macOS · apple silicon" : "macOS · intel",
+          buttonLabel: "download mac app",
+          sub: "desktop app — recommended",
+          assetKey: isArm ? "charnel-mac-arm" : "charnel-mac-intel",
+          ext: ".dmg",
+        };
+      }
+      if (os === "linux") {
+        const isArm = arch === "arm64";
+        return {
+          kind: "charnel",
+          icon: "linux",
+          label: isArm ? "linux · aarch64" : "linux · x86_64",
+          buttonLabel: "download linux app",
+          sub: "flatpak bundle — also available as .deb / .rpm below",
+          assetKey: isArm ? "charnel-linux-arm-flatpak" : "charnel-linux-x86-flatpak",
+          ext: ".flatpak",
+        };
+      }
+      if (os === "android") {
+        return {
+          kind: "charnel",
+          icon: "laptop",
+          label: "android",
+          buttonLabel: "download apk",
+          sub: "universal release apk",
+          assetKey: "charnel-android",
+          ext: ".apk",
+        };
+      }
+      return null;
+    }
+
+    const version = root.getAttribute("data-version") || "";
+
+    // build a key -> url map by reading the baked anchors rendered by astro,
+    // falling back to the JSON map baked into data-dl-urls (needed in buttonOnly mode
+    // where the per-asset anchors aren't rendered).
+    /** @type {Record<string, string>} */
+    let urls = {};
+    try {
+      const raw = root.getAttribute("data-dl-urls");
+      if (raw) urls = JSON.parse(raw);
+    } catch {}
+    root.querySelectorAll("a[data-dl]").forEach((a) => {
+      const key = a.getAttribute("data-dl");
+      if (key) urls[key] = /** @type {HTMLAnchorElement} */ (a).href;
+    });
+
+    function showIcon(name) {
+      root.querySelectorAll("[data-icon-slot]").forEach((el) => {
+        el.toggleAttribute("hidden", el.getAttribute("data-icon-slot") !== name);
+      });
+    }
+
+    function renderHero() {
+      const pick = pickHero(detected);
+      const eyebrow = root.querySelector("[data-dl-hero-eyebrow]");
+      const title = root.querySelector("[data-dl-hero-title]");
+      const sub = root.querySelector("[data-dl-hero-sub]");
+      const btn = /** @type {HTMLAnchorElement} */ (root.querySelector("[data-dl-hero-button]"));
+      const btnLabel = root.querySelector("[data-dl-hero-button-label]");
+      const btnMeta = root.querySelector("[data-dl-hero-button-meta]");
+      const secondary = /** @type {HTMLAnchorElement} */ (root.querySelector("[data-dl-hero-secondary]"));
+
+      if (!pick) return;
+
+      showIcon(pick.icon);
+      if (eyebrow) eyebrow.textContent = `detected: ${pick.label}`;
+      if (title) title.textContent = pick.kind === "web" ? "use the web app" : "desktop app";
+      if (sub) sub.textContent = pick.sub;
+      if (btnLabel) btnLabel.textContent = pick.buttonLabel;
+
+      if (pick.kind === "web") {
+        if (btn) btn.href = pick.href;
+        if (btnMeta) btnMeta.textContent = pick.meta || "";
+        if (secondary) secondary.hidden = true;
+      } else {
+        const u = urls[pick.assetKey];
+        if (btn) btn.href = u || FALLBACK_RELEASES;
+        if (btnMeta) btnMeta.textContent = version ? `v${version} · ${pick.ext}` : pick.ext;
+        if (secondary) secondary.hidden = false;
+      }
+    }
+
+    renderHero();
+  })();
+</script>
+
+<style>
+  .dl-picker {
+    margin: 1.5rem 0 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .dl-hero {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    padding: 1.5rem;
+    border-radius: 14px;
+    background: linear-gradient(
+      135deg,
+      var(--sl-color-gray-6, #1a1a1a),
+      var(--sl-color-gray-7, #0f0f0f)
+    );
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  }
+
+  .dl-hero-icon {
+    flex: 0 0 auto;
+    color: var(--sl-color-accent, #d63384);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    border-radius: 16px;
+    background: var(--sl-color-bg, #0a0a0a);
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+  }
+  .dl-icon-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dl-icon-slot[hidden] { display: none; }
+
+  .dl-hero-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .dl-hero-eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3, #888);
+  }
+
+  .dl-hero-title {
+    margin: 0;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    color: var(--sl-color-white, #fff);
+  }
+
+  .dl-hero-sub {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--sl-color-gray-2, #ccc);
+  }
+
+  .dl-hero-button {
+    margin-top: 0.5rem;
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.7rem 1.2rem;
+    border-radius: 9999px;
+    background: var(--sl-color-accent, #d63384);
+    color: var(--sl-color-white, #fff);
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.12s ease, filter 0.12s ease;
+  }
+  .dl-hero-button:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.08);
+    text-decoration: none;
+    color: var(--sl-color-white, #fff);
+  }
+  .dl-hero-button:active { transform: translateY(0); }
+  .dl-hero-button-meta {
+    font-weight: 400;
+    font-size: 0.8rem;
+    opacity: 0.85;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dl-hero-secondary {
+    margin-top: 0.25rem;
+    align-self: flex-start;
+    font-size: 0.85rem;
+    color: var(--sl-color-gray-2, #ccc);
+    text-decoration: none;
+  }
+  .dl-hero-secondary:hover {
+    color: var(--sl-color-accent, #d63384);
+    text-decoration: underline;
+  }
+
+  .dl-more {
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+    border-radius: 10px;
+    background: var(--sl-color-gray-7, #0f0f0f);
+    padding: 0.5rem 1rem 1rem;
+  }
+  .dl-more-title {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 1.25rem;
+    color: var(--sl-color-white, #fff);
+  }
+
+  .dl-section-title {
+    margin: 1.25rem 0 0.6rem;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--sl-color-white, #fff);
+    border-bottom: 1px solid var(--sl-color-gray-6, #1a1a1a);
+    padding-bottom: 0.4rem;
+  }
+  .dl-section-title small {
+    font-weight: 400;
+    color: var(--sl-color-gray-3, #888);
+    font-size: 0.85rem;
+  }
+  .dl-section-icon { color: var(--sl-color-accent, #d63384); display: inline-flex; }
+
+  .dl-platform-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .dl-plat {
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    background: var(--sl-color-gray-6, #1a1a1a);
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+  }
+  .dl-plat h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--sl-color-white, #fff);
+  }
+  .dl-plat-icon { color: var(--sl-color-accent, #d63384); display: inline-flex; }
+
+  .dl-arch-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  .dl-arch {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .dl-arch-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3, #888);
+  }
+
+  .dl-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+  }
+  .dl-list li {
+    color: var(--sl-color-gray-2, #ccc);
+  }
+  .dl-list a {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    background: var(--sl-color-gray-7, #0f0f0f);
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+    color: var(--sl-color-text-accent, #d63384);
+    text-decoration: none;
+    font-family: var(--__sl-font-mono, ui-monospace, monospace);
+    font-size: 0.85rem;
+  }
+  .dl-list a:hover {
+    border-color: var(--sl-color-accent, #d63384);
+    text-decoration: none;
+  }
+  .dl-list a.dl-unavailable {
+    opacity: 0.4;
+    text-decoration: line-through;
+  }
+
+  .dl-web-list {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .dl-web-list li { color: var(--sl-color-gray-2, #ccc); }
+  .dl-web-list a {
+    display: inline;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+  }
+  .dl-web-list a:hover { text-decoration: underline; border: none; }
+  .dl-web-list code {
+    background: var(--sl-color-gray-6, #1a1a1a);
+    padding: 0.05em 0.35em;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+
+  .dl-foot {
+    margin: 1rem 0 0.25rem;
+    font-size: 0.85rem;
+    color: var(--sl-color-gray-3, #888);
+  }
+
+  .dl-button-only { margin: 0; gap: 0; align-items: center; display: inline-flex; }
+  .dl-button-standalone { margin-top: 0; }
+
+  @media (max-width: 600px) {
+    .dl-hero {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .dl-hero-icon { width: 64px; height: 64px; }
+  }
+</style>

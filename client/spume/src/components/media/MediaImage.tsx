@@ -76,6 +76,17 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
     if (lower.startsWith("blob:") || lower.startsWith("data:") || lower.startsWith("asset://")) {
       return url;
     }
+    // known external placeholder/image services don't support our `/thumb/:size`
+    // path convention — they're already-resolved image urls. used by storybook
+    // demos and any consumer passing in third-party image urls.
+    if (
+      lower.includes("picsum.photos") ||
+      lower.includes("placehold.co") ||
+      lower.includes("placekitten.com") ||
+      lower.includes("images.unsplash.com")
+    ) {
+      return url;
+    }
     return `${url}/thumb/${size}`;
   };
 

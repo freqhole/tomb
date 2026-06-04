@@ -52,6 +52,12 @@ export interface SearchInputProps {
   /** hint text shown between input and flyout (e.g., "press return to filter songs") */
   hintMessage?: string | null;
   onHintClick?: () => void;
+  /**
+   * optional element to mount the suggestions flyout into. defaults to
+   * `document.body`. set this when the input is rendered inside a shadow root
+   * (otherwise the flyout escapes the root and loses its styles).
+   */
+  flyoutMount?: Node;
   /** optional content rendered at the bottom of the dropdown (status, hints) */
   footerContent?: JSX.Element;
 }
@@ -222,7 +228,7 @@ export function SearchInput(props: SearchInputProps) {
 
       {/* portal: hint + flyout rendered outside overflow-hidden parents */}
       <Show when={props.hintMessage || (isOpen() && (suggestions().length > 0 || props.loading))}>
-        <Portal>
+        <Portal mount={props.flyoutMount as HTMLElement | undefined}>
           {/* backdrop — only when flyout is open. starts below the topnav
               so taps on the search-icon button always reach the topnav's
               own click handler instead of being eaten by the backdrop. */}

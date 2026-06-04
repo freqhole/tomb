@@ -1,0 +1,224 @@
+---
+title: maintenance
+description: keeping your freqhole server healthy
+---
+
+## updating
+
+### desktop app
+
+1. download new release for your platform
+
+_in-app/over-the-wire updates coming soon(ish)!_
+
+:::note[headsup]
+some app updates need an extra app restart after updating
+:::
+
+### CLI
+
+1. download new binary from releases
+2. replace old binary
+3. restart server
+
+database migrations run automatically on startup.
+
+---
+
+## database health
+
+### check status
+
+```bash
+freqhole database info
+```
+
+shows:
+
+- database size
+- table counts (songs, albums, etc.)
+- blob storage usage
+
+### vacuum
+
+SQLite databases grow fragmented over time. vacuum reclaims space:
+
+```bash
+freqhole maintenance vacuum
+```
+
+run occasionally (monthly or after large deletions).
+
+### integrity check
+
+verify database isn't corrupted:
+
+```bash
+freqhole maintenance integrity-check
+```
+
+run if you experience crashes or suspect disk issues.
+
+---
+
+## cleaning up orphans
+
+### what are orphans?
+
+- **missing files**: database entries for files that no longer exist
+- **orphan blobs**: blob data not referenced by any entity
+- **orphan images**: album art with no album
+
+### finding orphans
+
+```bash
+freqhole maintenance find-orphans
+```
+
+shows summary without modifying anything.
+
+### cleaning orphans
+
+```bash
+freqhole maintenance cleanup-orphans
+```
+
+removes unreferenced data. run `find-orphans` first to see what will be deleted.
+
+---
+
+## backup
+
+### database backup
+
+the SQLite database contains all your metadata, accounts, and settings:
+
+```bash
+cd /path/to/your/freqhole-install/
+cp data/grimoire.db data/grimoire-backup.db
+```
+
+or use SQLite's backup command:
+
+```bash
+cd /path/to/your/freqhole-install/
+sqlite3 data/grimoire.db ".backup data/grimoire-backup.db"
+```
+
+### blob backup
+
+cover art and other blobs are in `data/blobs/`. copy this directory to back up artwork.
+
+### data backup
+
+```bash
+cd /path/to/your/freqhole-install/
+tar -czf freqhole-backup.tar.gz data/
+```
+
+### restore
+
+stop server, replace data directory, start server.
+
+---
+
+## clearing caches
+
+### search index
+
+if search results seem stale:
+
+```bash
+freqhole maintenance rebuild-search-index
+```
+
+### cover art cache
+
+thumbnail regeneration (rarely needed):
+
+```bash
+freqhole maintenance regenerate-thumbnails
+```
+
+---
+
+## logs
+
+### log location
+
+depends on how you run freqhole:
+
+- CLI: stderr (redirect to file if needed)
+- desktop app: application logs directory
+
+### log levels
+
+set in environment:
+
+```bash
+RUST_LOG=info freqhole serve
+RUST_LOG=debug freqhole serve  # verbose
+RUST_LOG=warn freqhole serve   # quiet
+```
+
+---
+
+## performance tuning
+
+### for large libraries (10k+ songs)
+
+- use NVMe or SSD for data directory
+- increase OS file descriptor limits
+- consider dedicated machine (not shared server)
+
+### for many concurrent users
+
+- NVMe or SSD essential
+- sqlite WAL mode (default) handles contention mostly ok, but postgres would be better (node: there's no pg adaptor right now)
+
+### settings
+
+most tuning is automatic. SQLite is configured with:
+
+- WAL mode (write-ahead logging)
+- 100MB cache by default
+- proper locking for concurrency
+
+---
+
+## troubleshooting
+
+### server won't start
+
+1. check config file exists and is valid TOML
+2. check data directory writable
+3. check port not in use
+4. run `freqhole serve --verbose` for details
+
+### database locked
+
+SQLite can't handle too many concurrent writes. freqhole handles this automatically, but external tools accessing the database can cause issues.
+
+### out of disk space
+
+1. vacuum database: `freqhole maintenance vacuum`
+2. clean orphan blobs: `freqhole maintenance cleanup-orphans`
+3. delete old backups
+4. add disk space
+
+### can't connect via p2p
+
+1. make sure your router has UPnP [universal plug and play](https://en.wikipedia.org/wiki/Universal_Plug_and_Play) enabled
+
+### audio stutters / xruns (linux)
+
+if playback in the desktop app crackles, stutters, or drops samples on linux — especially under load, in a vm, or on a low-power board (raspberry pi, etc.) — bump the cpal output buffer:
+
+```toml
+[audio]
+linux_buffer_frames = 4096   # or 8192 if 4096 still glitches
+```
+
+default is `2048` (~43ms latency @ 48kHz). doubling roughly doubles latency but adds proportional headroom against pipewire/pulseaudio scheduler jitter. restart the app for the change to take effect. ignored on macOS / windows.
+
+see the [audio config section](/concepts/configuration/#audio-rodiocpal-buffer) for details.

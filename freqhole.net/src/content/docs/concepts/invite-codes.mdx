@@ -1,0 +1,96 @@
+---
+title: invite codes
+description: user registration and device linking via invite codes
+---
+
+freqhole uses invite codes so people can get access to browse and listen to your music library.
+
+---
+
+## code types
+
+### invite code
+
+creates a new user account.
+
+- user picks their username
+- user sets up optional WebAuthn credential (passkey)
+- assigned role specified when code was created (you can change users' role later)
+
+**creating (desktop app / web app, admin only):**
+
+settings → users → create invite code
+
+**creating (CLI):**
+
+```bash
+freqhole auth create-invite
+freqhole auth create-invite --role member
+```
+
+### account-link code
+
+links a new device to an existing account. only an admin can generate one.
+
+- no username needed (attaches to an existing account)
+- registers a new WebAuthn credential for that device
+- useful when a user gets a new phone or computer
+
+**creating (desktop / web app, admin only):**
+
+settings → users → select user → generate device link code
+
+**creating (CLI, admin only):**
+
+```bash
+freqhole auth create-account-link --user-id <id>
+```
+
+---
+
+## code properties
+
+### role
+
+what permissions the new user gets:
+
+- `viewer` (default): read-only, can stream
+- `member`: can edit library
+- `admin`: full control
+
+### expiration
+
+codes can optionally expire:
+
+- by date: code invalid after specified date
+- single-use: most codes are one-time use
+
+---
+
+## managing codes
+
+### listing codes
+
+```bash
+freqhole auth list-invite-codes
+```
+
+shows all codes with status, assignee, expiration.
+
+### revoking codes
+
+unused codes can be deleted:
+
+```bash
+freqhole auth delete-invite-code <code>
+```
+
+---
+
+## P2P knock requests
+
+an alternative to invite codes for P2P. requires `knocking_enabled = true` in the `[federation]` config.
+
+1. someone requests access with a username + a short message
+2. a knock request notification appears in freqhole desktop app
+3. an admin can approve (grants user access) or deny
