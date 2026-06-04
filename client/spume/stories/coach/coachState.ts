@@ -11,6 +11,7 @@ import { coachStepCount, coachSteps, type CoachStep } from "./script";
 
 export type DemoLibraryMode = "empty" | "populated";
 export type DemoRoute =
+  | "library"
   | "songs"
   | "albums"
   | "artists"

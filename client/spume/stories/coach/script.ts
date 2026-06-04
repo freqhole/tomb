@@ -165,6 +165,19 @@ export const coachSteps: CoachStep[] = [
     onProgress: (ctx, p) => ctx.setListProgress?.("favoritesGrid", p),
   },
   {
+    id: "library-graph",
+    title: "library graph",
+    body: "your whole collection as a navigable map. drill from remotes into genres, eras, artists, and albums. the same force-directed walker powers it everywhere.",
+    anchor: "library-graph",
+    apply: (ctx) => {
+      ctx.setRoute("library");
+      ctx.setQueueOpen(false);
+      ctx.closeAllModals();
+      ctx.closeSearch();
+      ctx.setSpotlight?.(null);
+    },
+  },
+  {
     id: "feed",
     title: "feed",
     body: "see what's happening on remotes you follow — new music, what other people are listening to and adding to their favorites.",

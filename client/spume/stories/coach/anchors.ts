@@ -18,6 +18,7 @@ export const COACH_ANCHORS = {
   radioStations: "radio-stations",
   queueSidebar: "queue-sidebar",
   topnavSearch: "topnav-search",
+  libraryGraph: "library-graph",
 } as const;
 
 export type CoachAnchor = (typeof COACH_ANCHORS)[keyof typeof COACH_ANCHORS];
