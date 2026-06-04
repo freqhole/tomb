@@ -35,6 +35,9 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.STORYBOOK": "false",
       "import.meta.env.COACH_DEMO": "true",
     },
+    // wc bundle is served from /demo/ on freqhole.net, so vite-emitted
+    // asset URLs (worker chunks, etc) need that prefix to resolve.
+    base: isHtml ? "./" : "/demo/",
     build: {
       outDir: isHtml ? "dist-coach-demo-html" : WC_OUT_DIR,
       // don't blow away other files in public/demo/

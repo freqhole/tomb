@@ -75,6 +75,10 @@ export interface CoachContext {
   // by simulating a click on the trigger when the desired state differs
   // from the current aria-expanded state.
   setTopNavMenuOpen?: (open: boolean) => void;
+  // story-only: drive the library graph walker through a scripted path
+  // (local -> genres -> electronic -> pan sonic) as `p` goes 0..1.
+  // also opens the matching detail popover at the final step.
+  walkLibraryGraph?: (p: number) => void;
 }
 
 // step index is module-global so window.__FREQHOLE_DEMO__ + the host can both

@@ -236,6 +236,18 @@ export function FullAppDemoBody() {
   // rendered with explicit pixel dims (its default is position:fixed which
   // escapes the SuperStory layout entirely).
   const [libGraphSize, setLibGraphSize] = createSignal({ w: 0, h: 0 });
+  // selected node id for the library graph detail popover overlay.
+  const [libGraphSelectedId, setLibGraphSelectedId] = createSignal<string | null>(null);
+  // scripted walk path used by coach `walkLibraryGraph` (local -> genres ->
+  // electronic -> pan sonic). pivots are applied at progress thresholds; the
+  // final step opens the artist detail popover.
+  const LIB_WALK_PATH = [
+    { p: 0.05, pivot: "remote::local" },
+    { p: 0.3, pivot: "relation::local::genres" },
+    { p: 0.55, pivot: "value::genres::electronic" },
+    { p: 0.8, pivot: "artist::local::a38" },
+  ] as const;
+  let lastLibWalkStep = -1;
   const mockSearchSuggestions = () => {
     const query = searchValue().toLowerCase();
     if (!query || query.length < 2) return [];
@@ -631,6 +643,41 @@ export function FullAppDemoBody() {
         const isOpen = trigger.getAttribute("aria-expanded") === "true";
         if (open !== isOpen) trigger.click();
       },
+      walkLibraryGraph: (p) => {
+        const clamped = Math.max(0, Math.min(1, p));
+        // figure out the highest-progress entry we've crossed.
+        let target = -1;
+        for (let i = 0; i < LIB_WALK_PATH.length; i++) {
+          if (clamped >= LIB_WALK_PATH[i].p) target = i;
+        }
+        // reset to root when scrubbing back before the first threshold
+        if (target < 0) {
+          if (lastLibWalkStep !== -1) {
+            superStoryDriver.repivot("root", true);
+            setLibGraphSelectedId(null);
+            lastLibWalkStep = -1;
+          }
+          return;
+        }
+        if (target === lastLibWalkStep) return;
+        // when scrubbing backwards, repivot from root then walk forward to
+        // the target to keep the breadcrumb consistent.
+        if (target < lastLibWalkStep) {
+          superStoryDriver.repivot("root", true);
+          for (let i = 0; i <= target; i++) {
+            superStoryDriver.repivot(LIB_WALK_PATH[i].pivot);
+          }
+        } else {
+          for (let i = lastLibWalkStep + 1; i <= target; i++) {
+            superStoryDriver.repivot(LIB_WALK_PATH[i].pivot);
+          }
+        }
+        lastLibWalkStep = target;
+        // open the artist detail popover at the final step.
+        setLibGraphSelectedId(
+          target === LIB_WALK_PATH.length - 1 ? LIB_WALK_PATH[LIB_WALK_PATH.length - 1].pivot : null
+        );
+      },
     };
     registerCoachContext(ctx);
     onCleanup(() => unregisterCoachContext());
@@ -855,49 +902,50 @@ export function FullAppDemoBody() {
 
   // ===== ARTISTS VIEW (using ResponsiveMasterDetail) =====
   const artistsView = () => (
-    <ResponsiveMasterDetail<Artist>
-      items={sortedArtists}
-      initialSelection={mockArtists[0]}
-      getItemKey={(a) => a.id}
-      alphabetNav={
-        artistSortBy() === "name" ? (
-          <div class="mt-2 wide:mt-[60px]">
-            <AlphabetNav
-              currentLetter={currentLetter()}
-              disabledLetters={disabledLetters()}
-              onLetterClick={(letter) => {
-                setCurrentLetter(letter);
-                console.log("jump to letter:", letter);
-              }}
-              sortDirection={artistSortDirection()}
-            />
-          </div>
-        ) : undefined
-      }
-      renderList={(ctx) => (
-        <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
-          <HeadingSection
-            title="artists"
-            count={sortedArtists().length}
-            hideOnNarrow
-            controls={
-              <SearchSortControls
-                sortBy={artistSortBy()}
-                sortDirection={artistSortDirection()}
-                onSortChange={(field, direction) => {
-                  setArtistSortBy(field);
-                  setArtistSortDirection(direction);
+    <div class="h-full" data-coach-anchor="artistsView">
+      <ResponsiveMasterDetail<Artist>
+        items={sortedArtists}
+        initialSelection={mockArtists[0]}
+        getItemKey={(a) => a.id}
+        alphabetNav={
+          artistSortBy() === "name" ? (
+            <div class="mt-2 wide:mt-[60px]">
+              <AlphabetNav
+                currentLetter={currentLetter()}
+                disabledLetters={disabledLetters()}
+                onLetterClick={(letter) => {
+                  setCurrentLetter(letter);
+                  console.log("jump to letter:", letter);
                 }}
-                sortFields={artistSortFields}
+                sortDirection={artistSortDirection()}
               />
-            }
-          />
+            </div>
+          ) : undefined
+        }
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full mt-2 wide:mt-[60px]">
+            <HeadingSection
+              title="artists"
+              count={sortedArtists().length}
+              hideOnNarrow
+              controls={
+                <SearchSortControls
+                  sortBy={artistSortBy()}
+                  sortDirection={artistSortDirection()}
+                  onSortChange={(field, direction) => {
+                    setArtistSortBy(field);
+                    setArtistSortDirection(direction);
+                  }}
+                  sortFields={artistSortFields}
+                />
+              }
+            />
 
-          <div class="flex-1 overflow-y-auto">
-            <For each={sortedArtists()}>
-              {(artist) => (
-                <button
-                  class={`
+            <div class="flex-1 overflow-y-auto">
+              <For each={sortedArtists()}>
+                {(artist) => (
+                  <button
+                    class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
                         ctx.selectedItem()?.id === artist.id
@@ -905,131 +953,136 @@ export function FullAppDemoBody() {
                           : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                       }
                     `}
-                  onClick={() => ctx.selectItem(artist)}
-                >
-                  <div class="font-medium">{artist.name}</div>
-                  <div class="text-xs text-[var(--color-text-tertiary)]">
-                    {formatNumber(artist.songCount)} songs · {artist.albumCount} albums
-                  </div>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-      )}
-      renderDetail={(ctx) => (
-        <Show when={ctx.selectedItem()}>
-          {(artist) => (
-            <div class="flex flex-col h-full">
-              {/* sticky header with back button + title */}
-              <HeadingSection
-                title={artist().name}
-                variant="detail"
-                sticky
-                border
-                showBackButton={ctx.isNarrow() && ctx.showingDetail()}
-                onBack={() => ctx.onBack()}
-              />
-
-              {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto">
-                {/* stats section */}
-                <div class="p-3 wide:p-6">
-                  <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
-                    <StatsCard
-                      label="songs"
-                      value={formatNumber(artist().songCount)}
-                      icon="music"
-                    />
-                    <StatsCard
-                      label="albums"
-                      value={formatNumber(artist().albumCount)}
-                      icon="album"
-                    />
-                    <StatsCard
-                      label="duration"
-                      value={formatDuration(artist().totalDuration)}
-                      icon="recent"
-                    />
-                    <StatsCard
-                      label="avg rating"
-                      value={artist().avgRating.toFixed(1)}
-                      icon="star"
-                      subtitle="out of 5.0"
-                    />
-                    <StatsCard
-                      label="genres"
-                      value={artist().genres[0]}
-                      subtitle={artist().genres.slice(1).join(", ")}
-                    />
-                  </StatsGrid>
-                </div>
-
-                {/* top songs list */}
-                <div class="px-3 wide:px-6 pb-4">
-                  <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
-                      top songs
-                    </h3>
-                  </div>
-                  <div class="space-y-1">
-                    <For each={generatedSongs.slice(0, 10)}>
-                      {(song) => (
-                        <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                          <IconButton
-                            icon="play"
-                            size="sm"
-                            variant="ghost"
-                            aria-label="play song"
-                          />
-                          <div class="flex-1 min-w-0">
-                            <div class="body-small text-[var(--color-text-primary)] truncate">
-                              {song.title}
-                            </div>
-                            <div class="caption truncate">{song.album_title}</div>
-                          </div>
-                          <div class="monospace caption text-[var(--color-text-muted)]">
-                            {formatDuration(song.duration_seconds)}
-                          </div>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </div>
-
-              {/* sticky action buttons */}
-              <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
-                <Button variant="primary" onClick={() => console.log("play all songs")}>
-                  <span class="hidden wide:inline">play all</span>
-                  <span class="wide:hidden">play</span>
-                </Button>
-                <Button variant="secondary" onClick={() => console.log("shuffle")}>
-                  shuffle
-                </Button>
-                <Button variant="ghost" onClick={() => console.log("add to queue")}>
-                  <span class="hidden wide:inline">add to queue</span>
-                  <span class="wide:hidden">+queue</span>
-                </Button>
-              </div>
+                    onClick={() => ctx.selectItem(artist)}
+                  >
+                    <div class="font-medium">{artist.name}</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                      {formatNumber(artist.songCount)} songs · {artist.albumCount} albums
+                    </div>
+                  </button>
+                )}
+              </For>
             </div>
-          )}
-        </Show>
-      )}
-      renderEmpty={() => (
-        <div class="flex items-center justify-center h-full">
-          <div class="text-center text-[var(--color-text-tertiary)]">
-            <svg class="w-24 h-24 mx-auto mb-4 opacity-30" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-            </svg>
-            <p class="text-xl mb-2">select an artist</p>
-            <p class="text-sm text-[var(--color-text-tertiary)]">
-              choose from the list to see details
-            </p>
           </div>
-        </div>
-      )}
-    />
+        )}
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
+            {(artist) => (
+              <div class="flex flex-col h-full">
+                {/* sticky header with back button + title */}
+                <HeadingSection
+                  title={artist().name}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
+
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto">
+                  {/* stats section */}
+                  <div class="p-3 wide:p-6">
+                    <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
+                      <StatsCard
+                        label="songs"
+                        value={formatNumber(artist().songCount)}
+                        icon="music"
+                      />
+                      <StatsCard
+                        label="albums"
+                        value={formatNumber(artist().albumCount)}
+                        icon="album"
+                      />
+                      <StatsCard
+                        label="duration"
+                        value={formatDuration(artist().totalDuration)}
+                        icon="recent"
+                      />
+                      <StatsCard
+                        label="avg rating"
+                        value={artist().avgRating.toFixed(1)}
+                        icon="star"
+                        subtitle="out of 5.0"
+                      />
+                      <StatsCard
+                        label="genres"
+                        value={artist().genres[0]}
+                        subtitle={artist().genres.slice(1).join(", ")}
+                      />
+                    </StatsGrid>
+                  </div>
+
+                  {/* top songs list */}
+                  <div class="px-3 wide:px-6 pb-4">
+                    <div class="mb-3 flex items-center justify-between">
+                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">
+                        top songs
+                      </h3>
+                    </div>
+                    <div class="space-y-1">
+                      <For each={generatedSongs.slice(0, 10)}>
+                        {(song) => (
+                          <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
+                            <IconButton
+                              icon="play"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="play song"
+                            />
+                            <div class="flex-1 min-w-0">
+                              <div class="body-small text-[var(--color-text-primary)] truncate">
+                                {song.title}
+                              </div>
+                              <div class="caption truncate">{song.album_title}</div>
+                            </div>
+                            <div class="monospace caption text-[var(--color-text-muted)]">
+                              {formatDuration(song.duration_seconds)}
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+
+                {/* sticky action buttons */}
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
+                  <Button variant="primary" onClick={() => console.log("play all songs")}>
+                    <span class="hidden wide:inline">play all</span>
+                    <span class="wide:hidden">play</span>
+                  </Button>
+                  <Button variant="secondary" onClick={() => console.log("shuffle")}>
+                    shuffle
+                  </Button>
+                  <Button variant="ghost" onClick={() => console.log("add to queue")}>
+                    <span class="hidden wide:inline">add to queue</span>
+                    <span class="wide:hidden">+queue</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-center text-[var(--color-text-tertiary)]">
+              <svg
+                class="w-24 h-24 mx-auto mb-4 opacity-30"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+              </svg>
+              <p class="text-xl mb-2">select an artist</p>
+              <p class="text-sm text-[var(--color-text-tertiary)]">
+                choose from the list to see details
+              </p>
+            </div>
+          </div>
+        )}
+      />
+    </div>
   );
 
   // ===== GENRES VIEW (using ResponsiveMasterDetail) =====
@@ -1177,22 +1230,23 @@ export function FullAppDemoBody() {
   // ===== PLAYLISTS VIEW (using ResponsiveMasterDetail - controlled mode) =====
   // uses controlled selection so TopNav "recent playlists" can select playlists
   const playlistsView = () => (
-    <ResponsiveMasterDetail<Playlist>
-      items={mockPlaylists}
-      selection={selectedPlaylist}
-      onSelectionChange={setSelectedPlaylist}
-      getItemKey={(p) => p.id}
-      renderList={(ctx) => (
-        <div class="flex flex-col h-full">
-          <div class="mt-2 wide:mt-[60px]">
-            <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
-          </div>
+    <div class="h-full" data-coach-anchor="playlistsView">
+      <ResponsiveMasterDetail<Playlist>
+        items={mockPlaylists}
+        selection={selectedPlaylist}
+        onSelectionChange={setSelectedPlaylist}
+        getItemKey={(p) => p.id}
+        renderList={(ctx) => (
+          <div class="flex flex-col h-full">
+            <div class="mt-2 wide:mt-[60px]">
+              <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
+            </div>
 
-          <div class="flex-1 overflow-y-auto">
-            <For each={mockPlaylists}>
-              {(playlist) => (
-                <button
-                  class={`
+            <div class="flex-1 overflow-y-auto">
+              <For each={mockPlaylists}>
+                {(playlist) => (
+                  <button
+                    class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
                         ctx.selectedItem()?.id === playlist.id
@@ -1200,129 +1254,130 @@ export function FullAppDemoBody() {
                           : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
                       }
                     `}
-                  onClick={() => ctx.selectItem(playlist)}
-                >
-                  <div class="font-medium">{playlist.name}</div>
-                  <div class="text-xs text-[var(--color-text-tertiary)]">
-                    {playlist.songCount} songs · {formatDuration(playlist.duration)}
-                  </div>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-      )}
-      renderDetail={(ctx) => (
-        <Show when={ctx.selectedItem()}>
-          {(playlist) => (
-            <div class="flex flex-col h-full">
-              {/* sticky header with back button + title */}
-              <HeadingSection
-                title={playlist().name}
-                variant="detail"
-                sticky
-                border
-                showBackButton={ctx.isNarrow() && ctx.showingDetail()}
-                onBack={() => ctx.onBack()}
-              />
-
-              {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto">
-                {/* stats section */}
-                <div class="p-3 wide:p-6 flex gap-4">
-                  <StatsCard
-                    label="songs"
-                    value={formatNumber(playlist().songCount)}
-                    variant="compact"
-                  />
-                  <StatsCard
-                    label="duration"
-                    value={formatDuration(playlist().duration)}
-                    variant="compact"
-                  />
-                  <StatsCard
-                    label="created"
-                    value={new Date(playlist().createdAt).toLocaleDateString()}
-                    variant="compact"
-                  />
-                </div>
-
-                {/* songs list */}
-                <div class="px-3 wide:px-6 pb-4">
-                  <div class="mb-3 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">songs</h3>
-                    <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
-                  </div>
-                  <div class="space-y-1">
-                    <For each={playlistSongs()}>
-                      {(song, index) => (
-                        <DraggableRow
-                          id={song.id}
-                          index={index()}
-                          isDragging={draggedIndex() === index()}
-                          isDropTarget={dropTargetIndex() === index()}
-                          isSelected={selectedSongIds().has(song.id)}
-                          onDragStart={handleDragStart(index())}
-                          onDragOver={handleDragOver(index())}
-                          onDragLeave={handleDragLeave}
-                          onDrop={handleDrop(index())}
-                          onClick={handleSongClick(song)}
-                        >
-                          <DraggableRowSongContent
-                            title={song.title}
-                            artist={song.artist_name}
-                            album={song.album_title}
-                            durationSeconds={song.duration_seconds}
-                            actions={
-                              <>
-                                <IconButton
-                                  icon="queue"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={(e: MouseEvent) => {
-                                    e.stopPropagation();
-                                  }}
-                                  aria-label="add to queue"
-                                />
-                                <IconButton
-                                  icon="delete"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={handleRemoveSong(song)}
-                                  aria-label="remove"
-                                />
-                              </>
-                            }
-                          />
-                        </DraggableRow>
-                      )}
-                    </For>
-                  </div>
-                  <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
-                    {playlistSongs().length} songs • {selectedSongIds().size} selected
-                  </div>
-                </div>
-              </div>
-
-              {/* sticky action buttons */}
-              <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
-                <Button variant="primary">play</Button>
-                <Button variant="secondary">shuffle</Button>
-                <Button variant="ghost">edit</Button>
-              </div>
+                    onClick={() => ctx.selectItem(playlist)}
+                  >
+                    <div class="font-medium">{playlist.name}</div>
+                    <div class="text-xs text-[var(--color-text-tertiary)]">
+                      {playlist.songCount} songs · {formatDuration(playlist.duration)}
+                    </div>
+                  </button>
+                )}
+              </For>
             </div>
-          )}
-        </Show>
-      )}
-      renderEmpty={() => (
-        <div class="flex items-center justify-center h-full">
-          <div class="text-center text-[var(--color-text-tertiary)]">
-            <p class="text-xl mb-2">select a playlist</p>
-            <p class="text-sm">choose from the list to see details</p>
           </div>
-        </div>
-      )}
-    />
+        )}
+        renderDetail={(ctx) => (
+          <Show when={ctx.selectedItem()}>
+            {(playlist) => (
+              <div class="flex flex-col h-full">
+                {/* sticky header with back button + title */}
+                <HeadingSection
+                  title={playlist().name}
+                  variant="detail"
+                  sticky
+                  border
+                  showBackButton={ctx.isNarrow() && ctx.showingDetail()}
+                  onBack={() => ctx.onBack()}
+                />
+
+                {/* scrollable content area */}
+                <div class="flex-1 overflow-y-auto">
+                  {/* stats section */}
+                  <div class="p-3 wide:p-6 flex gap-4">
+                    <StatsCard
+                      label="songs"
+                      value={formatNumber(playlist().songCount)}
+                      variant="compact"
+                    />
+                    <StatsCard
+                      label="duration"
+                      value={formatDuration(playlist().duration)}
+                      variant="compact"
+                    />
+                    <StatsCard
+                      label="created"
+                      value={new Date(playlist().createdAt).toLocaleDateString()}
+                      variant="compact"
+                    />
+                  </div>
+
+                  {/* songs list */}
+                  <div class="px-3 wide:px-6 pb-4">
+                    <div class="mb-3 flex items-center justify-between">
+                      <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">songs</h3>
+                      <div class="text-sm text-[var(--color-text-secondary)]">drag to reorder</div>
+                    </div>
+                    <div class="space-y-1">
+                      <For each={playlistSongs()}>
+                        {(song, index) => (
+                          <DraggableRow
+                            id={song.id}
+                            index={index()}
+                            isDragging={draggedIndex() === index()}
+                            isDropTarget={dropTargetIndex() === index()}
+                            isSelected={selectedSongIds().has(song.id)}
+                            onDragStart={handleDragStart(index())}
+                            onDragOver={handleDragOver(index())}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop(index())}
+                            onClick={handleSongClick(song)}
+                          >
+                            <DraggableRowSongContent
+                              title={song.title}
+                              artist={song.artist_name}
+                              album={song.album_title}
+                              durationSeconds={song.duration_seconds}
+                              actions={
+                                <>
+                                  <IconButton
+                                    icon="queue"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e: MouseEvent) => {
+                                      e.stopPropagation();
+                                    }}
+                                    aria-label="add to queue"
+                                  />
+                                  <IconButton
+                                    icon="delete"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={handleRemoveSong(song)}
+                                    aria-label="remove"
+                                  />
+                                </>
+                              }
+                            />
+                          </DraggableRow>
+                        )}
+                      </For>
+                    </div>
+                    <div class="mt-4 text-xs text-[var(--color-text-tertiary)]">
+                      {playlistSongs().length} songs • {selectedSongIds().size} selected
+                    </div>
+                  </div>
+                </div>
+
+                {/* sticky action buttons */}
+                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
+                  <Button variant="primary">play</Button>
+                  <Button variant="secondary">shuffle</Button>
+                  <Button variant="ghost">edit</Button>
+                </div>
+              </div>
+            )}
+          </Show>
+        )}
+        renderEmpty={() => (
+          <div class="flex items-center justify-center h-full">
+            <div class="text-center text-[var(--color-text-tertiary)]">
+              <p class="text-xl mb-2">select a playlist</p>
+              <p class="text-sm">choose from the list to see details</p>
+            </div>
+          </div>
+        )}
+      />
+    </div>
   );
 
   // ===== SONGS VIEW =====
@@ -2332,35 +2387,89 @@ export function FullAppDemoBody() {
       // GraphWalker story, against the same MOCK_GRAPH fixture.
       // WalkCanvas defaults to position:fixed 100vw/100vh when no width is
       // passed, which would escape the SuperStory layout and overlap the
-      // topnav + playerbar. measure the host and pass explicit dims so it
-      // stays inside the main-content region.
-      let host: HTMLDivElement | undefined;
-      onMount(() => {
-        if (!host) return;
+      // topnav + playerbar. measure the host via ref + ResizeObserver and
+      // pass explicit dims so it stays inside the main-content region.
+      let ro: ResizeObserver | undefined;
+      const attachHost = (el: HTMLDivElement) => {
         const measure = () => {
-          const r = host!.getBoundingClientRect();
-          setLibGraphSize({ w: Math.round(r.width), h: Math.round(r.height) });
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            setLibGraphSize({ w: Math.round(r.width), h: Math.round(r.height) });
+          }
         };
+        // measure once synchronously, then again on next frame in case the
+        // initial layout hasn't settled (shadow root inside astro page).
         measure();
-        const ro = new ResizeObserver(measure);
-        ro.observe(host);
-        onCleanup(() => ro.disconnect());
-      });
+        requestAnimationFrame(measure);
+        ro?.disconnect();
+        ro = new ResizeObserver(() => measure());
+        ro.observe(el);
+      };
+      onCleanup(() => ro?.disconnect());
       return (
         <div
-          ref={(el) => (host = el)}
-          class="flex-1 relative bg-black overflow-hidden"
-          data-coach-anchor="library-graph"
-          style={{ "min-height": "320px" }}
+          ref={attachHost}
+          class="w-full h-full relative bg-black overflow-hidden"
+          data-coach-anchor="libraryGraph"
+          style={{ "min-height": "400px" }}
         >
-          <Show when={libGraphSize().w > 0 && libGraphSize().h > 0}>
+          <Show
+            when={libGraphSize().w > 0 && libGraphSize().h > 0}
+            fallback={
+              <div class="absolute inset-0 flex items-center justify-center text-xs text-[var(--color-text-tertiary)]">
+                measuring…
+              </div>
+            }
+          >
             <WalkCanvas
               graph={MOCK_GRAPH}
               initialPivot="root"
               driver={superStoryDriver}
               width={libGraphSize().w}
               height={libGraphSize().h}
+              selectedId={libGraphSelectedId()}
+              onSelect={(id) => setLibGraphSelectedId(id)}
             />
+            <Show when={libGraphSelectedId()}>
+              {(id) => {
+                const node = () => MOCK_GRAPH.nodes.find((n) => n.id === id());
+                const roleLabel = () => {
+                  const r = node()?.role;
+                  if (r === "artist") return "artist";
+                  if (r === "album") return "album";
+                  if (r === "value") return "taxon";
+                  if (r === "relation") return "relation";
+                  if (r === "remote") return "remote";
+                  if (r === "root") return "root";
+                  return r ?? "node";
+                };
+                return (
+                  <div
+                    class="absolute left-3 z-10 pointer-events-auto max-w-xs"
+                    style={{ bottom: "96px" }}
+                  >
+                    <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-md shadow-lg p-3 text-[var(--color-text-primary)]">
+                      <div class="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] mb-0.5">
+                        {roleLabel()}
+                      </div>
+                      <div class="text-sm font-medium truncate">{node()?.label ?? id()}</div>
+                      <Show when={node()?.childCount}>
+                        <div class="text-xs text-[var(--color-text-secondary)] mt-1">
+                          {node()!.childCount} item{node()!.childCount === 1 ? "" : "s"}
+                        </div>
+                      </Show>
+                      <button
+                        type="button"
+                        class="mt-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                        onClick={() => setLibGraphSelectedId(null)}
+                      >
+                        close
+                      </button>
+                    </div>
+                  </div>
+                );
+              }}
+            </Show>
           </Show>
         </div>
       );

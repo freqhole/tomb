@@ -32,7 +32,7 @@ export const coachSteps: CoachStep[] = [
     id: "add-music",
     title: "take a quick tour",
     body: "freqhole scans + indexes your audio files in place. GUI app for macOS, linux, & android. CLI for headless servers (like a raspberry pi).",
-    anchor: "add-music-button",
+    anchor: "addMusicButton",
     apply: (ctx) => {
       ctx.closeAllModals();
       ctx.closeSearch();
@@ -58,7 +58,7 @@ export const coachSteps: CoachStep[] = [
     id: "songs",
     title: "songs",
     body: "every track in your library. sortable, filterable, virtualized — handles huge collections without breaking a sweat.",
-    anchor: "songs-list",
+    anchor: "songsList",
     apply: (ctx) => {
       ctx.setLibraryMode("populated");
       ctx.setRoute("songs");
@@ -98,7 +98,7 @@ export const coachSteps: CoachStep[] = [
     id: "albums",
     title: "albums",
     body: "sortable grid layout.",
-    anchor: "albums-grid",
+    anchor: "albumsGrid",
     apply: (ctx) => {
       ctx.setRoute("albums");
       ctx.setQueueOpen(false);
@@ -111,7 +111,7 @@ export const coachSteps: CoachStep[] = [
     id: "artists",
     title: "artists",
     body: "sortable & filterable two-column layout with alphabet quick nav.",
-    anchor: "artists-list",
+    anchor: "artistsView",
     apply: (ctx) => {
       ctx.setRoute("artists");
       ctx.setQueueOpen(false);
@@ -134,7 +134,7 @@ export const coachSteps: CoachStep[] = [
     id: "playlists",
     title: "playlists",
     body: "full-page background images; drag-and-drop song (re)ordering.",
-    anchor: "playlists-list",
+    anchor: "playlistsView",
     apply: (ctx) => {
       ctx.setRoute("playlists");
       ctx.setQueueOpen(false);
@@ -155,7 +155,7 @@ export const coachSteps: CoachStep[] = [
     id: "favorites",
     title: "favorites",
     body: "songs, albums, artists, playlists — all in one place.",
-    anchor: "favorites-grid",
+    anchor: "favoritesGrid",
     apply: (ctx) => {
       ctx.setRoute("favorites");
       ctx.setQueueOpen(false);
@@ -168,20 +168,22 @@ export const coachSteps: CoachStep[] = [
     id: "library-graph",
     title: "library graph",
     body: "your whole collection as a navigable map. drill from remotes into genres, eras, artists, and albums. the same force-directed walker powers it everywhere.",
-    anchor: "library-graph",
+    anchor: "libraryGraph",
     apply: (ctx) => {
       ctx.setRoute("library");
       ctx.setQueueOpen(false);
       ctx.closeAllModals();
       ctx.closeSearch();
       ctx.setSpotlight?.(null);
+      ctx.walkLibraryGraph?.(0);
     },
+    onProgress: (ctx, p) => ctx.walkLibraryGraph?.(p),
   },
   {
     id: "feed",
     title: "feed",
     body: "see what's happening on remotes you follow — new music, what other people are listening to and adding to their favorites.",
-    anchor: "feed-list",
+    anchor: "feedList",
     apply: (ctx) => {
       ctx.setRoute("feed");
       ctx.setQueueOpen(false);
@@ -194,7 +196,7 @@ export const coachSteps: CoachStep[] = [
     id: "radio",
     title: "radio",
     body: "create live radio streams that anyone can listen to; or set private so only your friends can access.",
-    anchor: "radio-stations",
+    anchor: "radioStations",
     apply: (ctx) => {
       ctx.setRoute("radio");
       ctx.setQueueOpen(false);
@@ -206,7 +208,7 @@ export const coachSteps: CoachStep[] = [
     id: "search",
     title: "search anything (cmd+k)",
     body: "matches across artists, albums, songs, genres, and playlists.",
-    anchor: "topnav-search",
+    anchor: "topnavSearch",
     apply: (ctx) => {
       ctx.closeAllModals();
       ctx.setRoute("songs");
@@ -229,7 +231,7 @@ export const coachSteps: CoachStep[] = [
     id: "album-detail",
     title: "album detail",
     body: "browse all album art images and full track list.",
-    anchor: "album-detail",
+    anchor: "albumDetail",
     apply: (ctx) => {
       ctx.closeSearch();
       ctx.closeAllModals();
@@ -251,7 +253,7 @@ export const coachSteps: CoachStep[] = [
     id: "album-edit",
     title: "edit (with musicbrainz)",
     body: "edit metadata by hand, or pull canonical info (cover art, year, track titles, credits, etc.) from the musicbrainz database. great for cleaning up rips.",
-    anchor: "album-edit-modal",
+    anchor: "albumEditModal",
     apply: (ctx) => {
       ctx.closeSearch();
       ctx.setRoute("album-detail");
@@ -272,7 +274,7 @@ export const coachSteps: CoachStep[] = [
     id: "share",
     title: "share with friends",
     body: "generate a share link from any album, playlist, or station. copy + send to your friends.",
-    anchor: "share-modal",
+    anchor: "shareModal",
     apply: (ctx) => {
       ctx.closeSearch();
       ctx.setRoute("album-detail");
@@ -285,7 +287,7 @@ export const coachSteps: CoachStep[] = [
     id: "resolve-share",
     title: "the other side",
     body: "when someone shares things with you, it lives here.",
-    anchor: "shares-list",
+    anchor: "sharesList",
     apply: (ctx) => {
       ctx.closeSearch();
       ctx.closeModal("share");
@@ -305,7 +307,7 @@ export const coachSteps: CoachStep[] = [
     id: "add-remote",
     title: "add a remote",
     body: "paste a node id or share url to browse a friend's library. use invite codes or knock to request access.",
-    anchor: "add-remote-button",
+    anchor: "addRemoteButton",
     apply: (ctx) => {
       ctx.setLibraryMode("populated");
       ctx.setRoute("songs");
@@ -330,7 +332,7 @@ export const coachSteps: CoachStep[] = [
     id: "knock-request",
     title: "request access",
     body: "carp's basement needs approval. send a knock with your name and a quick note.",
-    anchor: "add-remote-button",
+    anchor: "addRemoteButton",
     apply: (ctx) => {
       ctx.setRoute("songs");
       ctx.closeSearch();
@@ -356,7 +358,7 @@ export const coachSteps: CoachStep[] = [
     id: "knock-pending",
     title: "waiting on carp",
     body: "your knock is sent. once carp approves, and hit refresh.",
-    anchor: "add-remote-button",
+    anchor: "addRemoteButton",
     apply: (ctx) => {
       ctx.setRoute("songs");
       ctx.closeSearch();
@@ -374,7 +376,7 @@ export const coachSteps: CoachStep[] = [
     id: "browse-remote",
     title: "browse the remote",
     body: "approved! you can now browse and listen to your friend's music!",
-    anchor: "albums-grid",
+    anchor: "albumsGrid",
     apply: (ctx) => {
       ctx.closeAllModals();
       ctx.closeSearch();
