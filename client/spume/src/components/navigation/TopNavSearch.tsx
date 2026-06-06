@@ -10,6 +10,8 @@ import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
 import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
+import { extractShareTokenFromAnyText, SHARE_HASH_PARAM } from "../../utils/permalink";
+import { recordSharedItemFromToken } from "../../app/services/storage/sharedItems";
 
 export interface TopNavSearchProps {
   placeholder?: string;
@@ -34,10 +36,20 @@ export interface TopNavSearchProps {
    * the suggestion was contributed by multiple remotes). returning
    * `undefined` (sync or async) falls back to current-remote-relative
    * navigation; returning `null` aborts navigation entirely.
+   *
+   * may also return `{ remoteId, data }` to override which APISuggestion
+   * the navigation uses — required when the same logical item exists on
+   * multiple remotes under different entity_ids (the picked remote's
+   * own `entity_id`/`metadata.album_id` must be used, not the primary's).
    */
   remoteIdFor?: (
     s: SearchSuggestion
-  ) => string | null | undefined | Promise<string | null | undefined>;
+  ) =>
+    | string
+    | { remoteId: string; data?: APISuggestion }
+    | null
+    | undefined
+    | Promise<string | { remoteId: string; data?: APISuggestion } | null | undefined>;
   /** optional content rendered at the bottom of the dropdown */
   footerContent?: JSX.Element;
   /**
@@ -219,6 +231,20 @@ export function TopNavSearch(props: TopNavSearchProps) {
   // --- input / keyboard ---
 
   const handleInputChange = (value: string) => {
+    // share-link interception: if the input contains a valid share token
+    // (in any form — full url, hash, or bare base64), route to the share
+    // resolver instead of treating it as a search query. only run the
+    // scan on suspiciously long inputs to avoid scanning every keystroke.
+    if (value.length >= 80) {
+      const token = extractShareTokenFromAnyText(value);
+      if (token) {
+        void recordSharedItemFromToken(token);
+        // App.tsx listens for hashchange and opens ResolveShareModal.
+        window.location.hash = `#?${SHARE_HASH_PARAM}=${token}`;
+        collapse();
+        return;
+      }
+    }
     setSearchValue(value);
     props.onSearchChange?.(value);
     if (value && !isExpanded()) setIsExpanded(true);
@@ -329,17 +355,29 @@ export function TopNavSearch(props: TopNavSearchProps) {
       }
     }
 
-    const s = suggestion.data as APISuggestion;
-    const meta = s.metadata as any;
+    const originalData = suggestion.data as APISuggestion;
     let remoteId: string | null | undefined;
+    let resolvedData: APISuggestion | undefined;
     try {
-      remoteId = await props.remoteIdFor?.(suggestion);
+      const resolved = await props.remoteIdFor?.(suggestion);
+      if (resolved && typeof resolved === "object") {
+        remoteId = resolved.remoteId;
+        resolvedData = resolved.data;
+      } else {
+        remoteId = resolved;
+      }
     } catch (err) {
       console.error("remoteIdFor failed:", err);
       return;
     }
     // explicit null = user cancelled remote choice; abort navigation.
     if (remoteId === null) return;
+
+    // when the resolver gave us an alternate per-remote suggestion (e.g.
+    // multi-remote picker chose a non-primary remote), use that for
+    // entity_id / metadata so navigation uses the picked remote's ids.
+    const s = resolvedData ?? originalData;
+    const meta = s.metadata as any;
 
     // navigate based on type. when remoteIdFor returns an id, use the
     // *On(remoteId, ...) variants so the router's RemoteContextHandler

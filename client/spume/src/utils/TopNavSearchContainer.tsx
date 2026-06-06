@@ -60,6 +60,7 @@ export const TopNavSearchContainer: Component<TopNavSearchContainerProps> = (pro
       hasMoreSuggestions={suggestionsQuery.hasNextPage}
       isLoadingSuggestions={suggestionsQuery.isFetching || suggestionsQuery.isFetchingNextPage}
       onLoadMoreSuggestions={() => suggestionsQuery.fetchNextPage()}
+      remoteIdFor={() => getCurrentRemote()?.remote_id}
     />
   );
 };

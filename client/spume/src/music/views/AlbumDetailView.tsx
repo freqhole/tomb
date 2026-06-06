@@ -29,6 +29,7 @@ import { formatTaxonLabel } from "../utils/format";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
+import { LoadingState } from "../../components/feedback/LoadingBar";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
@@ -317,7 +318,7 @@ export function AlbumDetailView() {
   return (
     <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
       <div class="flex flex-col h-full">
-        <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
+        <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (
             <>
               {/* header with album info - responsive layout */}

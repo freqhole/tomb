@@ -64,6 +64,10 @@ interface AggSuggestion {
   primary: APISuggestion;
   contributingRemoteIds: string[];
   primaryRemoteId: string;
+  /** per-remote suggestion data keyed by remote id. each remote may
+   *  store the same logical item under a different entity_id, so this
+   *  lets the picker pick the right id for navigation. */
+  contributors: Map<string, APISuggestion>;
 }
 
 // uniform handle for everything we fan a search out to: real remotes
@@ -361,12 +365,16 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           if (!existing.contributingRemoteIds.includes(t.id)) {
             existing.contributingRemoteIds.push(t.id);
           }
+          if (!existing.contributors.has(t.id)) {
+            existing.contributors.set(t.id, s);
+          }
         } else {
           const agg: AggSuggestion = {
             key,
             primary: s,
             primaryRemoteId: t.id,
             contributingRemoteIds: [t.id],
+            contributors: new Map([[t.id, s]]),
           };
           byKey.set(key, agg);
           ordered.push(agg);
@@ -417,12 +425,14 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     });
   });
 
-  // side-table from suggestion id -> contributing remote ids, used by
-  // remoteIdFor to detect multi-remote results that need disambiguation.
+  // side-table from suggestion id -> per-remote suggestion data,
+  // used by remoteIdFor to detect multi-remote results that need
+  // disambiguation AND to navigate using the picked remote's own
+  // entity_id (which can differ from the primary remote's id).
   const contributorsById = createMemo(() => {
-    const out = new Map<string, string[]>();
+    const out = new Map<string, Map<string, APISuggestion>>();
     for (const agg of aggregatedSuggestions()) {
-      out.set(`${agg.primaryRemoteId}::${agg.primary.entity_id}`, agg.contributingRemoteIds);
+      out.set(`${agg.primaryRemoteId}::${agg.primary.entity_id}`, agg.contributors);
     }
     return out;
   });
@@ -455,28 +465,38 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   // the only contributor we return it directly; if local is one of
   // several contributors we let the user pick among real remotes only,
   // and fall back to local if they cancel without options.
-  const remoteIdFor = async (s: InputSuggestion): Promise<string | null | undefined> => {
+  const remoteIdFor = async (
+    s: InputSuggestion
+  ): Promise<string | { remoteId: string; data?: APISuggestion } | null | undefined> => {
     const id = s.id ?? "";
     const contributors = contributorsById().get(id);
-    if (!contributors || contributors.length === 0) {
+    const contributorIds = contributors ? Array.from(contributors.keys()) : [];
+    if (contributorIds.length === 0) {
       return id.split("::")[0] || undefined;
     }
-    if (contributors.length === 1) return contributors[0];
+    if (contributorIds.length === 1) {
+      const only = contributorIds[0];
+      return { remoteId: only, data: contributors!.get(only) };
+    }
     const remoteById = new Map(props.remotes().map((r) => [r.remote_id, r]));
-    const options = contributors
+    const options = contributorIds
       .filter((rid) => rid !== LOCAL_REMOTE_ID)
       .map((rid) => remoteById.get(rid))
       .filter((r): r is Remote => !!r);
     if (options.length === 0) {
       // local-only contributor (or every real remote is missing) —
       // route to local without prompting.
-      return contributors.includes(LOCAL_REMOTE_ID) ? LOCAL_REMOTE_ID : undefined;
+      if (contributorIds.includes(LOCAL_REMOTE_ID)) {
+        return { remoteId: LOCAL_REMOTE_ID, data: contributors!.get(LOCAL_REMOTE_ID) };
+      }
+      return undefined;
     }
     const picked = await pickRemote(options, {
       title: "open on which remote?",
       message: `"${s.text}" was found on ${options.length} remote${options.length === 1 ? "" : "s"}.`,
     });
-    return picked ? picked.remote_id : null;
+    if (!picked) return null;
+    return { remoteId: picked.remote_id, data: contributors!.get(picked.remote_id) };
   };
 
   // ---- pivot handoff ----------------------------------------------------
