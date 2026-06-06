@@ -64,6 +64,10 @@ interface AggSuggestion {
   primary: APISuggestion;
   contributingRemoteIds: string[];
   primaryRemoteId: string;
+  /** per-remote suggestion data keyed by remote id. each remote may
+   *  store the same logical item under a different entity_id, so this
+   *  lets the picker pick the right id for navigation. */
+  contributors: Map<string, APISuggestion>;
 }
 
 // uniform handle for everything we fan a search out to: real remotes
@@ -361,12 +365,16 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
           if (!existing.contributingRemoteIds.includes(t.id)) {
             existing.contributingRemoteIds.push(t.id);
           }
+          if (!existing.contributors.has(t.id)) {
+            existing.contributors.set(t.id, s);
+          }
         } else {
           const agg: AggSuggestion = {
             key,
             primary: s,
             primaryRemoteId: t.id,
             contributingRemoteIds: [t.id],
+            contributors: new Map([[t.id, s]]),
           };
           byKey.set(key, agg);
           ordered.push(agg);
@@ -417,12 +425,14 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     });
   });
 
-  // side-table from suggestion id -> contributing remote ids, used by
-  // remoteIdFor to detect multi-remote results that need disambiguation.
+  // side-table from suggestion id -> per-remote suggestion data,
+  // used by remoteIdFor to detect multi-remote results that need
+  // disambiguation AND to navigate using the picked remote's own
+  // entity_id (which can differ from the primary remote's id).
   const contributorsById = createMemo(() => {
-    const out = new Map<string, string[]>();
+    const out = new Map<string, Map<string, APISuggestion>>();
     for (const agg of aggregatedSuggestions()) {
-      out.set(`${agg.primaryRemoteId}::${agg.primary.entity_id}`, agg.contributingRemoteIds);
+      out.set(`${agg.primaryRemoteId}::${agg.primary.entity_id}`, agg.contributors);
     }
     return out;
   });
@@ -455,28 +465,38 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   // the only contributor we return it directly; if local is one of
   // several contributors we let the user pick among real remotes only,
   // and fall back to local if they cancel without options.
-  const remoteIdFor = async (s: InputSuggestion): Promise<string | null | undefined> => {
+  const remoteIdFor = async (
+    s: InputSuggestion
+  ): Promise<string | { remoteId: string; data?: APISuggestion } | null | undefined> => {
     const id = s.id ?? "";
     const contributors = contributorsById().get(id);
-    if (!contributors || contributors.length === 0) {
+    const contributorIds = contributors ? Array.from(contributors.keys()) : [];
+    if (contributorIds.length === 0) {
       return id.split("::")[0] || undefined;
     }
-    if (contributors.length === 1) return contributors[0];
+    if (contributorIds.length === 1) {
+      const only = contributorIds[0];
+      return { remoteId: only, data: contributors!.get(only) };
+    }
     const remoteById = new Map(props.remotes().map((r) => [r.remote_id, r]));
-    const options = contributors
+    const options = contributorIds
       .filter((rid) => rid !== LOCAL_REMOTE_ID)
       .map((rid) => remoteById.get(rid))
       .filter((r): r is Remote => !!r);
     if (options.length === 0) {
       // local-only contributor (or every real remote is missing) —
       // route to local without prompting.
-      return contributors.includes(LOCAL_REMOTE_ID) ? LOCAL_REMOTE_ID : undefined;
+      if (contributorIds.includes(LOCAL_REMOTE_ID)) {
+        return { remoteId: LOCAL_REMOTE_ID, data: contributors!.get(LOCAL_REMOTE_ID) };
+      }
+      return undefined;
     }
     const picked = await pickRemote(options, {
       title: "open on which remote?",
       message: `"${s.text}" was found on ${options.length} remote${options.length === 1 ? "" : "s"}.`,
     });
-    return picked ? picked.remote_id : null;
+    if (!picked) return null;
+    return { remoteId: picked.remote_id, data: contributors!.get(picked.remote_id) };
   };
 
   // ---- pivot handoff ----------------------------------------------------
@@ -505,36 +525,23 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
     return best;
   };
 
-  /** row click or Enter on a highlighted row. taxons (genre/tag/mood/
-   *  style/era/label) are intercepted and handed to the parent for a
-   *  solo graph pivot. everything else (artist/album/song/playlist)
-   *  falls through to the base topnav's default route navigation so
-   *  it lands on the entity's detail view, same as elsewhere in the
-   *  app. */
+  /** row click or Enter on a highlighted row. taxon and entity hits
+   *  (artist/album/song) are intercepted and handed to the parent for
+   *  a solo graph pivot so the user stays on the explore view.
+   *  playlists fall through to default detail-view routing. */
   const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
     const data = s.data as APISuggestion | undefined;
     if (!data) return false;
-    // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: accept legacy "genre" wire
-    // value from peers that haven't upgraded past the rename.
-    if (data.suggestion_type !== "taxon" && data.suggestion_type !== "genre") return false;
+    if (data.suggestion_type === "playlist") return false;
     const primary = (s.id ?? "").split("::")[0];
     if (!primary) return false;
     return Boolean(await props.onPivotToSuggestion?.(data, primary, []));
   };
 
-  /** build the detail-view route for a non-taxon suggestion. mirrors
-   *  the switch in base TopNavSearch.handleSelect so Enter-on-no-
-   *  highlight on the graph view routes non-taxon top hits to the
-   *  same place a click would. */
+  /** build the detail-view route for a non-pivotable suggestion
+   *  (currently just playlists). */
   const detailRouteFor = (s: APISuggestion, remoteId: string): string | null => {
-    const meta = (s.metadata ?? {}) as { album_id?: string };
     switch (s.suggestion_type) {
-      case "song":
-        return meta.album_id ? routes.albumOn(remoteId, meta.album_id) : null;
-      case "artist":
-        return routes.artistOn(remoteId, s.entity_id);
-      case "album":
-        return routes.albumOn(remoteId, s.entity_id);
       case "playlist":
         return routes.playlistOn(remoteId, s.entity_id);
       default:
@@ -543,13 +550,13 @@ export function GraphTopNavSearch(props: GraphTopNavSearchProps) {
   };
 
   /** Enter with no highlighted row. pivots the graph to the top hit
-   *  if it's a taxon; otherwise navigates to that hit's detail view. */
+   *  if it's pivotable; otherwise navigates to that hit's detail view
+   *  (playlists). */
   const onSubmit = (): boolean => {
     if (query().length < 2) return false;
     const top = topSuggestion();
     if (!top) return false;
-    // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: legacy "genre" also pivots.
-    if (top.s.suggestion_type === "taxon" || top.s.suggestion_type === "genre") {
+    if (top.s.suggestion_type !== "playlist") {
       void props.onPivotToSuggestion?.(top.s, top.remoteId, []);
       return true;
     }

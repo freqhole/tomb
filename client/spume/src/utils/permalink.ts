@@ -185,6 +185,27 @@ export function extractShareTokenFromHash(hash: string): string | null {
   return token && token.length > 0 ? token : null;
 }
 
+/**
+ * scan arbitrary text for a valid share token. ignores any surrounding
+ * text — domain, protocol, query params, line noise — and returns the
+ * first base64url-shaped substring that decodes as a SharePayloadV1.
+ * returns null when no decodable token is found.
+ */
+export function extractShareTokenFromAnyText(input: string): string | null {
+  if (!input) return null;
+  const matches = input.match(/[A-Za-z0-9_-]{40,}/g);
+  if (!matches) return null;
+  for (const candidate of matches) {
+    try {
+      decodeShareToken(candidate);
+      return candidate;
+    } catch {
+      // not a share token; keep scanning
+    }
+  }
+  return null;
+}
+
 // ---- validation ------------------------------------------------------------
 
 function validatePayload(p: SharePayloadV1): void {

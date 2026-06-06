@@ -153,7 +153,7 @@ function Inner(props: {
   extraTools?: JSX.Element;
 }) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams<{ graph?: string }>();
+  const [searchParams, setSearchParams] = useSearchParams<{ graph?: string }>();
   const slots = useTopNavSlots();
   const queryClient = useQueryClient();
   const favoriteMutation = useToggleFavoriteMutation();
@@ -889,6 +889,10 @@ function Inner(props: {
       // queryAlbums per remote (artist_names filter) rather than N
       // single-artist queries.
       const pendingByRemote = new Map<string, Map<string, string>>();
+      // also rebuild the flat slug→name index used by
+      // retryCrossRemoteForRemote on warm-up. wipe + repopulate each
+      // tick so the set tracks the live visible-ids stream.
+      latestVisibleArtistsBySlug.clear();
       for (const id of ids) {
         if (!id.startsWith("artist::")) continue;
         let parsed: ReturnType<typeof parseNodeId>;
@@ -903,6 +907,7 @@ function Inner(props: {
         const artistName = (node as ArtistNodeData).name;
         const artistSlug = slug(artistName);
         if (!artistSlug) continue;
+        latestVisibleArtistsBySlug.set(artistSlug, artistName);
         for (const remote of props.remotes()) {
           if (remote.remote_id === parsed.remoteId) continue;
           // skip offline remotes here too so we don't even occupy the
@@ -1896,15 +1901,49 @@ function Inner(props: {
 
   // ---- cross-remote lazy loading -------------------------------------
 
-  const { batchLookupAndMerge } = createCrossRemoteLazyLoading({
-    remotes: () => props.remotes(),
-    offlineByRemote,
-    crossRemoteLookups,
-    setFetchingByRemote,
-    queryClient,
-    setExtraNodesById,
-    walkerClient,
-  });
+  // forward-ref shim: createPivotHandler (which produces handlePivot)
+  // is constructed later in this component, but the cross-remote
+  // helper needs to fan out per-artist loaders after each sibling
+  // merge. captured lazily so the call lands on the real handler.
+  let handlePivotRef: ((nodeId: string) => void) | null = null;
+
+  const { batchLookupAndMerge, clearCrossRemotePins, isArtistPinned } =
+    createCrossRemoteLazyLoading({
+      remotes: () => props.remotes(),
+      offlineByRemote,
+      crossRemoteLookups,
+      setFetchingByRemote,
+      queryClient,
+      setExtraNodesById,
+      walkerClient,
+      onArtistMerged: (artistId) => {
+        if (handlePivotRef) handlePivotRef(artistId);
+      },
+    });
+
+  // every artist (by slug) currently riding the visible-ids stream.
+  // populated by the visible-ids effect below; consulted by the
+  // remote-warm-up retry path so a newly-online remote can fan its
+  // cross-remote matches in for whatever the user is already looking
+  // at, without waiting for the visible-ids effect to refire.
+  const latestVisibleArtistsBySlug = new Map<string, string>();
+
+  // re-fan cross-remote lookups against `warmedRemoteId` for every
+  // currently-visible artist. used when an offline remote comes back
+  // online via the interceptClick health-check path so its match set
+  // joins the deep-link / search-driven view immediately.
+  const retryCrossRemoteForRemote = (warmedRemoteId: string) => {
+    if (latestVisibleArtistsBySlug.size === 0) return;
+    if (offlineByRemote().get(warmedRemoteId) === true) return;
+    const pending = new Map<string, string>();
+    for (const [artistSlug, artistName] of latestVisibleArtistsBySlug) {
+      const key = `${warmedRemoteId}::${artistSlug}`;
+      if (crossRemoteLookups.has(key)) continue;
+      crossRemoteLookups.set(key, "loading");
+      pending.set(artistSlug, artistName);
+    }
+    if (pending.size > 0) void batchLookupAndMerge(warmedRemoteId, pending);
+  };
 
   // ---- pageInfo ------------------------------------------------------
 
@@ -1973,6 +2012,7 @@ function Inner(props: {
         onBack={depth > 1 ? () => walkApi()?.back() : undefined}
         onFit={() => walkApi()?.fit()}
         onResetWalk={() => {
+          clearCrossRemotePins();
           walkApi()?.resetWalk();
           void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
         }}
@@ -2023,6 +2063,7 @@ function Inner(props: {
           handlePivotToSuggestion(s, primaryRemoteId, all)
         }
         onSearchCleared={() => {
+          clearCrossRemotePins();
           walkerClient()?.setPinned([]);
           walkApi()?.resetWalk();
         }}
@@ -2161,6 +2202,10 @@ function Inner(props: {
     },
     queryClient,
   });
+
+  // bind the forward ref so cross-remote fan-out can call handlePivot
+  // on each sibling-merged artist to populate taxon edges + chips.
+  handlePivotRef = handlePivot;
 
   // worker reset (mergeResetTick advance) wipes every node/edge the
   // pivot handler had merged in (era bins, recently-added, unassigned
@@ -2313,13 +2358,24 @@ function Inner(props: {
   // effect so the two paths stay in sync.
   const pivotToTaxonNode = async (params: {
     remoteId: string;
-    relHubId: string;
+    relHubId: string | null;
     nodeId: string;
     ancestors: string[];
+    stubNodes?: WalkNode[];
+    stubEdges?: WalkEdge[];
     logTag: string;
   }): Promise<boolean> => {
-    const { remoteId, relHubId: relHub, nodeId, ancestors, logTag } = params;
-    if (!props.remotes().some((r) => r.remote_id === remoteId)) {
+    const { remoteId, relHubId: relHub, nodeId, ancestors, stubNodes, stubEdges, logTag } = params;
+    // "local" is a synthetic remote (not in props.remotes()) backed by
+    // LocalAlbumsLoader; accept it unconditionally when the local hub
+    // is enabled (i.e. not charnel mode).
+    const isLocal = remoteId === LOCAL_GRAPH_REMOTE_ID;
+    if (isLocal) {
+      if (!includeLocalHub) {
+        console.warn(`[${logTag}] local hub not available`, { remoteId });
+        return false;
+      }
+    } else if (!props.remotes().some((r) => r.remote_id === remoteId)) {
       console.warn(`[${logTag}] remote not available`, { remoteId });
       return false;
     }
@@ -2327,20 +2383,42 @@ function Inner(props: {
 
     activateRemote(remoteId);
 
-    await ensureTaxonKindsLoaded(remoteId).catch((err) =>
-      console.warn(`[${logTag}] taxon-kinds load failed`, { remoteId, err })
-    );
-    await maybeLoadTaxonsForPivot(relHub).catch((err) =>
-      console.warn(`[${logTag}] taxons load failed`, { relHub, err })
-    );
+    if (!isLocal) {
+      await ensureTaxonKindsLoaded(remoteId).catch((err) =>
+        console.warn(`[${logTag}] taxon-kinds load failed`, { remoteId, err })
+      );
+    }
+    if (relHub) {
+      await maybeLoadTaxonsForPivot(relHub).catch((err) =>
+        console.warn(`[${logTag}] taxons load failed`, { relHub, err })
+      );
+    }
 
     walkerClient()?.setPinned([]);
 
     const client = walkerClient();
     if (client) {
+      // merge any stub nodes/edges first so the walker knows about
+      // synthetic artist/album leaves before we ask it to expand them.
+      if ((stubNodes && stubNodes.length > 0) || (stubEdges && stubEdges.length > 0)) {
+        client.merge(stubNodes ?? [], stubEdges ?? []);
+      }
       for (const id of ancestors) client.expand(id);
     }
     setSelectedId(nodeId);
+    // kick the lazy loaders that hang off a normal canvas pivot so the
+    // newly-selected artist/album/taxon fans out its taxon chips,
+    // related-artist cloud, and entity-relation edges. fire for every
+    // pivot-able ancestor too (e.g. the parent artist of an album
+    // deep-link) so the artist's full catalog + related-artist cloud
+    // renders alongside the seeded leaf.
+    for (const id of ancestors) {
+      if (id === nodeId) continue;
+      if (id.startsWith("artist::") || id.startsWith("value::") || id.startsWith("group::")) {
+        handlePivot(id);
+      }
+    }
+    handlePivot(nodeId);
 
     console.log(`[${logTag}] solo`, { remoteId, nodeId, ancestors });
     return true;
@@ -2368,25 +2446,30 @@ function Inner(props: {
     if (!pickedRemoteId) return false;
 
     const plan = planForSuggestion(picked, pickedRemoteId);
-    if (!plan || !plan.taxonRelHubId) return false;
+    if (!plan) return false;
 
     return pivotToTaxonNode({
       remoteId: pickedRemoteId,
       relHubId: plan.taxonRelHubId,
       nodeId: plan.nodeId,
       ancestors: plan.ancestors,
+      stubNodes: plan.stubNodes,
+      stubEdges: plan.stubEdges,
       logTag: "searchPivot",
     });
   };
 
   // deep-link: `/explore?graph=<nodeId>` pivots the graph to the
-  // referenced taxon on mount (and on any subsequent change of the
-  // param). currently only value:: / group:: taxon ids are supported —
-  // these are produced by the global topnav search when a taxon
-  // suggestion is picked from a non-graph view. each unique param
-  // value is marked processed only AFTER a successful pivot, so an
-  // early bail-out (e.g. remotes resource still loading) doesn't
-  // permanently block a retry once remotes resolve.
+  // referenced taxon / artist / album on mount (and on any subsequent
+  // change of the param). optional `name`, `artist`, and `artistId`
+  // params let the artist/album buttons in detail views seed the
+  // graph with real labels so the existing cross-remote artist
+  // lookup machinery (visible-ids effect → batchLookupAndMerge)
+  // can fan the same artist/album out across every other online
+  // remote automatically. each unique param value is marked processed
+  // only AFTER a successful pivot, so an early bail-out (e.g.
+  // remotes resource still loading) doesn't permanently block a
+  // retry once remotes resolve.
   let lastProcessedGraphParam: string | null = null;
   createEffect(() => {
     const raw = searchParams.graph;
@@ -2401,8 +2484,16 @@ function Inner(props: {
       lastProcessedGraphParam = param; // bad input — don't retry
       return;
     }
-    if (parsed.kind !== "value" && parsed.kind !== "group") {
-      console.warn("[graphDeepLink] only taxon (value/group) nodes are supported", { parsed });
+    if (
+      parsed.kind !== "value" &&
+      parsed.kind !== "group" &&
+      parsed.kind !== "artist" &&
+      parsed.kind !== "album"
+    ) {
+      console.warn(
+        "[graphDeepLink] only taxon (value/group) and artist/album nodes are supported",
+        { parsed }
+      );
       lastProcessedGraphParam = param; // unsupported kind — don't retry
       return;
     }
@@ -2411,28 +2502,233 @@ function Inner(props: {
     // intentionally NOT marking `lastProcessedGraphParam` here — we
     // want this branch to retry on the next remote update.
     if (props.remotes().length === 0) return;
-    if (!props.remotes().some((r) => r.remote_id === parsed.remoteId)) {
-      console.warn("[graphDeepLink] remote not available", { remoteId: parsed.remoteId });
+    const remoteId = parsed.remoteId;
+    const isLocal = remoteId === LOCAL_GRAPH_REMOTE_ID;
+    if (!isLocal && !props.remotes().some((r) => r.remote_id === remoteId)) {
+      console.warn("[graphDeepLink] remote not available", { remoteId });
       lastProcessedGraphParam = param; // remote will never appear — give up
       return;
     }
+    if (isLocal && !includeLocalHub) {
+      console.warn("[graphDeepLink] local hub not available", { remoteId });
+      lastProcessedGraphParam = param;
+      return;
+    }
 
-    const remoteId = parsed.remoteId;
-    const relHub = relationHubId(remoteId, parsed.relationKind);
     const rHub = remoteHubId(remoteId);
-    const ancestors = [rHub, relHub, param];
+
+    // optional context from URL — populated by the explore buttons in
+    // ArtistsView / AlbumDetailView so the seeded node carries a real
+    // label and the cross-remote lookup keys are accurate.
+    const readParam = (k: string): string | undefined => {
+      const v = (searchParams as Record<string, string | string[] | undefined>)[k];
+      return Array.isArray(v) ? v[0] : v;
+    };
+    const nameHint = readParam("name");
+    const artistHint = readParam("artist");
+    const artistIdHint = readParam("artistId");
+
+    let relHub: string | null = null;
+    let ancestors: string[];
+    const stubNodes: WalkNode[] = [];
+    const stubEdges: WalkEdge[] = [];
+    // extraNodesById entries — these are what the visible-ids effect
+    // reads to drive cross-remote artist lookups (via `slug(name)`).
+    const extraNodes: Array<[string, AlbumNodeData | ArtistNodeData]> = [];
+
+    if (parsed.kind === "value" || parsed.kind === "group") {
+      relHub = relationHubId(remoteId, parsed.relationKind);
+      ancestors = [rHub, relHub, param];
+    } else if (parsed.kind === "artist") {
+      const label = nameHint ?? "artist";
+      stubNodes.push({
+        id: param,
+        role: "artist",
+        label,
+        parentId: rHub,
+        childCount: 0,
+        lazy: true,
+      });
+      stubEdges.push({ source: rHub, target: param });
+      ancestors = [rHub, param];
+      // proper ArtistNodeData stub so lookupNode() returns the real
+      // name; cross-remote lookup keys off `slug(node.name)`.
+      extraNodes.push([
+        param,
+        {
+          id: param,
+          kind: "artist",
+          artistId: parsed.artistId,
+          name: nameHint ?? parsed.artistId,
+          abbreviation: getArtistAbbreviation(nameHint ?? parsed.artistId),
+          imageUrl: null,
+          image: null,
+          albumCount: 0,
+          genres: [],
+          tags: [],
+          moods: [],
+          styles: [],
+          label: null,
+          era: null,
+          customTaxons: {},
+          sourceRemoteIds: [remoteId],
+        } satisfies ArtistNodeData,
+      ]);
+    } else {
+      // album — seed both an album stub and (when we know the artist)
+      // a parent artist stub so the album hangs off its artist rather
+      // than directly off the remote hub. the artist stub also drives
+      // cross-remote artist lookups via the visible-ids effect.
+      const albumLabel = nameHint ?? "album";
+      let parentId: string = rHub;
+      if (artistIdHint) {
+        const artStubId = artistNodeId(remoteId, artistIdHint);
+        const artName = artistHint ?? artistIdHint;
+        stubNodes.push({
+          id: artStubId,
+          role: "artist",
+          label: artName,
+          parentId: rHub,
+          childCount: 1,
+          lazy: true,
+        });
+        stubEdges.push({ source: rHub, target: artStubId });
+        extraNodes.push([
+          artStubId,
+          {
+            id: artStubId,
+            kind: "artist",
+            artistId: artistIdHint,
+            name: artName,
+            abbreviation: getArtistAbbreviation(artName),
+            imageUrl: null,
+            image: null,
+            albumCount: 1,
+            genres: [],
+            tags: [],
+            moods: [],
+            styles: [],
+            label: null,
+            era: null,
+            customTaxons: {},
+            sourceRemoteIds: [remoteId],
+          } satisfies ArtistNodeData,
+        ]);
+        parentId = artStubId;
+      }
+      stubNodes.push({
+        id: param,
+        role: "album",
+        label: albumLabel,
+        parentId,
+        childCount: 0,
+        lazy: true,
+      });
+      stubEdges.push({ source: parentId, target: param });
+      ancestors = parentId === rHub ? [rHub, param] : [rHub, parentId, param];
+      extraNodes.push([
+        param,
+        {
+          id: param,
+          kind: "album",
+          title: albumLabel,
+          artistId: artistIdHint ?? "",
+          artistName: artistHint ?? "unknown artist",
+          year: null,
+          imageUrl: null,
+          image: null,
+          genres: [],
+          tags: [],
+          moods: [],
+          styles: [],
+          label: null,
+          era: null,
+          customTaxons: {},
+          trackCount: 0,
+          totalDurationSec: 0,
+          sourceRemoteId: remoteId,
+          sourceRemoteIds: [remoteId],
+        } satisfies AlbumNodeData,
+      ]);
+    }
 
     // mark processed BEFORE the async work so concurrent re-runs
     // (e.g. searchParams + remotes both updating in the same tick)
     // don't double-fire.
     lastProcessedGraphParam = param;
 
+    // populate extraNodesById up-front so the visible-ids effect can
+    // immediately read the stub's real artist name and kick off the
+    // cross-remote artist lookups in parallel with the pivot.
+    if (extraNodes.length > 0) {
+      setExtraNodesById((prev) => {
+        const next = new Map(prev);
+        for (const [id, node] of extraNodes) next.set(id, node);
+        return next;
+      });
+    }
+
+    // directly kick cross-remote fan-out for the seeded artist
+    // name(s). don't depend on the visible-ids stream picking up the
+    // stub — the worker may not emit a 0-child lazy stub as visible
+    // until its children load, but we want sibling-remote matches to
+    // appear in parallel with (or before) the origin remote's catalog
+    // load. activate every online remote so its loaders mount and
+    // can surface taxon hubs + related-artist clouds once batch
+    // matches land.
+    const seedArtistName = parsed.kind === "artist" ? (nameHint ?? null) : (artistHint ?? null);
+    if (seedArtistName) {
+      const seedSlug = slug(seedArtistName);
+      if (seedSlug) {
+        for (const other of props.remotes()) {
+          if (other.remote_id === remoteId) continue;
+          if (offlineByRemote().get(other.remote_id) === true) {
+            // deep-link entry into the graph viz is the user explicitly
+            // asking to see this artist's full cross-remote convergence,
+            // so it's worth one round of health probes against every
+            // remote we currently believe is offline. on success the
+            // health-check flips offlineByRemote, then we fire the
+            // batched lookup so this remote joins the fan-out alongside
+            // the ones that were already online. on failure the slot is
+            // left untouched (interceptClick can still retry later).
+            void runHealthCheck(other.remote_id).then((online) => {
+              if (online !== true) return;
+              const key = `${other.remote_id}::${seedSlug}`;
+              if (crossRemoteLookups.has(key)) return;
+              crossRemoteLookups.set(key, "loading");
+              activateRemote(other.remote_id);
+              void batchLookupAndMerge(other.remote_id, new Map([[seedSlug, seedArtistName]]));
+            });
+            continue;
+          }
+          const key = `${other.remote_id}::${seedSlug}`;
+          if (crossRemoteLookups.has(key)) continue;
+          crossRemoteLookups.set(key, "loading");
+          activateRemote(other.remote_id);
+          void batchLookupAndMerge(other.remote_id, new Map([[seedSlug, seedArtistName]]));
+        }
+      }
+    }
+
     void pivotToTaxonNode({
       remoteId,
       relHubId: relHub,
       nodeId: param,
       ancestors,
+      stubNodes,
+      stubEdges,
       logTag: "graphDeepLink",
+    }).then((ok) => {
+      // strip the ?graph= (and friends) query params after a successful
+      // pivot so the user can freely walk away from the seeded node
+      // without the effect re-firing on subsequent navigation, and so
+      // the URL accurately reflects current graph state.
+      if (ok) {
+        setSearchParams(
+          { graph: undefined, name: undefined, artist: undefined, artistId: undefined },
+          { replace: true }
+        );
+      }
     });
   });
 
@@ -2641,6 +2937,11 @@ function Inner(props: {
             // came back online: mount the loader so albums stream in.
             // the offlineByRemote flip already undimmed the subtree.
             activateRemote(parsed.remoteId);
+            // and re-fan cross-remote lookups for whatever the user
+            // is currently looking at so the warmed remote's match
+            // edges + relation chains join the in-flight deep-link
+            // / search view without needing a re-pivot.
+            retryCrossRemoteForRemote(parsed.remoteId);
           } else if (online === false) {
             toast.warning(`${name} is still offline`);
           }
@@ -2855,7 +3156,26 @@ function Inner(props: {
             setBreadcrumbIds(new Set(ids));
           }}
           onSelect={handleSelect}
-          onPivot={handlePivot}
+          onPivot={(id) => {
+            // pivoting away from the cross-remote artist-of-interest
+            // (relation/value/group hub click, hop to a different
+            // remote, switch artist) collapses the convergence view
+            // so stale sibling-remote squares + chains don't linger
+            // as the user explores. album pivots stay scoped because
+            // they're usually still under the pinned artist.
+            try {
+              const parsed = parseNodeId(id);
+              if (parsed.kind === "artist") {
+                if (!isArtistPinned(id)) clearCrossRemotePins();
+              } else if (parsed.kind !== "album") {
+                clearCrossRemotePins();
+              }
+            } catch {
+              // unparseable id (root, etc.) — drop pins to be safe.
+              clearCrossRemotePins();
+            }
+            handlePivot(id);
+          }}
           selectedId={selectedId()}
           getImage={getImage}
           isOfflineNode={isOfflineNode}

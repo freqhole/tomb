@@ -407,6 +407,18 @@ export function buildSim() {
           const tun = state.tuning;
           if (d.role === "album") return d.radius * 1.55 * tun.albumCollide;
           if (d.role === "artist") return d.radius * 1.8 * tun.artistCollide;
+          // ghost related-artist nodes draw as a label-only chip
+          // (no shape) but their text is wide compared to their
+          // r=8 footprint. give them a label-width-ish collide
+          // disc so a dense related cloud doesn't pile up on top
+          // of itself. cheap proxy: 4px per char + 24px padding,
+          // clamped to a sane range (~52..160px). much larger
+          // than d.radius * 1.9 ever was.
+          if (d.role === "ghost_artist") {
+            const len = nodeMap.get(d.id)?.label?.length ?? 12;
+            const w = Math.max(52, Math.min(160, len * 4 + 24));
+            return w;
+          }
           return d.radius * 1.9;
         })
         .strength(1.0)

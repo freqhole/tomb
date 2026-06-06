@@ -611,20 +611,23 @@ export default function WalkCanvas(props: WalkCanvasProps) {
       });
 
       // pass 1: shapes + hover rings + selection ring (back to front).
-      // the "lifted" node (hovered, else selected — restricted to
-      // artist/album) is skipped here and re-drawn after pass 2 so it
-      // sits on top of every other shape AND label.
+      // the "lifted" node (hovered → any role; else selected →
+      // restricted to artist/album) is skipped here and re-drawn
+      // after pass 2 so its shape + outline sits on top of every
+      // other shape AND label.
       const liftIdx = (() => {
-        const pick = (id: string | null) => {
-          if (id === null) return -1;
-          const i = nodes.findIndex((n) => n.id === id);
-          if (i === -1) return -1;
-          const r = nodes[i].role;
-          return r === "artist" || r === "album" ? i : -1;
-        };
-        const hi = pick(hov);
-        if (hi !== -1) return hi;
-        return pick(selId);
+        if (hov !== null) {
+          const hi = nodes.findIndex((n) => n.id === hov);
+          if (hi !== -1) return hi;
+        }
+        if (selId !== null) {
+          const si = nodes.findIndex((n) => n.id === selId);
+          if (si !== -1) {
+            const r = nodes[si].role;
+            if (r === "artist" || r === "album") return si;
+          }
+        }
+        return -1;
       })();
 
       for (const i of sorted) {

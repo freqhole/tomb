@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
-import { playQueue } from "../services/queue/queue";
+import { playQueue, addToQueue } from "../services/queue/queue";
 import { highlightedSongId, setHighlightedSongId } from "../state/highlightedSong";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
@@ -24,11 +24,13 @@ import { useAlbumContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import type { Song } from "../services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
+import { albumNodeId } from "../../components/graph/data/nodeIds";
 import { sortSongsCanonical } from "../utils/songSort";
 import { formatTaxonLabel } from "../utils/format";
 import { EntityLinks } from "../../components/media/EntityLinks";
 import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
+import { LoadingState } from "../../components/feedback/LoadingBar";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
@@ -167,6 +169,17 @@ export function AlbumDetailView() {
     if (songList.length === 0) return;
     const info = albumInfo();
     await playQueue(songList, {
+      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+    });
+  };
+
+  // append album to current queue (does not interrupt playback)
+  const handleQueueAlbum = async () => {
+    const songList = songs();
+    if (songList.length === 0) return;
+    const info = albumInfo();
+    await addToQueue(songList, {
+      position: "end",
       source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
     });
   };
@@ -317,7 +330,7 @@ export function AlbumDetailView() {
   return (
     <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
       <div class="flex flex-col h-full">
-        <Show when={albumInfo()} fallback={<div class="p-4">loading...</div>}>
+        <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (
             <>
               {/* header with album info - responsive layout */}
@@ -416,6 +429,17 @@ export function AlbumDetailView() {
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={handleQueueAlbum}
+                      title="add album to queue"
+                      aria-label="add album to queue"
+                    >
+                      <span class="hidden wide:inline">+queue</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.queue} />
+                      </span>
+                    </Button>
                     <Show when={isCharnelMode() || !!getCurrentRemote()}>
                       <Button
                         variant="ghost"
@@ -429,10 +453,40 @@ export function AlbumDetailView() {
                             getCurrentRemote()?.remote_id
                           )
                         }
+                        title="start radio from album"
+                        aria-label="start radio from album"
                       >
-                        +radio
+                        <span class="hidden wide:inline">+radio</span>
+                        <span class="wide:hidden inline-flex items-center">
+                          <Icon name={IconNames.radioTower} />
+                        </span>
                       </Button>
                     </Show>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        const remoteId = getCurrentRemote()?.remote_id ?? "local";
+                        const info = albumInfo();
+                        const bareId = info?.album_id ?? params.id;
+                        const title = info?.title ?? "";
+                        const artistName = songs()[0]?.artist_name ?? "";
+                        const artistId = info?.artist_id ?? "";
+                        const qs = new URLSearchParams({
+                          graph: albumNodeId(remoteId, bareId),
+                        });
+                        if (title) qs.set("name", title);
+                        if (artistName) qs.set("artist", artistName);
+                        if (artistId) qs.set("artistId", artistId);
+                        navigate(`/explore?${qs.toString()}`);
+                      }}
+                      title="explore album in graph"
+                      aria-label="explore album in graph"
+                    >
+                      <span class="hidden wide:inline">explore</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.library} />
+                      </span>
+                    </Button>
                     <Show when={canUpdateAlbum()}>
                       <button
                         onClick={() =>

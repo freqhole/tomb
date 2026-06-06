@@ -24,6 +24,10 @@ export interface CrossRemoteLazyLoadingDeps {
     updater: (prev: Map<string, AlbumNodeData | ArtistNodeData>) => Map<string, AlbumNodeData | ArtistNodeData>
   ) => void;
   walkerClient: () => GraphDriver | null;
+  // optional: invoked after a sibling-remote artist is merged into the
+  // walker so the host can fan out per-artist loaders (taxon chips,
+  // related-artist cloud, entity-relation edges).
+  onArtistMerged?: (artistId: string) => void;
 }
 
 export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
@@ -35,7 +39,19 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
     queryClient,
     setExtraNodesById,
     walkerClient,
+    onArtistMerged,
   } = deps;
+
+  // sibling-remote artist ids that need to stay visible so each
+  // contributing remote's square + relation-hub chain renders. the
+  // walker's pin-loop walks each pinned id's ancestors up to root, so
+  // pinning the sibling artist (whose parents are remote::sib and
+  // every value::sib::* wired to it) surfaces every chip we need. the
+  // final visibility collapse fuses the sibling artist itself into
+  // the leader glyph, but the remote square + relation hubs + value
+  // chips remain visible. cleared by setPinned([]) elsewhere (search,
+  // pivotToTaxonNode); rebuilt as new batches resolve.
+  const crossRemotePinnedArtists = new Set<string>();
 
   const batchLookupAndMerge = async (
     otherRemoteId: string,
@@ -133,6 +149,23 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       }
 
       const allMatches = albums.filter((a) => candidates.has(slug(a.artistName)));
+      console.log("[xremote-diag] batch result", {
+        otherRemoteId,
+        candidateNames: names,
+        albumsReturned: albums.length,
+        matchedAlbums: allMatches.length,
+        sampleAlbumGenres: allMatches.slice(0, 3).map((a) => ({
+          title: a.title,
+          artist: a.artistName,
+          genres: a.genres,
+          tags: a.tags,
+          moods: a.moods,
+          styles: a.styles,
+          era: a.era,
+          label: a.label,
+          customTaxons: a.customTaxons,
+        })),
+      });
       if (allMatches.length === 0) return;
 
       const artistNodes = deriveArtistNodes(allMatches, new Set());
@@ -158,13 +191,37 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
           .filter((n) => n.id.startsWith(`album::${otherRemoteId}::`))
           .map((n) => n.id)
       );
-      const addNodes = slice.graph.nodes.filter(
-        (n) => sliceArtistIds.has(n.id) || sliceAlbumIds.has(n.id)
+      // taxon-hub + value nodes that buildWalkGraph synthesized for
+      // this remote (genres/tags/moods/etc + their values). including
+      // them lets the artist appear connected to its taxon chips on
+      // the sibling remote, opening more walk paths.
+      const sliceRelHubIds = new Set(
+        slice.graph.nodes
+          .filter((n) => n.id.startsWith(`relation::${otherRemoteId}::`))
+          .map((n) => n.id)
       );
+      const sliceValueIds = new Set(
+        slice.graph.nodes
+          .filter(
+            (n) =>
+              n.id.startsWith(`value::${otherRemoteId}::`) ||
+              n.id.startsWith(`group::${otherRemoteId}::`)
+          )
+          .map((n) => n.id)
+      );
+      const remoteHub = `remote::${otherRemoteId}`;
+      const includeIds = new Set<string>([
+        ...sliceArtistIds,
+        ...sliceAlbumIds,
+        ...sliceRelHubIds,
+        ...sliceValueIds,
+      ]);
+      const addNodes = slice.graph.nodes.filter((n) => includeIds.has(n.id));
       const addEdges = slice.graph.edges.filter(
         (e) =>
-          (sliceArtistIds.has(e.source) && sliceAlbumIds.has(e.target)) ||
-          (e.source === `remote::${otherRemoteId}` && sliceArtistIds.has(e.target))
+          (includeIds.has(e.source) && includeIds.has(e.target)) ||
+          (e.source === remoteHub && includeIds.has(e.target)) ||
+          (e.target === remoteHub && includeIds.has(e.source))
       );
 
       setExtraNodesById((prev) => {
@@ -173,7 +230,52 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         return next;
       });
 
-      walkerClient()?.merge(addNodes, addEdges);
+      const wc = walkerClient();
+      console.log("[xremote-diag] merging", {
+        otherRemoteId,
+        walkerReady: !!wc,
+        addNodes: addNodes.length,
+        addEdges: addEdges.length,
+        artistIds: Array.from(sliceArtistIds),
+        relHubIds: Array.from(sliceRelHubIds),
+        valueIds: Array.from(sliceValueIds),
+        sampleEdges: addEdges.slice(0, 6),
+      });
+      wc?.merge(addNodes, addEdges);
+      // do NOT call wc.expand(remoteHub) here. expand() walks the
+      // linear breadcrumb and would drag the pivot off the
+      // deep-linked artist onto the sibling remote hub. the walker's
+      // strategy A clustering already fuses sibling artists into the
+      // pivoted artist's cluster, so their albums + value chips
+      // surface naturally via clusterChildrenOf(piv) without any
+      // expand() calls. handlePivot on each sibling artist (below)
+      // wires its value->artist edges via maybeLoadRelationsForEntityPivot.
+      console.log("[xremote-diag] post-merge", {
+        otherRemoteId,
+        note: "no expand() calls; relying on clustering + value->artist edges for visibility",
+      });
+
+      if (onArtistMerged) {
+        for (const aId of sliceArtistIds) {
+          console.log("[xremote-diag] onArtistMerged → handlePivot", { aId, otherRemoteId });
+          onArtistMerged(aId);
+        }
+      }
+
+      // pin sibling artist nodes so the walker's ancestor walk
+      // surfaces remote::sib + relation::sib::* + value::sib::* in
+      // the visible set. without this, only the leader's remote
+      // square renders because non-leader remote hubs aren't reached
+      // by any descent from the pivot. handlePivot above must run
+      // first so each sibling artist has its value->artist edges
+      // merged (those edges add the values to parentsOf[artist],
+      // which is what the pin's ancestor walk traverses).
+      for (const aId of sliceArtistIds) crossRemotePinnedArtists.add(aId);
+      console.log("[xremote-diag] pinning sibling artists", {
+        totalPinned: crossRemotePinnedArtists.size,
+        ids: Array.from(crossRemotePinnedArtists),
+      });
+      wc?.setPinned(Array.from(crossRemotePinnedArtists));
 
       for (const slugKey of matchesBySlug.keys()) {
         crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "loaded");
@@ -196,5 +298,17 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
     }
   };
 
-  return { batchLookupAndMerge };
+  // drop every pinned sibling artist (and tell the walker about it).
+  // call this when the user pivots away from the artist-of-interest
+  // (hits home, picks a different artist, taps a relation hub, etc.)
+  // so stale remote squares + relation chains stop hanging around.
+  const clearCrossRemotePins = () => {
+    if (crossRemotePinnedArtists.size === 0) return;
+    crossRemotePinnedArtists.clear();
+    walkerClient()?.setPinned([]);
+  };
+
+  const isArtistPinned = (artistId: string) => crossRemotePinnedArtists.has(artistId);
+
+  return { batchLookupAndMerge, clearCrossRemotePins, isArtistPinned };
 }

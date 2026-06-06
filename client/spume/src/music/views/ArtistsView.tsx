@@ -15,6 +15,8 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { getDataSource } from "../data";
+import { getCurrentRemote } from "../data";
+import { artistNodeId } from "../../components/graph/data/nodeIds";
 import { RemoteOfflineError } from "../data";
 import { showArtistEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
 import { useArtistSongsQuery, useArtistsQuery, useArtistQuery } from "../queries/songs";
@@ -433,6 +435,18 @@ export function ArtistsView(props: ArtistsViewProps) {
     }
   };
 
+  // explore artist in graph viz
+  const handleExploreArtist = () => {
+    const artist = selectedArtist();
+    if (!artist) return;
+    const remoteId = getCurrentRemote()?.remote_id ?? "local";
+    const qs = new URLSearchParams({
+      graph: artistNodeId(remoteId, artist.artist_id),
+    });
+    if (artist.name) qs.set("name", artist.name);
+    navigate(`/explore?${qs.toString()}`);
+  };
+
   // handle rating change
   const handleRatingChange = (rating: number) => {
     const artist = selectedArtist();
@@ -782,6 +796,7 @@ export function ArtistsView(props: ArtistsViewProps) {
             return artistSongs().find((s) => s.id === songId);
           }}
           onEditArtist={handleEditArtist}
+          onExplore={handleExploreArtist}
           onRatingChange={handleRatingChange}
           onSongRatingChange={handleSongRatingChange}
           onAlbumRatingChange={handleAlbumRatingChange}

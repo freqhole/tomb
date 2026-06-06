@@ -1234,9 +1234,15 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       return;
     }
     if (parsed.kind !== "artist" && parsed.kind !== "album") return;
-    if (entityRelationsLoadedByPivot.has(nodeId)) return;
+    if (entityRelationsLoadedByPivot.has(nodeId)) {
+      console.log("[xremote-diag] relations already loaded", { nodeId });
+      return;
+    }
     const node = lookupNode(nodeId);
-    if (!node) return;
+    if (!node) {
+      console.log("[xremote-diag] relations bail: node not in lookup", { nodeId });
+      return;
+    }
     const remoteId = parsed.remoteId;
     const pairs: Array<{ kind: RelationKind; label: string }> = [];
     const pushAll = (kind: RelationKind, labels: readonly string[] | undefined) => {
@@ -1264,22 +1270,84 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       entityRelationsLoadedByPivot.add(nodeId);
       return;
     }
+    // build the minimal subtree of relation hubs + value chips that
+    // THIS entity needs, per remote. don't trigger maybeLoadTaxonsForPivot
+    // here \u2014 that loads the entire taxon catalog for the kind on the
+    // remote and floods the graph with unrelated chips. instead
+    // synthesize just the nodes we care about (idempotent: the worker's
+    // merge dedupes by id, so existing hubs/values aren't clobbered).
+    // user can still expand a hub directly to lazy-load the full kind.
+    const rhId = remoteHubId(remoteId);
     const seenKinds = new Set<RelationKind>();
-    for (const { kind } of pairs) {
-      if (seenKinds.has(kind)) continue;
-      seenKinds.add(kind);
-      void maybeLoadTaxonsForPivot(relationHubId(remoteId, kind));
-    }
+    const addNodes: WalkNode[] = [];
     const addEdges: WalkEdge[] = [];
     const seenEdges = new Set<string>();
+    const seenValueNodes = new Set<string>();
     for (const { kind, label } of pairs) {
+      if (!seenKinds.has(kind)) {
+        seenKinds.add(kind);
+        const relHubId_ = relationHubId(remoteId, kind);
+        addNodes.push({
+          id: relHubId_,
+          role: "relation",
+          label: kind.replace(/_/g, " "),
+          parentId: rhId,
+          childCount: 0,
+          lazy: true,
+        });
+        const rhEdgeKey = `${rhId}::${relHubId_}`;
+        if (!seenEdges.has(rhEdgeKey)) {
+          seenEdges.add(rhEdgeKey);
+          addEdges.push({ source: rhId, target: relHubId_ });
+        }
+      }
+      const relHubId_ = relationHubId(remoteId, kind);
       const valId = valueNodeId(remoteId, kind, slug(label));
-      const key = `${valId}::${nodeId}`;
-      if (seenEdges.has(key)) continue;
-      seenEdges.add(key);
-      addEdges.push({ source: valId, target: nodeId });
+      if (!seenValueNodes.has(valId)) {
+        seenValueNodes.add(valId);
+        addNodes.push({
+          id: valId,
+          role: "value",
+          // childCount must be > 0 (or lazy:true) for the walker's
+          // getVisible() filter to surface this node — it drops
+          // value/relation nodes with childCount===0 && !lazy. we know
+          // the chip wires to at least one entity (this one), so 1 is
+          // a safe lower bound. real catalog loads via
+          // maybeLoadTaxonsForPivot will refresh with the true count
+          // (album_count) if/when the user expands the relation hub.
+          label,
+          parentId: relHubId_,
+          childCount: 1,
+        });
+        const hubToValKey = `${relHubId_}::${valId}`;
+        if (!seenEdges.has(hubToValKey)) {
+          seenEdges.add(hubToValKey);
+          addEdges.push({ source: relHubId_, target: valId });
+        }
+      }
+      const edgeKey = `${valId}::${nodeId}`;
+      if (!seenEdges.has(edgeKey)) {
+        seenEdges.add(edgeKey);
+        addEdges.push({ source: valId, target: nodeId });
+      }
     }
-    if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+    console.log("[xremote-diag] relations merge", {
+      nodeId,
+      remoteId,
+      pairCount: pairs.length,
+      nodeCount: addNodes.length,
+      edgeCount: addEdges.length,
+      kinds: Array.from(seenKinds),
+      sampleValueIds: Array.from(seenValueNodes).slice(0, 5),
+    });
+    const wc = walkerClient();
+    if (addNodes.length > 0 || addEdges.length > 0) wc?.merge(addNodes, addEdges);
+    // expand each relation hub we just attached value chips to, so
+    // those chips become visible on the canvas. only the kinds with
+    // labels on THIS entity get expanded \u2014 the rest stay collapsed.
+    if (wc) {
+      for (const kind of seenKinds) wc.expand(relationHubId(remoteId, kind));
+    }
     entityRelationsLoadedByPivot.add(nodeId);
   };
 
