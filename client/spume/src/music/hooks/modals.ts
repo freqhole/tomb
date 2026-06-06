@@ -1,6 +1,36 @@
 // modal state helpers for song, artist, and album editors
 import { createSignal } from "solid-js";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import { queryClient } from "../../queryClient";
+
+// query-key prefixes invalidated whenever a music-edit modal closes.
+// the user may have changed entity names/ids that downstream lists,
+// detail views, and search caches all reference, so we cast a wide
+// net rather than try to surgically patch each cache.
+const MUSIC_EDIT_INVALIDATION_KEYS: readonly string[] = [
+  "songs",
+  "song",
+  "albums",
+  "album",
+  "artists",
+  "artist",
+  "genres",
+  "genre",
+  "playlists",
+  "search",
+  "tags",
+  "analytics",
+  "favorites",
+  "library-albums",
+  "library-artists",
+  "library-songs",
+];
+
+function invalidateMusicEditQueries() {
+  for (const key of MUSIC_EDIT_INVALIDATION_KEYS) {
+    void queryClient.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 // modal stack to track which modal is topmost for esc key handling
 interface ModalEntry {
@@ -110,6 +140,7 @@ export function showSongEditor(options: SongEditorOptions) {
 
 export function hideSongEditor() {
   setSongEditorState(null);
+  invalidateMusicEditQueries();
 }
 
 export function useSongEditorState() {
@@ -126,6 +157,7 @@ export function showArtistEditor(options: ArtistEditorOptions) {
 
 export function hideArtistEditor() {
   setArtistEditorState(null);
+  invalidateMusicEditQueries();
 }
 
 export function useArtistEditorState() {
@@ -142,6 +174,7 @@ export function showAlbumEditor(options: AlbumEditorOptions) {
 
 export function hideAlbumEditor() {
   setAlbumEditorState(null);
+  invalidateMusicEditQueries();
 }
 
 export function useAlbumEditorState() {
