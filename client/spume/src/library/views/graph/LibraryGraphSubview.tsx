@@ -2682,7 +2682,25 @@ function Inner(props: {
       if (seedSlug) {
         for (const other of props.remotes()) {
           if (other.remote_id === remoteId) continue;
-          if (offlineByRemote().get(other.remote_id) === true) continue;
+          if (offlineByRemote().get(other.remote_id) === true) {
+            // deep-link entry into the graph viz is the user explicitly
+            // asking to see this artist's full cross-remote convergence,
+            // so it's worth one round of health probes against every
+            // remote we currently believe is offline. on success the
+            // health-check flips offlineByRemote, then we fire the
+            // batched lookup so this remote joins the fan-out alongside
+            // the ones that were already online. on failure the slot is
+            // left untouched (interceptClick can still retry later).
+            void runHealthCheck(other.remote_id).then((online) => {
+              if (online !== true) return;
+              const key = `${other.remote_id}::${seedSlug}`;
+              if (crossRemoteLookups.has(key)) return;
+              crossRemoteLookups.set(key, "loading");
+              activateRemote(other.remote_id);
+              void batchLookupAndMerge(other.remote_id, new Map([[seedSlug, seedArtistName]]));
+            });
+            continue;
+          }
           const key = `${other.remote_id}::${seedSlug}`;
           if (crossRemoteLookups.has(key)) continue;
           crossRemoteLookups.set(key, "loading");
