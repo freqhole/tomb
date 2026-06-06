@@ -120,7 +120,7 @@ export const InFormContext: Story = {
           <label class="block text-sm text-[var(--color-text-primary)] mb-1">artist name</label>
           <input
             type="text"
-            value="The Beatles"
+            value="Mindless Self Indulgence"
             class="w-full px-3 py-2 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded text-[var(--color-text-primary)]"
             readonly
           />

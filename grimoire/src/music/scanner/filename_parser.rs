@@ -471,12 +471,12 @@ mod tests {
 
     #[test]
     fn test_parse_artist_album_track() {
-        let path = PathBuf::from("The Beatles - Abbey Road - Come Together.mp3");
+        let path = PathBuf::from("The Weasels - Dirt Hole - Go Away.mp3");
         let parsed = parse_filename(&path);
 
-        assert_eq!(parsed.artist, Some("The Beatles".to_string()));
-        assert_eq!(parsed.album, Some("Abbey Road".to_string()));
-        assert_eq!(parsed.track, Some("Come Together".to_string()));
+        assert_eq!(parsed.artist, Some("The Weasels".to_string()));
+        assert_eq!(parsed.album, Some("Dirt Hole".to_string()));
+        assert_eq!(parsed.track, Some("Go Away".to_string()));
         assert_eq!(parsed.track_number, None);
     }
 

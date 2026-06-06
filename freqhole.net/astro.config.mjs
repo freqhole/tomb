@@ -29,6 +29,7 @@ export default defineConfig({
 				{
 					label: 'concepts',
 					items: [
+						{ label: 'setup', slug: 'concepts/setup' },
 						{ label: 'configuration', slug: 'concepts/configuration' },
 						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
 						{ label: 'web app architecture', slug: 'concepts/web-app' },

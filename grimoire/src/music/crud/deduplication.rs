@@ -63,7 +63,7 @@ pub fn normalize_artist_name(input: &str) -> String {
     let normalized = normalize_name(input);
 
     // TODO: add music-specific normalization rules
-    // - Handle "The Beatles" vs "Beatles, The"
+    // - Handle "The Weasels" vs "Weasels, The"
     // - Handle feat./featuring variations
     // - Handle punctuation differences ("Guns N' Roses" vs "Guns N Roses")
 
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_normalize_name() {
-        assert_eq!(normalize_name("  The Beatles  "), "the beatles");
+        assert_eq!(normalize_name("  The Weasels  "), "the weasels");
         assert_eq!(normalize_name("Guns N'   Roses"), "guns n' roses");
         assert_eq!(normalize_name("RADIOHEAD"), "radiohead");
         assert_eq!(normalize_name(""), "");
@@ -113,10 +113,10 @@ mod tests {
 
     #[test]
     fn test_artists_match() {
-        assert!(artists_match("The Beatles", "the beatles"));
+        assert!(artists_match("The Weasels", "the weasels"));
         assert!(artists_match("RADIOHEAD", "Radiohead"));
         assert!(artists_match("  Pink Floyd  ", "Pink Floyd"));
-        assert!(!artists_match("The Beatles", "Beatles"));
+        assert!(!artists_match("The Weasels", "Weasels"));
     }
 
     #[test]

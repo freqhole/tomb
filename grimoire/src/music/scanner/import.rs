@@ -857,8 +857,8 @@ mod tests {
     #[test]
     fn test_not_compilation_when_same() {
         // not a compilation when artist == album_artist
-        let artist = Some("The Beatles".to_string());
-        let album_artist = Some("The Beatles".to_string());
+        let artist = Some("The Weasels".to_string());
+        let album_artist = Some("The Weasels".to_string());
 
         let is_comp = match (&artist, &album_artist) {
             (Some(a), Some(aa)) => !a.is_empty() && !aa.is_empty() && a != aa,
@@ -871,7 +871,7 @@ mod tests {
     #[test]
     fn test_not_compilation_when_only_artist() {
         // not a compilation when only artist is present
-        let artist = Some("The Beatles".to_string());
+        let artist = Some("The Weasels".to_string());
         let album_artist: Option<String> = None;
 
         let is_comp = match (&artist, &album_artist) {

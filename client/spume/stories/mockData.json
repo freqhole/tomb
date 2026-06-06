@@ -790,7 +790,7 @@
     },
     {
       "id": "4",
-      "name": "The Beatles",
+      "name": "Mindless Self Indulgence",
       "songCount": 302,
       "albumCount": 13,
       "totalDuration": 28800,
@@ -1110,7 +1110,7 @@
     {
       "id": "5",
       "title": "Abbey Road",
-      "artist": "The Beatles",
+      "artist": "Mindless Self Indulgence",
       "year": 1969,
       "trackCount": 17,
       "duration": 2850,
@@ -1432,7 +1432,7 @@
     {
       "id": "15",
       "title": "Come Together",
-      "artist": "The Beatles",
+      "artist": "Mindless Self Indulgence",
       "album": "Abbey Road",
       "durationSeconds": 259,
       "rating": 4,
@@ -1442,7 +1442,7 @@
     {
       "id": "16",
       "title": "Here Comes the Sun",
-      "artist": "The Beatles",
+      "artist": "Mindless Self Indulgence",
       "album": "Abbey Road",
       "durationSeconds": 185,
       "rating": 5,
@@ -1452,7 +1452,7 @@
     {
       "id": "17",
       "title": "Something",
-      "artist": "The Beatles",
+      "artist": "Mindless Self Indulgence",
       "album": "Abbey Road",
       "durationSeconds": 182,
       "rating": 4,
@@ -2097,7 +2097,13 @@
       "key_signature": null,
       "lyrics": null,
       "metadata": null,
-      "images": [{"blob_id": "https://picsum.photos/seed/1/200", "is_primary": true, "blob_type": "thumbnail"}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/1/200",
+          "is_primary": true,
+          "blob_type": "thumbnail"
+        }
+      ],
       "is_favorite": true,
       "source_type": "local",
       "opfs_path": null,
@@ -2115,11 +2121,35 @@
       "artist_name": "Another Extremely Long Artist Name For Testing Purposes",
       "album_type": "album",
       "year": 1973,
-      "images": [{"blob_id": "https://picsum.photos/seed/2/200", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/2/200",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 24,
-      "sub_genres": ["progressive rock", "art rock", "experimental", "psychedelic rock", "symphonic rock", "krautrock", "space rock", "jazz fusion"],
-      "tags": ["classic", "iconic", "groundbreaking", "innovative", "experimental", "virtuoso", "complex", "atmospheric", "conceptual"]
+      "sub_genres": [
+        "progressive rock",
+        "art rock",
+        "experimental",
+        "psychedelic rock",
+        "symphonic rock",
+        "krautrock",
+        "space rock",
+        "jazz fusion"
+      ],
+      "tags": [
+        "classic",
+        "iconic",
+        "groundbreaking",
+        "innovative",
+        "experimental",
+        "virtuoso",
+        "complex",
+        "atmospheric",
+        "conceptual"
+      ]
     },
     {
       "type": "artist",
@@ -2156,7 +2186,13 @@
       "key_signature": null,
       "lyrics": null,
       "metadata": null,
-      "images": [{"blob_id": "https://picsum.photos/seed/song1/300/300", "is_primary": true, "blob_type": "thumbnail"}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/song1/300/300",
+          "is_primary": true,
+          "blob_type": "thumbnail"
+        }
+      ],
       "is_favorite": true,
       "source_type": "local",
       "opfs_path": null,
@@ -2174,11 +2210,24 @@
       "artist_name": "Pink Floyd",
       "album_type": "album",
       "year": 1973,
-      "images": [{"blob_id": "https://picsum.photos/seed/album1/300/300", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/album1/300/300",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 10,
-      "sub_genres": ["progressive rock", "psychedelic rock", "art rock"],
-      "tags": ["classic", "iconic", "70s"]
+      "sub_genres": [
+        "progressive rock",
+        "psychedelic rock",
+        "art rock"
+      ],
+      "tags": [
+        "classic",
+        "iconic",
+        "70s"
+      ]
     },
     {
       "type": "song",
@@ -2197,7 +2246,13 @@
       "key_signature": null,
       "lyrics": null,
       "metadata": null,
-      "images": [{"blob_id": "https://picsum.photos/seed/song2/300/300", "is_primary": true, "blob_type": "thumbnail"}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/song2/300/300",
+          "is_primary": true,
+          "blob_type": "thumbnail"
+        }
+      ],
       "is_favorite": true,
       "source_type": "local",
       "opfs_path": null,
@@ -2224,11 +2279,24 @@
       "artist_name": "Radiohead",
       "album_type": "album",
       "year": 1997,
-      "images": [{"blob_id": "https://picsum.photos/seed/album3/300/300", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/album3/300/300",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 12,
-      "sub_genres": ["alternative rock", "art rock", "experimental rock"],
-      "tags": ["90s", "iconic", "masterpiece"]
+      "sub_genres": [
+        "alternative rock",
+        "art rock",
+        "experimental rock"
+      ],
+      "tags": [
+        "90s",
+        "iconic",
+        "masterpiece"
+      ]
     },
     {
       "type": "playlist",
@@ -2256,7 +2324,13 @@
       "key_signature": null,
       "lyrics": null,
       "metadata": null,
-      "images": [{"blob_id": "https://picsum.photos/seed/song5/300/300", "is_primary": true, "blob_type": "thumbnail"}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/song5/300/300",
+          "is_primary": true,
+          "blob_type": "thumbnail"
+        }
+      ],
       "is_favorite": true,
       "source_type": "local",
       "opfs_path": null,
@@ -2283,11 +2357,24 @@
       "artist_name": "Led Zeppelin",
       "album_type": "album",
       "year": 1971,
-      "images": [{"blob_id": "https://picsum.photos/seed/album4/300/300", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/album4/300/300",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 8,
-      "sub_genres": ["hard rock", "blues rock", "heavy metal"],
-      "tags": ["classic", "70s", "legendary"]
+      "sub_genres": [
+        "hard rock",
+        "blues rock",
+        "heavy metal"
+      ],
+      "tags": [
+        "classic",
+        "70s",
+        "legendary"
+      ]
     },
     {
       "type": "playlist",
@@ -2312,14 +2399,28 @@
       "album_id": "5",
       "title": "Abbey Road",
       "artist_id": "33",
-      "artist_name": "The Beatles",
+      "artist_name": "Mindless Self Indulgence",
       "album_type": "album",
       "year": 1969,
-      "images": [{"blob_id": "https://picsum.photos/seed/album5/300/300", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/album5/300/300",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 17,
-      "sub_genres": ["rock", "pop rock", "psychedelic rock"],
-      "tags": ["60s", "classic", "iconic", "masterpiece"]
+      "sub_genres": [
+        "rock",
+        "pop rock",
+        "psychedelic rock"
+      ],
+      "tags": [
+        "60s",
+        "classic",
+        "iconic",
+        "masterpiece"
+      ]
     },
     {
       "type": "song",
@@ -2338,7 +2439,13 @@
       "key_signature": null,
       "lyrics": null,
       "metadata": null,
-      "images": [{"blob_id": "https://picsum.photos/seed/song3/300/300", "is_primary": true, "blob_type": "thumbnail"}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/song3/300/300",
+          "is_primary": true,
+          "blob_type": "thumbnail"
+        }
+      ],
       "is_favorite": true,
       "source_type": "local",
       "opfs_path": null,
@@ -2365,11 +2472,23 @@
       "artist_name": "Nirvana",
       "album_type": "album",
       "year": 1991,
-      "images": [{"blob_id": "https://picsum.photos/seed/album8/300/300", "is_primary": true}],
+      "images": [
+        {
+          "blob_id": "https://picsum.photos/seed/album8/300/300",
+          "is_primary": true
+        }
+      ],
       "is_favorite": true,
       "song_count": 12,
-      "sub_genres": ["grunge", "alternative rock"],
-      "tags": ["90s", "iconic", "legendary"]
+      "sub_genres": [
+        "grunge",
+        "alternative rock"
+      ],
+      "tags": [
+        "90s",
+        "iconic",
+        "legendary"
+      ]
     },
     {
       "type": "playlist",

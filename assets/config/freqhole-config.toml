@@ -214,7 +214,7 @@ max_concurrency = 0
 # guests, or low-power boards. each doubling roughly doubles output
 # latency but adds proportional headroom against scheduler jitter.
 # default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
-# 8192 (~170ms) if 2048 still glitches. ignored on macos / windows.
+# 8192 (~170ms) if 2048 still glitches.
 linux_buffer_frames = 4096
 
 # ============================================================================
