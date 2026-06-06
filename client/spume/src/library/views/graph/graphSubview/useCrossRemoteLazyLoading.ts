@@ -24,6 +24,10 @@ export interface CrossRemoteLazyLoadingDeps {
     updater: (prev: Map<string, AlbumNodeData | ArtistNodeData>) => Map<string, AlbumNodeData | ArtistNodeData>
   ) => void;
   walkerClient: () => GraphDriver | null;
+  // optional: invoked after a sibling-remote artist is merged into the
+  // walker so the host can fan out per-artist loaders (taxon chips,
+  // related-artist cloud, entity-relation edges).
+  onArtistMerged?: (artistId: string) => void;
 }
 
 export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
@@ -35,21 +39,32 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
     queryClient,
     setExtraNodesById,
     walkerClient,
+    onArtistMerged,
   } = deps;
 
   const batchLookupAndMerge = async (
     otherRemoteId: string,
     candidates: Map<string, string>
   ) => {
-    if (candidates.size === 0) return;
+    console.log("[xremote/batchLookup] enter", {
+      otherRemoteId,
+      candidateCount: candidates.size,
+      candidates: Array.from(candidates.entries()),
+    });
+    if (candidates.size === 0) {
+      console.log("[xremote/batchLookup] bail: empty candidates");
+      return;
+    }
     const remote = remotes().find((r) => r.remote_id === otherRemoteId);
     if (!remote) {
+      console.warn("[xremote/batchLookup] bail: remote not in list", { otherRemoteId });
       for (const slugKey of candidates.keys()) {
         crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "absent");
       }
       return;
     }
     if (offlineByRemote().get(otherRemoteId) === true) {
+      console.warn("[xremote/batchLookup] bail: remote offline", { otherRemoteId });
       for (const slugKey of candidates.keys()) {
         crossRemoteLookups.delete(`${otherRemoteId}::${slugKey}`);
       }
@@ -118,6 +133,12 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       });
 
       const albums = summaries.map((s) => adaptAlbum(s, { remoteId: otherRemoteId }));
+      console.log("[xremote/batchLookup] query result", {
+        otherRemoteId,
+        summariesReturned: summaries.length,
+        sampleArtistNames: albums.slice(0, 10).map((a) => a.artistName),
+        candidateSlugs: Array.from(candidates.keys()),
+      });
       const matchesBySlug = new Map<string, typeof albums>();
       for (const a of albums) {
         const s = slug(a.artistName);
@@ -125,6 +146,11 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         if (!matchesBySlug.has(s)) matchesBySlug.set(s, []);
         matchesBySlug.get(s)!.push(a);
       }
+      console.log("[xremote/batchLookup] slug matches", {
+        otherRemoteId,
+        matchCount: matchesBySlug.size,
+        matchedSlugs: Array.from(matchesBySlug.keys()),
+      });
 
       for (const slugKey of candidates.keys()) {
         if (!matchesBySlug.has(slugKey)) {
@@ -133,7 +159,10 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       }
 
       const allMatches = albums.filter((a) => candidates.has(slug(a.artistName)));
-      if (allMatches.length === 0) return;
+      if (allMatches.length === 0) {
+        console.warn("[xremote/batchLookup] zero matches after slug filter", { otherRemoteId });
+        return;
+      }
 
       const artistNodes = deriveArtistNodes(allMatches, new Set());
       const slice = buildWalkGraph({
@@ -158,13 +187,37 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
           .filter((n) => n.id.startsWith(`album::${otherRemoteId}::`))
           .map((n) => n.id)
       );
-      const addNodes = slice.graph.nodes.filter(
-        (n) => sliceArtistIds.has(n.id) || sliceAlbumIds.has(n.id)
+      // taxon-hub + value nodes that buildWalkGraph synthesized for
+      // this remote (genres/tags/moods/etc + their values). including
+      // them lets the artist appear connected to its taxon chips on
+      // the sibling remote, opening more walk paths.
+      const sliceRelHubIds = new Set(
+        slice.graph.nodes
+          .filter((n) => n.id.startsWith(`relation::${otherRemoteId}::`))
+          .map((n) => n.id)
       );
+      const sliceValueIds = new Set(
+        slice.graph.nodes
+          .filter(
+            (n) =>
+              n.id.startsWith(`value::${otherRemoteId}::`) ||
+              n.id.startsWith(`group::${otherRemoteId}::`)
+          )
+          .map((n) => n.id)
+      );
+      const remoteHub = `remote::${otherRemoteId}`;
+      const includeIds = new Set<string>([
+        ...sliceArtistIds,
+        ...sliceAlbumIds,
+        ...sliceRelHubIds,
+        ...sliceValueIds,
+      ]);
+      const addNodes = slice.graph.nodes.filter((n) => includeIds.has(n.id));
       const addEdges = slice.graph.edges.filter(
         (e) =>
-          (sliceArtistIds.has(e.source) && sliceAlbumIds.has(e.target)) ||
-          (e.source === `remote::${otherRemoteId}` && sliceArtistIds.has(e.target))
+          (includeIds.has(e.source) && includeIds.has(e.target)) ||
+          (e.source === remoteHub && includeIds.has(e.target)) ||
+          (e.target === remoteHub && includeIds.has(e.source))
       );
 
       setExtraNodesById((prev) => {
@@ -173,7 +226,37 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         return next;
       });
 
-      walkerClient()?.merge(addNodes, addEdges);
+      console.log("[xremote/batchLookup] merging into walker", {
+        otherRemoteId,
+        addNodes: addNodes.length,
+        addEdges: addEdges.length,
+        artistIds: Array.from(sliceArtistIds),
+        albumIds: Array.from(sliceAlbumIds),
+        relHubIds: Array.from(sliceRelHubIds),
+        valueIds: Array.from(sliceValueIds),
+        walkerReady: !!walkerClient(),
+      });
+      const wc = walkerClient();
+      wc?.merge(addNodes, addEdges);
+      // expand the sibling remote hub, each relation hub, and each
+      // matched artist so the newly-merged subtree (including taxon
+      // chips) actually appears in the visible-ids stream.
+      if (wc) {
+        wc.expand(remoteHub);
+        for (const rid of sliceRelHubIds) wc.expand(rid);
+        for (const aId of sliceArtistIds) wc.expand(aId);
+      }
+
+      // fan out per-artist loaders so each sibling artist's taxon
+      // chips, related-artist cloud, and entity-relation edges
+      // render. without this the sibling artist + its remote hub
+      // appear, but with no connections to taxon hubs / values.
+      if (onArtistMerged) {
+        for (const aId of sliceArtistIds) {
+          console.log("[xremote/batchLookup] onArtistMerged", { aId, otherRemoteId });
+          onArtistMerged(aId);
+        }
+      }
 
       for (const slugKey of matchesBySlug.keys()) {
         crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "loaded");

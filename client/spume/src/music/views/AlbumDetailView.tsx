@@ -24,6 +24,7 @@ import { useAlbumContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import type { Song } from "../services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { buildRoute } from "../utils/routing";
+import { albumNodeId } from "../../components/graph/data/nodeIds";
 import { sortSongsCanonical } from "../utils/songSort";
 import { formatTaxonLabel } from "../utils/format";
 import { EntityLinks } from "../../components/media/EntityLinks";
@@ -461,6 +462,31 @@ export function AlbumDetailView() {
                         </span>
                       </Button>
                     </Show>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        const remoteId = getCurrentRemote()?.remote_id ?? "local";
+                        const info = albumInfo();
+                        const bareId = info?.album_id ?? params.id;
+                        const title = info?.title ?? "";
+                        const artistName = songs()[0]?.artist_name ?? "";
+                        const artistId = info?.artist_id ?? "";
+                        const qs = new URLSearchParams({
+                          graph: albumNodeId(remoteId, bareId),
+                        });
+                        if (title) qs.set("name", title);
+                        if (artistName) qs.set("artist", artistName);
+                        if (artistId) qs.set("artistId", artistId);
+                        navigate(`/explore?${qs.toString()}`);
+                      }}
+                      title="explore album in graph"
+                      aria-label="explore album in graph"
+                    >
+                      <span class="hidden wide:inline">explore</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.library} />
+                      </span>
+                    </Button>
                     <Show when={canUpdateAlbum()}>
                       <button
                         onClick={() =>

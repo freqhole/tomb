@@ -144,6 +144,8 @@ export interface ArtistDetailPanelProps {
   onFavoriteToggle?: (isFavorite: boolean) => void;
   /** edit artist handler */
   onEditArtist?: () => void;
+  /** explore artist in graph viz handler */
+  onExplore?: () => void;
   /** click artist image handler (for carousel) */
   onImageClick?: () => void;
   /** navigate to genre detail */
@@ -450,6 +452,17 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     +radio
                   </Button>
                 </Show>
+                <Show when={props.onExplore}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={props.onExplore}
+                    title="explore artist in graph"
+                    aria-label="explore artist in graph"
+                  >
+                    explore
+                  </Button>
+                </Show>
                 <FavoriteHeart
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}
@@ -614,6 +627,17 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     }
                   >
                     +radio
+                  </Button>
+                </Show>
+                <Show when={props.onExplore}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={props.onExplore}
+                    title="explore artist in graph"
+                    aria-label="explore artist in graph"
+                  >
+                    explore
                   </Button>
                 </Show>
                 <FavoriteHeart

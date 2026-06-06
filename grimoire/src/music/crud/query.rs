@@ -724,10 +724,11 @@ fn add_global_filters(
     }
 
     // Name-based batch filter for cross-remote lookups, where artist_ids
-    // are remote-local and not shared. matches on `artist_name` from the
-    // album view exactly (case-sensitive — clients should normalize
-    // beforehand if they want a slug match). silently ignores
-    // non-string entries; empty array is a no-op.
+    // are remote-local and not shared. matches `artist_name` from the
+    // album view case-insensitively (SQLite `COLLATE NOCASE`) so the
+    // same artist with different capitalization across remotes still
+    // matches. silently ignores non-string entries; empty array is a
+    // no-op.
     if let Some(artist_names) = params
         .filters
         .get("artist_names")
@@ -738,7 +739,19 @@ fn add_global_filters(
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect();
         if !names.is_empty() {
-            query.and_where(Expr::col(CommonColumns::ArtistName).is_in(names));
+            // build a quoted, escaped list for `IN (...) COLLATE NOCASE`.
+            // SQLite single-quote escaping is just doubling them.
+            let in_list = names
+                .iter()
+                .map(|s| format!("'{}'", s.replace('\'', "''")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "{} COLLATE NOCASE IN ({})",
+                CommonColumns::ArtistName.to_string(),
+                in_list
+            );
+            query.and_where(Expr::cust(&sql));
         }
     }
 
