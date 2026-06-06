@@ -389,7 +389,7 @@ export interface MusicDataSource {
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
     merge_into_album_id?: string;
     updated_by?: string | null;
-  }): Promise<void>;
+  }): Promise<{ album_id: string } | void>;
 
   updateSong?(params: {
     song_ids: string[];

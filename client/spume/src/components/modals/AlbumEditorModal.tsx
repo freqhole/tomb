@@ -373,7 +373,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     }
 
     try {
-      await updateMutation.mutateAsync({
+      const updateResult = await updateMutation.mutateAsync({
         album_id: props.albumId,
         title: data.title !== initial?.title ? data.title : undefined,
         artist_id: data.artist_id !== initial?.artist_id ? data.artist_id : undefined,
@@ -388,6 +388,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
               .map((u) => ({ id: u.id || null, name: u.name || null, url: u.url }))
           : undefined,
       });
+
+      // server may rekey the album when title/artist change (id is
+      // derived from canonical title+artist). detect the rename and
+      // hand the new id back to the caller so it can redirect any
+      // open detail view away from the now-defunct id.
+      const newAlbumId = updateResult?.album_id;
+      const idChanged = !!newAlbumId && newAlbumId !== props.albumId;
 
       // flush any pending taxon link add/remove ops in the same save.
       // these go through the dedicated `addAlbumTaxon` / `removeAlbumTaxon`
@@ -412,6 +419,11 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       ]);
 
       props.onSave?.();
+      // if the album was rekeyed, hand the new id to onMergeNavigate so
+      // any caller sitting on the now-defunct detail view can redirect.
+      if (idChanged && newAlbumId) {
+        props.onMergeNavigate?.(newAlbumId);
+      }
       if (!opts.stayOpen) props.onClose();
       return true;
     } catch (error) {

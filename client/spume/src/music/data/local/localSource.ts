@@ -805,7 +805,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     genre_id?: string;
     genre?: string;
     year?: number;
-  }): Promise<void> {
+  }): Promise<{ album_id: string }> {
     // if genre name is provided without id, create/fetch genre first
     let genreId = params.genre_id;
     if (params.genre && !genreId) {
@@ -824,6 +824,8 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.year !== undefined) updates.year = params.year;
     
     await updateAlbum(params.album_id, updates);
+    // local store keys by stable uuid; id never changes on edit.
+    return { album_id: params.album_id };
   }
 
   async updateSong(params: {

@@ -27,7 +27,7 @@ import type {
 } from "../types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
-import { markRemoteOffline, markRemoteOnline, getRemoteById, triggerSwitchToLocal } from "../../../app/services/remotes/remoteManager";
+import { markRemoteOffline, markRemoteOnline, getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getCurrentUser } from "../currentState";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
@@ -997,7 +997,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     year?: number;
     entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }>;
     merge_into_album_id?: string;
-  }): Promise<void> {
+  }): Promise<{ album_id: string }> {
     const result = await (await this.getClient()).music.updateAlbum({
       album_id: params.album_id,
       title: params.title ?? null,
@@ -1015,6 +1015,10 @@ export class RemoteMusicDataSource implements MusicDataSource {
       await this.handleFailedRequest(result);
       throw new Error("failed to update album");
     }
+    // server may rekey the album (deterministic id from title/artist),
+    // so surface the canonical id from the response — falling back to the
+    // input when the server didn't return a fresh row.
+    return { album_id: (result.data as any)?.id ?? params.album_id };
   }
 
   async updateSong(params: {

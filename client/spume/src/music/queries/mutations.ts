@@ -65,13 +65,27 @@ export function useUpdateAlbumMutation() {
         throw new Error("current data source does not support updating albums");
       }
 
-      await dataSource.updateAlbum(data);
+      const result = await dataSource.updateAlbum(data);
+      // normalize: data sources may return `{ album_id }` (server canonical
+      // id, which can differ from input after a rekey) or `void` (legacy).
+      const newId = (result as { album_id?: string } | void)?.album_id ?? data.album_id;
+      return { album_id: newId };
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (result, variables) => {
       // invalidate related queries to refresh data
       queryClient.invalidateQueries({
         queryKey: queryKeys.albums.detail(variables.album_id),
       });
+      // if the server rekeyed the album, invalidate the new id too so
+      // any view that just navigated to it gets fresh data.
+      if (result?.album_id && result.album_id !== variables.album_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.albums.detail(result.album_id),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.albums.songs(result.album_id),
+        });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
       queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
       queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
