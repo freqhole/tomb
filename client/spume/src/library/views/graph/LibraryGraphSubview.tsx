@@ -889,6 +889,10 @@ function Inner(props: {
       // queryAlbums per remote (artist_names filter) rather than N
       // single-artist queries.
       const pendingByRemote = new Map<string, Map<string, string>>();
+      // also rebuild the flat slug→name index used by
+      // retryCrossRemoteForRemote on warm-up. wipe + repopulate each
+      // tick so the set tracks the live visible-ids stream.
+      latestVisibleArtistsBySlug.clear();
       for (const id of ids) {
         if (!id.startsWith("artist::")) continue;
         let parsed: ReturnType<typeof parseNodeId>;
@@ -903,6 +907,7 @@ function Inner(props: {
         const artistName = (node as ArtistNodeData).name;
         const artistSlug = slug(artistName);
         if (!artistSlug) continue;
+        latestVisibleArtistsBySlug.set(artistSlug, artistName);
         for (const remote of props.remotes()) {
           if (remote.remote_id === parsed.remoteId) continue;
           // skip offline remotes here too so we don't even occupy the
@@ -1902,18 +1907,43 @@ function Inner(props: {
   // merge. captured lazily so the call lands on the real handler.
   let handlePivotRef: ((nodeId: string) => void) | null = null;
 
-  const { batchLookupAndMerge } = createCrossRemoteLazyLoading({
-    remotes: () => props.remotes(),
-    offlineByRemote,
-    crossRemoteLookups,
-    setFetchingByRemote,
-    queryClient,
-    setExtraNodesById,
-    walkerClient,
-    onArtistMerged: (artistId) => {
-      if (handlePivotRef) handlePivotRef(artistId);
-    },
-  });
+  const { batchLookupAndMerge, clearCrossRemotePins, isArtistPinned } =
+    createCrossRemoteLazyLoading({
+      remotes: () => props.remotes(),
+      offlineByRemote,
+      crossRemoteLookups,
+      setFetchingByRemote,
+      queryClient,
+      setExtraNodesById,
+      walkerClient,
+      onArtistMerged: (artistId) => {
+        if (handlePivotRef) handlePivotRef(artistId);
+      },
+    });
+
+  // every artist (by slug) currently riding the visible-ids stream.
+  // populated by the visible-ids effect below; consulted by the
+  // remote-warm-up retry path so a newly-online remote can fan its
+  // cross-remote matches in for whatever the user is already looking
+  // at, without waiting for the visible-ids effect to refire.
+  const latestVisibleArtistsBySlug = new Map<string, string>();
+
+  // re-fan cross-remote lookups against `warmedRemoteId` for every
+  // currently-visible artist. used when an offline remote comes back
+  // online via the interceptClick health-check path so its match set
+  // joins the deep-link / search-driven view immediately.
+  const retryCrossRemoteForRemote = (warmedRemoteId: string) => {
+    if (latestVisibleArtistsBySlug.size === 0) return;
+    if (offlineByRemote().get(warmedRemoteId) === true) return;
+    const pending = new Map<string, string>();
+    for (const [artistSlug, artistName] of latestVisibleArtistsBySlug) {
+      const key = `${warmedRemoteId}::${artistSlug}`;
+      if (crossRemoteLookups.has(key)) continue;
+      crossRemoteLookups.set(key, "loading");
+      pending.set(artistSlug, artistName);
+    }
+    if (pending.size > 0) void batchLookupAndMerge(warmedRemoteId, pending);
+  };
 
   // ---- pageInfo ------------------------------------------------------
 
@@ -1982,6 +2012,7 @@ function Inner(props: {
         onBack={depth > 1 ? () => walkApi()?.back() : undefined}
         onFit={() => walkApi()?.fit()}
         onResetWalk={() => {
+          clearCrossRemotePins();
           walkApi()?.resetWalk();
           void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
         }}
@@ -2032,6 +2063,7 @@ function Inner(props: {
           handlePivotToSuggestion(s, primaryRemoteId, all)
         }
         onSearchCleared={() => {
+          clearCrossRemotePins();
           walkerClient()?.setPinned([]);
           walkApi()?.resetWalk();
         }}
@@ -2887,6 +2919,11 @@ function Inner(props: {
             // came back online: mount the loader so albums stream in.
             // the offlineByRemote flip already undimmed the subtree.
             activateRemote(parsed.remoteId);
+            // and re-fan cross-remote lookups for whatever the user
+            // is currently looking at so the warmed remote's match
+            // edges + relation chains join the in-flight deep-link
+            // / search view without needing a re-pivot.
+            retryCrossRemoteForRemote(parsed.remoteId);
           } else if (online === false) {
             toast.warning(`${name} is still offline`);
           }
@@ -3101,7 +3138,26 @@ function Inner(props: {
             setBreadcrumbIds(new Set(ids));
           }}
           onSelect={handleSelect}
-          onPivot={handlePivot}
+          onPivot={(id) => {
+            // pivoting away from the cross-remote artist-of-interest
+            // (relation/value/group hub click, hop to a different
+            // remote, switch artist) collapses the convergence view
+            // so stale sibling-remote squares + chains don't linger
+            // as the user explores. album pivots stay scoped because
+            // they're usually still under the pinned artist.
+            try {
+              const parsed = parseNodeId(id);
+              if (parsed.kind === "artist") {
+                if (!isArtistPinned(id)) clearCrossRemotePins();
+              } else if (parsed.kind !== "album") {
+                clearCrossRemotePins();
+              }
+            } catch {
+              // unparseable id (root, etc.) — drop pins to be safe.
+              clearCrossRemotePins();
+            }
+            handlePivot(id);
+          }}
           selectedId={selectedId()}
           getImage={getImage}
           isOfflineNode={isOfflineNode}

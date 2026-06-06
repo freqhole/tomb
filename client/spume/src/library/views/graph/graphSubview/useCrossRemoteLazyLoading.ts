@@ -298,5 +298,17 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
     }
   };
 
-  return { batchLookupAndMerge };
+  // drop every pinned sibling artist (and tell the walker about it).
+  // call this when the user pivots away from the artist-of-interest
+  // (hits home, picks a different artist, taps a relation hub, etc.)
+  // so stale remote squares + relation chains stop hanging around.
+  const clearCrossRemotePins = () => {
+    if (crossRemotePinnedArtists.size === 0) return;
+    crossRemotePinnedArtists.clear();
+    walkerClient()?.setPinned([]);
+  };
+
+  const isArtistPinned = (artistId: string) => crossRemotePinnedArtists.has(artistId);
+
+  return { batchLookupAndMerge, clearCrossRemotePins, isArtistPinned };
 }
