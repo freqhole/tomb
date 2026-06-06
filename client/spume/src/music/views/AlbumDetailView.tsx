@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { appState } from "../../app/services/storage/db";
-import { playQueue } from "../services/queue/queue";
+import { playQueue, addToQueue } from "../services/queue/queue";
 import { highlightedSongId, setHighlightedSongId } from "../state/highlightedSong";
 import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames } from "../../components/icons/registry";
@@ -168,6 +168,17 @@ export function AlbumDetailView() {
     if (songList.length === 0) return;
     const info = albumInfo();
     await playQueue(songList, {
+      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+    });
+  };
+
+  // append album to current queue (does not interrupt playback)
+  const handleQueueAlbum = async () => {
+    const songList = songs();
+    if (songList.length === 0) return;
+    const info = albumInfo();
+    await addToQueue(songList, {
+      position: "end",
       source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
     });
   };
@@ -417,6 +428,17 @@ export function AlbumDetailView() {
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={handleQueueAlbum}
+                      title="add album to queue"
+                      aria-label="add album to queue"
+                    >
+                      <span class="hidden wide:inline">+queue</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.queue} />
+                      </span>
+                    </Button>
                     <Show when={isCharnelMode() || !!getCurrentRemote()}>
                       <Button
                         variant="ghost"
@@ -430,8 +452,13 @@ export function AlbumDetailView() {
                             getCurrentRemote()?.remote_id
                           )
                         }
+                        title="start radio from album"
+                        aria-label="start radio from album"
                       >
-                        +radio
+                        <span class="hidden wide:inline">+radio</span>
+                        <span class="wide:hidden inline-flex items-center">
+                          <Icon name={IconNames.radioTower} />
+                        </span>
                       </Button>
                     </Show>
                     <Show when={canUpdateAlbum()}>
