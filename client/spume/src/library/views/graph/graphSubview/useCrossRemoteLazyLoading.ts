@@ -42,29 +42,30 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
     onArtistMerged,
   } = deps;
 
+  // sibling-remote artist ids that need to stay visible so each
+  // contributing remote's square + relation-hub chain renders. the
+  // walker's pin-loop walks each pinned id's ancestors up to root, so
+  // pinning the sibling artist (whose parents are remote::sib and
+  // every value::sib::* wired to it) surfaces every chip we need. the
+  // final visibility collapse fuses the sibling artist itself into
+  // the leader glyph, but the remote square + relation hubs + value
+  // chips remain visible. cleared by setPinned([]) elsewhere (search,
+  // pivotToTaxonNode); rebuilt as new batches resolve.
+  const crossRemotePinnedArtists = new Set<string>();
+
   const batchLookupAndMerge = async (
     otherRemoteId: string,
     candidates: Map<string, string>
   ) => {
-    console.log("[xremote/batchLookup] enter", {
-      otherRemoteId,
-      candidateCount: candidates.size,
-      candidates: Array.from(candidates.entries()),
-    });
-    if (candidates.size === 0) {
-      console.log("[xremote/batchLookup] bail: empty candidates");
-      return;
-    }
+    if (candidates.size === 0) return;
     const remote = remotes().find((r) => r.remote_id === otherRemoteId);
     if (!remote) {
-      console.warn("[xremote/batchLookup] bail: remote not in list", { otherRemoteId });
       for (const slugKey of candidates.keys()) {
         crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "absent");
       }
       return;
     }
     if (offlineByRemote().get(otherRemoteId) === true) {
-      console.warn("[xremote/batchLookup] bail: remote offline", { otherRemoteId });
       for (const slugKey of candidates.keys()) {
         crossRemoteLookups.delete(`${otherRemoteId}::${slugKey}`);
       }
@@ -133,12 +134,6 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       });
 
       const albums = summaries.map((s) => adaptAlbum(s, { remoteId: otherRemoteId }));
-      console.log("[xremote/batchLookup] query result", {
-        otherRemoteId,
-        summariesReturned: summaries.length,
-        sampleArtistNames: albums.slice(0, 10).map((a) => a.artistName),
-        candidateSlugs: Array.from(candidates.keys()),
-      });
       const matchesBySlug = new Map<string, typeof albums>();
       for (const a of albums) {
         const s = slug(a.artistName);
@@ -146,11 +141,6 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         if (!matchesBySlug.has(s)) matchesBySlug.set(s, []);
         matchesBySlug.get(s)!.push(a);
       }
-      console.log("[xremote/batchLookup] slug matches", {
-        otherRemoteId,
-        matchCount: matchesBySlug.size,
-        matchedSlugs: Array.from(matchesBySlug.keys()),
-      });
 
       for (const slugKey of candidates.keys()) {
         if (!matchesBySlug.has(slugKey)) {
@@ -159,10 +149,24 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       }
 
       const allMatches = albums.filter((a) => candidates.has(slug(a.artistName)));
-      if (allMatches.length === 0) {
-        console.warn("[xremote/batchLookup] zero matches after slug filter", { otherRemoteId });
-        return;
-      }
+      console.log("[xremote-diag] batch result", {
+        otherRemoteId,
+        candidateNames: names,
+        albumsReturned: albums.length,
+        matchedAlbums: allMatches.length,
+        sampleAlbumGenres: allMatches.slice(0, 3).map((a) => ({
+          title: a.title,
+          artist: a.artistName,
+          genres: a.genres,
+          tags: a.tags,
+          moods: a.moods,
+          styles: a.styles,
+          era: a.era,
+          label: a.label,
+          customTaxons: a.customTaxons,
+        })),
+      });
+      if (allMatches.length === 0) return;
 
       const artistNodes = deriveArtistNodes(allMatches, new Set());
       const slice = buildWalkGraph({
@@ -226,37 +230,52 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         return next;
       });
 
-      console.log("[xremote/batchLookup] merging into walker", {
+      const wc = walkerClient();
+      console.log("[xremote-diag] merging", {
         otherRemoteId,
+        walkerReady: !!wc,
         addNodes: addNodes.length,
         addEdges: addEdges.length,
         artistIds: Array.from(sliceArtistIds),
-        albumIds: Array.from(sliceAlbumIds),
         relHubIds: Array.from(sliceRelHubIds),
         valueIds: Array.from(sliceValueIds),
-        walkerReady: !!walkerClient(),
+        sampleEdges: addEdges.slice(0, 6),
       });
-      const wc = walkerClient();
       wc?.merge(addNodes, addEdges);
-      // expand the sibling remote hub, each relation hub, and each
-      // matched artist so the newly-merged subtree (including taxon
-      // chips) actually appears in the visible-ids stream.
-      if (wc) {
-        wc.expand(remoteHub);
-        for (const rid of sliceRelHubIds) wc.expand(rid);
-        for (const aId of sliceArtistIds) wc.expand(aId);
-      }
+      // do NOT call wc.expand(remoteHub) here. expand() walks the
+      // linear breadcrumb and would drag the pivot off the
+      // deep-linked artist onto the sibling remote hub. the walker's
+      // strategy A clustering already fuses sibling artists into the
+      // pivoted artist's cluster, so their albums + value chips
+      // surface naturally via clusterChildrenOf(piv) without any
+      // expand() calls. handlePivot on each sibling artist (below)
+      // wires its value->artist edges via maybeLoadRelationsForEntityPivot.
+      console.log("[xremote-diag] post-merge", {
+        otherRemoteId,
+        note: "no expand() calls; relying on clustering + value->artist edges for visibility",
+      });
 
-      // fan out per-artist loaders so each sibling artist's taxon
-      // chips, related-artist cloud, and entity-relation edges
-      // render. without this the sibling artist + its remote hub
-      // appear, but with no connections to taxon hubs / values.
       if (onArtistMerged) {
         for (const aId of sliceArtistIds) {
-          console.log("[xremote/batchLookup] onArtistMerged", { aId, otherRemoteId });
+          console.log("[xremote-diag] onArtistMerged → handlePivot", { aId, otherRemoteId });
           onArtistMerged(aId);
         }
       }
+
+      // pin sibling artist nodes so the walker's ancestor walk
+      // surfaces remote::sib + relation::sib::* + value::sib::* in
+      // the visible set. without this, only the leader's remote
+      // square renders because non-leader remote hubs aren't reached
+      // by any descent from the pivot. handlePivot above must run
+      // first so each sibling artist has its value->artist edges
+      // merged (those edges add the values to parentsOf[artist],
+      // which is what the pin's ancestor walk traverses).
+      for (const aId of sliceArtistIds) crossRemotePinnedArtists.add(aId);
+      console.log("[xremote-diag] pinning sibling artists", {
+        totalPinned: crossRemotePinnedArtists.size,
+        ids: Array.from(crossRemotePinnedArtists),
+      });
+      wc?.setPinned(Array.from(crossRemotePinnedArtists));
 
       for (const slugKey of matchesBySlug.keys()) {
         crossRemoteLookups.set(`${otherRemoteId}::${slugKey}`, "loaded");

@@ -863,16 +863,6 @@ function Inner(props: {
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
       setVisibleIds(ids);
-      // debug: count artist nodes among visible ids so we can verify
-      // the deep-linked stub artist becomes "visible" to the worker.
-      const visibleArtists = ids.filter((i) => i.startsWith("artist::"));
-      if (visibleArtists.length > 0) {
-        console.log("[xremote] visible artist ids", {
-          count: visibleArtists.length,
-          ids: visibleArtists,
-          remotes: props.remotes().map((r) => r.remote_id),
-        });
-      }
       // when any group has been eagerly expanded, drive album loading
       // for every visible value/group so the worker's subtree DFS can
       // surface the resulting artist + album nodes on the next pass.
@@ -949,10 +939,6 @@ function Inner(props: {
         }
       }
       for (const [remoteId, candidates] of pendingByRemote) {
-        console.log("[xremote] firing batch lookup", {
-          otherRemoteId: remoteId,
-          candidates: Array.from(candidates.entries()),
-        });
         void batchLookupAndMerge(remoteId, candidates);
       }
     });
@@ -2659,51 +2645,19 @@ function Inner(props: {
     // can surface taxon hubs + related-artist clouds once batch
     // matches land.
     const seedArtistName = parsed.kind === "artist" ? (nameHint ?? null) : (artistHint ?? null);
-    console.log("[graphDeepLink] starting xremote fan-out check", {
-      seedArtistName,
-      originRemote: remoteId,
-      allRemotes: props.remotes().map((r) => r.remote_id),
-      offlineMap: Array.from(offlineByRemote().entries()),
-      existingLookups: Array.from(crossRemoteLookups.entries()),
-    });
     if (seedArtistName) {
       const seedSlug = slug(seedArtistName);
-      console.log("[graphDeepLink] seed slug", { seedArtistName, seedSlug });
       if (seedSlug) {
-        let dispatched = 0;
         for (const other of props.remotes()) {
-          if (other.remote_id === remoteId) {
-            console.log("[graphDeepLink] skip origin", { id: other.remote_id });
-            continue;
-          }
-          if (offlineByRemote().get(other.remote_id) === true) {
-            console.log("[graphDeepLink] skip offline", { id: other.remote_id });
-            continue;
-          }
+          if (other.remote_id === remoteId) continue;
+          if (offlineByRemote().get(other.remote_id) === true) continue;
           const key = `${other.remote_id}::${seedSlug}`;
-          if (crossRemoteLookups.has(key)) {
-            console.log("[graphDeepLink] skip already-looked-up", {
-              key,
-              state: crossRemoteLookups.get(key),
-            });
-            continue;
-          }
+          if (crossRemoteLookups.has(key)) continue;
           crossRemoteLookups.set(key, "loading");
           activateRemote(other.remote_id);
-          console.log("[graphDeepLink] xremote fan-out DISPATCH", {
-            otherRemoteId: other.remote_id,
-            artist: seedArtistName,
-            slug: seedSlug,
-          });
-          dispatched++;
           void batchLookupAndMerge(other.remote_id, new Map([[seedSlug, seedArtistName]]));
         }
-        console.log("[graphDeepLink] xremote fan-out total dispatched", { dispatched });
-      } else {
-        console.log("[graphDeepLink] empty slug, no fan-out");
       }
-    } else {
-      console.log("[graphDeepLink] no seed artist name, no fan-out");
     }
 
     void pivotToTaxonNode({
