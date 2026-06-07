@@ -246,6 +246,9 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     const currentEl = section.querySelector("[data-coach-info-current]");
     const dotsEl = section.querySelector("[data-coach-dots]");
     let dotButtons = [];
+    // latest per-slide sub-progress (0..1), tracked so paintDots can run
+    // both on scroll ticks and on discrete step changes.
+    let curSub = 0;
 
     function buildDots() {
       const api = window.__FREQHOLE_DEMO__;
@@ -258,6 +261,8 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         btn.className = "info-dot";
         btn.setAttribute("role", "tab");
         btn.setAttribute("aria-label", `step ${i + 1}: ${s.title}`);
+        // native tooltip on hover with the step number + name
+        btn.title = `${i + 1}. ${s.title}`;
         // inline styles so starlight's button reset doesn't clobber us
         btn.style.width = "0.55rem";
         btn.style.height = "0.55rem";
@@ -301,19 +306,50 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
       if (bodyEl) bodyEl.textContent = s.body;
       if (currentEl) currentEl.textContent = String(idx + 1);
       dotButtons.forEach((btn, i) => {
-        const active = i === idx;
-        btn.style.width = active ? "1.4rem" : "0.55rem";
-        btn.style.background = active
-          ? "var(--sl-color-accent, #d63384)"
-          : "var(--sl-color-gray-5, #444)";
-        btn.setAttribute("aria-selected", active ? "true" : "false");
+        btn.setAttribute("aria-selected", i === idx ? "true" : "false");
       });
+      // paint the current pair's left-to-right progress fill right away so
+      // the active dots are styled even before the next scroll tick.
+      paintDots(idx, curSub);
       // hide prev/next at boundaries (no slide to go to)
       const prevB = section.querySelector("[data-coach-prev]");
       const nextB = section.querySelector("[data-coach-next]");
       if (prevB) prevB.style.visibility = idx <= 0 ? "hidden" : "visible";
       if (nextB)
         nextB.style.visibility = idx >= totalSteps - 1 ? "hidden" : "visible";
+    }
+
+    // paint the step dots. the slide currently being scrolled spans two
+    // dots (the current step + the next step); together they read as one
+    // left-to-right progress track whose fill tracks scroll position within
+    // the slide. the current dot covers sub 0..0.5, the next dot 0.5..1.
+    function paintDots(step, sub) {
+      if (!dotButtons.length) return;
+      const lastStepIdx = totalSteps - 1;
+      const base = "var(--sl-color-gray-5, #444)";
+      // dim accent = the pair is highlighted; bright accent = progress fill.
+      const pairBg = "var(--sl-color-accent-low, rgba(214, 51, 132, 0.35))";
+      const fillC = "var(--sl-color-accent, #d63384)";
+      dotButtons.forEach((btn, i) => {
+        const isCurrent = i === step;
+        const isNext = i === step + 1;
+        if (!isCurrent && !isNext) {
+          btn.style.width = "0.55rem";
+          btn.style.background = base;
+          return;
+        }
+        let frac;
+        if (isCurrent) {
+          // the final step has no "next" dot — show it fully reached.
+          frac = step === lastStepIdx ? 1 : Math.max(0, Math.min(1, sub / 0.5));
+        } else {
+          frac = Math.max(0, Math.min(1, (sub - 0.5) / 0.5));
+        }
+        const pct = (frac * 100).toFixed(1) + "%";
+        btn.style.width = "1.1rem";
+        btn.style.background =
+          `linear-gradient(to right, ${fillC} 0%, ${fillC} ${pct}, ${pairBg} ${pct}, ${pairBg} 100%)`;
+      });
     }
 
     function computeStep() {
@@ -352,6 +388,10 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
       // continuous: always send sub-progress so per-slide animations track
       // scroll smoothly even when the discrete step hasn't changed.
       if (api && api.setStepProgress) api.setStepProgress(step, sub);
+      // continuous dot fill — runs every tick so the progress shade sweeps
+      // smoothly left-to-right even within a single step.
+      curSub = sub;
+      paintDots(step, sub);
       if (step === lastStep) return;
       const prev = lastStep;
       lastStep = step;
