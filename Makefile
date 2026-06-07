@@ -248,6 +248,7 @@ info:
 	@echo "  make test-cli TEST=pattern - run specific test"
 	@echo ""
 	@echo "Version:"
+	@echo "  make changes               - add a changeset for your PR (interactive)"
 	@echo "  make bump-version NEW_VERSION=x.y.z"
 	@echo ""
 
@@ -437,6 +438,13 @@ build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.flatpak"
 	$(MAKE) docker-cleanup IMAGE=freqhole-flatpak-builder-arm64
 # version management
+# add a changeset describing your change (interactive). run this in a PR before
+# merging to main; the changeset drives the version bump + changelog later.
+.PHONY: changes
+changes:
+	@if [ ! -d node_modules ]; then npm install; fi
+	@npm run changeset
+
 # portable across macos (BSD sed) and linux (GNU sed) via `sed -i.bak` + rm,
 # so the same target runs locally and in ci (changesets opens the version PR on
 # a linux runner). pass NEW_VERSION=x.y.z or run interactively.
