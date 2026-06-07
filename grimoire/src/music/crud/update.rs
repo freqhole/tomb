@@ -49,7 +49,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         let song_response = songs::get_song(song_id).await;
         if !song_response.success {
             return GrimoireResponse::failure(
-                &format!("Song not found: {}", song_id),
+                format!("Song not found: {}", song_id),
                 song_response.errors,
             );
         }
@@ -68,11 +68,11 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             Some(artist) => Some(artist),
             None => {
                 return GrimoireResponse::failure(
-                    &format!("artist not found: {}", artist_id),
+                    format!("artist not found: {}", artist_id),
                     vec![ErrorDetail::new(
                         "artist_not_found",
                         "Artist Not Found",
-                        &format!("no artist with id '{}'", artist_id),
+                        format!("no artist with id '{}'", artist_id),
                     )],
                 );
             }
@@ -173,11 +173,11 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
             Some(album) => Some(album),
             None => {
                 return GrimoireResponse::failure(
-                    &format!("album not found: {}", album_id),
+                    format!("album not found: {}", album_id),
                     vec![ErrorDetail::new(
                         "album_not_found",
                         "Album Not Found",
-                        &format!("no album with id '{}'", album_id),
+                        format!("no album with id '{}'", album_id),
                     )],
                 );
             }
@@ -321,7 +321,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
                 if let Err(e) = result {
                     return GrimoireResponse::failure(
-                        &format!("failed to update track_artist for song {}", song_id),
+                        format!("failed to update track_artist for song {}", song_id),
                         vec![GrimoireError::Database(e).into()],
                     );
                 }
@@ -382,7 +382,7 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
 
             if let Err(e) = result {
                 return GrimoireResponse::failure(
-                    &format!("Failed to update song {}", song_id),
+                    format!("Failed to update song {}", song_id),
                     vec![GrimoireError::Database(e).into()],
                 );
             }

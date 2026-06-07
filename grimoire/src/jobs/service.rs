@@ -116,7 +116,7 @@ pub async fn create_job(request: CreateJobRequest) -> GrimoireResponse<Job> {
         Ok(j) => j,
         Err(e) => {
             return GrimoireResponse::failure(
-                &format!("Failed to create job in database: {}", e),
+                format!("Failed to create job in database: {}", e),
                 vec![e.into()],
             )
         }
@@ -218,7 +218,7 @@ pub async fn get_jobs_status(
         })
         .collect();
 
-    GrimoireResponse::success(&format!("retrieved {} jobs", result.len()), result)
+    GrimoireResponse::success(format!("retrieved {} jobs", result.len()), result)
 }
 
 /// Get a job session by ID

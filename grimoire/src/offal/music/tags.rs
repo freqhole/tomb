@@ -114,7 +114,7 @@ pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -143,7 +143,7 @@ pub async fn add_to_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -178,7 +178,7 @@ pub async fn remove_from_albums(caller: &Caller, body: JsonValue) -> GrimoireRes
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -213,7 +213,7 @@ pub async fn replace_on_albums(caller: &Caller, body: JsonValue) -> GrimoireResp
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -240,7 +240,7 @@ pub async fn get_for_albums(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -267,7 +267,7 @@ pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -301,7 +301,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

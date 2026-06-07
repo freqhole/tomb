@@ -477,6 +477,6 @@ mod tests {
         let response = get_session_summary("test_session_id").await;
         // May succeed or fail depending on whether session exists
         // Just verify we get a response back
-        assert!(response.success || !response.success);
+        assert!(response.success);
     }
 }

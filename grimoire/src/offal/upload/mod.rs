@@ -180,7 +180,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -197,7 +197,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                         vec![ErrorDetail::new(
                             "bad_request",
                             "invalid data",
-                            &format!("failed to decode base64: {}", e),
+                            format!("failed to decode base64: {}", e),
                         )],
                     )
                 }
@@ -213,7 +213,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     vec![ErrorDetail::new(
                         "bad_request",
                         "file not found",
-                        &format!("file does not exist: {}", file_path),
+                        format!("file does not exist: {}", file_path),
                     )],
                 );
             }
@@ -225,7 +225,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                         vec![ErrorDetail::new(
                             "internal_error",
                             "failed to read file",
-                            &e.to_string(),
+                            e.to_string(),
                         )],
                     )
                 }
@@ -336,7 +336,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "internal_error",
                     "failed to create directory",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -348,7 +348,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             vec![ErrorDetail::new(
                 "internal_error",
                 "failed to write file",
-                &e.to_string(),
+                e.to_string(),
             )],
         );
     }
@@ -378,11 +378,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         None => {
             return GrimoireResponse::failure(
                 "failed to create import job",
-                job_response
-                    .errors
-                    .into_iter()
-                    .map(ErrorDetail::from)
-                    .collect(),
+                job_response.errors.into_iter().collect(),
             )
         }
     };
@@ -480,7 +476,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -498,7 +494,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                         vec![ErrorDetail::new(
                             "bad_request",
                             "invalid data",
-                            &format!("failed to decode base64: {}", e),
+                            format!("failed to decode base64: {}", e),
                         )],
                     )
                 }
@@ -515,7 +511,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     vec![ErrorDetail::new(
                         "bad_request",
                         "file not found",
-                        &format!("file does not exist: {}", file_path),
+                        format!("file does not exist: {}", file_path),
                     )],
                 );
             }
@@ -527,7 +523,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                         vec![ErrorDetail::new(
                             "internal_error",
                             "failed to read file",
-                            &e.to_string(),
+                            e.to_string(),
                         )],
                     )
                 }
@@ -583,7 +579,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             vec![ErrorDetail::new(
                 "bad_request",
                 "image too large",
-                &format!("max size is {} bytes", MAX_IMAGE_SIZE),
+                format!("max size is {} bytes", MAX_IMAGE_SIZE),
             )],
         );
     }
@@ -673,11 +669,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             );
             return GrimoireResponse::failure(
                 "failed to create job",
-                job_response
-                    .errors
-                    .into_iter()
-                    .map(ErrorDetail::from)
-                    .collect(),
+                job_response.errors.into_iter().collect(),
             );
         }
     };
@@ -765,11 +757,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 // error fetching job
                 return GrimoireResponse::failure(
                     "failed to check job status",
-                    job_response
-                        .errors
-                        .into_iter()
-                        .map(ErrorDetail::from)
-                        .collect(),
+                    job_response.errors.into_iter().collect(),
                 );
             }
 
@@ -836,7 +824,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -866,11 +854,7 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
         None => {
             return GrimoireResponse::failure(
                 "failed to create job session",
-                session_response
-                    .errors
-                    .into_iter()
-                    .map(ErrorDetail::from)
-                    .collect(),
+                session_response.errors.into_iter().collect(),
             )
         }
     };
@@ -1101,7 +1085,7 @@ pub async fn upload_music_by_blake3(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -1162,11 +1146,7 @@ pub async fn upload_music_by_blake3(
         None => {
             return GrimoireResponse::failure(
                 "failed to create import job",
-                job_response
-                    .errors
-                    .into_iter()
-                    .map(ErrorDetail::from)
-                    .collect(),
+                job_response.errors.into_iter().collect(),
             )
         }
     };
@@ -1269,7 +1249,7 @@ impl PullAudioBlobError {
                 vec![ErrorDetail::new(
                     "file_too_large",
                     "file too large",
-                    &format!(
+                    format!(
                         "declared size {} bytes exceeds max upload size {} bytes",
                         declared, max
                     ),
@@ -1299,7 +1279,7 @@ impl PullAudioBlobError {
                     vec![ErrorDetail::new(
                         "peer_unauthorized",
                         "peer refused access",
-                        &format!(
+                        format!(
                             "source peer {} refused access to blob {} — a knock request is required before retrying.",
                             peer_short, blake3_short,
                         ),
@@ -1319,7 +1299,7 @@ impl PullAudioBlobError {
                 vec![ErrorDetail::new(
                     "bad_request",
                     "size mismatch",
-                    &format!("expected {} bytes but received {} bytes", expected, got),
+                    format!("expected {} bytes but received {} bytes", expected, got),
                 )],
             ),
             PullAudioBlobError::ReadFailed(msg) => GrimoireResponse::failure(
@@ -1331,7 +1311,7 @@ impl PullAudioBlobError {
                 vec![ErrorDetail::new(
                     "bad_request",
                     "sha256 mismatch",
-                    &format!("expected sha256 {}, computed {}", expected, got),
+                    format!("expected sha256 {}, computed {}", expected, got),
                 )],
             ),
             PullAudioBlobError::NotAudio => GrimoireResponse::failure(
@@ -1595,15 +1575,14 @@ pub async fn pull_audio_blob_to_local_storage(
     let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
     let full_path = output_dir.join(&rel_path);
 
-    if temp_path != full_path {
-        if tokio::fs::rename(&temp_path, &full_path).await.is_err() {
-            // fall back to copy+delete if rename fails (cross-device)
-            if let Err(e) = tokio::fs::copy(&temp_path, &full_path).await {
-                return Err(PullAudioBlobError::MoveFailed(e.to_string()));
-            }
-            let _ = tokio::fs::remove_file(&temp_path).await;
+    if temp_path != full_path && tokio::fs::rename(&temp_path, &full_path).await.is_err() {
+        // fall back to copy+delete if rename fails (cross-device)
+        if let Err(e) = tokio::fs::copy(&temp_path, &full_path).await {
+            return Err(PullAudioBlobError::MoveFailed(e.to_string()));
         }
+        let _ = tokio::fs::remove_file(&temp_path).await;
     }
+
     tracing::info!("file at {}", full_path.display());
 
     // persist local_path on the media_blob row so future requests

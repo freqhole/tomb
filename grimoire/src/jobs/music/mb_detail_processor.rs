@@ -916,7 +916,7 @@ fn format_artist_credits(
 fn format_label_info(src: Option<&[crate::music::musicbrainz::models::LabelInfo]>) -> String {
     match src {
         None => "(none)".to_string(),
-        Some(list) if list.is_empty() => "(none)".to_string(),
+        Some([]) => "(none)".to_string(),
         Some(list) => list
             .iter()
             .map(|li| {

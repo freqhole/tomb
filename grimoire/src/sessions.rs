@@ -15,7 +15,7 @@ pub async fn init_session_store() -> Result<SqliteStore, GrimoireError> {
     let pool = database::connect().await?;
 
     let store = SqliteStore::new(pool);
-    store.migrate().await.map_err(|e| GrimoireError::from(e))?;
+    store.migrate().await.map_err(GrimoireError::from)?;
 
     Ok(store)
 }

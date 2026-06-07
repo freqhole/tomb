@@ -58,7 +58,7 @@ pub async fn build_blob_data_response(id: &str) -> GrimoireResponse<JsonValue> {
                         vec![ErrorDetail::new(
                             "blob_file_read_failed",
                             "failed to read blob file",
-                            &format!("could not read file at {path}: {e}"),
+                            format!("could not read file at {path}: {e}"),
                         )],
                     )
                 }

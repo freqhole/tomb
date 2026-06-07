@@ -100,7 +100,7 @@ pub async fn query_favorites(
     }
 
     // sort by favorited_at DESC (most recent first)
-    all_favorites.sort_by(|a, b| b.0.cmp(&a.0));
+    all_favorites.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     // apply pagination
     let paginated: Vec<FavoriteItem> = all_favorites

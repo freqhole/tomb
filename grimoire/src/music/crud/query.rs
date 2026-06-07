@@ -1065,7 +1065,7 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         }
     };
 
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
+    let user_id_ref = params.user_id.as_deref();
     let mut songs: Vec<SongQueryResult> = rows
         .into_iter()
         .map(|r| r.to_song_query_result(user_id_ref))
@@ -1214,7 +1214,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         }
     };
 
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
+    let user_id_ref = params.user_id.as_deref();
     let mut albums: Vec<AlbumQueryResult> = rows
         .into_iter()
         .map(|r| r.to_album_query_result(user_id_ref))
@@ -1460,7 +1460,7 @@ pub async fn query_artists(
         }
     };
 
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
+    let user_id_ref = params.user_id.as_deref();
     let mut artists: Vec<ArtistQueryResult> = rows
         .into_iter()
         .map(|r| r.to_artist_query_result(user_id_ref))

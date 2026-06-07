@@ -166,7 +166,7 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -196,7 +196,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -258,7 +258,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -445,7 +445,7 @@ pub async fn redeem_invite(_caller: &Caller, body: JsonValue) -> GrimoireRespons
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

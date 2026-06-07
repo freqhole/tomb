@@ -28,7 +28,7 @@ fn parse_release_date(input: &str) -> Result<String, String> {
 
     // try to parse as year only: "2023"
     if let Ok(year) = trimmed.parse::<i64>() {
-        if year >= 1000 && year <= 9999 {
+        if (1000..=9999).contains(&year) {
             return Ok(trimmed.to_string());
         }
     }
@@ -37,7 +37,7 @@ fn parse_release_date(input: &str) -> Result<String, String> {
     let parts: Vec<&str> = trimmed.split('-').collect();
     if parts.len() == 2 {
         if let (Ok(year), Ok(month)) = (parts[0].parse::<i64>(), parts[1].parse::<u32>()) {
-            if year >= 1000 && year <= 9999 && month >= 1 && month <= 12 {
+            if (1000..=9999).contains(&year) && (1..=12).contains(&month) {
                 return Ok(trimmed.to_string());
             }
         }
@@ -50,7 +50,8 @@ fn parse_release_date(input: &str) -> Result<String, String> {
             parts[1].parse::<u32>(),
             parts[2].parse::<u32>(),
         ) {
-            if year >= 1000 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= 31 {
+            if (1000..=9999).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day)
+            {
                 return Ok(trimmed.to_string());
             }
         }
@@ -173,7 +174,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                 vec![ErrorDetail::new(
                     "not_found",
                     "Not Found",
-                    &format!("target album '{}' does not exist", target_id),
+                    format!("target album '{}' does not exist", target_id),
                 )],
             );
         }
@@ -280,7 +281,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     vec![ErrorDetail::new(
                         "invalid_date",
                         "Invalid Date",
-                        &format!("{}", e),
+                        format!("{}", e),
                     )],
                 )
             }
@@ -390,7 +391,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                         vec![ErrorDetail::new(
                             "not_found",
                             "Not Found",
-                            &format!("artist with id {} not found", artist_id),
+                            format!("artist with id {} not found", artist_id),
                         )],
                     )
                 }

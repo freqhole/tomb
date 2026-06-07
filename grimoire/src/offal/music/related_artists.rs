@@ -193,7 +193,7 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -406,7 +406,7 @@ pub async fn list_batch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -418,7 +418,7 @@ pub async fn list_batch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
             vec![ErrorDetail::new(
                 "too_many_ids",
                 "too many ids",
-                &format!(
+                format!(
                     "got {}, max {} per batch",
                     req.artist_ids.len(),
                     BATCH_MAX_IDS
@@ -470,7 +470,7 @@ pub async fn set_bandcamp(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

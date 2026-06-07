@@ -55,7 +55,7 @@ pub async fn create(body: JsonValue) -> GrimoireResponse<JsonValue> {
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -87,7 +87,7 @@ pub async fn status(body: JsonValue) -> GrimoireResponse<JsonValue> {
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

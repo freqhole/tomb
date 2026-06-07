@@ -249,7 +249,7 @@ pub async fn move_scanned_directory(
         if entry
             .file_name()
             .to_str()
-            .map_or(false, |n| n.starts_with('.'))
+            .is_some_and(|n| n.starts_with('.'))
         {
             continue;
         }

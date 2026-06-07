@@ -86,7 +86,7 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -129,7 +129,7 @@ pub async fn recent(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -159,7 +159,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -195,7 +195,7 @@ pub async fn bulk_delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -226,7 +226,7 @@ pub async fn bulk_clear_artwork(caller: &Caller, body: JsonValue) -> GrimoireRes
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -257,7 +257,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

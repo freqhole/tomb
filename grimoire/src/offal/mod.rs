@@ -32,7 +32,7 @@ pub fn parse_body<T: DeserializeOwned>(body: JsonValue) -> Result<T, GrimoireRes
             vec![ErrorDetail::new(
                 "bad_request",
                 "bad request",
-                &e.to_string(),
+                e.to_string(),
             )],
         )
     })

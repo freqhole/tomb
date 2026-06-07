@@ -106,7 +106,7 @@ pub async fn scan_directory_and_create_jobs(
         if entry
             .file_name()
             .to_str()
-            .map_or(false, |n| n.starts_with('.'))
+            .is_some_and(|n| n.starts_with('.'))
         {
             continue;
         }

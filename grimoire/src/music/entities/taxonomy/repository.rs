@@ -1284,7 +1284,7 @@ pub async fn sync_album_user_taxon(
     let taxon_resp = find_or_create_taxon(kind_slug, label).await;
     let Some(taxon) = taxon_resp.data else {
         return GrimoireResponse::failure(
-            &format!("failed to find_or_create taxon for kind={}", kind_slug),
+            format!("failed to find_or_create taxon for kind={}", kind_slug),
             taxon_resp.errors,
         );
     };

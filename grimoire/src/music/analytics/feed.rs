@@ -125,7 +125,6 @@ pub struct FeedItem {
 
 /// column identifiers - kept for reference but no longer used with sea_query
 // the feed_eventz table is now queried directly with plain SQL for simplicity
-
 /// convert feed_eventz feed_type to FeedItemType for API backwards compatibility
 fn map_feed_event_type(feed_type: &str) -> FeedItemType {
     match feed_type {

@@ -134,7 +134,7 @@ mod tests {
 
         // fuzzy match
         let conf = calculate_confidence("test", "something else", -0.5);
-        assert!(conf >= 0.5 && conf <= 0.6);
+        assert!((0.5..=0.6).contains(&conf));
     }
 
     #[test]

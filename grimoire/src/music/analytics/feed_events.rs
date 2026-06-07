@@ -2056,7 +2056,7 @@ pub async fn delete_feed_events_for_album(album_id: &str) -> GrimoireResponse<u6
         .await
     {
         Ok(r) => GrimoireResponse::success(
-            &format!("deleted {} feed events for album", r.rows_affected()),
+            format!("deleted {} feed events for album", r.rows_affected()),
             r.rows_affected(),
         ),
         Err(e) => GrimoireResponse::failure("failed to delete feed events", vec![e.into()]),
@@ -2077,7 +2077,7 @@ pub async fn delete_feed_events_for_artist(artist_id: &str) -> GrimoireResponse<
         .await
     {
         Ok(r) => GrimoireResponse::success(
-            &format!("deleted {} feed events for artist", r.rows_affected()),
+            format!("deleted {} feed events for artist", r.rows_affected()),
             r.rows_affected(),
         ),
         Err(e) => GrimoireResponse::failure("failed to delete feed events", vec![e.into()]),
@@ -2102,7 +2102,7 @@ pub async fn delete_feed_event_by_id(id: &str) -> GrimoireResponse<()> {
             vec![crate::error::ErrorDetail::new(
                 "not_found",
                 "feed event not found",
-                &format!("no feed event with id {id}"),
+                format!("no feed event with id {id}"),
             )],
         ),
         Ok(_) => GrimoireResponse::success("feed event deleted", ()),
@@ -2132,7 +2132,7 @@ pub async fn get_feed_event_owner(id: &str) -> GrimoireResponse<String> {
             vec![crate::error::ErrorDetail::new(
                 "not_found",
                 "feed event not found",
-                &format!("no feed event with id {id}"),
+                format!("no feed event with id {id}"),
             )],
         ),
         Err(e) => GrimoireResponse::failure("failed to look up feed event", vec![e.into()]),

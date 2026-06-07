@@ -65,7 +65,7 @@ pub async fn search_handler(caller: &Caller, body: JsonValue) -> GrimoireRespons
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -88,7 +88,7 @@ pub async fn suggestions(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -121,7 +121,7 @@ pub async fn musicbrainz_search_releases(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -138,7 +138,7 @@ pub async fn musicbrainz_search_releases(
                 vec![ErrorDetail::new(
                     "musicbrainz_error",
                     "musicbrainz not configured",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -185,7 +185,7 @@ pub async fn musicbrainz_get_release(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -202,7 +202,7 @@ pub async fn musicbrainz_get_release(
                 vec![ErrorDetail::new(
                     "musicbrainz_error",
                     "musicbrainz not configured",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

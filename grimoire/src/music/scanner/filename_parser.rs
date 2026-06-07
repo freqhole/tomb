@@ -78,7 +78,6 @@ impl ParsedFilename {
 ///    - 2 parts: artist, track
 ///    - 3+ parts: artist, album, track (remaining parts joined)
 /// parse metadata from a filename string directly
-///
 /// same as parse_filename but takes a string instead of a path.
 /// useful when the original filename is available but stored separately
 /// from the file path (e.g., uploaded files stored with blob_id as filename)
@@ -320,12 +319,7 @@ fn is_format_char(c: &char) -> bool {
 
 /// normalize various hyphen types to standard ASCII hyphen
 fn normalize_hyphens(s: &str) -> String {
-    s.replace('–', "-") // en dash
-        .replace('—', "-") // em dash
-        .replace('‐', "-") // hyphen
-        .replace('‑', "-") // non-breaking hyphen
-        .replace('‒', "-") // figure dash
-        .replace('―', "-") // horizontal bar
+    s.replace(['–', '—', '‐', '‑', '‒', '―'], "-") // replace all the dashes...
 }
 
 /// normalize single hyphens to separators where appropriate

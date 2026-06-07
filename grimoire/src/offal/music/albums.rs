@@ -202,7 +202,7 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -244,7 +244,7 @@ pub async fn status_counts(caller: &Caller, body: JsonValue) -> GrimoireResponse
                 vec![crate::error::ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -267,7 +267,7 @@ pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -289,7 +289,7 @@ pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -318,7 +318,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -350,7 +350,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -379,7 +379,7 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -397,7 +397,7 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "unsupported entity type",
-                    &format!("entity_type '{}' not supported", req.entity_type),
+                    format!("entity_type '{}' not supported", req.entity_type),
                 )],
             )
         }
@@ -424,7 +424,7 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -442,7 +442,7 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
                 vec![ErrorDetail::new(
                     "bad_request",
                     "unsupported entity type",
-                    &format!("entity_type '{}' not supported", req.entity_type),
+                    format!("entity_type '{}' not supported", req.entity_type),
                 )],
             )
         }
@@ -469,7 +469,7 @@ pub async fn confirm_mb_match(caller: &Caller, body: JsonValue) -> GrimoireRespo
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -512,7 +512,7 @@ pub async fn reject_mb_match(caller: &Caller, body: JsonValue) -> GrimoireRespon
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -552,7 +552,7 @@ pub async fn auto_confirm_mb_matches(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -591,7 +591,7 @@ pub async fn propose_taxons(caller: &Caller, body: JsonValue) -> GrimoireRespons
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -621,7 +621,7 @@ pub async fn apply_taxon_proposals(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -650,7 +650,7 @@ pub async fn set_mb_lookup_status(caller: &Caller, body: JsonValue) -> GrimoireR
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -727,7 +727,7 @@ pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireRe
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -780,7 +780,7 @@ pub async fn ingest_remote_image_inner(
                 vec![ErrorDetail::new(
                     "internal_error",
                     "http client unavailable",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -794,7 +794,7 @@ pub async fn ingest_remote_image_inner(
                 vec![ErrorDetail::new(
                     "remote_fetch_failed",
                     "remote fetch failed",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -805,7 +805,7 @@ pub async fn ingest_remote_image_inner(
             vec![ErrorDetail::new(
                 "remote_fetch_failed",
                 "remote returned non-2xx",
-                &format!("status {}", resp.status()),
+                format!("status {}", resp.status()),
             )],
         );
     }
@@ -821,7 +821,7 @@ pub async fn ingest_remote_image_inner(
             vec![ErrorDetail::new(
                 "bad_request",
                 "bad request",
-                &format!("remote content-type is not an image: {}", mime_type),
+                format!("remote content-type is not an image: {}", mime_type),
             )],
         );
     }
@@ -833,7 +833,7 @@ pub async fn ingest_remote_image_inner(
                 vec![ErrorDetail::new(
                     "remote_fetch_failed",
                     "remote fetch failed",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -844,7 +844,7 @@ pub async fn ingest_remote_image_inner(
             vec![ErrorDetail::new(
                 "bad_request",
                 "image too large",
-                &format!(
+                format!(
                     "remote image is {} bytes (max {})",
                     bytes.len(),
                     MAX_REMOTE_IMAGE_BYTES
@@ -876,7 +876,7 @@ pub async fn ingest_remote_image_inner(
                     vec![ErrorDetail::new(
                         "image_processing_failed",
                         "image processing failed",
-                        &format!("could not decode/resize remote image: {}", e),
+                        format!("could not decode/resize remote image: {}", e),
                     )],
                 );
             }
@@ -886,7 +886,7 @@ pub async fn ingest_remote_image_inner(
                     vec![ErrorDetail::new(
                         "image_processing_failed",
                         "image processing failed",
-                        &format!("image processing task panicked: {}", e),
+                        format!("image processing task panicked: {}", e),
                     )],
                 );
             }
@@ -977,7 +977,7 @@ pub async fn ingest_remote_image_inner(
                         vec![ErrorDetail::new(
                             "internal_error",
                             "failed to create directory",
-                            &e.to_string(),
+                            e.to_string(),
                         )],
                     );
                 }
@@ -988,7 +988,7 @@ pub async fn ingest_remote_image_inner(
                     vec![ErrorDetail::new(
                         "internal_error",
                         "failed to write file",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 );
             }
@@ -1099,7 +1099,7 @@ pub async fn image_candidates_for_album(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -1206,7 +1206,7 @@ pub async fn propose_external_urls(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -1234,7 +1234,7 @@ pub async fn apply_external_urls(caller: &Caller, body: JsonValue) -> GrimoireRe
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

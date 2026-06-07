@@ -312,7 +312,7 @@ async fn snapshot_station(
     let (art_thumb_b64, art_thumb_mime) = np
         .art
         .as_ref()
-        .and_then(|a| build_discovery_thumb(a))
+        .and_then(build_discovery_thumb)
         .map(|(b64, mime)| (Some(b64), Some(mime)))
         .unwrap_or((None, None));
     PublicStation {

@@ -1095,15 +1095,3 @@ impl Default for UserRepository {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_repository_creation() {
-        let _ = UserRepository::new();
-        // Basic smoke test that repository can be created
-        assert!(true);
-    }
-}

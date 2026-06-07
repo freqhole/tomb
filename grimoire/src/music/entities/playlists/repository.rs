@@ -1015,7 +1015,7 @@ pub async fn set_playlist_songs(
         let _ = upsert_playlist_feed_event(playlist_id, "", "").await;
     }
 
-    GrimoireResponse::success(&format!("set {} songs on playlist", songs.len()), ())
+    GrimoireResponse::success(format!("set {} songs on playlist", songs.len()), ())
 }
 
 /// get songs in a playlist

@@ -258,7 +258,7 @@ pub async fn apply_user_preferences_playlist_songs(
     let mut songs: Vec<SongQueryResult> = items.iter().map(|p| p.details.clone()).collect();
     apply_user_preferences_songs(&mut songs, user_id).await;
 
-    for (item, enriched_song) in items.iter_mut().zip(songs.into_iter()) {
+    for (item, enriched_song) in items.iter_mut().zip(songs) {
         item.details = enriched_song;
     }
 }

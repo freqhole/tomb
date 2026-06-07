@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn test_target_types() {
         // Test that all favorite target types are available
-        let targets = vec![
+        let targets = [
             FavoriteTarget::Song,
             FavoriteTarget::Artist,
             FavoriteTarget::Album,

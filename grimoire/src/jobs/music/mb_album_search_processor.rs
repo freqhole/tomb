@@ -545,7 +545,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
             .unwrap_or(0.0)
             < FALLBACK_TRIGGER;
     let stage2: Option<StageResult> = if need_stage2
-        && (ids.artist_mbids.first().is_some()
+        && (!ids.artist_mbids.is_empty()
             || artist.as_deref().map(|s| !s.is_empty()).unwrap_or(false))
     {
         job_events::emit_stage_from_job(
@@ -1481,7 +1481,7 @@ mod tests {
             None,
             "US",
         );
-        assert!(c >= 0.84 && c <= 0.86, "expected ~0.85, got {}", c);
+        assert!((0.84..=0.86).contains(&c), "expected ~0.85, got {}", c);
     }
 
     #[test]

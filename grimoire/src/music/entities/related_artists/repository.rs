@@ -297,7 +297,7 @@ pub async fn list_related_for_artists(
     // the request"). seed only requested ids so a row with a stale
     // source_artist_id doesn't leak into the response.
     for id in artist_ids {
-        grouped.entry(id.clone()).or_insert_with(Vec::new);
+        grouped.entry(id.clone()).or_default();
     }
     for row in rows {
         if let Some(bucket) = grouped.get_mut(&row.source_artist_id) {

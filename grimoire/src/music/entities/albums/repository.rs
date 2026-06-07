@@ -325,7 +325,7 @@ pub async fn merge_album_metadata(
                 vec![ErrorDetail::new(
                     "metadata_merge_failed",
                     "Bad Patch",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -339,7 +339,7 @@ pub async fn merge_album_metadata(
                 vec![ErrorDetail::new(
                     "metadata_serialize_failed",
                     "Serialization Error",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -1035,7 +1035,7 @@ pub async fn set_mb_lookup_status(req: SetMbLookupStatusRequest) -> GrimoireResp
             vec![ErrorDetail::new(
                 "invalid_mb_lookup_status",
                 "invalid mb lookup status",
-                &format!(
+                format!(
                     "status `{}` is not a recognized MbLookupStatus variant",
                     req.status
                 ),

@@ -153,7 +153,7 @@ pub async fn get_suggestions(
         .collect();
 
     let query_time_ms = start.elapsed().as_millis() as u64;
-    let total_pages = ((total as u32 + page_size - 1) / page_size).max(1);
+    let total_pages = (total as u32).div_ceil(page_size).max(1);
 
     GrimoireResponse::success(
         format!("found {} suggestion(s)", total),
@@ -338,7 +338,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         }
     }
 
-    response.total_pages = ((response.total_count as u32 + page_size - 1) / page_size).max(1);
+    response.total_pages = (response.total_count as u32).div_ceil(page_size).max(1);
     response.has_next = page < response.total_pages;
     response.query_time_ms = start.elapsed().as_millis() as u64;
 

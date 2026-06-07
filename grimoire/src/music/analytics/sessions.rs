@@ -270,7 +270,7 @@ pub async fn create_listen_session(
                 vec![crate::error::ErrorDetail::new(
                     "invalid_song_ids",
                     "invalid song IDs",
-                    &format!(
+                    format!(
                         "none of the {} provided song IDs exist on this server",
                         req.song_ids.len()
                     ),

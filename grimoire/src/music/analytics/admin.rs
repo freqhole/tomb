@@ -483,7 +483,7 @@ mod tests {
         let response = get_user_stats("test_user_id").await;
         // May fail if user doesn't exist, that's expected
         // Just verify we get a response back
-        assert!(response.success || !response.success);
+        assert!(response.success);
     }
 
     #[tokio::test]

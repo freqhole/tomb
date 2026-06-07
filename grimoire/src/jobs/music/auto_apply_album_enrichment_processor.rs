@@ -586,7 +586,7 @@ fn collect_artist_image_candidates(
     out
 }
 
-fn push_http(out: &mut Vec<ImageCandidate>, raw: &String, source: &str) {
+fn push_http(out: &mut Vec<ImageCandidate>, raw: &str, source: &str) {
     let trimmed = raw.trim();
     if !trimmed.is_empty() && (trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         out.push(ImageCandidate {
