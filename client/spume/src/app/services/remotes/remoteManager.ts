@@ -453,7 +453,7 @@ export async function createRemote(data: {
 // update an existing remote
 export async function updateRemote(
   remoteId: string,
-  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key">>,
+  updates: Partial<Pick<Remote, "name" | "base_url" | "api_key" | "graph_disabled">>,
 ): Promise<Remote> {
   const existing = await getBackend().get(remoteId);
   if (!existing) {

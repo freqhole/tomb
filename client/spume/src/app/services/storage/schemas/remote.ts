@@ -35,6 +35,9 @@ const RemoteCommonSchema = z.object({
   is_offline: z.boolean().optional(),
   offline_since: z.number().nullable().optional(),
   last_checked: z.number().nullable().optional(),
+  // when true, this remote is excluded from all graph visualizations
+  // (treated as offline for coloring, drawn with a diagonal slash)
+  graph_disabled: z.boolean().optional(),
 });
 
 // ============================================================================

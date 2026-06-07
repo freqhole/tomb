@@ -33,6 +33,7 @@ pub mod search;
 pub mod sessions;
 pub mod setup;
 pub mod shutdown;
+pub mod updates;
 pub mod upload;
 pub mod users;
 pub mod wordlist;
@@ -56,6 +57,7 @@ pub use search::{
     SongSearchResult, SortDirection, Suggestion, SuggestionType, SuggestionsRequest,
     SuggestionsResponse,
 };
+pub use updates::{check_for_update, fetch_latest_release, UpdateStatus, DOWNLOAD_URL};
 pub use users::models::AuthResult;
 pub use users::{
     AuthError, CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService,
