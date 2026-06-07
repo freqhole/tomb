@@ -1,0 +1,60 @@
+# on every push to main, run the changesets action:
+#   - changesets pending  -> open/update the "Version Packages" PR (which runs
+#     `npm run version` = changeset version + make bump-version) on branch
+#     changeset-release/main.
+#   - no changesets pending (that PR was just merged) -> run
+#     `npm run release:publish`, which flips the already-built draft release to
+#     published (no builds run on merge).
+#
+# NOTE: the branch this action pushes is made with the default GITHUB_TOKEN, so
+# it does NOT auto-start release.yml (github's workflow-recursion guard). that's
+# fine: to build the version PR, push a commit to changeset-release/main (e.g.
+# an empty commit) or run release.yml via workflow_dispatch. no PAT needed.
+name: changesets
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: version / publish
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: install root deps (changesets cli)
+        run: npm install
+
+      - name: configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: changesets (open version PR or publish the draft release)
+        uses: changesets/action@v1
+        with:
+          # opens/updates the version PR. when there are no changesets left
+          # (version PR merged) the publish command runs and publishes the
+          # draft release that release.yml already built during the PR.
+          version: npm run version
+          publish: npm run release:publish
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

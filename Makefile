@@ -437,6 +437,9 @@ build-flatpak-arm64: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64
 	@echo "built: $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.flatpak"
 	$(MAKE) docker-cleanup IMAGE=freqhole-flatpak-builder-arm64
 # version management
+# portable across macos (BSD sed) and linux (GNU sed) via `sed -i.bak` + rm,
+# so the same target runs locally and in ci (changesets opens the version PR on
+# a linux runner). pass NEW_VERSION=x.y.z or run interactively.
 .PHONY: bump-version
 bump-version:
 	@echo "current version: $(VERSION)"
@@ -450,23 +453,24 @@ bump-version:
 	else \
 		echo "bumping version to $(NEW_VERSION)..."; \
 		echo "  updating Cargo.toml..."; \
-		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml; \
+		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak; \
 		echo "  updating client/midden/Cargo.toml..."; \
-		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml; \
+		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml && rm -f client/midden/Cargo.toml.bak; \
 		echo "  updating tauri.conf.json..."; \
-		sed -i '' 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json; \
+		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
-		(cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
-		(cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
-		(cd client-codegen/freqhole-api-client && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version); \
+		sed -i.bak 's/^  "version": "[^"]*"/  "version": "$(NEW_VERSION)"/' package.json && rm -f package.json.bak; \
+		(cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
+		(cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
+		(cd client-codegen/freqhole-api-client && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		echo "  updating version.ts files..."; \
-		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts; \
-		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts; \
-		sed -i '' 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' freqhole.net/src/version.ts; \
+		sed -i.bak 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts && rm -f client/spume/src/version.ts.bak; \
+		sed -i.bak 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts && rm -f $(TAURI_DIR)/src/version.ts.bak; \
+		sed -i.bak 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' freqhole.net/src/version.ts && rm -f freqhole.net/src/version.ts.bak; \
 		echo "  updating freqhole-config.toml..."; \
-		sed -i '' 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml; \
+		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' assets/config/freqhole-config.toml && rm -f assets/config/freqhole-config.toml.bak; \
 		echo "  updating about.html..."; \
-		sed -i '' 's/>v[0-9]*\.[0-9]*\.[0-9]*</>v$(NEW_VERSION)</' $(TAURI_DIR)/public/about.html; \
+		sed -i.bak 's/>v[0-9]*\.[0-9]*\.[0-9]*</>v$(NEW_VERSION)</' $(TAURI_DIR)/public/about.html && rm -f $(TAURI_DIR)/public/about.html.bak; \
 		echo ""; \
 		echo "version bumped to $(NEW_VERSION)"; \
 		echo ""; \

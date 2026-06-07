@@ -4,6 +4,7 @@
 /build/
 logs/
 *.log
+*.bak
 target/
 *.rlib
 node_modules/
