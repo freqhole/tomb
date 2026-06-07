@@ -1755,6 +1755,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 
@@ -1800,6 +1801,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 
@@ -1843,6 +1845,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 

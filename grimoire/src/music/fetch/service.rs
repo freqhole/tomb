@@ -303,7 +303,7 @@ pub async fn download_media(
 
     // wait for stderr drain and child process
     let _ = tokio::join!(stderr_task);
-    let status = child
+    let _status = child
         .wait()
         .await
         .map_err(|e| format!("failed to wait for fetch command: {}", e))?;

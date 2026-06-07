@@ -596,7 +596,7 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
     }
 }
 
-/// find existing album by title or create new one
+// find existing album by title or create new one
 
 /// get current artist for a song (returns first artist if multiple exist)
 pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option<Artist>> {

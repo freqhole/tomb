@@ -51,6 +51,14 @@ jobs:
       - name: set up database (migrations + views + blob db)
         run: make db-migrate
 
+      # grimoire embeds client/spume/dist via include_dir! at compile time. the
+      # frontend isn't built in this rust-only job, so provide a placeholder dir
+      # to satisfy the macro (the served assets aren't exercised by these checks).
+      - name: ensure spume dist placeholder exists
+        run: |
+          mkdir -p client/spume/dist
+          [ -e client/spume/dist/index.html ] || echo '<!doctype html>' > client/spume/dist/index.html
+
       - name: cargo fmt
         run: cargo fmt --all --check
 
