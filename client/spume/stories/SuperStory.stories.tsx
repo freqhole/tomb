@@ -628,9 +628,9 @@ export function FullAppDemoBody() {
           // has content. spread a generated song to keep the shape valid.
           setCurrentSong({
             ...generatedSongs[0],
-            title: "Summer Samba",
+            title: "summer samba",
             artist_name: "futuredeath.agency",
-            album_title: "Samba de Verão",
+            album_title: "samba de plugdata",
           });
           setQueueSongs(generatedSongs.slice(1, 16));
           setIsPlaying(true);

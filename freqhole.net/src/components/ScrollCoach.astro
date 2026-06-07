@@ -55,36 +55,36 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         </div>
         <div class="info-footer">
           <div class="info-dots" data-coach-dots role="tablist" aria-label="steps"></div>
-          <div class="info-nav">
-            <button
-              type="button"
-              class="info-nav-btn"
-              data-coach-prev
-              aria-label="previous step"
-              title="previous"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-            </button>
-            <button
-              type="button"
-              class="info-nav-btn"
-              data-coach-next
-              aria-label="next step"
-              title="next"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-            </button>
-          </div>
         </div>
       </aside>
     </div>
     <div class="hint" aria-hidden="true">
       <span class="hint-spacer"></span>
       <span class="hint-label">scroll ↓</span>
-      <span class="hint-counter">
-        <span data-coach-info-current>1</span>
-        <span class="info-counter-sep">/</span>
-        <span data-coach-info-total>{steps}</span>
+      <span class="hint-nav">
+        <button
+          type="button"
+          class="info-nav-btn"
+          data-coach-prev
+          aria-label="previous step"
+          title="previous"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="hint-counter">
+          <span data-coach-info-current>1</span>
+          <span class="info-counter-sep">/</span>
+          <span data-coach-info-total>{steps}</span>
+        </span>
+        <button
+          type="button"
+          class="info-nav-btn"
+          data-coach-next
+          aria-label="next step"
+          title="next"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
       </span>
     </div>
   </div>
@@ -266,9 +266,10 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         btn.setAttribute("aria-label", `step ${i + 1}: ${s.title}`);
         // tooltip on hover with the step number + name
         btn.title = `${i + 1}. ${s.title}`;
-        // inline styles so starlight's button reset doesn't clobber us
-        btn.style.width = "0.55rem";
-        btn.style.height = "0.55rem";
+        // inline styles so starlight's button reset doesn't clobber us.
+        // sizes come from --dot-size / --dot-active, which step up per breakpoint.
+        btn.style.width = "var(--dot-size)";
+        btn.style.height = "var(--dot-size)";
         btn.style.padding = "0";
         btn.style.border = "0";
         btn.style.borderRadius = "9999px";
@@ -332,13 +333,13 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
       const fillC = "var(--sl-color-accent, #d63384)";
       dotButtons.forEach((btn, i) => {
         if (i !== step) {
-          btn.style.width = "0.55rem";
+          btn.style.width = "var(--dot-size)";
           btn.style.background = base;
           return;
         }
         const frac = Math.max(0, Math.min(1, sub));
         const pct = (frac * 100).toFixed(1) + "%";
-        btn.style.width = "1.4rem";
+        btn.style.width = "var(--dot-active)";
         btn.style.background =
           `linear-gradient(to right, ${fillC} 0%, ${fillC} ${pct}, ${trackBg} ${pct}, ${trackBg} 100%)`;
       });
@@ -658,20 +659,14 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     flex: 0 0 auto;
   }
   .info-counter-sep { margin: 0 0.25rem; }
-  .info-nav {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex: 0 0 auto;
-  }
   .info-nav-btn {
     appearance: none;
     background: var(--sl-color-gray-6, #1a1a1a);
     color: var(--sl-color-white, #fff);
     border: 1px solid var(--sl-color-gray-5, #333);
     border-radius: 9999px;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.5rem;
+    height: 1.5rem;
     padding: 0;
     cursor: pointer;
     display: inline-flex;
@@ -695,6 +690,9 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     padding-top: 0.5rem;
   }
   .info-dots {
+    /* dot sizes step up with each breakpoint; narrow mobile is the baseline */
+    --dot-size: 0.55rem;
+    --dot-active: 1.4rem;
     display: flex;
     gap: 0.4rem;
     flex-wrap: wrap;
@@ -702,14 +700,25 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     align-items: center;
     justify-content: space-between;
   }
+  @media (min-width: 480px) {
+    .info-dots { --dot-size: 0.7rem; --dot-active: 1.8rem; }
+  }
+  @media (min-width: 768px) {
+    .info-dots { --dot-size: 0.9rem; --dot-active: 2.3rem; }
+  }
+  @media (min-width: 1024px) {
+    .info-dots { --dot-size: 1.1rem; --dot-active: 2.9rem; }
+  }
+  @media (min-width: 1400px) {
+    .info-dots { --dot-size: 1.3rem; --dot-active: 3.5rem; }
+  }
   .hint {
     font-size: 0.75rem;
-    opacity: 0.5;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    /* three columns: scroll label stays centered in the middle, counter
-       sits flush right. the spacer mirrors the counter so the label
-       remains truly centered regardless of counter width. */
+    /* three columns: scroll label stays centered in the middle, the nav
+       cluster (prev / counter / next) sits flush right. the spacer mirrors
+       the cluster so the label remains truly centered. */
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
@@ -718,10 +727,17 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
   .hint-label {
     grid-column: 2;
     text-align: center;
+    opacity: 0.5;
   }
-  .hint-counter {
+  .hint-nav {
     grid-column: 3;
     justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .hint-counter {
+    opacity: 0.6;
     font-variant-numeric: tabular-nums;
   }
 
@@ -790,7 +806,7 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     .info-body { font-size: 0.85rem; }
     /* hide prev/next nav on mobile — the dots + scroll counter cover
        progress, and the touch blocker drives stepping via swipe. */
-    .info-nav {
+    .hint-nav .info-nav-btn {
       display: none;
     }
     /* belt + suspenders: pan-y everywhere in the section. */
