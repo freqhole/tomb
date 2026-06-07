@@ -1,6 +1,6 @@
 # F R E Q H O L E
 
-a music server && web, android, and desktop client that talks http or p2p.
+self-hosted music library with web, android, and desktop client that can talk together with http or p2p. browse & sort music by artist, album, or your own taxonomies. create playlists and radio streams that you can share with your friends. mobile friendly with offline playback support.
 
 _a note on ai:_ this repo has a lot of ai-generated code ...a wild adventure staring into the llm abyss with claude sonnet iv 😎 (both frightening and thrilling at the same time; what a weird time to be a devel). `BEWARE!`
 

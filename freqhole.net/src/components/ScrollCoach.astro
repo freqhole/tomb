@@ -89,6 +89,10 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
 
 {/* back-to-top: shown after the user scrolls past the entire coach demo. */}
 <div class="scroll-coach-outro not-content">
+  <a class="get-started" href="/getting-started/brainstorm/">
+    <span>get started</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+  </a>
   <button type="button" class="back-to-top" data-coach-back-to-top>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
     <span>back to top</span>
@@ -740,7 +744,33 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
     background: var(--sl-color-bg, transparent);
+  }
+  .get-started {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--sl-color-accent, #d63384);
+    background: var(--sl-color-accent, #d63384);
+    color: white;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  }
+  .get-started:hover {
+    background: var(--sl-color-accent-high, #b02a6f);
+    border-color: var(--sl-color-accent-high, #b02a6f);
+    color: white;
+    transform: translateY(-1px);
+  }
+  .get-started:active {
+    transform: translateY(0);
   }
   .back-to-top {
     display: inline-flex;

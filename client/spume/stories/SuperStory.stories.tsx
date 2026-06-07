@@ -218,12 +218,28 @@ export function FullAppDemoBody() {
   const [viewportHeight, setViewportHeight] = createSignal(window.innerHeight);
 
   onMount(() => {
+    // when embedded in the <freqhole-coach-demo> frame, the demo is clipped
+    // to the frame's height, not the browser window. sizing virtualized
+    // lists off window.innerHeight makes them taller than the visible area,
+    // which leaves blank gaps as the coach scrolls them. prefer the host
+    // element's height so list heights match what's actually on screen.
+    const host = document.querySelector("freqhole-coach-demo") as HTMLElement | null;
+    const measureHeight = () => {
+      const h = host && host.clientHeight > 0 ? host.clientHeight : window.innerHeight;
+      setViewportHeight(h);
+    };
     const handleResize = () => {
       setIsNarrow(isNarrowViewport());
-      setViewportHeight(window.innerHeight);
+      measureHeight();
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
+    measureHeight();
+    if (host) {
+      const ro = new ResizeObserver(() => measureHeight());
+      ro.observe(host);
+      onCleanup(() => ro.disconnect());
+    }
   });
 
   // available height for virtualized lists/grids inside main content area.
@@ -287,6 +303,32 @@ export function FullAppDemoBody() {
   // real SearchInput's debounced + portal-mounted flyout from a script.
   const [searchDemoActive, setSearchDemoActive] = createSignal(false);
   const [searchDemoQuery, setSearchDemoQuery] = createSignal("");
+  // demo-only: measured position for the fake flyout so it sits directly
+  // below the actual search input (rather than pinned to the viewport edge).
+  const [searchFlyoutPos, setSearchFlyoutPos] = createSignal<{
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
+  const measureSearchFlyout = () => {
+    const root =
+      (typeof document !== "undefined" &&
+        document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+      document;
+    const anchor = root.querySelector("[data-coach-anchor='topnavSearch']");
+    const input = anchor?.querySelector("input") as HTMLInputElement | null;
+    const target = (input ?? anchor) as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const width = Math.max(280, Math.min(360, rect.width));
+    // align the flyout's right edge under the input, expanding leftward.
+    const left = Math.max(8, rect.right - width);
+    setSearchFlyoutPos({ left, top: rect.bottom + 6, width });
+  };
+  createEffect(() => {
+    if (searchDemoActive()) requestAnimationFrame(measureSearchFlyout);
+  });
   // demo-only: knock-flow phase for the add-remote modal.
   // phases: "id-form" | "loading" | "request-form" | "pending" | "approved"
   const [knockPhase, setKnockPhase] = createSignal<
@@ -483,6 +525,10 @@ export function FullAppDemoBody() {
   // expose imperative hooks for the scroll-coach demo. only some surfaces
   // exist in this story (route, queue) — the rest are stubs/no-ops.
   const [activeModal, setActiveModal] = createSignal<string | null>(null);
+  // album-edit modal demo state: title field + musicbrainz enrichment (0..1).
+  // the coach drives these to animate a rename + metadata pull.
+  const [editTitle, setEditTitle] = createSignal("the dark side of the moon");
+  const [mbEnrich, setMbEnrich] = createSignal(0);
   onMount(() => {
     // detect whether we're embedded inside the <freqhole-coach-demo> shadow
     // root (standalone web component build). if so, route the search flyout
@@ -491,6 +537,9 @@ export function FullAppDemoBody() {
       const host = document.querySelector("freqhole-coach-demo");
       if (host?.shadowRoot) setFlyoutMount(host.shadowRoot);
     }
+    // remembers the last favorites filter set we drove, so repeated
+    // onProgress ticks don't re-click toggles that are already correct.
+    let lastFavTarget = "";
     const ctx: CoachContext = {
       setLibraryMode: (m) => setDemoLibraryMode(m === "empty" ? "empty" : "populated"),
       setRoute: (r) => navigateTo(r as Route),
@@ -575,8 +624,14 @@ export function FullAppDemoBody() {
       },
       seedNowPlaying: (enabled) => {
         if (enabled) {
-          // pick a track + a small queue so the playerbar has content
-          setCurrentSong(generatedSongs[0]);
+          // pick a fixed now-playing track + a small queue so the playerbar
+          // has content. spread a generated song to keep the shape valid.
+          setCurrentSong({
+            ...generatedSongs[0],
+            title: "Summer Samba",
+            artist_name: "futuredeath.agency",
+            album_title: "Samba de Verão",
+          });
           setQueueSongs(generatedSongs.slice(1, 16));
           setIsPlaying(true);
         } else {
@@ -650,8 +705,23 @@ export function FullAppDemoBody() {
         const items = el.querySelectorAll<HTMLElement>(
           "[data-coach-item], li button, [role='listitem'], li[role='option']"
         );
-        const item = items[idx];
-        if (item) item.click();
+        const item = items[Math.max(0, Math.min(items.length - 1, idx))];
+        if (!item) return;
+        item.click();
+        // center the clicked item inside its own scroll container WITHOUT
+        // using scrollIntoView (that would yank the page/coach scroll).
+        let scroller: HTMLElement | null = item.parentElement;
+        while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 4)) {
+          scroller = scroller.parentElement;
+          if (scroller === el.parentElement) break;
+        }
+        if (scroller && scroller.scrollHeight > scroller.clientHeight + 4) {
+          const itemRect = item.getBoundingClientRect();
+          const scRect = scroller.getBoundingClientRect();
+          const offset =
+            itemRect.top - scRect.top - (scroller.clientHeight / 2 - itemRect.height / 2);
+          scroller.scrollTop += offset;
+        }
       },
       setInputValue: (anchor, text) => {
         const root =
@@ -674,6 +744,40 @@ export function FullAppDemoBody() {
         setter?.call(input, text);
         input.dispatchEvent(new Event("input", { bubbles: true }));
       },
+      setFavoriteFilters: (filters) => {
+        const want = new Set(filters);
+        const sig = filters.slice().sort().join(",");
+        if (sig === lastFavTarget) return;
+        lastFavTarget = sig;
+        const root =
+          (typeof document !== "undefined" &&
+            document.querySelector("freqhole-coach-demo")?.shadowRoot) ||
+          document;
+        const grid = root.querySelector(
+          "[data-coach-anchor='favoritesGrid']"
+        ) as HTMLElement | null;
+        if (!grid) return;
+        const types = ["songs", "albums", "artists", "playlists"];
+        const btnFor = (t: string) =>
+          Array.from(grid.querySelectorAll<HTMLButtonElement>("button")).find(
+            (b) => (b.getAttribute("title") || "").trim().toLowerCase() === t
+          );
+        // active toggles use the accent-500 background; inactive use elevated.
+        const isActive = (b: HTMLButtonElement | undefined) =>
+          !!b && b.className.includes("accent-500");
+        // add the missing wanted toggles first (so removing never hits the
+        // "can't disable the last filter" guard), then remove the extras.
+        for (const t of types) {
+          const b = btnFor(t);
+          if (want.has(t) && !isActive(b)) b?.click();
+        }
+        for (const t of types) {
+          const b = btnFor(t);
+          if (!want.has(t) && isActive(b)) b?.click();
+        }
+      },
+      setAlbumEditTitle: (text) => setEditTitle(text),
+      setAlbumEnrichment: (p) => setMbEnrich(Math.max(0, Math.min(1, p))),
       setKnockPhase: (phase) => {
         const valid = ["id-form", "loading", "request-form", "pending", "approved"] as const;
         if ((valid as readonly string[]).includes(phase)) {
@@ -1010,6 +1114,7 @@ export function FullAppDemoBody() {
               <For each={sortedArtists()}>
                 {(artist) => (
                   <button
+                    data-coach-item
                     class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
@@ -1045,7 +1150,7 @@ export function FullAppDemoBody() {
                 />
 
                 {/* scrollable content area */}
-                <div class="flex-1 overflow-y-auto">
+                <div class="flex-1 overflow-y-auto" data-coach-anchor="artistsView:detail">
                   {/* stats section */}
                   <div class="p-3 wide:p-6">
                     <StatsGrid columns={5} gap="md" class="mb-3 wide:mb-6">
@@ -1311,6 +1416,7 @@ export function FullAppDemoBody() {
               <For each={mockPlaylists}>
                 {(playlist) => (
                   <button
+                    data-coach-item
                     class={`
                       w-full px-6 py-3 text-left transition-colors border-l-2
                       ${
@@ -1346,7 +1452,7 @@ export function FullAppDemoBody() {
                 />
 
                 {/* scrollable content area */}
-                <div class="flex-1 overflow-y-auto">
+                <div class="flex-1 overflow-y-auto" data-coach-anchor="playlistsView:detail">
                   {/* stats section */}
                   <div class="p-3 wide:p-6 flex gap-4">
                     <StatsCard
@@ -1599,6 +1705,11 @@ export function FullAppDemoBody() {
   const tuneStation = (station: (typeof mockRadioStations)[number]) => {
     setSelectedStation(station);
     setShowRadioDetail(true);
+    // if the real summer-samba audio is actively playing, leave the
+    // playerbar's now-playing alone — don't hijack it while sound is on.
+    // when paused (or no audio yet), it's fine to seed the station's track.
+    const audioPlaying = !!demoAudio && !demoAudio.paused;
+    if (audioPlaying) return;
     if (station.currentSong) {
       const songStub = {
         id: `radio-${station.id}-current`,
@@ -1693,7 +1804,7 @@ export function FullAppDemoBody() {
         }
       >
         {(station) => (
-          <div class="flex-1 min-h-0 overflow-y-auto">
+          <div class="flex-1 min-h-0 overflow-y-auto" data-coach-anchor="radioDetail">
             <div class="px-6 pb-6 pt-3 wide:pt-6 max-w-3xl mx-auto w-full h-full min-h-0 flex flex-col">
               <header class="flex items-center gap-4 mb-6">
                 <div class="flex-shrink-0">
@@ -2222,7 +2333,8 @@ export function FullAppDemoBody() {
                 <span class="text-xs text-[var(--color-text-secondary)]">title</span>
                 <input
                   type="text"
-                  value={detailAlbum().title}
+                  value={editTitle()}
+                  data-coach-anchor="albumEditTitle"
                   class="mt-1 w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
                 />
               </label>
@@ -2237,17 +2349,33 @@ export function FullAppDemoBody() {
               <label class="block">
                 <span class="text-xs text-[var(--color-text-secondary)]">year</span>
                 <input
-                  type="number"
-                  value={detailAlbum().year}
-                  class="mt-1 w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+                  type="text"
+                  value={mbEnrich() > 0.33 ? "1973" : ""}
+                  placeholder="—"
+                  class="mt-1 w-full rounded border bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+                  classList={{
+                    "border-[var(--color-accent-500)]": mbEnrich() > 0.33,
+                    "border-[var(--color-border-default)]": mbEnrich() <= 0.33,
+                  }}
                 />
               </label>
               <label class="block">
-                <span class="text-xs text-[var(--color-text-secondary)]">genre</span>
+                <span class="text-xs text-[var(--color-text-secondary)]">genres</span>
                 <input
                   type="text"
-                  value="dub"
-                  class="mt-1 w-full rounded border border-[var(--color-border-default)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)]"
+                  value={
+                    mbEnrich() > 0.8
+                      ? "progressive rock, psychedelic rock"
+                      : mbEnrich() > 0.55
+                        ? "progressive rock"
+                        : ""
+                  }
+                  placeholder="—"
+                  class="mt-1 w-full rounded border bg-[var(--color-bg-primary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] transition-colors"
+                  classList={{
+                    "border-[var(--color-accent-500)]": mbEnrich() > 0.55,
+                    "border-[var(--color-border-default)]": mbEnrich() <= 0.55,
+                  }}
                 />
               </label>
             </div>
@@ -2258,9 +2386,13 @@ export function FullAppDemoBody() {
                 </h3>
                 <button
                   type="button"
-                  class="text-[10px] px-2 py-1 rounded bg-[var(--color-accent-500,#d63384)] text-white"
+                  class="text-[10px] px-2 py-1 rounded text-white transition-colors"
+                  classList={{
+                    "bg-[var(--color-accent-500,#d63384)]": mbEnrich() <= 0,
+                    "bg-green-600": mbEnrich() > 0,
+                  }}
                 >
-                  fetch
+                  {mbEnrich() > 0 ? "fetched" : "fetch"}
                 </button>
               </div>
               <p class="text-[11px] text-[var(--color-text-tertiary)] mb-3 leading-snug">
@@ -2269,16 +2401,55 @@ export function FullAppDemoBody() {
               </p>
               <div class="space-y-1.5">
                 <div class="flex items-center gap-2 text-xs">
-                  <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                  <span class="text-[var(--color-text-secondary)]">cover art match (96%)</span>
+                  <span
+                    class="w-1.5 h-1.5 rounded-full transition-colors"
+                    classList={{
+                      "bg-green-500": mbEnrich() > 0.2,
+                      "bg-[var(--color-bg-tertiary)]": mbEnrich() <= 0.2,
+                    }}
+                  ></span>
+                  <span
+                    classList={{
+                      "text-[var(--color-text-secondary)]": mbEnrich() > 0.2,
+                      "text-[var(--color-text-tertiary)]": mbEnrich() <= 0.2,
+                    }}
+                  >
+                    cover art match (96%)
+                  </span>
                 </div>
                 <div class="flex items-center gap-2 text-xs">
-                  <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                  <span class="text-[var(--color-text-secondary)]">9/9 tracks matched</span>
+                  <span
+                    class="w-1.5 h-1.5 rounded-full transition-colors"
+                    classList={{
+                      "bg-green-500": mbEnrich() > 0.5,
+                      "bg-[var(--color-bg-tertiary)]": mbEnrich() <= 0.5,
+                    }}
+                  ></span>
+                  <span
+                    classList={{
+                      "text-[var(--color-text-secondary)]": mbEnrich() > 0.5,
+                      "text-[var(--color-text-tertiary)]": mbEnrich() <= 0.5,
+                    }}
+                  >
+                    9/9 tracks matched
+                  </span>
                 </div>
                 <div class="flex items-center gap-2 text-xs">
-                  <span class="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
-                  <span class="text-[var(--color-text-secondary)]">2 alternate releases</span>
+                  <span
+                    class="w-1.5 h-1.5 rounded-full transition-colors"
+                    classList={{
+                      "bg-yellow-500": mbEnrich() > 0.8,
+                      "bg-[var(--color-bg-tertiary)]": mbEnrich() <= 0.8,
+                    }}
+                  ></span>
+                  <span
+                    classList={{
+                      "text-[var(--color-text-secondary)]": mbEnrich() > 0.8,
+                      "text-[var(--color-text-tertiary)]": mbEnrich() <= 0.8,
+                    }}
+                  >
+                    2 alternate releases
+                  </span>
                 </div>
               </div>
             </div>
@@ -2353,16 +2524,6 @@ export function FullAppDemoBody() {
               copy
             </button>
           </div>
-          <div class="flex items-center gap-3 text-[11px] text-[var(--color-text-tertiary)] mb-4">
-            <label class="flex items-center gap-1.5">
-              <input type="checkbox" checked class="accent-[var(--color-accent-500)]" />
-              expires in 7 days
-            </label>
-            <label class="flex items-center gap-1.5">
-              <input type="checkbox" class="accent-[var(--color-accent-500)]" />
-              require approval
-            </label>
-          </div>
           <div class="flex justify-end gap-2">
             <button
               type="button"
@@ -2434,7 +2595,7 @@ export function FullAppDemoBody() {
               class="px-3 py-1.5 text-sm rounded bg-[var(--color-accent-500,#d63384)] text-white"
               onClick={() => setActiveModal(null)}
             >
-              mount
+              listen
             </button>
           </div>
         </div>
@@ -2685,10 +2846,12 @@ export function FullAppDemoBody() {
             <div
               class="fixed bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
               style={{
-                top: "calc(var(--nav-height, 56px) + 8px)",
-                right: isNarrow() ? "0" : "16px",
-                left: isNarrow() ? "0" : "auto",
-                width: isNarrow() ? "100vw" : "320px",
+                top: isNarrow()
+                  ? "calc(var(--nav-height, 56px) + 8px)"
+                  : `${searchFlyoutPos()?.top ?? 64}px`,
+                left: isNarrow() ? "0" : `${searchFlyoutPos()?.left ?? 16}px`,
+                right: isNarrow() ? "0" : "auto",
+                width: isNarrow() ? "100vw" : `${searchFlyoutPos()?.width ?? 320}px`,
                 "border-radius": isNarrow() ? "0" : undefined,
                 "z-index": "1002",
               }}
