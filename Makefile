@@ -498,7 +498,10 @@ db-migrate:
 	@echo "running migrations..."
 	mkdir -p data
 	touch $(shell echo $(DATABASE_URL) | sed 's|sqlite:||')
-	cd grimoire && DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source ../migrations
+	# run from repo root so the relative DATABASE_URL (sqlite:data/grimoire.db)
+	# resolves against the same data/ dir created above. the views + blob-db
+	# steps below also run from root.
+	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source migrations
 	@echo "creating views..."
 	@for view in migrations/views/*.sql; do \
 		echo "  applying $${view}..."; \
