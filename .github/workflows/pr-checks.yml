@@ -34,8 +34,16 @@ jobs:
       - name: cache cargo + target
         uses: Swatinem/rust-cache@v2
 
-      - name: install system deps (alsa for rodio, sqlite cli)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlite3
+      - name: install system deps (alsa, sqlite, gtk/webkit for tauri)
+        # charnel (tauri desktop app) pulls glib-sys/gtk/webkit via its build
+        # tree, so the dev libs must be present or pkg-config fails. webkit2gtk
+        # 4.1 transitively provides glib, soup, javascriptcore .pc files.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev sqlite3 \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev
 
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
@@ -46,16 +54,13 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all --check
 
-      # exclude charnel (the tauri desktop app): on linux it pulls glib-sys /
-      # gtk / webkit system libs that aren't installed on this fast runner. the
-      # full tauri build is covered post-merge in release.yml.
       - name: cargo clippy
-        run: cargo clippy --workspace --exclude charnel --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo unit tests
         # lib + bin unit tests only. the cli integration suite (make test-cli)
         # is slower + fixture-driven and runs outside the fast PR path.
-        run: cargo test --workspace --exclude charnel --lib --bins
+        run: cargo test --workspace --lib --bins
 
   web-check:
     name: web (typecheck + vitest + circular deps)
