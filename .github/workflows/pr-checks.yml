@@ -46,13 +46,16 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all --check
 
+      # exclude charnel (the tauri desktop app): on linux it pulls glib-sys /
+      # gtk / webkit system libs that aren't installed on this fast runner. the
+      # full tauri build is covered post-merge in release.yml.
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude charnel --all-targets -- -D warnings
 
       - name: cargo unit tests
         # lib + bin unit tests only. the cli integration suite (make test-cli)
         # is slower + fixture-driven and runs outside the fast PR path.
-        run: cargo test --workspace --lib --bins
+        run: cargo test --workspace --exclude charnel --lib --bins
 
   web-check:
     name: web (typecheck + vitest + circular deps)
