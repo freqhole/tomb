@@ -31,7 +31,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "add-music",
     title: "take a quick tour",
-    body: "freqhole scans + indexes your audio files in place. GUI app for macOS, linux, & android. CLI for headless servers (like a raspberry pi).",
+    body: "freqhole scans + indexes your audio files. apps for mac, linux, & android. CLI for headless servers (like a raspberry pi). this is a tour of the main gui.",
     anchor: "addMusicButton",
     apply: (ctx) => {
       ctx.closeAllModals();
@@ -210,7 +210,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "radio",
     title: "radio",
-    body: "create live radio streams that anyone can listen to; or set private so only your friends can access.",
+    body: "create live radio streams that anyone can listen to; or set private so only you & your friends can listen.",
     anchor: "radioStations",
     apply: (ctx) => {
       ctx.setRoute("radio");
@@ -411,10 +411,13 @@ export const coachSteps: CoachStep[] = [
       ctx.setKnockPhase?.("pending");
       ctx.setSpotlight?.(null);
     },
-    // ramp up spotlight on the refresh button across the slide.
+    // ramp up spotlight on the refresh button across the first half, then
+    // flip to approved at the midpoint so "access granted" gets an equal
+    // share of the slide's scroll time.
     onProgress: (ctx, p) => {
       ctx.setSpotlight?.(p > 0.05 ? "knockRefreshButton" : null, p);
-      if (p > 0.95) ctx.setKnockPhase?.("approved");
+      if (p > 0.5) ctx.setKnockPhase?.("approved");
+      else ctx.setKnockPhase?.("pending");
     },
   },
   {

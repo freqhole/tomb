@@ -65,11 +65,6 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
-            <div class="info-counter">
-              <span data-coach-info-current>1</span>
-              <span class="info-counter-sep">/</span>
-              <span data-coach-info-total>{steps}</span>
-            </div>
             <button
               type="button"
               class="info-nav-btn"
@@ -83,7 +78,15 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         </div>
       </aside>
     </div>
-    <div class="hint" aria-hidden="true">scroll ↓</div>
+    <div class="hint" aria-hidden="true">
+      <span class="hint-spacer"></span>
+      <span class="hint-label">scroll ↓</span>
+      <span class="hint-counter">
+        <span data-coach-info-current>1</span>
+        <span class="info-counter-sep">/</span>
+        <span data-coach-info-total>{steps}</span>
+      </span>
+    </div>
   </div>
 </section>
 
@@ -319,36 +322,25 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         nextB.style.visibility = idx >= totalSteps - 1 ? "hidden" : "visible";
     }
 
-    // paint the step dots. the slide currently being scrolled spans two
-    // dots (the current step + the next step); together they read as one
-    // left-to-right progress track whose fill tracks scroll position within
-    // the slide. the current dot covers sub 0..0.5, the next dot 0.5..1.
+    // paint the step dots. only the current step's dot is widened into a
+    // pill; its background fills left-to-right with the scroll progress
+    // through that slide (sub 0..1). all other dots stay small + dim.
     function paintDots(step, sub) {
       if (!dotButtons.length) return;
-      const lastStepIdx = totalSteps - 1;
       const base = "var(--sl-color-gray-5, #444)";
-      // dim accent = the pair is highlighted; bright accent = progress fill.
-      const pairBg = "var(--sl-color-accent-low, rgba(214, 51, 132, 0.35))";
+      const trackBg = "var(--sl-color-accent-low, rgba(214, 51, 132, 0.35))";
       const fillC = "var(--sl-color-accent, #d63384)";
       dotButtons.forEach((btn, i) => {
-        const isCurrent = i === step;
-        const isNext = i === step + 1;
-        if (!isCurrent && !isNext) {
+        if (i !== step) {
           btn.style.width = "0.55rem";
           btn.style.background = base;
           return;
         }
-        let frac;
-        if (isCurrent) {
-          // the final step has no "next" dot — show it fully reached.
-          frac = step === lastStepIdx ? 1 : Math.max(0, Math.min(1, sub / 0.5));
-        } else {
-          frac = Math.max(0, Math.min(1, (sub - 0.5) / 0.5));
-        }
+        const frac = Math.max(0, Math.min(1, sub));
         const pct = (frac * 100).toFixed(1) + "%";
-        btn.style.width = "1.1rem";
+        btn.style.width = "1.4rem";
         btn.style.background =
-          `linear-gradient(to right, ${fillC} 0%, ${fillC} ${pct}, ${pairBg} ${pct}, ${pairBg} 100%)`;
+          `linear-gradient(to right, ${fillC} 0%, ${fillC} ${pct}, ${trackBg} ${pct}, ${trackBg} 100%)`;
       });
     }
 
@@ -708,19 +700,49 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     flex-wrap: wrap;
     flex: 1 1 auto;
     align-items: center;
+    justify-content: space-between;
   }
   .hint {
     font-size: 0.75rem;
     opacity: 0.5;
     letter-spacing: 0.05em;
     text-transform: uppercase;
+    /* three columns: scroll label stays centered in the middle, counter
+       sits flush right. the spacer mirrors the counter so the label
+       remains truly centered regardless of counter width. */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    width: min(100%, 1400px);
+  }
+  .hint-label {
+    grid-column: 2;
+    text-align: center;
+  }
+  .hint-counter {
+    grid-column: 3;
+    justify-self: end;
+    font-variant-numeric: tabular-nums;
   }
 
   /* narrow viewports: stack with frame on top (75% h), info below (25% h) */
   @media (max-width: 768px) {
+    /* on the splash page the fixed site header reserves ~56px
+       (--sl-nav-height) at the top. un-fix it so it scrolls away with the
+       page, and drop the main-frame padding that compensated for it. that
+       reclaimed height lets the sticky stage (and the demo frame) grow to
+       the full viewport. */
+    :global(.page > header) {
+      position: relative;
+    }
+    :global(.page > .main-frame) {
+      padding-top: 0;
+    }
     .stage {
       padding: 0.5rem;
       position: sticky; /* re-state */
+      top: 0;
+      height: 100vh;
     }
     /* the always-on touch interceptor — covers the entire sticky stage so
        no swipe ever reaches the demo or its inner virtualized lists. native
@@ -766,6 +788,11 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
     }
     .info-title { font-size: 1.125rem; }
     .info-body { font-size: 0.85rem; }
+    /* hide prev/next nav on mobile — the dots + scroll counter cover
+       progress, and the touch blocker drives stepping via swipe. */
+    .info-nav {
+      display: none;
+    }
     /* belt + suspenders: pan-y everywhere in the section. */
     .scroll-coach,
     .scroll-coach * {
