@@ -55,7 +55,7 @@ jobs:
         run: cargo test --workspace --lib --bins
 
   web-check:
-    name: web (typecheck + vitest + lint)
+    name: web (typecheck + vitest + circular deps)
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +85,33 @@ jobs:
       - name: unit tests
         working-directory: client/spume
         run: npm test
+
+      - name: circular dependency check
+        working-directory: client/spume
+        run: npm run lint:circular
+
+  # eslint is split into its own status check: there's a backlog to clean up,
+  # so keep it visible + independent of the core web gate above.
+  lint:
+    name: web (eslint)
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # eslint resolves imports into the api-client `file:` symlink, so its
+      # deps must be present too (same reason as the typecheck job).
+      - name: install api-client deps
+        working-directory: client-codegen/freqhole-api-client
+        run: npm ci
+
+      - name: install spume deps
+        working-directory: client/spume
+        run: npm ci
 
       - name: lint
         working-directory: client/spume
