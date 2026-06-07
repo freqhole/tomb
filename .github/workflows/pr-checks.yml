@@ -66,7 +66,14 @@ jobs:
           node-version: 22
 
       # midden wasm pkg/ and the generated api client are committed, so spume
-      # typechecks against them without a wasm rebuild here.
+      # typechecks against them without a wasm rebuild here. but spume links
+      # freqhole-api-client by `file:` (a symlink to its raw TS source), so its
+      # own deps (zod, @tauri-apps/api) must be installed in that folder first
+      # or tsc can't resolve them. mirrors the cloudflare build order.
+      - name: install api-client deps
+        working-directory: client-codegen/freqhole-api-client
+        run: npm ci
+
       - name: install spume deps
         working-directory: client/spume
         run: npm ci
