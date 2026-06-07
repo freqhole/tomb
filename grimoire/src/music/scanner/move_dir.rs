@@ -257,11 +257,7 @@ pub async fn move_scanned_directory(
         let ext_ok = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|ext| {
-                audio_exts
-                    .iter()
-                    .any(|a| a.eq_ignore_ascii_case(ext))
-            })
+            .map(|ext| audio_exts.iter().any(|a| a.eq_ignore_ascii_case(ext)))
             .unwrap_or(false);
         if !ext_ok {
             continue;
@@ -313,15 +309,8 @@ pub async fn move_scanned_directory(
         })
         // tier 3: same filename + exact size (no tolerance)
         .or_else(|| {
-            pick_match(
-                &by_filename,
-                &filename,
-                &consumed,
-                &old_blobs,
-                file_size,
-                0,
-            )
-            .map(|i| (i, MatchTier::Filename))
+            pick_match(&by_filename, &filename, &consumed, &old_blobs, file_size, 0)
+                .map(|i| (i, MatchTier::Filename))
         });
 
         match chosen {
@@ -380,10 +369,8 @@ pub async fn move_scanned_directory(
 
         // detect ambiguity that came from any tier (so we can report it).
         // we only count ambiguity when no tier yielded a unique match.
-        if result.new_files_unmatched > 0 || result.relocated_exact_path
-            + result.relocated_parent
-            + result.relocated_filename
-            > 0
+        if result.new_files_unmatched > 0
+            || result.relocated_exact_path + result.relocated_parent + result.relocated_filename > 0
         {
             // (no-op; counts already updated above)
         }
@@ -391,28 +378,22 @@ pub async fn move_scanned_directory(
         // a true ambiguous-only file would have produced None above AND had
         // candidates with size match — detect that here:
         if chosen.is_none() {
-            let had_ambig = ambiguous_any(
-                &by_rel,
-                &rel_str,
-                &consumed,
-                &old_blobs,
-                file_size,
-                opts.size_tolerance_bytes,
-            ) || ambiguous_any(
-                &by_parent,
-                &parent_and_name,
-                &consumed,
-                &old_blobs,
-                file_size,
-                opts.size_tolerance_bytes,
-            ) || ambiguous_any(
-                &by_filename,
-                &filename,
-                &consumed,
-                &old_blobs,
-                file_size,
-                0,
-            );
+            let had_ambig =
+                ambiguous_any(
+                    &by_rel,
+                    &rel_str,
+                    &consumed,
+                    &old_blobs,
+                    file_size,
+                    opts.size_tolerance_bytes,
+                ) || ambiguous_any(
+                    &by_parent,
+                    &parent_and_name,
+                    &consumed,
+                    &old_blobs,
+                    file_size,
+                    opts.size_tolerance_bytes,
+                ) || ambiguous_any(&by_filename, &filename, &consumed, &old_blobs, file_size, 0);
             if had_ambig {
                 result.ambiguous_skipped += 1;
                 // it was counted as unmatched above; reclassify
@@ -425,7 +406,13 @@ pub async fn move_scanned_directory(
     let unmatched_ids: Vec<String> = old_blobs
         .iter()
         .enumerate()
-        .filter_map(|(i, b)| if consumed[i] { None } else { Some(b.id.clone()) })
+        .filter_map(|(i, b)| {
+            if consumed[i] {
+                None
+            } else {
+                Some(b.id.clone())
+            }
+        })
         .collect();
     result.unmatched_old_blobs = unmatched_ids.len();
 

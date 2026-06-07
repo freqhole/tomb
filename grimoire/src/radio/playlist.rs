@@ -291,8 +291,7 @@ async fn pick_album_mode(
     );
 
     if !force_new_album {
-        if let Some(next) = next_track_in_same_album(&by_album, &song_pos, last_played.as_deref())
-        {
+        if let Some(next) = next_track_in_same_album(&by_album, &song_pos, last_played.as_deref()) {
             info!(
                 "[radio-album-mode] station {} continuing in same album: next track {}",
                 station_id, next

@@ -48,10 +48,7 @@ pub enum ServeStatus {
     /// is checked via `try_wait`.
     Running { kind: ServeKind, pid: u32 },
     /// child exited on its own. `code` is `None` for signal exits.
-    Exited {
-        kind: ServeKind,
-        code: Option<i32>,
-    },
+    Exited { kind: ServeKind, code: Option<i32> },
     /// failed to spawn the child at all (e.g. current_exe lookup
     /// failed, fork/exec failed). `message` is for ui display.
     SpawnError { message: String },

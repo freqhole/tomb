@@ -94,10 +94,7 @@ pub async fn get_frequency(station_id: &str) -> GrimoireResult<Option<i64>> {
     Ok(freq.flatten())
 }
 
-pub async fn set_frequency(
-    station_id: &str,
-    frequency_seconds: Option<i64>,
-) -> GrimoireResult<()> {
+pub async fn set_frequency(station_id: &str, frequency_seconds: Option<i64>) -> GrimoireResult<()> {
     let pool = database::connect().await?;
     sqlx::query!(
         "UPDATE radio_stationz SET bumper_frequency_seconds = ?, updated_at = unixepoch()

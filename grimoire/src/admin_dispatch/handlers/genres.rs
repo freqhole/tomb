@@ -138,7 +138,10 @@ pub(in crate::admin_dispatch) async fn songs(args: JsonValue) -> GrimoireRespons
         Err(r) => return r,
     };
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
-    let offset = args.get("offset").and_then(|v| v.as_u64()).map(|n| n as u32);
+    let offset = args
+        .get("offset")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
     to_value(
         crate::music::crud::list_songs_by_genre(&genre_id, limit.or(Some(200)), offset.or(Some(0)))
             .await,

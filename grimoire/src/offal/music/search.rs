@@ -127,7 +127,10 @@ pub async fn musicbrainz_search_releases(
         }
     };
 
-    let client = match MusicBrainzClient::new(MusicBrainzConfig { enabled: true, ..Default::default() }) {
+    let client = match MusicBrainzClient::new(MusicBrainzConfig {
+        enabled: true,
+        ..Default::default()
+    }) {
         Ok(c) => c,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -188,7 +191,10 @@ pub async fn musicbrainz_get_release(
         }
     };
 
-    let client = match MusicBrainzClient::new(MusicBrainzConfig { enabled: true, ..Default::default() }) {
+    let client = match MusicBrainzClient::new(MusicBrainzConfig {
+        enabled: true,
+        ..Default::default()
+    }) {
         Ok(c) => c,
         Err(e) => {
             return GrimoireResponse::failure(

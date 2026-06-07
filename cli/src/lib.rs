@@ -385,7 +385,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
             .await
             .map_err(|e| anyhow::anyhow!("rathole exited with error: {e}"))?;
         }
-        Commands::Rathole { action: Some(action) } => {
+        Commands::Rathole {
+            action: Some(action),
+        } => {
             plumbing::handle_rathole_remote(action, json_output).await?;
         }
     }

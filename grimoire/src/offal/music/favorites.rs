@@ -116,10 +116,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
 /// list "beloved" album + artist ids — favorited by any user on this
 /// remote (direct favorites unioned with song-favorite-derived ids).
-pub async fn list_beloved(
-    _caller: &Caller,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+pub async fn list_beloved(_caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
     let response = FavoritesService::new().list_beloved_ids().await;
     match response.data {
         Some((album_ids, artist_ids)) => {

@@ -165,7 +165,10 @@ mod tests {
             generate_highlight("hello world", "world"),
             "hello <mark>world</mark>"
         );
-        assert_eq!(generate_highlight("testing", "test"), "<mark>test</mark>ing");
+        assert_eq!(
+            generate_highlight("testing", "test"),
+            "<mark>test</mark>ing"
+        );
         assert_eq!(generate_highlight("no match", "xyz"), "no match");
     }
 

@@ -92,8 +92,7 @@ pub async fn query_favorites(
                     }
                 };
                 for playlist in playlists {
-                    all_favorites
-                        .push((playlist.favorited_at, FavoriteItem::Playlist(playlist)));
+                    all_favorites.push((playlist.favorited_at, FavoriteItem::Playlist(playlist)));
                 }
             }
             _ => {}
@@ -111,10 +110,7 @@ pub async fn query_favorites(
         .map(|(_, item)| item)
         .collect();
 
-    GrimoireResponse::success(
-        format!("Found {} favorite(s)", paginated.len()),
-        paginated,
-    )
+    GrimoireResponse::success(format!("Found {} favorite(s)", paginated.len()), paginated)
 }
 
 // query song favorites with full metadata

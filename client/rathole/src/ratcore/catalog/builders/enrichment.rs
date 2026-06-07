@@ -29,7 +29,9 @@ pub(in crate::ratcore::catalog) fn bulk_auto() -> AdminCommand {
                     choices: vec!["any".to_string(), "all".to_string()],
                 },
                 required: false,
-                help: Some("any = match any selected tag, all = require every selected tag".to_string()),
+                help: Some(
+                    "any = match any selected tag, all = require every selected tag".to_string(),
+                ),
             },
             ArgSpec {
                 name: "force".to_string(),

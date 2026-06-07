@@ -33,7 +33,10 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
         } else if m.searching {
             "(loading\u{2026})".to_string()
         } else if !m.query.is_empty() {
-            format!("(no results for `{}` \u{2014} try /search <query>)", m.query)
+            format!(
+                "(no results for `{}` \u{2014} try /search <query>)",
+                m.query
+            )
         } else {
             "(empty \u{2014} press ctrl-k then `/local` for downloaded songs, or `/search <query>` to search)".to_string()
         };

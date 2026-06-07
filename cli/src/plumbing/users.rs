@@ -329,7 +329,10 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
             } else {
                 // interactive prompt for code type
                 use dialoguer::Select;
-                let types = ["invite (new user registration)", "account-link (add passkey to existing user)"];
+                let types = [
+                    "invite (new user registration)",
+                    "account-link (add passkey to existing user)",
+                ];
                 let selection = Select::new()
                     .with_prompt("code type")
                     .items(&types)
@@ -350,9 +353,15 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                     Err(e) => return e,
                 };
 
-                let users_response = service.list_users(&UserQueryParams::default(), &admin_user).await;
+                let users_response = service
+                    .list_users(&UserQueryParams::default(), &admin_user)
+                    .await;
                 if !users_response.success {
-                    return CommandOutput::failure(users_response.message, users_response.errors, ());
+                    return CommandOutput::failure(
+                        users_response.message,
+                        users_response.errors,
+                        (),
+                    );
                 }
 
                 let users = users_response.data.unwrap_or_default();
@@ -361,7 +370,8 @@ pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Val
                 }
 
                 // build display list: username (role)
-                let user_items: Vec<String> = users.iter()
+                let user_items: Vec<String> = users
+                    .iter()
                     .map(|u| format!("{} ({})", u.username, u.role))
                     .collect();
 

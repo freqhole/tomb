@@ -34,10 +34,14 @@ use crate::music::entities::albums::{
     },
 };
 use crate::music::entities::artists::{
-    bio_proposals::{apply_artist_bio, propose_artist_bios, ApplyArtistBioRequest, BioSource,
-        ProposeArtistBiosRequest},
-    related_proposals::{apply_related_artists, propose_related_artists, ApplyRelatedArtistsRequest,
-        ProposeRelatedArtistsRequest},
+    bio_proposals::{
+        apply_artist_bio, propose_artist_bios, ApplyArtistBioRequest, BioSource,
+        ProposeArtistBiosRequest,
+    },
+    related_proposals::{
+        apply_related_artists, propose_related_artists, ApplyRelatedArtistsRequest,
+        ProposeRelatedArtistsRequest,
+    },
 };
 use crate::offal::music::albums::{
     ingest_remote_image_inner, ImageIngestTarget, IngestRemoteImageRequest,
@@ -60,11 +64,9 @@ const MAX_ATTEMPTS: u32 = 20;
 /// indicates the chain didn't run for that source — it's not coming.)
 const FRESHNESS_WINDOW_SECS: i64 = 24 * 60 * 60;
 
-pub async fn process_auto_apply_album_enrichment_job(
-    job: &Job,
-) -> Result<Option<Value>, JobError> {
-    let mut params: AutoApplyAlbumEnrichmentParams =
-        serde_json::from_str(&job.parameters).map_err(|e| JobError::ProcessingFailed {
+pub async fn process_auto_apply_album_enrichment_job(job: &Job) -> Result<Option<Value>, JobError> {
+    let mut params: AutoApplyAlbumEnrichmentParams = serde_json::from_str(&job.parameters)
+        .map_err(|e| JobError::ProcessingFailed {
             reason: format!("invalid parameters: {}", e),
         })?;
 
@@ -167,8 +169,8 @@ pub async fn process_auto_apply_album_enrichment_job(
 
     // step 1: are upstream snapshots ready?
     let cfg = config::get_config();
-    let lastfm_enabled = cfg.lastfm.enabled
-        && crate::music::lastfm::lastfm_is_configured(&cfg.lastfm);
+    let lastfm_enabled =
+        cfg.lastfm.enabled && crate::music::lastfm::lastfm_is_configured(&cfg.lastfm);
     let audiodb_enabled = cfg.audiodb.enabled;
 
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -208,11 +210,10 @@ pub async fn process_auto_apply_album_enrichment_job(
             // row stuck in `auto_applying` forever.
         } else {
             params.attempts += 1;
-            let parameters = serde_json::to_value(&params).map_err(|e| {
-                JobError::ProcessingFailed {
+            let parameters =
+                serde_json::to_value(&params).map_err(|e| JobError::ProcessingFailed {
                     reason: format!("serialize reschedule params: {}", e),
-                }
-            })?;
+                })?;
             let resp = create_job(CreateJobRequest {
                 job_type: JobType::AutoApplyAlbumEnrichment,
                 session_id: job.session_id.clone(),
@@ -249,15 +250,11 @@ pub async fn process_auto_apply_album_enrichment_job(
             .into_iter()
             .filter(|p| !p.already_linked && !p.label.trim().is_empty())
             .map(|p| {
-                let source = p
-                    .sources
-                    .first()
-                    .copied()
-                    .unwrap_or_else(|| {
-                        // proposal must have at least one source by
-                        // construction; fall back to mb arbitrarily.
-                        crate::music::entities::albums::taxon_proposals::ProposalSource::Mb
-                    });
+                let source = p.sources.first().copied().unwrap_or_else(|| {
+                    // proposal must have at least one source by
+                    // construction; fall back to mb arbitrarily.
+                    crate::music::entities::albums::taxon_proposals::ProposalSource::Mb
+                });
                 AcceptedProposal {
                     kind_slug: p.kind_slug,
                     label: p.label,
@@ -275,7 +272,10 @@ pub async fn process_auto_apply_album_enrichment_job(
             if let Some(r) = apply.data {
                 taxons_applied = r.linked;
             } else {
-                warn!("auto-apply taxons failed for {}: {}", album_id, apply.message);
+                warn!(
+                    "auto-apply taxons failed for {}: {}",
+                    album_id, apply.message
+                );
             }
         }
     } else {
@@ -304,14 +304,12 @@ pub async fn process_auto_apply_album_enrichment_job(
             })
             .collect();
         if !accept.is_empty() {
-            let apply = apply_external_urls(ApplyExternalUrlsRequest { accept }, Some(&user_id)).await;
+            let apply =
+                apply_external_urls(ApplyExternalUrlsRequest { accept }, Some(&user_id)).await;
             if let Some(res) = apply.data {
                 urls_applied = res.inserted as u32;
             } else {
-                warn!(
-                    "auto-apply urls failed for {}: {}",
-                    album_id, apply.message
-                );
+                warn!("auto-apply urls failed for {}: {}", album_id, apply.message);
             }
         }
     } else {
@@ -442,25 +440,22 @@ pub async fn process_auto_apply_album_enrichment_job(
     if let Some(artist_id) = artist_id_for_images.clone() {
         let artist_meta_raw =
             sqlx::query_scalar!("SELECT metadata FROM artistz WHERE id = ?", artist_id)
-                .fetch_optional(
-                    &database::connect()
-                        .await
-                        .map_err(|e| JobError::ProcessingFailed {
-                            reason: format!("db connect: {}", e),
-                        })?,
-                )
+                .fetch_optional(&database::connect().await.map_err(|e| {
+                    JobError::ProcessingFailed {
+                        reason: format!("db connect: {}", e),
+                    }
+                })?)
                 .await
                 .ok()
                 .flatten()
                 .flatten();
         let artist_meta =
             crate::music::entities::artists::ArtistMetadata::parse(artist_meta_raw.as_deref());
-        let artist_imgs_existing =
-            crate::music::entities::artists::get_artist_images(&artist_id)
-                .await
-                .data
-                .unwrap_or_default()
-                .len() as u32;
+        let artist_imgs_existing = crate::music::entities::artists::get_artist_images(&artist_id)
+            .await
+            .data
+            .unwrap_or_default()
+            .len() as u32;
         let mut artist_link_count = artist_imgs_existing;
         for url in collect_artist_image_candidates(&artist_meta) {
             let req = IngestRemoteImageRequest {
@@ -593,9 +588,7 @@ fn collect_artist_image_candidates(
 
 fn push_http(out: &mut Vec<ImageCandidate>, raw: &String, source: &str) {
     let trimmed = raw.trim();
-    if !trimmed.is_empty()
-        && (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
-    {
+    if !trimmed.is_empty() && (trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         out.push(ImageCandidate {
             url: trimmed.to_string(),
             source: source.to_string(),

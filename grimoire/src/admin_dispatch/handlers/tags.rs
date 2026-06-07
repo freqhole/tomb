@@ -107,7 +107,5 @@ pub(in crate::admin_dispatch) async fn remove_from_album(
         Ok(s) => s,
         Err(r) => return r,
     };
-    to_value(
-        crate::music::entities::tags::remove_albums_tags(vec![album_id], vec![tag_id]).await,
-    )
+    to_value(crate::music::entities::tags::remove_albums_tags(vec![album_id], vec![tag_id]).await)
 }

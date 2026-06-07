@@ -53,12 +53,20 @@ impl Default for PlayerState {
 #[derive(Debug, Clone)]
 pub enum MusicEvent {
     State(PlayerState),
-    Progress { ms: u64, total_ms: u64 },
-    TrackChanged { index: usize, path: String },
+    Progress {
+        ms: u64,
+        total_ms: u64,
+    },
+    TrackChanged {
+        index: usize,
+        path: String,
+    },
     /// shells emit this from background blob-resolution tasks so the
     /// ui can show "loading N more" while a queue is still being
     /// fetched. `remaining` is the number of rows still pending.
-    QueueResolveProgress { remaining: usize },
+    QueueResolveProgress {
+        remaining: usize,
+    },
     Ended,
     Error(String),
 }

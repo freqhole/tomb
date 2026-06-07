@@ -523,11 +523,8 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         }
     };
 
-    match crate::music::analytics::events::record_playlist_initiated_play(
-        &req.id,
-        &caller.user_id,
-    )
-    .await
+    match crate::music::analytics::events::record_playlist_initiated_play(&req.id, &caller.user_id)
+        .await
     {
         Ok(_) => GrimoireResponse::success("playlist play recorded", JsonValue::Null),
         Err(e) => GrimoireResponse::failure(

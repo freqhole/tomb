@@ -91,7 +91,11 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
             action,
             crate::ratcore::player_row_keys::PlayerRowAction::Favorite,
         ) {
-            if m.current_favorited { "♥" } else { "♡" }
+            if m.current_favorited {
+                "♥"
+            } else {
+                "♡"
+            }
         } else {
             label
         };

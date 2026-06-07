@@ -165,7 +165,10 @@ pub async fn handle_command(action: DirTagsAction) -> CommandOutput<serde_json::
 
             let stripped = response.data.unwrap_or(0);
             CommandOutput::success(
-                format!("stripped {} tag assignments from albums under {}", stripped, path),
+                format!(
+                    "stripped {} tag assignments from albums under {}",
+                    stripped, path
+                ),
                 serde_json::json!({ "stripped": stripped }),
             )
         }
@@ -179,7 +182,10 @@ pub async fn handle_command(action: DirTagsAction) -> CommandOutput<serde_json::
 
             let cleared = response.data.unwrap_or(0);
             CommandOutput::success(
-                format!("cleared {} rule-based tag assignments from albums under {}", cleared, path),
+                format!(
+                    "cleared {} rule-based tag assignments from albums under {}",
+                    cleared, path
+                ),
                 serde_json::json!({ "cleared": cleared }),
             )
         }
