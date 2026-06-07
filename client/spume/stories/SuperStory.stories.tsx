@@ -1408,9 +1408,7 @@ export function FullAppDemoBody() {
         getItemKey={(p) => p.id}
         renderList={(ctx) => (
           <div class="flex flex-col h-full">
-            <div class="mt-2 wide:mt-[60px]">
-              <HeadingSection title="playlists" count={mockPlaylists.length} hideOnNarrow />
-            </div>
+            <div class="mt-2 wide:mt-[60px]"></div>
 
             <div class="flex-1 overflow-y-auto">
               <For each={mockPlaylists}>
@@ -1554,9 +1552,7 @@ export function FullAppDemoBody() {
   // ===== SONGS VIEW =====
   const songsView = () => (
     <div class="p-3" data-coach-anchor="songsList">
-      <div class="ml-0 wide:ml-[100px]">
-        <HeadingSection title="songs" count={generatedSongs.length} hideOnNarrow />
-      </div>
+      <div class="ml-0 wide:ml-[100px]"></div>
       <div class="mt-2 wide:mt-6">
         <VirtualSongList
           songs={generatedSongs}
@@ -1576,9 +1572,7 @@ export function FullAppDemoBody() {
   // ===== ALBUMS VIEW =====
   const albumsView = () => (
     <div class="p-3" data-coach-anchor="albumsGrid">
-      <div class="ml-0 wide:ml-[100px]">
-        <HeadingSection title="albums" count={mockAlbums.length} hideOnNarrow />
-      </div>
+      <div class="ml-0 wide:ml-[100px]"></div>
       <div class="mt-2 wide:mt-0">
         <VirtualAlbumGrid
           albums={mockAlbums.map((a) => ({
@@ -1676,9 +1670,7 @@ export function FullAppDemoBody() {
   };
   const feedView = () => (
     <div class="p-3" data-coach-anchor="feedList">
-      <div class="ml-0 wide:ml-[100px]">
-        <HeadingSection title="all feed" count={feedItems().length} hideOnNarrow />
-      </div>
+      <div class="ml-0 wide:ml-[100px]"></div>
       <div class="mt-2 wide:mt-6">
         <VirtualFeedList
           items={feedItems()}
