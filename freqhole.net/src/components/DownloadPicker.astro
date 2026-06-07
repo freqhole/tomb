@@ -95,6 +95,9 @@ const urlsJson = JSON.stringify(
         <span>reset</span>
       </button>
     </div>
+    <div class="dl-brainstorm-help" data-dl-brainstorm-help>
+      <span class="dl-brainstorm-help-text">having trouble figuring out which file to download? get help on the <a href="/getting-started/brainstorm/">brainstorm</a> page.</span>
+    </div>
     <h2 class="dl-more-title">all releases</h2>
     <h3 class="dl-section-title">
       <span class="dl-section-icon"><Icon name="laptop" size="1.1rem" /></span>
@@ -405,6 +408,7 @@ const urlsJson = JSON.stringify(
     const BRAINSTORM_KEY = "freqhole-brainstorm-v1";
     const moreEl = root.querySelector("[data-dl-more]");
     const bsNote = root.querySelector("[data-dl-brainstorm-note]");
+    const bsHelp = root.querySelector("[data-dl-brainstorm-help]");
     const bsReset = root.querySelector("[data-dl-brainstorm-reset]");
 
     function readBrainstorm() {
@@ -429,6 +433,10 @@ const urlsJson = JSON.stringify(
 
       if (moreEl) moreEl.classList.toggle("dl-more--brainstorm", active);
       if (bsNote) bsNote.toggleAttribute("hidden", !active);
+      // the help prompt is the inverse: show it only when no brainstorm
+      // picks are active, so the page always offers a route to figuring
+      // out which file to grab.
+      if (bsHelp) bsHelp.toggleAttribute("hidden", active);
 
       // pills
       root.querySelectorAll("a[data-dl]").forEach((a) => {
@@ -526,6 +534,13 @@ const urlsJson = JSON.stringify(
   }
   .dl-brainstorm-note[hidden] { display: none; }
   .dl-brainstorm-note-text { font-size: 0.85rem; color: var(--sl-color-gray-2, #ccc); }
+  .dl-brainstorm-help {
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--sl-color-gray-6, #1a1a1a);
+  }
+  .dl-brainstorm-help[hidden] { display: none; }
+  .dl-brainstorm-help-text { font-size: 0.85rem; color: var(--sl-color-gray-3, #999); }
   .dl-brainstorm-reset {
     display: inline-flex;
     align-items: center;

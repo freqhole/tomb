@@ -561,7 +561,7 @@
     "cli-linux-armv7": { icon: "cli", title: "rathole for linux", badge: "cli", body: "server/tui binary, armv7 (older raspberry pis).", link: { href: DL, text: "download rathole" } },
     "charnel-android-arm64": { icon: "android", title: "charnel for android", badge: "apk", body: "the android app, arm64 .apk (the default for most phones).", link: { href: DL, text: "download apk" } },
     "charnel-android": { icon: "android", title: "charnel for android", badge: "apk", body: "the android app, universal .apk (any cpu).", link: { href: DL, text: "download apk" } },
-    "web-spume": { variant: "web", icon: "web", title: "spume web app", badge: "web", body: "no native build for this one - use the hosted web app, or self-host it.", link: { href: SPUME, text: "open spume.freqhole.net" } },
+    "web-spume": { variant: "web", icon: "web", title: "spume web app", badge: "web", body: "use the hosted web app, or self-host it.", link: { href: SPUME, text: "open spume.freqhole.net" } },
   };
 
   // walk the tree, collecting the leaf asset keys for every selected leaf.
@@ -727,17 +727,17 @@
 
   // ===== stage 3: sharing ==================================================
   function renderSharing(c: HTMLElement) {
-    stageHeader(c, "share across your devices", "connect your phone, laptop, and friends to your library. freqhole leans on peer-to-peer so you don't need a public ip or port forwarding.");
+    stageHeader(c, "share across your devices", "connect your phone, laptop, and friends to your library. freqhole has peer-to-peer networking so you don't need a public ip or port forwarding.");
 
     const steps = document.createElement("div");
     steps.className = "sw-cards";
     const phoneFirst = state.picks.includes("mobile") || state.picks.includes("android");
     const cards: Card[] = [
       { icon: "qr", title: phoneFirst ? "start with your phone" : "pair a device",
-        body: "open the app on the new device and scan your server's node id qr code (or paste the node id). that's the whole pairing step.",
+        body: "web open the app on another device and scan your server's node id qr code (or paste the node id). that's the whole pairing step.",
         link: { href: "/guides/sharing/", text: "sharing with friends" } },
       { icon: "share", title: "p2p by default", badge: "recommended",
-        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or certs.",
+        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage.",
         link: { href: "/concepts/transports/", text: "how transports work" } },
       { icon: "web", title: "http if you must",
         body: "same-network or reverse-proxy setups can use http, but https certs + single-origin auth make it fiddly. p2p sidesteps all of it.",
@@ -1002,8 +1002,8 @@
     label(c, "what do you want to do? (multi-select)");
     chipRow(c, state.library, [
       { id: "dirs", label: "add / edit scan dirs", icon: "edit" },
-      { id: "addmusic", label: "let users add music", icon: "share" },
       { id: "enrich", label: "edit + enrich metadata", icon: "sparkle" },
+      { id: "addmusic", label: "share with friends", icon: "share" },
     ], () => { save(); renderLibCards(); });
 
     const holder = document.createElement("div");

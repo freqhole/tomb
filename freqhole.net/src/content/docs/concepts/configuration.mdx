@@ -129,7 +129,7 @@ see the [metadata enrichment](/guides/metadata-enrichment/) guide for details.
 linux_buffer_frames = 4096
 ```
 
-native audio backend tuning. only consumed when the `rodio-playback` cargo feature is on (charnel desktop app, cli `serve`). headless / web-only builds ignore this section.
+improved audio backend tuning + configuration. only consumed when the `rodio-playback` cargo feature is on (charnel desktop app, cli `serve`). web-only builds ignore this section.
 
 `linux_buffer_frames` is **linux only** — cpal output period size in frames. raise this if you hear stutters or xruns under load (typical culprits: pipewire/pulseaudio on busy desktops, vm guests, low-power boards). each doubling roughly doubles output latency but adds proportional headroom against scheduler jitter.
 

@@ -7,7 +7,7 @@
 // custom element + exposes window.__FREQHOLE_DEMO__.
 //
 // behavior:
-//   - tall outer section (steps * 100vh) gives native scroll the runway it
+//   - tall outer section (steps * 100vh) gives browser scroll the runway it
 //     needs
 //   - sticky stage hosts the demo
 //   - scroll listener maps section progress -> step index
@@ -264,7 +264,7 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
         btn.className = "info-dot";
         btn.setAttribute("role", "tab");
         btn.setAttribute("aria-label", `step ${i + 1}: ${s.title}`);
-        // native tooltip on hover with the step number + name
+        // tooltip on hover with the step number + name
         btn.title = `${i + 1}. ${s.title}`;
         // inline styles so starlight's button reset doesn't clobber us
         btn.style.width = "0.55rem";
@@ -745,7 +745,7 @@ const sectionVh = steps * 100 + outroVh; // each step ~ 1 viewport tall, plus dw
       height: 100vh;
     }
     /* the always-on touch interceptor — covers the entire sticky stage so
-       no swipe ever reaches the demo or its inner virtualized lists. native
+       no swipe ever reaches the demo or its inner virtualized lists. browser
        page scroll wins because touch-action below is pan-y. */
     .stage-touch-blocker {
       display: block;
