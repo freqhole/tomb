@@ -41,6 +41,21 @@ const FMT = ["%aI", "%an", "%ae", "%H"].join(FS); // author date (iso), name, em
 const isBot = (name, email) =>
   /github-actions\[bot\]/i.test(name) || /github-actions\[bot\]/i.test(email);
 
+// the same human can surface under several author strings: a github login
+// (from a noreply email or an api lookup) and a plain display name (the
+// fallback when the api is unreachable). left unreconciled, `createdBy` and
+// `updatedBy` can end up as "edwardsharp" and "edward sharp" for one person,
+// which the byline renders as two separate authors. map every known alias to a
+// single canonical handle (prefer the github login so the component can render
+// a profile + avatar). keyed lowercase; add a line here for each contributor.
+const AUTHOR_ALIASES = {
+  "edward sharp": "edwardsharp",
+  "edwardsharp": "edwardsharp",
+};
+
+const canonicalAuthor = (name) =>
+  name ? AUTHOR_ALIASES[name.toLowerCase()] ?? name : name;
+
 const isCheck = process.argv.includes("--check");
 // --force re-stamps even the write-once fields (created/createdBy/createdSha),
 // rebuilding every page's metadata from scratch. otherwise those are pinned.
@@ -142,9 +157,9 @@ async function resolveLogin(sha) {
 async function resolveAuthor(commit) {
   if (!commit) return "unknown";
   const noreply = (commit.email || "").toLowerCase().match(/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/);
-  if (noreply) return noreply[1];
+  if (noreply) return canonicalAuthor(noreply[1]);
   const login = await resolveLogin(commit.sha);
-  return login || commit.name || "unknown";
+  return canonicalAuthor(login || commit.name || "unknown");
 }
 
 // last resort when a file isn't committed yet: filesystem timestamps.
@@ -180,6 +195,18 @@ function setScalar(block, key, rendered, pin) {
 
 const yamlString = (s) => `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
+// read an existing scalar value from a frontmatter block (quotes stripped).
+// returns undefined when the key is absent.
+function readScalar(block, key) {
+  const m = block.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
+  if (!m) return undefined;
+  let v = m[1].trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return v;
+}
+
 let changed = 0;
 const stale = [];
 
@@ -209,7 +236,17 @@ for (const file of collectMdx(docsDir).sort()) {
   const updatedBy = dates?.updatedBy ?? (await resolveAuthor(updateSrc));
 
   // create-side fields are write-once (pinned) unless --force rewrites all.
-  const pinCreate = !isForce;
+  // exception: a page first stamped before it was committed carries
+  // provisional create fields (createdBy "local", empty createdSha) from the
+  // filesystem fallback. once the page lands in git, refresh them - so they
+  // don't stay credited to "local" forever.
+  const existingCreatedBy = readScalar(fm.block, "createdBy");
+  const existingCreatedSha = readScalar(fm.block, "createdSha");
+  const provisionalCreate =
+    existingCreatedBy === undefined ||
+    existingCreatedBy === "local" ||
+    !existingCreatedSha;
+  const pinCreate = !isForce && !provisionalCreate;
 
   let block = fm.block;
   block = setScalar(block, "created", `created: ${created}`, pinCreate);
