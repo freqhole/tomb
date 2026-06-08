@@ -163,8 +163,7 @@ pub struct LocalRef {
 }
 
 /// which top-level area has focus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Focus {
     /// big-banner landing screen — the default startup view.
     /// the slash repl is reachable via ctrl-k from here so the
@@ -192,7 +191,6 @@ pub enum Focus {
     /// the global player row chrome (focusable transport buttons).
     PlayerRow,
 }
-
 
 /// in-memory slice. rebuilt on every launch.
 pub struct EphemeralState {

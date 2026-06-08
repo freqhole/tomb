@@ -466,10 +466,9 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
             // freqhole's clients via the same sqlite db).
             persist_peer_addr(addr);
         }
-        KeyCode::Char(c)
-            if !c.is_control() => {
-                ti::insert_char(&mut eph.peer_input, &mut eph.peer_cursor, c);
-            }
+        KeyCode::Char(c) if !c.is_control() => {
+            ti::insert_char(&mut eph.peer_input, &mut eph.peer_cursor, c);
+        }
         _ => {}
     }
 }
@@ -2404,11 +2403,10 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             let m = &mut app.state.ephemeral.music;
             ti::move_end(&m.query, &mut m.query_cursor);
         }
-        (MusicMode::Search, KeyCode::Char(c))
-            if !c.is_control() => {
-                let m = &mut app.state.ephemeral.music;
-                ti::insert_char(&mut m.query, &mut m.query_cursor, c);
-            }
+        (MusicMode::Search, KeyCode::Char(c)) if !c.is_control() => {
+            let m = &mut app.state.ephemeral.music;
+            ti::insert_char(&mut m.query, &mut m.query_cursor, c);
+        }
         _ => {}
     }
 }
@@ -2920,10 +2918,9 @@ fn handle_queue_action(
             if let Some(c) = m.current {
                 if pos < c {
                     m.current = Some(c - 1);
-                } else if pos == c
-                    && c >= m.queue.len() {
-                        m.current = if m.queue.is_empty() { None } else { Some(0) };
-                    }
+                } else if pos == c && c >= m.queue.len() {
+                    m.current = if m.queue.is_empty() { None } else { Some(0) };
+                }
             }
             let new_len = m.queue.len();
             if new_len == 0 {

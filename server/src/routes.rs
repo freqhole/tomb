@@ -38,9 +38,7 @@ fn build_routes_map(routes: &[RouteInfo]) -> HashMap<&str, HashMap<&str, &RouteI
     let mut map: HashMap<&str, HashMap<&str, &RouteInfo>> = HashMap::new();
     for route in routes {
         let domain_key = route.domain.as_str();
-        map.entry(domain_key)
-            .or_default()
-            .insert(route.name, route);
+        map.entry(domain_key).or_default().insert(route.name, route);
     }
     map
 }

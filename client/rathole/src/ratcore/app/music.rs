@@ -34,8 +34,7 @@ pub struct SongRow {
 }
 
 /// portable mirror of `grimoire::player::PlayerState`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlayerState {
     #[default]
     Stopped,
@@ -43,7 +42,6 @@ pub enum PlayerState {
     Playing,
     Paused,
 }
-
 
 /// portable mirror of `grimoire::player::PlayerEvent`. shells fan
 /// these into the app's `AppAction::MusicEvent` channel.
@@ -69,8 +67,7 @@ pub enum MusicEvent {
 }
 
 /// which sub-area of the music view has focus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MusicMode {
     /// editing the search box.
     #[default]
@@ -78,7 +75,6 @@ pub enum MusicMode {
     /// browsing the results list.
     Results,
 }
-
 
 /// in-memory state for the music view. lives on `EphemeralState`.
 #[derive(Debug, Clone, Default)]

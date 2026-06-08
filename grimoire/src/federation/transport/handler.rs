@@ -197,9 +197,11 @@ async fn handle_stream(
                 // map error types to status codes
                 let status = if response.errors.iter().any(|e| e.error_type == "forbidden") {
                     403
-                } else if response.errors.iter().any(|e| {
-                    e.error_type == "not_found" || e.error_type == "route_not_found"
-                }) {
+                } else if response
+                    .errors
+                    .iter()
+                    .any(|e| e.error_type == "not_found" || e.error_type == "route_not_found")
+                {
                     404
                 } else if response
                     .errors
@@ -256,12 +258,11 @@ async fn handle_stream(
                                     error: None,
                                 };
                                 send_length_prefixed(&mut send, &resp).await?;
-                                send.write_all(&bytes).await.map_err(|e| {
-                                    format!("failed to write image data: {}", e)
-                                })?;
-                                send.finish().map_err(|e| {
-                                    format!("failed to finish image stream: {}", e)
-                                })?;
+                                send.write_all(&bytes)
+                                    .await
+                                    .map_err(|e| format!("failed to write image data: {}", e))?;
+                                send.finish()
+                                    .map_err(|e| format!("failed to finish image stream: {}", e))?;
                                 return Ok(());
                             }
                         }
