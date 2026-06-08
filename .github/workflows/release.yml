@@ -422,8 +422,6 @@ jobs:
       # intermittently, which fails the apk build at the very end).
       - name: setup gradle (cache + provisioning)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: client/charnel/src-tauri/gen/android
       - name: decode android keystore
         if: env.ANDROID_KEY_ALIAS != ''
         run: |
