@@ -270,6 +270,17 @@ ANDROID_APKSIGNER := $(ANDROID_SDK_ROOT)/build-tools/$(ANDROID_BUILD_TOOLS_VERSI
 JAVA_HOME ?= /Applications/Android Studio.app/Contents/jbr/Contents/Home
 export JAVA_HOME
 
+# build the spume web client into client/spume/dist. grimoire embeds that dir
+# via include_dir! at compile time, so it MUST exist before any cargo build of
+# the cli/server/grimoire crates (otherwise the macro panics). installs node
+# deps if missing so this works standalone in ci and locally.
+.PHONY: build-spume
+build-spume:
+	@echo "building spume client..."
+	@if [ ! -d client-codegen/freqhole-api-client/node_modules ]; then (cd client-codegen/freqhole-api-client && npm ci); fi
+	@if [ ! -d client/spume/node_modules ]; then (cd client/spume && npm ci); fi
+	cd client/spume && FREQHOLE_GIT_SHA=$(GIT_SHA) npm run build
+
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
 	@echo "building spume client..."
@@ -464,6 +475,8 @@ bump-version:
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak; \
 		echo "  updating client/midden/Cargo.toml..."; \
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml && rm -f client/midden/Cargo.toml.bak; \
+		echo "  updating Cargo.lock (workspace member versions)..."; \
+		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen|midden)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
 		echo "  updating tauri.conf.json..."; \
 		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
