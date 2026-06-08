@@ -1,0 +1,240 @@
+---
+// overrides starlight's PageTitle: renders the page <h1> exactly as the default
+// does, then a small byline with created / last-updated timestamps and their
+// authors (each linked to a github profile, with avatar, when the author is a
+// resolvable github handle). dates + authors come from frontmatter, stamped by
+// scripts/gen-page-dates.mjs from git history.
+
+// starlight's default uses the PAGE_TITLE_ID constant ("_top") for the heading
+// anchor; that module isn't a public export, so mirror the value directly.
+const PAGE_TITLE_ID = "_top";
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title, created, createdBy, createdSha, updated, updatedBy, updatedSha } = data as {
+  title: string;
+  created?: Date;
+  createdBy?: string;
+  createdSha?: string;
+  updated?: Date;
+  updatedBy?: string;
+  updatedSha?: string;
+};
+
+// repo the commit links point at. matches the origin remote used by
+// scripts/gen-page-dates.mjs to stamp the shas.
+const REPO = "freqhole/tomb";
+const commitUrl = (sha: string) => `https://github.com/${REPO}/commit/${sha}`;
+const commitTitle = (sha: string) => `view commit ${sha} on github`;
+const profileTitle = (name: string) => `view @${name} on github`;
+
+const MONTHS = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+// e.g. "25 march 2026, 9a" - numeric day, word month, time rounded to the
+// nearest hour with a/p. rendered in utc for stable output across build hosts.
+const fmt = (d: Date) => {
+  const day = d.getUTCDate();
+  const month = MONTHS[d.getUTCMonth()];
+  const year = d.getUTCFullYear();
+  const hour = (d.getUTCHours() + (d.getUTCMinutes() >= 30 ? 1 : 0)) % 24;
+  const meridiem = hour < 12 ? "a" : "p";
+  const hour12 = hour % 12 || 12;
+  return `${day} ${month} ${year} ${hour12}${meridiem}`;
+};
+
+// build the bits needed to render an author: a github profile link + avatar
+// when the value matches github's username rules (alphanumeric + single
+// hyphens, <=39 chars), otherwise just the plain name as text.
+const person = (name?: string) => {
+  if (!name) return null;
+  const isHandle = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(name);
+  return {
+    name,
+    profile: isHandle ? `https://github.com/${name}` : null,
+    avatar: isHandle ? `https://github.com/${name}.png?size=40` : null,
+  };
+};
+
+// collapse to a single "created" line when the page has never been modified
+// (the create + update commits are the same, so the timestamps are identical).
+const sameTimestamp = created && updated && created.getTime() === updated.getTime();
+const showUpdated = Boolean(updated && !sameTimestamp);
+
+const showCreated = Boolean(created);
+const showUpdatedLine = Boolean(showUpdated && updated);
+const hasMeta = showCreated || showUpdatedLine;
+
+// when every shown line shares the same author (or only one line is shown),
+// credit them once at the end rather than repeating "by @user" between the
+// dates. otherwise each line carries its own author inline.
+const sameAuthor = Boolean(createdBy && updatedBy && createdBy === updatedBy);
+const collapseAuthor =
+  (showCreated && showUpdatedLine && sameAuthor) || showCreated !== showUpdatedLine;
+
+const creator = collapseAuthor ? null : person(createdBy);
+const editor = collapseAuthor ? null : person(updatedBy);
+const trailingAuthor = collapseAuthor
+  ? person(showCreated ? createdBy : updatedBy)
+  : null;
+---
+
+<h1 id={PAGE_TITLE_ID}>{title}</h1>
+
+{
+  hasMeta && (
+    <div class="page-byline not-content">
+      {created && (
+        <span class="byline-item">
+          created
+          {createdSha ? (
+            <a
+              class="byline-commit"
+              href={commitUrl(createdSha)}
+              title={commitTitle(createdSha)}
+              rel="noopener"
+              target="_blank"
+            >
+              <time datetime={created.toISOString()}>{fmt(created)}</time>
+            </a>
+          ) : (
+            <time datetime={created.toISOString()}>{fmt(created)}</time>
+          )}
+          {creator && (
+            <span class="byline-author">
+              by
+              {creator.avatar && (
+                <img class="byline-avatar" src={creator.avatar} alt="" width="20" height="20" loading="lazy" />
+              )}
+              {creator.profile ? (
+                <a href={creator.profile} title={profileTitle(creator.name)} rel="author noopener" target="_blank">
+                  {creator.name}
+                </a>
+              ) : (
+                <span>{creator.name}</span>
+              )}
+            </span>
+          )}
+        </span>
+      )}
+      {showUpdated && updated && (
+        <span class="byline-item">
+          updated
+          {updatedSha ? (
+            <a
+              class="byline-commit"
+              href={commitUrl(updatedSha)}
+              title={commitTitle(updatedSha)}
+              rel="noopener"
+              target="_blank"
+            >
+              <time datetime={updated.toISOString()}>{fmt(updated)}</time>
+            </a>
+          ) : (
+            <time datetime={updated.toISOString()}>{fmt(updated)}</time>
+          )}
+          {editor && (
+            <span class="byline-author">
+              by
+              {editor.avatar && (
+                <img class="byline-avatar" src={editor.avatar} alt="" width="20" height="20" loading="lazy" />
+              )}
+              {editor.profile ? (
+                <a href={editor.profile} title={profileTitle(editor.name)} rel="author noopener" target="_blank">
+                  {editor.name}
+                </a>
+              ) : (
+                <span>{editor.name}</span>
+              )}
+            </span>
+          )}
+        </span>
+      )}
+      {trailingAuthor && (
+        <span class="byline-author">
+          by
+          {trailingAuthor.avatar && (
+            <img class="byline-avatar" src={trailingAuthor.avatar} alt="" width="20" height="20" loading="lazy" />
+          )}
+          {trailingAuthor.profile ? (
+            <a href={trailingAuthor.profile} title={profileTitle(trailingAuthor.name)} rel="author noopener" target="_blank">
+              {trailingAuthor.name}
+            </a>
+          ) : (
+            <span>{trailingAuthor.name}</span>
+          )}
+        </span>
+      )}
+    </div>
+  )
+}
+
+<style>
+  @layer starlight.core {
+    h1 {
+      margin-top: 1rem;
+      font-size: var(--sl-text-h1);
+      line-height: var(--sl-line-height-headings);
+      font-weight: 600;
+      color: var(--sl-color-white);
+    }
+  }
+
+  .page-byline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.9rem;
+    margin-top: 0.5rem;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+
+  .byline-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .byline-author {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .byline-avatar {
+    border-radius: 50%;
+    background: var(--sl-color-gray-6);
+  }
+
+  .byline-author a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+  }
+
+  .byline-author a:hover {
+    color: var(--sl-color-text-accent);
+    text-decoration: underline;
+  }
+
+  .byline-item time {
+    color: var(--sl-color-gray-2);
+  }
+
+  .byline-commit {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    text-decoration-color: var(--sl-color-gray-4);
+    text-underline-offset: 0.2em;
+  }
+
+  .byline-commit:hover {
+    color: var(--sl-color-text-accent);
+    text-decoration: underline;
+  }
+
+  .byline-commit:hover time {
+    color: var(--sl-color-text-accent);
+  }
+</style>

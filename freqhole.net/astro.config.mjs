@@ -16,6 +16,7 @@ export default defineConfig({
 			social: [{ icon: 'external', label: 'spume', href: 'https://spume.freqhole.net' }, { icon: 'github', label: 'GitHub', href: 'https://github.com/freqhole/tomb' }],
 			components: {
 				Hero: './src/components/CustomHero.astro',
+				PageTitle: './src/components/CustomPageTitle.astro',
 			},
 			sidebar: [
 				{
