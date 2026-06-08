@@ -177,7 +177,9 @@ function App(props: ParentProps) {
                   </A>
                   <A
                     href="/federation"
-                    class={`nav-link ${isActive("/federation") ? "active" : ""}`}
+                    class={`nav-link ${
+                      isActive("/federation") ? "active" : ""
+                    }`}
                   >
                     federation
                   </A>
@@ -213,7 +215,14 @@ function App(props: ParentProps) {
                     <div class="server-status">
                       <div class="p2p-status-row">
                         <span
-                          class={`status-dot ${p2pStatus()?.status === "online" ? "running" : p2pStatus()?.status === "connecting..." || p2pStatus()?.status === "starting..." ? "connecting" : "stopped"}`}
+                          class={`status-dot ${
+                            p2pStatus()?.status === "online"
+                              ? "running"
+                              : p2pStatus()?.status === "connecting..." ||
+                                p2pStatus()?.status === "starting..."
+                              ? "connecting"
+                              : "stopped"
+                          }`}
                         />
                         <span class="status-text">
                           p2p {p2pStatus()?.status}
@@ -222,9 +231,7 @@ function App(props: ParentProps) {
                     </div>
                   </Show>
 
-                  <div class="section">
-                    <p class="version">version {VERSION}</p>
-                  </div>
+                  <p class="version">version {VERSION}</p>
                 </div>
               </nav>
 

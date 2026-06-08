@@ -5,6 +5,11 @@ import starlight from '@astrojs/starlight';
 // https://astro.build/config
 export default defineConfig({
 	site: 'https://freqhole.net',
+	// short alias so the desktop app (and humans) can point at the stable
+	// /download url; astro emits a redirect to the actual docs page at build.
+	redirects: {
+		'/download': '/getting-started/download',
+	},
 	integrations: [
 		starlight({
 			title: 'freqhole',

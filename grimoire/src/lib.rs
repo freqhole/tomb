@@ -57,7 +57,9 @@ pub use search::{
     SongSearchResult, SortDirection, Suggestion, SuggestionType, SuggestionsRequest,
     SuggestionsResponse,
 };
-pub use updates::{check_for_update, fetch_latest_release, UpdateStatus, DOWNLOAD_URL};
+pub use updates::{
+    check_for_update, check_for_update_now, fetch_latest_release, UpdateStatus, DOWNLOAD_URL,
+};
 pub use users::models::AuthResult;
 pub use users::{
     AuthError, CreateInviteCodeRequest, CreateUserRequest, FavoriteTarget, FavoritesService,

@@ -135,6 +135,17 @@ export const ShareLinkReceivedEventSchema = z.object({
 /**
  * discriminated union of all event types
  */
+export const UpdateCheckResultEventSchema = z.object({
+  type: z.literal("update-check-result"),
+  data: z.object({
+    update_available: z.boolean(),
+    current_version: z.string(),
+    latest_version: z.string().optional(),
+    download_url: z.string(),
+    error: z.string().optional(),
+  }),
+});
+
 export const TauriEventSchema = z.discriminatedUnion("type", [
   ConfigChangedEventSchema,
   ServerImageUpdatedEventSchema,
@@ -143,6 +154,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   KnockCreatedEventSchema,
   PeerOfflineEventSchema,
   ShareLinkReceivedEventSchema,
+  UpdateCheckResultEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -153,3 +165,4 @@ export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;
 export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;
 export type PeerOfflineEvent = z.infer<typeof PeerOfflineEventSchema>;
 export type ShareLinkReceivedEvent = z.infer<typeof ShareLinkReceivedEventSchema>;
+export type UpdateCheckResultEvent = z.infer<typeof UpdateCheckResultEventSchema>;

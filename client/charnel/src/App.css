@@ -61,12 +61,12 @@ body {
   border-right: 1px solid #1f1f1f;
   display: flex;
   flex-direction: column;
-  padding: 1rem 0;
-  padding-top: env(titlebar-area-height, 2.5rem); /* account for macOS traffic lights */
+  padding-top: 1rem;
+  overflow-y: auto;
 }
 
 .sidebar-header {
-  padding: 0.5rem 1rem 1.5rem;
+  padding: 0rem 1rem 0rem;
   display: flex;
   flex-direction: column;
   gap: 0;

@@ -362,6 +362,24 @@ export function App() {
         }
         break;
       }
+
+      case "update-check-result": {
+        // result of the desktop "check for updates" menu action.
+        const d = event.data;
+        if (d.error) {
+          toast.error(`update check failed: ${d.error}`, { title: "updates" });
+        } else if (d.update_available && d.latest_version) {
+          // no link opener on desktop, so surface the download url as text the
+          // user can visit. persistent so it stays put while they read it.
+          toast.info(`version ${d.latest_version} is available — get it at ${d.download_url}`, {
+            title: "updates",
+            persistent: true,
+          });
+        } else {
+          toast.success(`you're up to date (version ${d.current_version})`, { title: "updates" });
+        }
+        break;
+      }
     }
   }
 

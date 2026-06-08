@@ -123,6 +123,26 @@ pub async fn check_for_update() -> GrimoireResult<UpdateStatus> {
     })
 }
 
+/// full update status, ignoring the config flag.
+///
+/// always performs the network call regardless of `[updates] enabled`. this
+/// backs the desktop app's manual "check for updates" menu item, which should
+/// work even when automatic update checks are turned off. the returned
+/// `enabled` field still reflects the config value for the caller's reference.
+pub async fn check_for_update_now() -> GrimoireResult<UpdateStatus> {
+    let current = current_version().to_string();
+    let latest = fetch_latest_release().await?;
+    let update_available = is_newer(&latest, &current);
+
+    Ok(UpdateStatus {
+        current_version: current,
+        latest_version: Some(latest),
+        update_available,
+        enabled: checks_enabled(),
+        download_url: DOWNLOAD_URL.to_string(),
+    })
+}
+
 /// parse a semver-ish string into numeric components, ignoring a leading `v`
 /// and any pre-release/build suffix after the first `-` or `+`.
 fn parse_version(v: &str) -> Vec<u64> {
