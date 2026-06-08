@@ -68,13 +68,21 @@ pub enum RatholeRemoteAction {
 fn parse_input(input: &str, invite: Option<&str>) -> (String, &'static str, &'static str) {
     // 64-char hex = iroh p2p node id
     if input.len() == 64 && input.chars().all(|c| c.is_ascii_hexdigit()) {
-        let stage = if invite.is_some() { "invited" } else { "knock_pending" };
+        let stage = if invite.is_some() {
+            "invited"
+        } else {
+            "knock_pending"
+        };
         return (input.to_string(), "wasm", stage);
     }
 
     // http url
     if input.starts_with("http://") || input.starts_with("https://") {
-        let stage = if invite.is_some() { "invited" } else { "knock_pending" };
+        let stage = if invite.is_some() {
+            "invited"
+        } else {
+            "knock_pending"
+        };
         return (input.to_string(), "http", stage);
     }
 

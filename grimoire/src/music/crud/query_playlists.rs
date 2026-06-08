@@ -105,6 +105,7 @@ pub struct PlaylistViewRow {
 }
 
 impl PlaylistViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_playlist_query_result(self, user_id: Option<&str>) -> PlaylistQueryResult {
         // parse images JSON array
         let images = self
@@ -236,6 +237,7 @@ pub struct PlaylistSongViewRow {
 }
 
 impl PlaylistSongViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_playlist_song_result(self, user_id: Option<&str>) -> PlaylistSongResult {
         let position = self.position;
         let added_at = self.added_at;
@@ -569,7 +571,7 @@ pub async fn query_playlists(
         Err(e) => {
             tracing::error!("Failed to fetch playlists from database: {:?}", e);
             return GrimoireResponse::failure(
-                &format!("Failed to query playlists: {}", e),
+                format!("Failed to query playlists: {}", e),
                 vec![e.into()],
             );
         }
@@ -686,7 +688,7 @@ pub async fn query_playlist_songs(
         }
     };
 
-    let user_id_ref = params.user_id.as_ref().map(|uid| uid.as_str());
+    let user_id_ref = params.user_id.as_deref();
     let mut songs: Vec<PlaylistSongResult> = rows
         .into_iter()
         .map(|r| r.to_playlist_song_result(user_id_ref))

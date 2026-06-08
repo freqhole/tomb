@@ -31,7 +31,7 @@ export const coachSteps: CoachStep[] = [
   {
     id: "add-music",
     title: "take a quick tour",
-    body: "freqhole scans + indexes your audio files in place. GUI app for macOS, linux, & android. CLI for headless servers (like a raspberry pi).",
+    body: "freqhole scans + indexes your audio files. apps for mac, linux, & android. CLI for headless servers (like a raspberry pi). this is a tour of the main gui.",
     anchor: "addMusicButton",
     apply: (ctx) => {
       ctx.closeAllModals();
@@ -120,13 +120,14 @@ export const coachSteps: CoachStep[] = [
       ctx.setSelectedListItem?.("artistsView", 0);
       ctx.setListProgress?.("artistsView:detail", 0);
     },
-    // walk through the first 4 artists; for each, scroll the detail panel
-    // start → end. divides the scroll into N slots.
+    // walk through several artists spread down the list (so the master
+    // list visibly scrolls); for each, scroll its detail panel start → end.
     onProgress: (ctx, p) => {
       const N = 4;
       const slot = Math.min(N - 1, Math.floor(p * N));
       const subP = p * N - slot;
-      ctx.setSelectedListItem?.("artistsView", slot);
+      // pick items spaced out so the artist list scrolls as we go.
+      ctx.setSelectedListItem?.("artistsView", slot * 6);
       ctx.setListProgress?.("artistsView:detail", subP);
     },
   },
@@ -143,6 +144,7 @@ export const coachSteps: CoachStep[] = [
       ctx.setSelectedListItem?.("playlistsView", 0);
       ctx.setListProgress?.("playlistsView:detail", 0);
     },
+    // step through each playlist; for each, scroll its detail panel.
     onProgress: (ctx, p) => {
       const N = 4;
       const slot = Math.min(N - 1, Math.floor(p * N));
@@ -154,15 +156,28 @@ export const coachSteps: CoachStep[] = [
   {
     id: "favorites",
     title: "favorites",
-    body: "songs, albums, artists, playlists — all in one place.",
+    body: "songs, albums, artists, playlists — all in one place. toggle types on + off to filter.",
     anchor: "favoritesGrid",
     apply: (ctx) => {
       ctx.setRoute("favorites");
       ctx.setQueueOpen(false);
       ctx.closeSearch();
       ctx.setListProgress?.("favoritesGrid", 0);
+      // start with only songs showing; onProgress layers the rest in.
+      ctx.setFavoriteFilters?.(["songs"]);
     },
-    onProgress: (ctx, p) => ctx.setListProgress?.("favoritesGrid", p),
+    // reveal each type in turn (songs -> +albums -> +artists -> +playlists),
+    // then peel them back off (drop songs -> drop albums -> drop artists)
+    // to show filtering works in both directions.
+    onProgress: (ctx, p) => {
+      if (p < 0.14) ctx.setFavoriteFilters?.(["songs"]);
+      else if (p < 0.28) ctx.setFavoriteFilters?.(["songs", "albums"]);
+      else if (p < 0.42) ctx.setFavoriteFilters?.(["songs", "albums", "artists"]);
+      else if (p < 0.56) ctx.setFavoriteFilters?.(["songs", "albums", "artists", "playlists"]);
+      else if (p < 0.7) ctx.setFavoriteFilters?.(["albums", "artists", "playlists"]);
+      else if (p < 0.84) ctx.setFavoriteFilters?.(["artists", "playlists"]);
+      else ctx.setFavoriteFilters?.(["playlists"]);
+    },
   },
   {
     id: "library-graph",
@@ -195,13 +210,24 @@ export const coachSteps: CoachStep[] = [
   {
     id: "radio",
     title: "radio",
-    body: "create live radio streams that anyone can listen to; or set private so only your friends can access.",
+    body: "create live radio streams that anyone can listen to; or set private so only you & your friends can listen.",
     anchor: "radioStations",
     apply: (ctx) => {
       ctx.setRoute("radio");
       ctx.setQueueOpen(false);
       ctx.closeSearch();
       ctx.setSpotlight?.(null);
+      ctx.setSelectedListItem?.("radioStations", 0);
+      ctx.setListProgress?.("radioDetail", 0);
+    },
+    // tune through the stations as we scroll; for each, scroll its detail
+    // panel (now-playing + recent listens) start → end.
+    onProgress: (ctx, p) => {
+      const N = 4;
+      const slot = Math.min(N - 1, Math.floor(p * N));
+      const subP = p * N - slot;
+      ctx.setSelectedListItem?.("radioStations", slot);
+      ctx.setListProgress?.("radioDetail", subP);
     },
   },
   {
@@ -259,15 +285,34 @@ export const coachSteps: CoachStep[] = [
       ctx.setRoute("album-detail");
       ctx.openModal("album-edit");
       ctx.setSpotlight?.(null);
-      ctx.setInputValue?.("albumEditTitle", "");
+      ctx.setAlbumEditTitle?.("unknown album");
+      ctx.setAlbumEnrichment?.(0);
     },
-    // type a corrected title into the title field char-by-char during the
-    // first 80% of the slide. last 20% pauses on the final value.
+    // first the title is fixed by hand: delete "unknown album", then type
+    // "the dark side of the moon". then musicbrainz enrichment fills the
+    // year + genres, lights up the match icons, and corrects the title
+    // casing to "The Dark Side of the Moon".
     onProgress: (ctx, p) => {
-      const corrected = "the dark side of the moon (2011 remaster)";
-      const typeP = Math.min(1, p / 0.8);
-      const n = Math.round(typeP * corrected.length);
-      ctx.setInputValue?.("albumEditTitle", corrected.slice(0, n));
+      const oldTitle = "unknown album";
+      const newTitle = "the dark side of the moon";
+      const properTitle = "The Dark Side of the Moon";
+      // musicbrainz enrichment ramps over the last ~45% of the slide.
+      const enrich = Math.max(0, (p - 0.55) / 0.45);
+      if (p < 0.25) {
+        // backspace the old title
+        const dp = p / 0.25;
+        ctx.setAlbumEditTitle?.(oldTitle.slice(0, Math.round(oldTitle.length * (1 - dp))));
+      } else if (p < 0.55) {
+        // type the corrected title
+        const tp = (p - 0.25) / 0.3;
+        ctx.setAlbumEditTitle?.(newTitle.slice(0, Math.round(newTitle.length * tp)));
+      } else if (enrich > 0.33) {
+        // once the year + genres land, musicbrainz also fixes the casing
+        ctx.setAlbumEditTitle?.(properTitle);
+      } else {
+        ctx.setAlbumEditTitle?.(newTitle);
+      }
+      ctx.setAlbumEnrichment?.(enrich);
     },
   },
   {
@@ -366,10 +411,13 @@ export const coachSteps: CoachStep[] = [
       ctx.setKnockPhase?.("pending");
       ctx.setSpotlight?.(null);
     },
-    // ramp up spotlight on the refresh button across the slide.
+    // ramp up spotlight on the refresh button across the first half, then
+    // flip to approved at the midpoint so "access granted" gets an equal
+    // share of the slide's scroll time.
     onProgress: (ctx, p) => {
       ctx.setSpotlight?.(p > 0.05 ? "knockRefreshButton" : null, p);
-      if (p > 0.95) ctx.setKnockPhase?.("approved");
+      if (p > 0.5) ctx.setKnockPhase?.("approved");
+      else ctx.setKnockPhase?.("pending");
     },
   },
   {

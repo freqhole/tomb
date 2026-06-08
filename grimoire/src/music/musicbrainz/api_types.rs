@@ -389,7 +389,7 @@ impl From<Release> for MbReleaseDetail {
                 } else {
                     release_genres
                 };
-                genres.sort_by(|a, b| b.count.unwrap_or(0).cmp(&a.count.unwrap_or(0)));
+                genres.sort_by_key(|b| std::cmp::Reverse(b.count.unwrap_or(0)));
                 genres.into_iter().map(|g| g.name).collect()
             },
             // label: join all unique label names from label-info

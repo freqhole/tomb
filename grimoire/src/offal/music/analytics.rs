@@ -112,7 +112,7 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -165,7 +165,7 @@ pub async fn record_event(_caller: &Caller, body: JsonValue) -> GrimoireResponse
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -194,7 +194,7 @@ pub async fn history(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -240,7 +240,7 @@ pub async fn song_analytics(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -356,7 +356,7 @@ pub async fn feed(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -410,7 +410,7 @@ pub async fn delete_feed_event(caller: &Caller, body: JsonValue) -> GrimoireResp
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

@@ -236,10 +236,12 @@ pub async fn handle_command(action: ScanAction) -> CommandOutput<serde_json::Val
                 new_path,
                 if dry_run { " (dry run)" } else { "" }
             );
-            let mut opts = grimoire::music::scanner::MoveScanDirectoryOptions::default();
-            opts.dry_run = dry_run;
-            opts.soft_delete_unmatched = !keep_unmatched;
-            opts.updated_by = Some("cli".to_string());
+            let opts = grimoire::music::scanner::MoveScanDirectoryOptions {
+                dry_run,
+                soft_delete_unmatched: !keep_unmatched,
+                updated_by: Some("cli".to_string()),
+                ..Default::default()
+            };
 
             let response =
                 grimoire::music::scanner::move_scanned_directory(&old_path, &new_path, opts).await;

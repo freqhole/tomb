@@ -522,61 +522,6 @@ fn label_for_span(min: i32, max: i32) -> String {
     format!("{}-{}", min, max)
 }
 
-#[cfg(test)]
-mod era_bin_tests {
-    use super::*;
-
-    #[test]
-    fn empty_input_yields_empty_bins() {
-        assert!(bin_years(&[], 10, 32).is_empty());
-    }
-
-    #[test]
-    fn dense_year_becomes_singleton_bin() {
-        let bins = bin_years(&[(1995, 50)], 10, 32);
-        assert_eq!(bins.len(), 1);
-        assert_eq!(bins[0].label, "1995");
-        assert_eq!(bins[0].count, 50);
-    }
-
-    #[test]
-    fn decade_aligned_span_gets_decade_label() {
-        let hist: Vec<(i32, u32)> = (1990..=1999).map(|y| (y, 1)).collect();
-        let bins = bin_years(&hist, 10, 32);
-        assert_eq!(bins.len(), 1);
-        assert_eq!(bins[0].label, "1990s");
-        assert_eq!(bins[0].count, 10);
-    }
-
-    #[test]
-    fn sparse_years_merge_into_wide_bin() {
-        let bins = bin_years(&[(1930, 1), (1945, 2), (1969, 3)], 10, 32);
-        // trailing under-target merges into the (only) prior bin —
-        // which itself is the only entry here since we never hit
-        // target_min. single emit covers the full span.
-        assert_eq!(bins.len(), 1);
-        assert_eq!(bins[0].min_year, Some(1930));
-        assert_eq!(bins[0].max_year, Some(1969));
-        assert_eq!(bins[0].label, "1930-1969");
-        assert_eq!(bins[0].count, 6);
-    }
-
-    #[test]
-    fn singleton_flushes_in_progress_bin_first() {
-        let hist = vec![(1990, 5), (1991, 4), (1995, 100)];
-        let bins = bin_years(&hist, 10, 32);
-        // 1990+1991 (under target_min=10, only 9) → flushed-via-merge
-        // into the singleton's leftover-merge path? actually: the
-        // 1995 singleton emits first AFTER flushing the in-progress
-        // bin as its own span. so we get 2 bins: 1990-1991 then 1995.
-        assert_eq!(bins.len(), 2);
-        assert_eq!(bins[0].label, "1990-1991");
-        assert_eq!(bins[0].count, 9);
-        assert_eq!(bins[1].label, "1995");
-        assert_eq!(bins[1].count, 100);
-    }
-}
-
 /// batched taxon lookup for many album ids. for each requested id
 /// returns its `TaxonRef`s (or an empty vec if the album has none /
 /// doesn't exist). missing ids are simply absent from the returned
@@ -612,7 +557,7 @@ pub async fn get_album_taxons_batch(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -689,7 +634,7 @@ pub async fn find_albums_by_merged_key(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -820,7 +765,7 @@ pub async fn find_artists_by_merged_key(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -873,4 +818,59 @@ pub async fn find_artists_by_merged_key(
     }
 
     GrimoireResponse::success("artists by merged key retrieved", out)
+}
+
+#[cfg(test)]
+mod era_bin_tests {
+    use super::*;
+
+    #[test]
+    fn empty_input_yields_empty_bins() {
+        assert!(bin_years(&[], 10, 32).is_empty());
+    }
+
+    #[test]
+    fn dense_year_becomes_singleton_bin() {
+        let bins = bin_years(&[(1995, 50)], 10, 32);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].label, "1995");
+        assert_eq!(bins[0].count, 50);
+    }
+
+    #[test]
+    fn decade_aligned_span_gets_decade_label() {
+        let hist: Vec<(i32, u32)> = (1990..=1999).map(|y| (y, 1)).collect();
+        let bins = bin_years(&hist, 10, 32);
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].label, "1990s");
+        assert_eq!(bins[0].count, 10);
+    }
+
+    #[test]
+    fn sparse_years_merge_into_wide_bin() {
+        let bins = bin_years(&[(1930, 1), (1945, 2), (1969, 3)], 10, 32);
+        // trailing under-target merges into the (only) prior bin —
+        // which itself is the only entry here since we never hit
+        // target_min. single emit covers the full span.
+        assert_eq!(bins.len(), 1);
+        assert_eq!(bins[0].min_year, Some(1930));
+        assert_eq!(bins[0].max_year, Some(1969));
+        assert_eq!(bins[0].label, "1930-1969");
+        assert_eq!(bins[0].count, 6);
+    }
+
+    #[test]
+    fn singleton_flushes_in_progress_bin_first() {
+        let hist = vec![(1990, 5), (1991, 4), (1995, 100)];
+        let bins = bin_years(&hist, 10, 32);
+        // 1990+1991 (under target_min=10, only 9) → flushed-via-merge
+        // into the singleton's leftover-merge path? actually: the
+        // 1995 singleton emits first AFTER flushing the in-progress
+        // bin as its own span. so we get 2 bins: 1990-1991 then 1995.
+        assert_eq!(bins.len(), 2);
+        assert_eq!(bins[0].label, "1990-1991");
+        assert_eq!(bins[0].count, 9);
+        assert_eq!(bins[1].label, "1995");
+        assert_eq!(bins[1].count, 100);
+    }
 }

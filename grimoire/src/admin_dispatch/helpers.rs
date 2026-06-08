@@ -30,7 +30,7 @@ pub(super) fn command_not_found(command: &str) -> GrimoireResponse<JsonValue> {
         vec![ErrorDetail::new(
             "command_not_found",
             "admin command not found",
-            &format!("no handler for command: {}", command),
+            format!("no handler for command: {}", command),
         )],
     )
 }
@@ -41,7 +41,7 @@ pub(super) fn bad_request(detail: impl Into<String>) -> GrimoireResponse<JsonVal
         vec![ErrorDetail::new(
             "bad_request",
             "bad request",
-            &detail.into(),
+            detail.into(),
         )],
     )
 }
@@ -52,7 +52,7 @@ pub(super) fn internal(detail: impl Into<String>) -> GrimoireResponse<JsonValue>
         vec![ErrorDetail::new(
             "internal_error",
             "internal error",
-            &detail.into(),
+            detail.into(),
         )],
     )
 }

@@ -50,7 +50,7 @@ fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
     };
 
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
     if lines.len() <= max_lines {
         return; // file is within limit

@@ -214,8 +214,20 @@ max_concurrency = 0
 # guests, or low-power boards. each doubling roughly doubles output
 # latency but adds proportional headroom against scheduler jitter.
 # default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
-# 8192 (~170ms) if 2048 still glitches. ignored on macos / windows.
+# 8192 (~170ms) if 2048 still glitches.
 linux_buffer_frames = 4096
+
+# ============================================================================
+# OPTIONAL: new-version update checks
+# when enabled, freqhole periodically queries the github releases api to see
+# if a newer release exists, and surfaces a dismissible notice (spume toast /
+# rathole landing message) linking to the download page. off by default.
+# ============================================================================
+[updates]
+# OPTIONAL: enable new-version checks (default: false)
+# set to true to let freqhole check https://github.com/freqhole/tomb/releases
+# for a newer version on startup and at a periodic interval.
+enabled = false
 
 # ============================================================================
 # OPTIONAL: server configuration
@@ -529,6 +541,20 @@ knocking_enabled = false
 #
 # set to 0 to disable (use random port) - this is the default behavior
 bind_port = 0
+
+# OPTIONAL: custom iroh http relay server url for all P2P endpoints
+# by default freqhole uses the public n0/iroh relay servers. if you host your
+# own iroh relay you can point freqhole at it here. parsed as a relay url, e.g.
+# "https://relay.example.com". leave commented out (or empty) to use the public
+# relay only.
+relay_url = "https://relay.freqhole.net"
+
+# OPTIONAL: how to use relay_url (default: "default")
+#   "default"       - use the public iroh relay only (ignores relay_url)
+#   "custom_only"   - use only relay_url; no fallback to the public relay
+#   "prefer_custom" - use relay_url but keep the public iroh relay as fallback
+# requires a valid relay_url when set to "custom_only" or "prefer_custom".
+relay_mode = "default"
 
 # ============================================================================
 # OPTIONAL: remote admin over P2P

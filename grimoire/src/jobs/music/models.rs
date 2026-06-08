@@ -188,8 +188,8 @@ pub struct EnqueueMbAlbumSearchResponse {
 // =============================================================================
 
 /// parameters for `JobType::MbAlbumDetail`. enqueued by `confirm_mb_match`
-/// after the user (or auto-confirm) picks a candidate. fetches release-group
-/// + release detail with `+genres+tags` and merges folksonomy data into the
+/// after the user (or auto-confirm) picks a candidate. fetches release-group +
+/// release detail with `+genres+tags` and merges folksonomy data into the
 /// album's metadata blob.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct MbAlbumDetailParams {

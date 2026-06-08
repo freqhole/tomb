@@ -77,7 +77,7 @@ pub fn initialize_wordlist(config: &WordlistConfig) -> GrimoireResponse<()> {
     }
 
     // Store in global static
-    if let Err(_) = WORDLIST.set(words) {
+    if WORDLIST.set(words).is_err() {
         return GrimoireResponse::failure(
             "Failed to initialize wordlist",
             vec![
@@ -287,7 +287,7 @@ DURIAN
     #[test]
     fn test_generate_word_code() {
         // This test requires global state, so we'll test the logic without the static
-        let words = vec![
+        let words = [
             "apple".to_string(),
             "banana".to_string(),
             "cherry".to_string(),

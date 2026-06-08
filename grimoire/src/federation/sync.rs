@@ -143,11 +143,10 @@ pub async fn sync_users_from_haruspex(
     // register peer node_ids for users we synced
     for peer in &peers {
         // find the corresponding synced user
-        if let Some(user) = synced_users.iter().find(|u| {
-            u.haruspex_user_id
-                .as_ref()
-                .map_or(false, |h| h == &peer.user_id)
-        }) {
+        if let Some(user) = synced_users
+            .iter()
+            .find(|u| u.haruspex_user_id.as_ref() == Some(&peer.user_id))
+        {
             match user_service
                 .upsert_peer_node(&user.id, &peer.node_id, peer.instance_name.as_deref())
                 .await
@@ -245,7 +244,7 @@ pub async fn sync_users_from_stored_credentials(
             .sync_federated_user(
                 &username,
                 &member.user_id,
-                default_role.clone(),
+                default_role,
                 member.avatar_url.as_deref(),
             )
             .await
@@ -277,11 +276,10 @@ pub async fn sync_users_from_stored_credentials(
 
     // register peer node_ids for users we synced
     for peer in &peers {
-        if let Some(user) = synced_users.iter().find(|u| {
-            u.haruspex_user_id
-                .as_ref()
-                .map_or(false, |h| h == &peer.user_id)
-        }) {
+        if let Some(user) = synced_users
+            .iter()
+            .find(|u| u.haruspex_user_id.as_ref() == Some(&peer.user_id))
+        {
             match user_service
                 .upsert_peer_node(&user.id, &peer.node_id, peer.instance_name.as_deref())
                 .await

@@ -53,6 +53,11 @@ pub struct GrimoireConfig {
     #[serde(default)]
     pub audio: AudioConfig,
 
+    /// new-version update checks (queries github releases). off by default;
+    /// opt-in via the setup wizard or by adding `[updates]\nenabled = true`.
+    #[serde(default)]
+    pub updates: UpdatesConfig,
+
     /// Path this config was loaded from. Set by `init_config`; not
     /// (de)serialized. Used by admin handlers that need to write changes
     /// back to disk without re-running cwd-based config discovery.
@@ -75,6 +80,17 @@ pub struct AudioConfig {
     /// macos / windows.
     #[serde(default)]
     pub linux_buffer_frames: Option<u32>,
+}
+
+/// new-version update check configuration. when enabled, the app
+/// periodically queries the github releases api to see if a newer
+/// freqhole release exists. off by default; opt-in via the setup
+/// wizard or by adding `[updates]\nenabled = true` to the config.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    /// enable new-version checks (default: false)
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// Database configuration
@@ -271,6 +287,19 @@ fn default_audiodb_api_key() -> String {
     "123".to_string()
 }
 
+/// how a custom iroh relay url is used by p2p endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayModeConfig {
+    /// use only the custom `relay_url`; no fallback to the public relay.
+    CustomOnly,
+    /// prefer the custom `relay_url` but keep the public iroh relay as fallback.
+    PreferCustom,
+    /// use the public iroh relay only (historical default behavior).
+    #[default]
+    Default,
+}
+
 /// federation/p2p configuration for peer-to-peer music sharing
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FederationConfig {
@@ -311,6 +340,17 @@ pub struct FederationConfig {
     /// the same port should be forwarded on the router (UDP, external:same -> internal:same)
     #[serde(default)]
     pub bind_port: Option<u16>,
+    /// optional: custom iroh http relay server url for all p2p endpoints.
+    /// when set and `relay_mode` is `custom_only` or `prefer_custom`, the
+    /// iroh endpoint routes through this relay instead of (or before) the
+    /// public n0/iroh relay. example: "https://relay.example.com".
+    #[serde(default)]
+    pub relay_url: Option<String>,
+    /// how to use `relay_url`. defaults to `default` (public iroh relay only,
+    /// the historical behavior). `custom_only` uses only `relay_url`;
+    /// `prefer_custom` uses `relay_url` but keeps the public relay as fallback.
+    #[serde(default)]
+    pub relay_mode: RelayModeConfig,
     /// remote admin configuration (`freqhole-admin/1` ALPN).
     /// when absent or `enabled = false`, incoming admin connections are
     /// rejected. see docs/wizard-remote-admin.md.
@@ -518,6 +558,7 @@ pub enum SessionCookieMode {
 }
 
 impl SessionCookieMode {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "auto" => Some(Self::Auto),
@@ -831,6 +872,7 @@ pub fn init_config_for_tests() {
         client: None,
         jobs: JobsConfig::default(),
         audio: AudioConfig::default(),
+        updates: UpdatesConfig::default(),
         loaded_from: None,
     };
     match CONFIG.get() {
@@ -1021,6 +1063,7 @@ pub fn create_config_with_server_info(
 /// * `remote_admin_enabled` - Optional federation.remote_admin enabled flag (default: false)
 /// * `radio_enabled` - Optional radio enabled flag (default: false)
 /// * `fetch_music_enabled` - Optional server.fetch_music enabled flag (default: false)
+#[allow(clippy::too_many_arguments)]
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -1100,6 +1143,7 @@ const CONFIG_TEMPLATE: &str = include_str!("../../assets/config/freqhole-config.
 
 /// Generate config file content with given parameters
 /// uses toml_edit to modify the template while preserving comments
+#[allow(clippy::too_many_arguments)]
 fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
@@ -1338,7 +1382,7 @@ fn set_nested_value(
             // navigate or create intermediate table
             match current {
                 toml_edit::Item::Table(t) => {
-                    if !t.contains_key(*part) {
+                    if !t.contains_key(part) {
                         t[*part] = toml_edit::Item::Table(toml_edit::Table::new());
                     }
                     current = &mut t[*part];
@@ -1714,6 +1758,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 
@@ -1759,6 +1804,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 
@@ -1802,6 +1848,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            updates: UpdatesConfig::default(),
             loaded_from: None,
         };
 

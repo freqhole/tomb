@@ -27,9 +27,7 @@ pub use import::{extract_and_import, import_basic, ImportResult};
 pub use rescan::{update_existing_from_rescan, RescanUpdateResult};
 
 // re-export the move-scan-dir operation
-pub use move_dir::{
-    move_scanned_directory, MoveScanDirectoryOptions, MoveScanDirectoryResult,
-};
+pub use move_dir::{move_scanned_directory, MoveScanDirectoryOptions, MoveScanDirectoryResult};
 
 // re-export filename parser
 pub use filename_parser::{parse_filename, ParsedFilename};

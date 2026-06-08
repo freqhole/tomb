@@ -52,9 +52,7 @@ fn parse_tag_names(v: Option<&JsonValue>) -> Vec<String> {
 /// returns the resolved ids in `data` and pushes one `ErrorDetail` per
 /// name that didn't match, but does NOT mark the response as failed —
 /// callers decide whether unknown names are fatal.
-async fn resolve_tag_names_to_ids(
-    names: &[String],
-) -> (Vec<String>, Vec<ErrorDetail>) {
+async fn resolve_tag_names_to_ids(names: &[String]) -> (Vec<String>, Vec<ErrorDetail>) {
     if names.is_empty() {
         return (Vec::new(), Vec::new());
     }
@@ -90,7 +88,7 @@ async fn resolve_tag_names_to_ids(
             errors.push(ErrorDetail::new(
                 "unknown_tag",
                 "unknown tag name",
-                &format!("no tag matches '{}'", n),
+                format!("no tag matches '{}'", n),
             ));
         }
     }
@@ -99,9 +97,7 @@ async fn resolve_tag_names_to_ids(
 
 /// merge explicit `tag_ids` with the ids resolved from `tag_names`,
 /// de-duplicating. used by every bulk handler.
-async fn merge_tag_inputs(
-    args: &JsonValue,
-) -> (Vec<String>, Vec<ErrorDetail>) {
+async fn merge_tag_inputs(args: &JsonValue) -> (Vec<String>, Vec<ErrorDetail>) {
     let mut ids = parse_tag_ids(args.get("tag_ids"));
     let names = parse_tag_names(args.get("tag_names"));
     let (resolved, errors) = resolve_tag_names_to_ids(&names).await;
@@ -122,12 +118,7 @@ async fn merge_tag_inputs(
 pub(in crate::admin_dispatch) async fn tags() -> GrimoireResponse<JsonValue> {
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "database error",
-                vec![ErrorDetail::from(e)],
-            )
-        }
+        Err(e) => return GrimoireResponse::failure("database error", vec![ErrorDetail::from(e)]),
     };
 
     let rows = match sqlx::query!(
@@ -150,12 +141,7 @@ pub(in crate::admin_dispatch) async fn tags() -> GrimoireResponse<JsonValue> {
     .await
     {
         Ok(r) => r,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "query failed",
-                vec![ErrorDetail::from(e)],
-            )
-        }
+        Err(e) => return GrimoireResponse::failure("query failed", vec![ErrorDetail::from(e)]),
     };
 
     let tags: Vec<JsonValue> = rows
@@ -181,7 +167,11 @@ pub(in crate::admin_dispatch) async fn tags() -> GrimoireResponse<JsonValue> {
 pub(in crate::admin_dispatch) async fn resolve(args: JsonValue) -> GrimoireResponse<JsonValue> {
     let (tag_ids, name_errors) = merge_tag_inputs(&args).await;
     let mode = parse_mode(args.get("mode"));
-    let mode_str = if mode == TagFilterMode::All { "all" } else { "any" };
+    let mode_str = if mode == TagFilterMode::All {
+        "all"
+    } else {
+        "any"
+    };
 
     let resp = albums_repo::resolve_album_ids_by_tags(&tag_ids, mode).await;
     if !resp.success {
@@ -273,10 +263,7 @@ pub(in crate::admin_dispatch) async fn bulk_auto_confirm(
         .get("min_confidence")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.85);
-    let min_gap = args
-        .get("min_gap")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.10);
+    let min_gap = args.get("min_gap").and_then(|v| v.as_f64()).unwrap_or(0.10);
 
     let resp = albums_repo::resolve_album_ids_by_tags(&tag_ids, mode).await;
     if !resp.success {
@@ -316,10 +303,7 @@ pub(in crate::admin_dispatch) async fn bulk_auto(
         .get("min_confidence")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.85);
-    let min_gap = args
-        .get("min_gap")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.10);
+    let min_gap = args.get("min_gap").and_then(|v| v.as_f64()).unwrap_or(0.10);
 
     let resolved = albums_repo::resolve_album_ids_by_tags(&tag_ids, mode).await;
     if !resolved.success {
@@ -354,9 +338,7 @@ pub(in crate::admin_dispatch) async fn bulk_auto(
     .await;
     let session = match sess_resp.data {
         Some(s) => s,
-        None => {
-            return GrimoireResponse::failure("failed to create session", sess_resp.errors)
-        }
+        None => return GrimoireResponse::failure("failed to create session", sess_resp.errors),
     };
 
     use crate::jobs::AlbumEnrichmentPipelineParams;

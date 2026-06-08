@@ -303,7 +303,7 @@ pub async fn download_media(
 
     // wait for stderr drain and child process
     let _ = tokio::join!(stderr_task);
-    let status = child
+    let _status = child
         .wait()
         .await
         .map_err(|e| format!("failed to wait for fetch command: {}", e))?;
@@ -374,7 +374,7 @@ pub async fn fetch_media(
     // step 1: extract metadata (precheck)
     let metadata_list = match extract_metadata(&params.url, config).await {
         Ok(list) => list,
-        Err(e) => return GrimoireResponse::failure(&format!("precheck failed: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("precheck failed: {}", e), vec![]),
     };
 
     let total_items = metadata_list.len() as u32;
@@ -389,7 +389,7 @@ pub async fn fetch_media(
     // step 3: download media
     let downloaded_files = match download_media(&params.url, job_id, config, progress).await {
         Ok(files) => files,
-        Err(e) => return GrimoireResponse::failure(&format!("download failed: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("download failed: {}", e), vec![]),
     };
 
     if downloaded_files.is_empty() {

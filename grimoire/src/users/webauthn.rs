@@ -190,22 +190,3 @@ impl Default for WebAuthnService {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_repository_creation() {
-        let _ = WebAuthnRepository::new();
-        // Basic smoke test
-        assert!(true);
-    }
-
-    #[test]
-    fn test_service_creation() {
-        let _ = WebAuthnService::new();
-        // Basic smoke test
-        assert!(true);
-    }
-}

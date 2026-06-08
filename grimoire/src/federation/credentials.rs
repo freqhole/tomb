@@ -83,7 +83,7 @@ impl FederationCredentials {
     pub fn save(&self, path: &Path) -> GrimoireResult<()> {
         // ensure parent directory exists
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| GrimoireError::Io(e))?;
+            std::fs::create_dir_all(parent).map_err(GrimoireError::Io)?;
         }
 
         let content = toml::to_string_pretty(self).map_err(|e| {
@@ -98,16 +98,16 @@ impl FederationCredentials {
             content
         );
 
-        std::fs::write(path, &content_with_header).map_err(|e| GrimoireError::Io(e))?;
+        std::fs::write(path, &content_with_header).map_err(GrimoireError::Io)?;
 
         // set file permissions to 600 (owner read/write only) on unix
         #[cfg(unix)]
         {
             let mut perms = std::fs::metadata(path)
-                .map_err(|e| GrimoireError::Io(e))?
+                .map_err(GrimoireError::Io)?
                 .permissions();
             perms.set_mode(0o600);
-            std::fs::set_permissions(path, perms).map_err(|e| GrimoireError::Io(e))?;
+            std::fs::set_permissions(path, perms).map_err(GrimoireError::Io)?;
         }
 
         Ok(())
@@ -121,7 +121,7 @@ impl FederationCredentials {
     /// delete credentials file
     pub fn delete(path: &Path) -> GrimoireResult<()> {
         if path.exists() {
-            std::fs::remove_file(path).map_err(|e| GrimoireError::Io(e))?;
+            std::fs::remove_file(path).map_err(GrimoireError::Io)?;
         }
         Ok(())
     }

@@ -15,7 +15,13 @@ type LookupState = "loading" | "loaded" | "absent";
 export interface CrossRemoteLazyLoadingDeps {
   remotes: () => Remote[];
   offlineByRemote: () => Map<string, boolean>;
+  graphDisabledByRemote: () => Map<string, boolean>;
   crossRemoteLookups: Map<string, LookupState>;
+  // monotonic reset generation. captured when a lookup dispatches and
+  // re-checked after the async query resolves; a changed epoch means a
+  // full graph reset happened mid-flight, so the result is stale and
+  // must be discarded (no merge, no pin, no lookup-cache write).
+  getResetEpoch: () => number;
   setFetchingByRemote: (
     updater: (prev: Map<string, boolean>) => Map<string, boolean>
   ) => void;
@@ -34,7 +40,9 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
   const {
     remotes,
     offlineByRemote,
+    graphDisabledByRemote,
     crossRemoteLookups,
+    getResetEpoch,
     setFetchingByRemote,
     queryClient,
     setExtraNodesById,
@@ -71,9 +79,20 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
       }
       return;
     }
+    // graph-disabled remotes are treated as if absent: never merge their
+    // artists in, so shared artists don't re-link to a hidden remote.
+    if (graphDisabledByRemote().get(otherRemoteId) === true) {
+      for (const slugKey of candidates.keys()) {
+        crossRemoteLookups.delete(`${otherRemoteId}::${slugKey}`);
+      }
+      return;
+    }
 
     const names = Array.from(candidates.values());
     const fetchKey = `xremote-batch::${otherRemoteId}::${Array.from(candidates.keys()).sort().join(",")}`;
+    // snapshot the reset generation so a graph reset that lands while
+    // this query is in flight invalidates the (now stale) result.
+    const dispatchEpoch = getResetEpoch();
     try {
       setFetchingByRemote((prev) => {
         const next = new Map(prev);
@@ -132,6 +151,13 @@ export function createCrossRemoteLazyLoading(deps: CrossRemoteLazyLoadingDeps) {
         },
         staleTime: 60_000,
       });
+
+      // a full graph reset (remote-set / disabled-set change, or the
+      // home reset button) happened while we were awaiting. the
+      // crossRemoteLookups cache + worker were wiped, so merging this
+      // batch now would re-introduce stale nodes/pins and leave a
+      // "loaded" marker that blocks the post-reset re-fan. discard.
+      if (getResetEpoch() !== dispatchEpoch) return;
 
       const albums = summaries.map((s) => adaptAlbum(s, { remoteId: otherRemoteId }));
       const matchesBySlug = new Map<string, typeof albums>();

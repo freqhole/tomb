@@ -126,7 +126,7 @@ pub async fn handle_command(action: RatingsAction) -> CommandOutput<serde_json::
                     format!("top {} rated {}", items.len(), target_type),
                     items,
                 ),
-                Err(e) => CommandOutput::failure(&e.to_string(), vec![], ()),
+                Err(e) => CommandOutput::failure(e.to_string(), vec![], ()),
             }
         }
     }

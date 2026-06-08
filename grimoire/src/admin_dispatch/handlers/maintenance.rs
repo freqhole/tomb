@@ -192,7 +192,7 @@ pub(in crate::admin_dispatch) async fn backfill_thumbnails(
             "limit": limit,
         });
         return GrimoireResponse::success(
-            &format!(
+            format!(
                 "would process {} blobs (of {} needing thumbnails)",
                 to_process, total
             ),
@@ -209,7 +209,7 @@ pub(in crate::admin_dispatch) async fn update_server_image() -> GrimoireResponse
     };
     match crate::config::ensure_server_image_blob(&path).await {
         Ok(blob_id) => GrimoireResponse::success(
-            &format!("server image blob created: {blob_id}"),
+            format!("server image blob created: {blob_id}"),
             json!({
                 "blob_id": blob_id,
                 "config_path": path.display().to_string(),

@@ -291,8 +291,7 @@ async fn pick_album_mode(
     );
 
     if !force_new_album {
-        if let Some(next) = next_track_in_same_album(&by_album, &song_pos, last_played.as_deref())
-        {
+        if let Some(next) = next_track_in_same_album(&by_album, &song_pos, last_played.as_deref()) {
             info!(
                 "[radio-album-mode] station {} continuing in same album: next track {}",
                 station_id, next
@@ -395,6 +394,7 @@ async fn load_candidate_meta(candidates: &[String]) -> GrimoireResult<Vec<Candid
         .map_err(GrimoireError::from)
 }
 
+#[allow(clippy::type_complexity)]
 fn build_album_index(
     rows: Vec<CandidateMeta>,
 ) -> (
@@ -473,6 +473,88 @@ fn candidate_albums_for_new_pick(
         }
     }
     album_keys
+}
+
+async fn resolve_last_song_id(station_id: &str, anchor_song_id: Option<&str>) -> Option<String> {
+    if let Some(anchor) = anchor_song_id {
+        let trimmed = anchor.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    stations::list_play_history(station_id, 1)
+        .await
+        .ok()
+        .and_then(|v| v.into_iter().next())
+        .map(|p| p.song_id)
+}
+
+/// load the full RadioTrack row for a given song id. returns the same
+/// shape as `pick_random_song` minus the random ordering.
+pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
+    let pool = database::connect().await?;
+    let row = sqlx::query!(
+        r#"SELECT s.id          as "song_id!",
+                  s.title       as "title!",
+                  s.duration,
+                  b.id          as "audio_blob_id?",
+                  b.local_path,
+                  ar.name       as "artist_name?",
+                  al.title      as "album_title?",
+                  (SELECT wf.id
+                     FROM media_blobz wf
+                    WHERE wf.parent_blob_id = b.id
+                      AND wf.blob_type = 'waveform'
+                      AND wf.deleted_at IS NULL
+                    LIMIT 1)    as "waveform_blob_id?",
+                  COALESCE(
+                    (SELECT si.media_blob_id FROM song_imagez si
+                      WHERE si.song_id = s.id
+                      ORDER BY si.is_primary DESC LIMIT 1),
+                    (SELECT ai.media_blob_id FROM album_imagez ai
+                      JOIN album_songz als2 ON als2.album_id = ai.album_id AND als2.song_id = s.id
+                      ORDER BY ai.is_primary DESC LIMIT 1),
+                    (SELECT ari.media_blob_id FROM artist_imagez ari
+                      JOIN artist_songz ars2 ON ars2.artist_id = ari.artist_id AND ars2.song_id = s.id
+                      ORDER BY ari.is_primary DESC LIMIT 1)
+                  )             as "art_blob_id?: String"
+             FROM songz s
+             JOIN media_blobz b ON b.id = s.media_blob_id
+             LEFT JOIN artist_songz ars ON ars.song_id = s.id
+             LEFT JOIN artistz ar ON ar.id = ars.artist_id AND ar.deleted_at IS NULL
+             LEFT JOIN album_songz als ON als.song_id = s.id
+             LEFT JOIN albumz al ON al.id = als.album_id AND al.deleted_at IS NULL
+            WHERE s.id = ?
+              AND b.local_path IS NOT NULL
+              AND s.deleted_at IS NULL
+              AND b.deleted_at IS NULL
+            LIMIT 1"#,
+        song_id
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    let row = row.ok_or_else(|| GrimoireError::ProcessingFailed {
+        message: format!("radio: song {song_id} not playable (deleted or no local_path)"),
+    })?;
+
+    let local_path = row
+        .local_path
+        .ok_or_else(|| GrimoireError::ProcessingFailed {
+            message: format!("radio: song {song_id} has no local_path"),
+        })?;
+
+    Ok(RadioTrack {
+        song_id: row.song_id,
+        title: row.title,
+        local_path,
+        audio_blob_id: row.audio_blob_id,
+        artist: row.artist_name,
+        album: row.album_title,
+        duration_ms: row.duration,
+        waveform_blob_id: row.waveform_blob_id,
+        art_blob_id: row.art_blob_id,
+    })
 }
 
 #[cfg(test)]
@@ -623,86 +705,4 @@ mod tests {
         next_albums.sort();
         assert_eq!(next_albums, vec!["B".to_string()]);
     }
-}
-
-async fn resolve_last_song_id(station_id: &str, anchor_song_id: Option<&str>) -> Option<String> {
-    if let Some(anchor) = anchor_song_id {
-        let trimmed = anchor.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    stations::list_play_history(station_id, 1)
-        .await
-        .ok()
-        .and_then(|v| v.into_iter().next())
-        .map(|p| p.song_id)
-}
-
-/// load the full RadioTrack row for a given song id. returns the same
-/// shape as `pick_random_song` minus the random ordering.
-pub async fn fetch_track(song_id: &str) -> GrimoireResult<RadioTrack> {
-    let pool = database::connect().await?;
-    let row = sqlx::query!(
-        r#"SELECT s.id          as "song_id!",
-                  s.title       as "title!",
-                  s.duration,
-                  b.id          as "audio_blob_id?",
-                  b.local_path,
-                  ar.name       as "artist_name?",
-                  al.title      as "album_title?",
-                  (SELECT wf.id
-                     FROM media_blobz wf
-                    WHERE wf.parent_blob_id = b.id
-                      AND wf.blob_type = 'waveform'
-                      AND wf.deleted_at IS NULL
-                    LIMIT 1)    as "waveform_blob_id?",
-                  COALESCE(
-                    (SELECT si.media_blob_id FROM song_imagez si
-                      WHERE si.song_id = s.id
-                      ORDER BY si.is_primary DESC LIMIT 1),
-                    (SELECT ai.media_blob_id FROM album_imagez ai
-                      JOIN album_songz als2 ON als2.album_id = ai.album_id AND als2.song_id = s.id
-                      ORDER BY ai.is_primary DESC LIMIT 1),
-                    (SELECT ari.media_blob_id FROM artist_imagez ari
-                      JOIN artist_songz ars2 ON ars2.artist_id = ari.artist_id AND ars2.song_id = s.id
-                      ORDER BY ari.is_primary DESC LIMIT 1)
-                  )             as "art_blob_id?: String"
-             FROM songz s
-             JOIN media_blobz b ON b.id = s.media_blob_id
-             LEFT JOIN artist_songz ars ON ars.song_id = s.id
-             LEFT JOIN artistz ar ON ar.id = ars.artist_id AND ar.deleted_at IS NULL
-             LEFT JOIN album_songz als ON als.song_id = s.id
-             LEFT JOIN albumz al ON al.id = als.album_id AND al.deleted_at IS NULL
-            WHERE s.id = ?
-              AND b.local_path IS NOT NULL
-              AND s.deleted_at IS NULL
-              AND b.deleted_at IS NULL
-            LIMIT 1"#,
-        song_id
-    )
-    .fetch_optional(&pool)
-    .await?;
-
-    let row = row.ok_or_else(|| GrimoireError::ProcessingFailed {
-        message: format!("radio: song {song_id} not playable (deleted or no local_path)"),
-    })?;
-
-    let local_path = row
-        .local_path
-        .ok_or_else(|| GrimoireError::ProcessingFailed {
-            message: format!("radio: song {song_id} has no local_path"),
-        })?;
-
-    Ok(RadioTrack {
-        song_id: row.song_id,
-        title: row.title,
-        local_path,
-        audio_blob_id: row.audio_blob_id,
-        artist: row.artist_name,
-        album: row.album_title,
-        duration_ms: row.duration,
-        waveform_blob_id: row.waveform_blob_id,
-        art_blob_id: row.art_blob_id,
-    })
 }

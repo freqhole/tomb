@@ -210,7 +210,7 @@ impl WordlistService {
         ));
         content.push_str(&format!("# Word count: {}\n", result.actual_count));
         content.push_str(&format!("# Entropy: {:.2} bits\n", result.entropy_bits));
-        content.push_str("\n");
+        content.push('\n');
 
         for word in &result.words {
             content.push_str(word);
@@ -442,7 +442,7 @@ mod tests {
 
         assert_eq!(result.requested_count, 100);
         assert!(result.actual_count > 0);
-        assert!(result.categories_used.len() > 0);
+        assert!(!result.categories_used.is_empty());
         assert!(result.entropy_bits > 0.0);
     }
 

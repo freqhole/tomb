@@ -60,6 +60,10 @@ export interface WalkCanvasProps {
    *  used to mark unreachable remote hubs (and their subtrees) without
    *  taking them out of the graph. */
   isOfflineNode?: (id: string) => boolean;
+  /** per-id disabled flag. when true for a node, it's drawn with a stronger
+   *  dim and a diagonal slash overlay. graph_disabled remotes satisfy both
+   *  isOfflineNode and isDisabledNode (disabled implies offline for coloring). */
+  isDisabledNode?: (id: string) => boolean;
   /** per-id loading flag. when true, the node renders an animated
    *  pink→purple comet arc orbiting its silhouette, matching the
    *  player-bar play/pause loading ring. used to signal that a remote
@@ -680,7 +684,17 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           ctx.stroke();
         }
 
-        drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);
+        drawNode(
+          ctx,
+          n,
+          x,
+          y,
+          r,
+          props.getImage,
+          props.isOfflineNode?.(n.id),
+          hov === n.id,
+          props.isDisabledNode?.(n.id)
+        );
 
         // loading comet — drawn last so it sits on top of the node fill,
         // image, stroke, and badge. uses the same rAF-driven clock as the
@@ -735,7 +749,17 @@ export default function WalkCanvas(props: WalkCanvasProps) {
             ctx.lineWidth = 3;
             ctx.stroke();
           }
-          drawNode(ctx, n, x, y, r, props.getImage, props.isOfflineNode?.(n.id), hov === n.id);
+          drawNode(
+            ctx,
+            n,
+            x,
+            y,
+            r,
+            props.getImage,
+            props.isOfflineNode?.(n.id),
+            hov === n.id,
+            props.isDisabledNode?.(n.id)
+          );
           if (props.isLoadingNode?.(n.id)) {
             drawLoadingComet(ctx, n.role, x, y, r, performance.now());
           }

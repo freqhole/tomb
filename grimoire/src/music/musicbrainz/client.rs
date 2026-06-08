@@ -359,8 +359,8 @@ impl MusicBrainzClient {
                 Ok(result) => return Ok(result),
                 Err(GrimoireError::MusicBrainzRateLimit) if retries < MAX_RETRIES => {
                     retries += 1;
-                    let backoff = retry_after
-                        .unwrap_or_else(|| Duration::from_secs(2_u64.pow(retries)));
+                    let backoff =
+                        retry_after.unwrap_or_else(|| Duration::from_secs(2_u64.pow(retries)));
                     warn!(
                         "rate limit (attempt {}/{}), sleeping {:?}",
                         retries, MAX_RETRIES, backoff
@@ -418,8 +418,6 @@ impl MusicBrainzClient {
     pub fn config(&self) -> &MusicBrainzConfig {
         &self.config
     }
-
-
 }
 
 #[cfg(test)]
@@ -448,6 +446,4 @@ mod tests {
 
         assert!(!client.config.enabled);
     }
-
-
 }

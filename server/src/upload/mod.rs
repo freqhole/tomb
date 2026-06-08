@@ -8,5 +8,5 @@ pub mod images;
 pub mod music;
 
 // re-export handlers for route registration
-pub use images::{delete_image_handler, upload_image_handler, set_primary_image_handler};
-pub use music::{upload_music_handler};
+pub use images::{delete_image_handler, set_primary_image_handler, upload_image_handler};
+pub use music::upload_music_handler;

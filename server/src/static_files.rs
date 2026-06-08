@@ -359,11 +359,9 @@ impl RangeHandler {
         for range_part in ranges_str.split(',') {
             let range_part = range_part.trim();
 
-            if range_part.starts_with('-') {
+            if let Some(rest) = range_part.strip_prefix('-') {
                 // suffix range: -500 (last 500 bytes)
-                let suffix_length: u64 = range_part[1..]
-                    .parse()
-                    .map_err(|_| RangeError::InvalidRange)?;
+                let suffix_length: u64 = rest.parse().map_err(|_| RangeError::InvalidRange)?;
 
                 if suffix_length > 0 && suffix_length <= file_size {
                     ranges.push(ByteRange {
@@ -371,11 +369,9 @@ impl RangeHandler {
                         end: Some(file_size - 1),
                     });
                 }
-            } else if range_part.ends_with('-') {
+            } else if let Some(rest) = range_part.strip_suffix('-') {
                 // prefix range: 500- (from byte 500 to end)
-                let start: u64 = range_part[..range_part.len() - 1]
-                    .parse()
-                    .map_err(|_| RangeError::InvalidRange)?;
+                let start: u64 = rest.parse().map_err(|_| RangeError::InvalidRange)?;
 
                 if start < file_size {
                     ranges.push(ByteRange {

@@ -70,17 +70,21 @@ pub async fn update_existing_from_rescan(
             // record vanished between scan and processing; fall through to
             // caller which will treat this as a fresh import
             return Err(JobError::ProcessingFailed {
-                reason: format!("existing blob {} not found during rescan update", existing_blob_id),
+                reason: format!(
+                    "existing blob {} not found during rescan update",
+                    existing_blob_id
+                ),
             });
         }
     };
 
     // hash the current file contents
-    let new_sha256 = stream_sha256_hash(&file_path_str).await.map_err(|e| {
-        JobError::ProcessingFailed {
-            reason: format!("failed to hash file during rescan: {}", e),
-        }
-    })?;
+    let new_sha256 =
+        stream_sha256_hash(&file_path_str)
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("failed to hash file during rescan: {}", e),
+            })?;
     let sha256_changed = new_sha256 != existing.sha256;
 
     let new_blake3 = if sha256_changed {

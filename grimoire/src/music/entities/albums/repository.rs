@@ -325,7 +325,7 @@ pub async fn merge_album_metadata(
                 vec![ErrorDetail::new(
                     "metadata_merge_failed",
                     "Bad Patch",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -339,7 +339,7 @@ pub async fn merge_album_metadata(
                 vec![ErrorDetail::new(
                     "metadata_serialize_failed",
                     "Serialization Error",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -1035,7 +1035,7 @@ pub async fn set_mb_lookup_status(req: SetMbLookupStatusRequest) -> GrimoireResp
             vec![ErrorDetail::new(
                 "invalid_mb_lookup_status",
                 "invalid mb lookup status",
-                &format!(
+                format!(
                     "status `{}` is not a recognized MbLookupStatus variant",
                     req.status
                 ),
@@ -1101,33 +1101,21 @@ pub async fn resolve_album_ids_by_tags(
 ) -> GrimoireResponse<Vec<String>> {
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "database error",
-                vec![ErrorDetail::from(e)],
-            )
-        }
+        Err(e) => return GrimoireResponse::failure("database error", vec![ErrorDetail::from(e)]),
     };
 
     if tag_ids.is_empty() {
-        let ids = match sqlx::query_scalar!(
-            r#"SELECT id as "id!" FROM albumz WHERE deleted_at IS NULL"#
-        )
-        .fetch_all(&pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                return GrimoireResponse::failure(
-                    "query failed",
-                    vec![ErrorDetail::from(e)],
-                )
-            }
-        };
-        return GrimoireResponse::success(
-            format!("resolved {} album ids", ids.len()),
-            ids,
-        );
+        let ids =
+            match sqlx::query_scalar!(r#"SELECT id as "id!" FROM albumz WHERE deleted_at IS NULL"#)
+                .fetch_all(&pool)
+                .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return GrimoireResponse::failure("query failed", vec![ErrorDetail::from(e)])
+                }
+            };
+        return GrimoireResponse::success(format!("resolved {} album ids", ids.len()), ids);
     }
 
     let ids: Vec<String> = match mode {
@@ -1147,10 +1135,7 @@ pub async fn resolve_album_ids_by_tags(
             match qb.build_query_scalar::<String>().fetch_all(&pool).await {
                 Ok(rows) => rows,
                 Err(e) => {
-                    return GrimoireResponse::failure(
-                        "query failed",
-                        vec![ErrorDetail::from(e)],
-                    )
+                    return GrimoireResponse::failure("query failed", vec![ErrorDetail::from(e)])
                 }
             }
         }
@@ -1172,10 +1157,7 @@ pub async fn resolve_album_ids_by_tags(
             match qb.build_query_scalar::<String>().fetch_all(&pool).await {
                 Ok(rows) => rows,
                 Err(e) => {
-                    return GrimoireResponse::failure(
-                        "query failed",
-                        vec![ErrorDetail::from(e)],
-                    )
+                    return GrimoireResponse::failure("query failed", vec![ErrorDetail::from(e)])
                 }
             }
         }

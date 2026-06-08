@@ -65,7 +65,7 @@ impl RatingsService {
         let user_id = request
             .user_id
             .as_ref()
-            .ok_or_else(|| AuthError::AuthenticationRequired)?;
+            .ok_or(AuthError::AuthenticationRequired)?;
 
         // if rating is 0, remove the rating instead
         if request.rating == 0 {
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn test_target_types() {
         // Test that all rating target types are available
-        let targets = vec![
+        let targets = [
             RatingTarget::Song,
             RatingTarget::Artist,
             RatingTarget::Album,

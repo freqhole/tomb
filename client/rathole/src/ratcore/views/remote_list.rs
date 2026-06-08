@@ -20,10 +20,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(Clear, area);
 
     let block = Block::bordered()
-        .title(Span::styled(
-            "remotes",
-            Style::new().fg(ACCENT).bold(),
-        ))
+        .title(Span::styled("remotes", Style::new().fg(ACCENT).bold()))
         .title_bottom(
             Line::from(vec![
                 Span::styled("\u{2191}/\u{2193}", Style::new().fg(ACCENT)),
@@ -51,10 +48,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Line::from(""),
             Line::from(Span::raw("no saved remotes yet").dim()).centered(),
             Line::from(""),
-            Line::from(
-                Span::raw("press `a` to add one, or `esc` to go back").dim(),
-            )
-            .centered(),
+            Line::from(Span::raw("press `a` to add one, or `esc` to go back").dim()).centered(),
         ];
         frame.render_widget(Paragraph::new(lines), inner);
         return;
@@ -110,9 +104,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width);
     let h = height.min(area.height);
-    let [vert] = Layout::vertical([Length(h)])
-        .flex(Flex::Center)
-        .areas(area);
+    let [vert] = Layout::vertical([Length(h)]).flex(Flex::Center).areas(area);
     let [horiz] = Layout::horizontal([Length(w)])
         .flex(Flex::Center)
         .areas(vert);

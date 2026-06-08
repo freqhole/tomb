@@ -134,7 +134,11 @@ where
 }
 
 /// rewrite session cookie's SameSite attribute based on origin protocol
-fn rewrite_samesite(mut response: Response<Body>, is_https: bool, cookie_name: &str) -> Response<Body> {
+fn rewrite_samesite(
+    mut response: Response<Body>,
+    is_https: bool,
+    cookie_name: &str,
+) -> Response<Body> {
     // collect all Set-Cookie headers
     let set_cookies: Vec<_> = response
         .headers()

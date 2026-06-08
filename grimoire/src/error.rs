@@ -189,7 +189,7 @@ impl GrimoireError {
         // Use Debug formatting to get variant name, then convert to snake_case
         let debug_str = format!("{:?}", self);
         let variant_name = debug_str
-            .split(|c| c == '(' || c == '{')
+            .split(['(', '{'])
             .next()
             .unwrap_or(&debug_str)
             .trim();
@@ -288,9 +288,9 @@ impl GrimoireError {
 /// Convert PascalCase/camelCase to snake_case
 fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
-    let mut chars = s.chars().peekable();
+    let chars = s.chars().peekable();
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         if ch.is_uppercase() {
             if !result.is_empty() {
                 result.push('_');

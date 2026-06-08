@@ -92,8 +92,7 @@ pub async fn query_favorites(
                     }
                 };
                 for playlist in playlists {
-                    all_favorites
-                        .push((playlist.favorited_at, FavoriteItem::Playlist(playlist)));
+                    all_favorites.push((playlist.favorited_at, FavoriteItem::Playlist(playlist)));
                 }
             }
             _ => {}
@@ -101,7 +100,7 @@ pub async fn query_favorites(
     }
 
     // sort by favorited_at DESC (most recent first)
-    all_favorites.sort_by(|a, b| b.0.cmp(&a.0));
+    all_favorites.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     // apply pagination
     let paginated: Vec<FavoriteItem> = all_favorites
@@ -111,10 +110,7 @@ pub async fn query_favorites(
         .map(|(_, item)| item)
         .collect();
 
-    GrimoireResponse::success(
-        format!("Found {} favorite(s)", paginated.len()),
-        paginated,
-    )
+    GrimoireResponse::success(format!("Found {} favorite(s)", paginated.len()), paginated)
 }
 
 // query song favorites with full metadata

@@ -106,7 +106,7 @@ pub fn render_queue_panel(state: &mut AppState, cursor_override: Option<usize>) 
     };
     let cursor = cursor_override
         .unwrap_or(cur.unwrap_or(0))
-        .min(total.saturating_sub(1).max(0));
+        .min(total.saturating_sub(1));
     state.ephemeral.last_dispatch = Some(crate::ratcore::app::LastDispatch {
         command: "queue".to_string(),
         success: true,
@@ -138,14 +138,14 @@ pub fn handle_escape(state: &mut AppState) {
 ///   - 1 match  → complete the input with `/name ` (trailing space
 ///     so the user can keep typing args).
 ///   - >1 matches → cycle. each tab rotates `flyout_cursor`
-///     through the match list and rewrites the input to the
-///     highlighted name (no trailing space, so subsequent tabs
-///     keep cycling). the original prefix is captured in
-///     `cycle_stem` so the candidate list stays stable across
-///     cycles — it would otherwise narrow to one match after the
-///     first cycle and lock the rotation. cycling clears as soon
-///     as the user edits the input (insert/backspace/delete) or
-///     submits with enter.
+///     > through the match list and rewrites the input to the
+///     > highlighted name (no trailing space, so subsequent tabs
+///     > keep cycling). the original prefix is captured in
+///     > `cycle_stem` so the candidate list stays stable across
+///     > cycles — it would otherwise narrow to one match after the
+///     > first cycle and lock the rotation. cycling clears as soon
+///     > as the user edits the input (insert/backspace/delete) or
+///     > submits with enter.
 pub fn handle_tab(state: &mut AppState) {
     let matches = flyout_matches(state);
     if matches.is_empty() {

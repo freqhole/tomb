@@ -71,7 +71,7 @@ pub async fn dispatch(
         vec![ErrorDetail::new(
             "route_not_found",
             "route not found",
-            &format!("no handler for {}", path),
+            format!("no handler for {}", path),
         )],
     )
 }

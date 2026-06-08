@@ -336,17 +336,15 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                         count,
                     )
                 }
-                _ => {
-                    return CommandOutput::failure(
-                        "Invalid entity_type",
-                        vec![grimoire::error::ErrorDetail {
-                            error_type: "validation_error".to_string(),
-                            title: "Invalid entity type".to_string(),
-                            detail: "Must be 'song', 'album', or 'artist'".to_string(),
-                        }],
-                        (),
-                    );
-                }
+                _ => CommandOutput::failure(
+                    "Invalid entity_type",
+                    vec![grimoire::error::ErrorDetail {
+                        error_type: "validation_error".to_string(),
+                        title: "Invalid entity type".to_string(),
+                        detail: "Must be 'song', 'album', or 'artist'".to_string(),
+                    }],
+                    (),
+                ),
             }
         }
         AnalyticsAction::RecentListens { limit, offset } => {

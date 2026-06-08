@@ -94,6 +94,7 @@ import {
   checkRemoteHealth,
   onRemoteStatusChange,
   getRemoteById,
+  updateRemote,
 } from "../../../app/services/remotes/remoteManager";
 import { adaptApiImage } from "../../../music/data/remote/adapters";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
@@ -178,6 +179,12 @@ function Inner(props: {
   // the graph (as dimmed remote hubs) but we skip mounting their album loaders
   // so no api requests fan out.
   const [offlineByRemote, setOfflineByRemote] = createSignal<Map<string, boolean>>(new Map());
+  // per-remote graph-disabled flag. seeded from Remote.graph_disabled. when
+  // true, the remote is treated as offline for all graph viz purposes and its
+  // node is drawn with a diagonal slash and stronger dim.
+  const [graphDisabledByRemote, setGraphDisabledByRemote] = createSignal<Map<string, boolean>>(
+    new Map()
+  );
   // remotes currently being re-checked (debounce + spinner-ish ux for clicks)
   const recheckingRemotes = new Set<string>();
   // remotes whose album loader has been mounted. seeded with the
@@ -360,6 +367,17 @@ function Inner(props: {
       }
       return changed ? next : prev;
     });
+    setGraphDisabledByRemote((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        if (!active.has(k)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
     // remote set churned — slug-based assumptions are invalid
     crossRemoteLookups.clear();
     setExtraNodesById(new Map());
@@ -418,6 +436,19 @@ function Inner(props: {
       let changed = false;
       for (const r of list) {
         const flag = r.is_offline === true;
+        if (next.get(r.remote_id) !== flag) {
+          next.set(r.remote_id, flag);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // seed graph-disabled flags from Remote.graph_disabled
+    setGraphDisabledByRemote((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const r of list) {
+        const flag = r.graph_disabled === true;
         if (next.get(r.remote_id) !== flag) {
           next.set(r.remote_id, flag);
           changed = true;
@@ -727,6 +758,7 @@ function Inner(props: {
     // peer remotes, plus the synthetic "local" hub. edit-mode
     // scope-locks to a single remote; local isn't editable through
     // the graph today so the lock simply excludes it.
+    const disabled = graphDisabledByRemote();
     const peerIds = props.remotes().map((r) => r.remote_id);
     let remoteIds: string[];
     if (active) {
@@ -737,12 +769,24 @@ function Inner(props: {
       remoteIds = peerIds;
     }
     if (remoteIds.length === 0) return null;
+    // graph-disabled remotes keep their root hub square (so they can be
+    // re-enabled) but contribute no album/artist nodes, no edges, and never
+    // participate in cross-remote clustering. stripping their data here keeps
+    // a shared artist that also exists locally from inheriting a disabled
+    // remote's id (and its dimmed/slashed styling).
+    const stripDisabled = <T,>(src: Map<string, T>): Map<string, T> => {
+      const out = new Map<string, T>();
+      for (const [rid, v] of src) {
+        if (disabled.get(rid) !== true) out.set(rid, v);
+      }
+      return out;
+    };
     const remoteNames = new Map<string, string>(props.remotes().map((r) => [r.remote_id, r.name]));
     if (includeLocalHub) remoteNames.set(LOCAL_GRAPH_REMOTE_ID, getLocalLibraryName());
     return buildWalkGraph({
       remoteIds,
-      albumsByRemote: byRemote,
-      artistsByRemote: artistsByRemote(),
+      albumsByRemote: stripDisabled(byRemote),
+      artistsByRemote: stripDisabled(artistsByRemote()),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
       charnelManagedRemoteIds: new Set(
@@ -790,12 +834,27 @@ function Inner(props: {
   const prevNodeIds = new Set<string>();
   const prevEdgeKeys = new Set<string>();
   let prevRemoteKey = "";
+  // monotonic generation token bumped on every full graph reset
+  // (remote-set / disabled-set change, or the home "reset graph"
+  // button). async cross-remote lookups capture the epoch when they
+  // dispatch and discard their results if a reset happened while they
+  // were in flight, so a stale in-flight merge can't repopulate the
+  // freshly cleared crossRemoteLookups cache. without this guard a
+  // lookup started just before a disable/re-enable toggle could land
+  // a "loaded" marker after the reset, permanently blocking the
+  // re-fan and leaving the re-enabled remote's connections absent.
+  let resetEpoch = 0;
   // bumped every time the worker is `init()`-reset so loaders that
   // pushed nodes through `walkerClient.merge` (taxon kind hubs, artist
   // image overlays, favorites' synthesized edges, etc.) re-fire and
   // repopulate. without this the scoped subtree in edit mode collapses
   // to a bare remote hub because every incremental merge was wiped.
   const [mergeResetTick, setMergeResetTick] = createSignal(0);
+  // bumped by the home "reset graph" button to force the walker effect
+  // through its full reset + re-init path (wipes the worker, clears the
+  // cross-remote caches + pins, re-fans sibling lookups) rather than
+  // only repivoting to root.
+  const [forceResetTick, setForceResetTick] = createSignal(0);
 
   createEffect(() => {
     const client = walkerClient();
@@ -805,13 +864,28 @@ function Inner(props: {
 
     // detect remote-set change (user added/removed a remote, or edit-
     // mode scope-lock collapsed/restored the remote list) -> full reset.
-    const remoteKey = result.graph.nodes
-      .filter((n) => n.role === "remote")
-      .map((n) => n.id)
+    // the disabled-set is folded into the key so toggling a remote's
+    // graphing on/off also forces a full re-init: the incremental merge
+    // path only adds nodes, so without a reset a disabled remote's
+    // already-merged children + cross-remote edges would linger, and a
+    // re-enabled remote wouldn't re-fan its sibling lookups.
+    const disabledKey = props
+      .remotes()
+      .filter((r) => graphDisabledByRemote().get(r.remote_id) === true)
+      .map((r) => r.remote_id)
       .sort()
-      .join("|");
+      .join(",");
+    const remoteKey =
+      result.graph.nodes
+        .filter((n) => n.role === "remote")
+        .map((n) => n.id)
+        .sort()
+        .join("|") + `#disabled:${disabledKey}#force:${forceResetTick()}`;
     if (remoteKey !== prevRemoteKey) {
       prevRemoteKey = remoteKey;
+      // invalidate any cross-remote lookups still in flight from the
+      // previous generation so their late merges/pins are discarded.
+      resetEpoch += 1;
       hadInit = false;
       prevNodeIds.clear();
       prevEdgeKeys.clear();
@@ -819,6 +893,14 @@ function Inner(props: {
       // re-fetch because the value/group nodes they tracked are gone.
       taxonsLoadedByHub.clear();
       albumsLoadedByPivot.clear();
+      // cross-remote merges were pushed straight into the worker via
+      // walkerClient.merge and aren't part of buildResult, so init()
+      // alone would leave them dangling. clear the lookup cache + merged
+      // node set + sibling pins so the visible-ids effect re-derives them
+      // for the current (enabled) remote set after the reset.
+      crossRemoteLookups.clear();
+      setExtraNodesById(new Map());
+      clearCrossRemotePins();
     }
 
     const { width, height } = canvasSize();
@@ -912,8 +994,10 @@ function Inner(props: {
           if (remote.remote_id === parsed.remoteId) continue;
           // skip offline remotes here too so we don't even occupy the
           // crossRemoteLookups slot — keeps it open for retry after
-          // the remote comes back online.
+          // the remote comes back online. graph-disabled remotes are
+          // likewise excluded so shared artists never re-link to them.
           if (offlineByRemote().get(remote.remote_id) === true) continue;
+          if (graphDisabledByRemote().get(remote.remote_id) === true) continue;
           const key = `${remote.remote_id}::${artistSlug}`;
           if (crossRemoteLookups.has(key)) continue;
           // if artist with this slug is already in the main graph for this
@@ -1310,6 +1394,17 @@ function Inner(props: {
   };
   const taxonPanelHidden = detailPanelsHidden;
   const setTaxonPanelHidden = setDetailPanelsHidden;
+
+  // the synthetic favorites hub (relation::*::favorite, no taxon id) has
+  // no real detail panel to render, so the full taxon popover would draw
+  // an empty body with the minimize chevron floating over nothing. when
+  // the favorites hub is selected we always render the collapsed button
+  // instead, independent of the shared detailPanelsHidden flag, so
+  // toggling it never disturbs the minimized state of the real panels.
+  const isFavoritesHubSelected = () => {
+    const info = selectedTaxonInfo();
+    return info !== null && info.taxonId === null && info.kindSlug === "favorites";
+  };
 
   const selectedArtistAlbums = createMemo<AlbumNodeData[]>(() => {
     const artist = selectedArtist();
@@ -1911,7 +2006,9 @@ function Inner(props: {
     createCrossRemoteLazyLoading({
       remotes: () => props.remotes(),
       offlineByRemote,
+      graphDisabledByRemote,
       crossRemoteLookups,
+      getResetEpoch: () => resetEpoch,
       setFetchingByRemote,
       queryClient,
       setExtraNodesById,
@@ -2012,7 +2109,13 @@ function Inner(props: {
         onBack={depth > 1 ? () => walkApi()?.back() : undefined}
         onFit={() => walkApi()?.fit()}
         onResetWalk={() => {
+          // full reset: bump forceResetTick so the walker effect runs
+          // its init() path (wipes the worker, clears the cross-remote
+          // caches + pins, bumps the reset epoch, re-fans sibling
+          // lookups) instead of only repivoting. resetWalk() still
+          // re-centers the view afterward.
           clearCrossRemotePins();
+          setForceResetTick((n) => n + 1);
           walkApi()?.resetWalk();
           void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
         }}
@@ -2773,14 +2876,21 @@ function Inner(props: {
     });
   };
 
-  // loaders only mount for remotes that are (a) online AND (b) activated.
-  // skipping offline remotes avoids hammering an unreachable server; the
-  // activation gate defers initial-load cost until the user actually
-  // navigates to that remote's hub.
+  // loaders only mount for remotes that are (a) online AND (b) activated AND
+  // (c) not graph-disabled. skipping offline / disabled remotes avoids
+  // hammering an unreachable (or intentionally hidden) server; the activation
+  // gate defers initial-load cost until the user actually navigates to that
+  // remote's hub.
   const onlineRemotes = createMemo(() => {
     const off = offlineByRemote();
+    const dis = graphDisabledByRemote();
     const act = activatedRemotes();
-    return props.remotes().filter((r) => off.get(r.remote_id) !== true && act.has(r.remote_id));
+    return props
+      .remotes()
+      .filter(
+        (r) =>
+          off.get(r.remote_id) !== true && dis.get(r.remote_id) !== true && act.has(r.remote_id)
+      );
   });
 
   // exit edit mode when the active remote goes offline or is removed.
@@ -2899,12 +3009,28 @@ function Inner(props: {
 
   // offline-aware lookups for WalkCanvas. nodes for offline remotes (and
   // their entire subtree) get drawn dimmed so the user sees "this server is
-  // unreachable but it's still here."
+  // unreachable but it's still here." graph-disabled remotes are also treated
+  // as offline so they receive the same dimming + skip-loading behavior.
   const isOfflineNode = (id: string): boolean => {
     try {
       const parsed = parseNodeId(id);
       if (parsed.kind === "root" || parsed.kind === "ghost_artist") return false;
-      return offlineByRemote().get(parsed.remoteId) === true;
+      return (
+        offlineByRemote().get(parsed.remoteId) === true ||
+        graphDisabledByRemote().get(parsed.remoteId) === true
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  // returns true only when a remote has been explicitly graph-disabled.
+  // used by WalkCanvas to draw the diagonal slash overlay.
+  const isDisabledNode = (id: string): boolean => {
+    try {
+      const parsed = parseNodeId(id);
+      if (parsed.kind === "root" || parsed.kind === "ghost_artist") return false;
+      return graphDisabledByRemote().get(parsed.remoteId) === true;
     } catch {
       return false;
     }
@@ -3179,6 +3305,7 @@ function Inner(props: {
           selectedId={selectedId()}
           getImage={getImage}
           isOfflineNode={isOfflineNode}
+          isDisabledNode={isDisabledNode}
           isLoadingNode={isLoadingNode}
           interceptClick={interceptClick}
           editMode={editMode}
@@ -3513,7 +3640,14 @@ function Inner(props: {
         </Show>
 
         {/* taxon detail popover — shown when a value or group node is selected */}
-        <Show when={selectedTaxonInfo() !== null && !taxonPanelHidden() && !bulkActive()}>
+        <Show
+          when={
+            selectedTaxonInfo() !== null &&
+            !taxonPanelHidden() &&
+            !bulkActive() &&
+            !isFavoritesHubSelected()
+          }
+        >
           <div class="absolute bottom-3 left-3 z-10 max-w-[min(288px,calc(100%-1.5rem))] pointer-events-auto">
             <button
               type="button"
@@ -3730,18 +3864,30 @@ function Inner(props: {
           </div>
         </Show>
 
-        <Show when={selectedTaxonInfo() !== null && taxonPanelHidden() && !bulkActive()}>
+        <Show
+          when={
+            selectedTaxonInfo() !== null &&
+            !bulkActive() &&
+            (taxonPanelHidden() || isFavoritesHubSelected())
+          }
+        >
           {(() => {
             const info = selectedTaxonInfo();
             const taxon = selectedTaxonData()?.taxon ?? null;
             const kindColor = taxonKindMetaByHub.get(info?.relHubId ?? "")?.color ?? null;
             const swatch = taxon?.color ?? kindColor;
             const label = info?.label ?? taxon?.label ?? "taxon";
+            // the favorites hub stays permanently collapsed; its restore is
+            // a no-op so it never flips the shared detailPanelsHidden flag.
+            const favHub = isFavoritesHubSelected();
             return (
               <CollapsedTaxonButton
                 label={label}
                 swatch={swatch ?? null}
-                onRestore={() => setTaxonPanelHidden(false)}
+                onRestore={() => {
+                  if (favHub) return;
+                  setTaxonPanelHidden(false);
+                }}
                 pager={(() => {
                   const pg = buildUnassignedPager();
                   if (!pg) return undefined;
@@ -3867,6 +4013,42 @@ function Inner(props: {
                     toast.error(`failed to create kind '${input.slug}'`);
                   }
                 })();
+              }}
+              graphDisabled={() =>
+                graphDisabledByRemote().get(selectedRemote()?.remote_id ?? "") === true
+              }
+              onToggleGraphDisabled={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                const current = graphDisabledByRemote().get(r.remote_id) === true;
+                const next = !current;
+                // update local signal immediately for instant ui feedback
+                setGraphDisabledByRemote((prev) => {
+                  const m = new Map(prev);
+                  m.set(r.remote_id, next);
+                  return m;
+                });
+                // persist to indexeddb
+                void updateRemote(r.remote_id, { graph_disabled: next });
+                // on re-enable, kick a fresh health check: the remote was
+                // excluded from the online-remote set while disabled, so its
+                // offlineByRemote flag may be stale (or never successfully
+                // probed). without this the re-enabled remote can stay marked
+                // offline and never receive its cross-remote edge connections
+                // until a manual reload / click. mirrors interceptClick's
+                // warm-up path: on a confirmed-online result, (re)activate the
+                // loader and re-fan cross-remote lookups for the current view
+                // so the edges join immediately. runHealthCheck dedupes via
+                // recheckingRemotes.
+                if (!next) {
+                  const rid = r.remote_id;
+                  void runHealthCheck(rid).then((online) => {
+                    if (online === true) {
+                      activateRemote(rid);
+                      retryCrossRemoteForRemote(rid);
+                    }
+                  });
+                }
               }}
             />
           </div>

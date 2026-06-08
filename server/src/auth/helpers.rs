@@ -3,8 +3,8 @@
 //! these helpers are used in route handlers to check if a user
 //! has the required role or ownership to perform an action.
 
-use crate::error::ApiError;
 use crate::auth::middleware::AuthenticatedUser;
+use crate::error::ApiError;
 use grimoire::users::UserRole;
 
 /// check if user has at least the required role
@@ -21,10 +21,7 @@ pub fn check_role(user: &AuthenticatedUser, required: UserRole) -> Result<(), Ap
 /// check if user is the owner of a resource
 ///
 /// returns `Ok(())` if user is owner, `Err(ApiError::Forbidden)` otherwise
-pub fn check_owner(
-    user: &AuthenticatedUser,
-    owner_id: Option<&str>,
-) -> Result<(), ApiError> {
+pub fn check_owner(user: &AuthenticatedUser, owner_id: Option<&str>) -> Result<(), ApiError> {
     match owner_id {
         Some(oid) if oid == user.user_id => Ok(()),
         _ => Err(ApiError::Forbidden),

@@ -197,12 +197,10 @@ async fn handle_stream(
                 // map error types to status codes
                 let status = if response.errors.iter().any(|e| e.error_type == "forbidden") {
                     403
-                } else if response.errors.iter().any(|e| e.error_type == "not_found") {
-                    404
                 } else if response
                     .errors
                     .iter()
-                    .any(|e| e.error_type == "route_not_found")
+                    .any(|e| e.error_type == "not_found" || e.error_type == "route_not_found")
                 {
                     404
                 } else if response
@@ -243,34 +241,30 @@ async fn handle_stream(
                 if let Some(data) = response.data {
                     if let Some(blob_id) = data.get("blob_id").and_then(|v| v.as_str()) {
                         // stream the blob
-                        match get_media_blob_with_data(blob_id).await {
-                            Ok((blob, db_data)) => {
-                                let bytes = if let Some(data) = db_data {
-                                    Some(data)
-                                } else if let Some(ref local_path) = blob.local_path {
-                                    read_file_to_bytes(local_path).await.ok()
-                                } else {
-                                    None
-                                };
+                        if let Ok((blob, db_data)) = get_media_blob_with_data(blob_id).await {
+                            let bytes = if let Some(data) = db_data {
+                                Some(data)
+                            } else if let Some(ref local_path) = blob.local_path {
+                                read_file_to_bytes(local_path).await.ok()
+                            } else {
+                                None
+                            };
 
-                                if let Some(bytes) = bytes {
-                                    let resp = PeerMessage::HelloImageResponse {
-                                        id,
-                                        size: Some(bytes.len() as u64),
-                                        content_type: blob.mime.clone(),
-                                        error: None,
-                                    };
-                                    send_length_prefixed(&mut send, &resp).await?;
-                                    send.write_all(&bytes).await.map_err(|e| {
-                                        format!("failed to write image data: {}", e)
-                                    })?;
-                                    send.finish().map_err(|e| {
-                                        format!("failed to finish image stream: {}", e)
-                                    })?;
-                                    return Ok(());
-                                }
+                            if let Some(bytes) = bytes {
+                                let resp = PeerMessage::HelloImageResponse {
+                                    id,
+                                    size: Some(bytes.len() as u64),
+                                    content_type: blob.mime.clone(),
+                                    error: None,
+                                };
+                                send_length_prefixed(&mut send, &resp).await?;
+                                send.write_all(&bytes)
+                                    .await
+                                    .map_err(|e| format!("failed to write image data: {}", e))?;
+                                send.finish()
+                                    .map_err(|e| format!("failed to finish image stream: {}", e))?;
+                                return Ok(());
                             }
-                            Err(_) => {}
                         }
                     }
                 }

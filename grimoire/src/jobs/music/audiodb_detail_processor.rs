@@ -169,6 +169,7 @@ pub async fn process_audiodb_album_detail_job(job: &Job) -> Result<Option<Value>
         crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Audiodb).await;
         let resp = client.artist_by_mbid(amid).await;
         if resp.success {
+            #[allow(clippy::collapsible_match)]
             if let Some(Some(a)) = resp.data.map(Some) {
                 if let Some(actual) = a {
                     snapshot.artist = Some(map_artist(actual));
@@ -465,11 +466,9 @@ fn normalize_album_title(s: &str) -> String {
         if c.is_alphanumeric() {
             out.push(c);
             last_space = false;
-        } else if c.is_whitespace() {
-            if !last_space && !out.is_empty() {
-                out.push(' ');
-                last_space = true;
-            }
+        } else if c.is_whitespace() && !last_space && !out.is_empty() {
+            out.push(' ');
+            last_space = true;
         }
     }
     out.trim().to_string()

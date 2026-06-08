@@ -153,17 +153,17 @@ impl ZodSchema for MediaBlob {
     fn zod_schema() -> String {
         // local_path intentionally excluded - internal filesystem detail not exposed in api
         zod_object(&[
-            ("id", &zod_string()),
-            ("sha256", &zod_string()),
+            ("id", zod_string()),
+            ("sha256", zod_string()),
             ("size", &zod_nullable(zod_number())),
             ("mime", &zod_nullable(zod_string())),
             ("source_client_id", &zod_nullable(zod_string())),
             ("filename", &zod_nullable(zod_string())),
             ("parent_blob_id", &zod_nullable(zod_string())),
             ("blob_type", &BlobType::zod_schema()),
-            ("metadata", &"z.any()".to_string()),
-            ("created_at", &zod_number()),
-            ("updated_at", &zod_number()),
+            ("metadata", "z.any()"),
+            ("created_at", zod_number()),
+            ("updated_at", zod_number()),
             ("deleted_at", &zod_nullable(zod_number())),
             ("deleted_by", &zod_nullable(zod_string())),
             ("created_by", &zod_nullable(zod_string())),

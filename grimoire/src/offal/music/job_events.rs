@@ -51,7 +51,7 @@ pub async fn snapshot(caller: &Caller, body: JsonValue) -> GrimoireResponse<Json
                 vec![ErrorDetail::new(
                     "bad_request",
                     "invalid EventFilter body",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -64,7 +64,7 @@ pub async fn snapshot(caller: &Caller, body: JsonValue) -> GrimoireResponse<Json
             vec![ErrorDetail::new(
                 "serialization_error",
                 "failed to serialize snapshot",
-                &e.to_string(),
+                e.to_string(),
             )],
         ),
     }

@@ -2,10 +2,18 @@
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
-use grimoire::music::entities::albums::{add_album_image, clear_album_images, remove_album_image, set_primary_album_image};
-use grimoire::music::entities::artists::{add_artist_image, clear_artist_images, remove_artist_image, set_primary_artist_image};
-use grimoire::music::entities::playlists::{add_playlist_image, clear_playlist_images, remove_playlist_image, set_primary_playlist_image};
-use grimoire::music::entities::songs::{add_song_image, clear_song_images, remove_song_image, set_primary_song_image};
+use grimoire::music::entities::albums::{
+    add_album_image, clear_album_images, remove_album_image, set_primary_album_image,
+};
+use grimoire::music::entities::artists::{
+    add_artist_image, clear_artist_images, remove_artist_image, set_primary_artist_image,
+};
+use grimoire::music::entities::playlists::{
+    add_playlist_image, clear_playlist_images, remove_playlist_image, set_primary_playlist_image,
+};
+use grimoire::music::entities::songs::{
+    add_song_image, clear_song_images, remove_song_image, set_primary_song_image,
+};
 
 #[derive(Subcommand)]
 pub enum ImageAction {
@@ -162,7 +170,11 @@ impl ImageAction {
     pub async fn execute(&self) -> CommandOutput<serde_json::Value> {
         match self {
             // song image operations
-            ImageAction::AddSongImage { song_id, blob_id, is_primary } => {
+            ImageAction::AddSongImage {
+                song_id,
+                blob_id,
+                is_primary,
+            } => {
                 let response = add_song_image(song_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
@@ -196,7 +208,11 @@ impl ImageAction {
             }
 
             // album image operations
-            ImageAction::AddAlbumImage { album_id, blob_id, is_primary } => {
+            ImageAction::AddAlbumImage {
+                album_id,
+                blob_id,
+                is_primary,
+            } => {
                 let response = add_album_image(album_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
@@ -230,7 +246,11 @@ impl ImageAction {
             }
 
             // artist image operations
-            ImageAction::AddArtistImage { artist_id, blob_id, is_primary } => {
+            ImageAction::AddArtistImage {
+                artist_id,
+                blob_id,
+                is_primary,
+            } => {
                 let response = add_artist_image(artist_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
@@ -264,7 +284,11 @@ impl ImageAction {
             }
 
             // playlist image operations
-            ImageAction::AddPlaylistImage { playlist_id, blob_id, is_primary } => {
+            ImageAction::AddPlaylistImage {
+                playlist_id,
+                blob_id,
+                is_primary,
+            } => {
                 let response = add_playlist_image(playlist_id, blob_id, *is_primary, None).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
@@ -272,7 +296,10 @@ impl ImageAction {
                     CommandOutput::failure(response.message, vec![], ())
                 }
             }
-            ImageAction::RemovePlaylistImage { playlist_id, blob_id } => {
+            ImageAction::RemovePlaylistImage {
+                playlist_id,
+                blob_id,
+            } => {
                 let response = remove_playlist_image(playlist_id, blob_id).await;
                 if response.success {
                     CommandOutput::success(response.message, ())
@@ -280,7 +307,10 @@ impl ImageAction {
                     CommandOutput::failure(response.message, vec![], ())
                 }
             }
-            ImageAction::SetPrimaryPlaylistImage { playlist_id, blob_id } => {
+            ImageAction::SetPrimaryPlaylistImage {
+                playlist_id,
+                blob_id,
+            } => {
                 let response = set_primary_playlist_image(playlist_id, blob_id).await;
                 if response.success {
                     CommandOutput::success(response.message, ())

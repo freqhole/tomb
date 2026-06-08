@@ -258,7 +258,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -708,7 +708,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }
@@ -937,7 +937,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
     );
 
     GrimoireResponse::success(
-        &format!(
+        format!(
             "playlist synced with {} songs ({} missing, {} stubbed)",
             songs_with_positions.len(),
             response.missing_song_blake3s.len(),
@@ -1067,7 +1067,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }

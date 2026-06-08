@@ -65,7 +65,7 @@ pub fn write_duplicate_report() -> Result<(), std::io::Error> {
         let mut wtr = csv::Writer::from_path(&report_path)?;
 
         // write header
-        wtr.write_record(&[
+        wtr.write_record([
             "skipped_file_path",
             "artist",
             "album",
@@ -79,7 +79,7 @@ pub fn write_duplicate_report() -> Result<(), std::io::Error> {
 
         // write rows
         for row in rows {
-            wtr.write_record(&[
+            wtr.write_record([
                 &row.skipped_file_path,
                 &row.artist,
                 &row.album,
@@ -298,7 +298,7 @@ pub async fn import_song_with_metadata(
                         vec![ErrorDetail::new(
                             "genre_creation_failed",
                             "Genre Creation Failed",
-                            &format!("failed to find or create genre: {}", name),
+                            format!("failed to find or create genre: {}", name),
                         )]
                     } else {
                         response.errors
@@ -596,7 +596,7 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
     }
 }
 
-/// find existing album by title or create new one
+// find existing album by title or create new one
 
 /// get current artist for a song (returns first artist if multiple exist)
 pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option<Artist>> {

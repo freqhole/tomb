@@ -60,11 +60,21 @@ export interface CoachContext {
    *  char-by-char typing animations. */
   setSearchQuery?: (text: string) => void;
   /** click the Nth selectable item inside an anchor. used to cycle through
-   *  the master list of a master-detail view (artists / playlists). */
+   *  the master list of a master-detail view (artists / playlists). also
+   *  scrolls the clicked item into view within its scroll container. */
   setSelectedListItem?: (anchor: string, idx: number) => void;
   // type a value into an input by anchor (story-only — pokes the DOM
   // input's value via the native value setter so it shows char-by-char).
   setInputValue?: (anchor: string, text: string) => void;
+  /** set the active favorites filter toggles (songs/albums/artists/playlists)
+   *  by clicking the toggle buttons to reach the requested set. */
+  setFavoriteFilters?: (filters: string[]) => void;
+  /** set the album-edit modal title field (story-only signal). drives the
+   *  "rename unknown album" typing animation. */
+  setAlbumEditTitle?: (text: string) => void;
+  /** drive the album-edit musicbrainz enrichment animation. p in 0..1
+   *  reveals the year + genres and turns the match icons green. */
+  setAlbumEnrichment?: (p: number) => void;
   // drive the story-only "knock flow" modal phase.
   // phases: "id-form" | "loading" | "request-form" | "pending" | "approved"
   setKnockPhase?: (phase: string) => void;

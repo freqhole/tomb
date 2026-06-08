@@ -497,12 +497,9 @@ async fn hard_delete_old_records_internal(
 
     for genre_id in &genre_ids {
         // Unlink from albums via taxon junction
-        sqlx::query!(
-            "DELETE FROM album_taxonz WHERE taxon_id = ?",
-            genre_id
-        )
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query!("DELETE FROM album_taxonz WHERE taxon_id = ?", genre_id)
+            .execute(&mut *tx)
+            .await?;
         // Delete the taxon row
         sqlx::query!("DELETE FROM taxonz WHERE id = ?", genre_id)
             .execute(&mut *tx)

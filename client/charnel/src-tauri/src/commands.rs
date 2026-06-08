@@ -7,8 +7,7 @@
 //! the config's data_dir field can point to a different location for the database/media
 
 use serde::Serialize;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -25,14 +24,14 @@ fn canonicalize_or_original(path: &str) -> String {
 }
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
-fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
+fn ensure_config_initialized(config_path: &Path) -> Result<(), String> {
     if grimoire::is_config_initialized() {
         return Ok(());
     }
     if !config_path.exists() {
         return Err(format!("config file not found: {}", config_path.display()));
     }
-    match grimoire::config::init_config(Some(config_path.clone())) {
+    match grimoire::config::init_config(Some(config_path.to_path_buf())) {
         Ok(_) => Ok(()),
         Err(e) => {
             // race condition: another call initialized it first - that's fine
@@ -119,6 +118,7 @@ pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
 /// this handles the infrastructure setup without creating an admin user.
 /// use create_admin_user after this to create the admin user with API key.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn run_setup_core(
     config_path: String,
     data_dir: String,
@@ -297,25 +297,22 @@ pub async fn check_setup_status(app_handle: tauri::AppHandle) -> SetupStatus {
     }
 
     // try to load config if not already initialized
-    if !grimoire::is_config_initialized() {
-        if let Err(_) = grimoire::config::init_config(Some(config_path.clone())) {
-            return SetupStatus {
-                needs_setup: true,
-                config_exists: true,
-                has_root_user: false,
-                config_path: Some(config_path.display().to_string()),
-                data_dir: None,
-            };
-        }
+    if !grimoire::is_config_initialized()
+        && grimoire::config::init_config(Some(config_path.clone())).is_err()
+    {
+        return SetupStatus {
+            needs_setup: true,
+            config_exists: true,
+            has_root_user: false,
+            config_path: Some(config_path.display().to_string()),
+            data_dir: None,
+        };
     }
 
     let config = grimoire::config::get_config();
 
     // check if we can connect to db and find a root user
-    let has_root = match check_has_root_user().await {
-        Ok(has) => has,
-        Err(_) => false,
-    };
+    let has_root = check_has_root_user().await.unwrap_or_default();
 
     SetupStatus {
         needs_setup: !has_root,
@@ -403,10 +400,9 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
 
     if config_path.exists() {
         // use existing config if initialized, otherwise try to init
-        if grimoire::is_config_initialized() {
-            let config = grimoire::config::get_config();
-            return Some(config.data_dir.display().to_string());
-        } else if grimoire::config::init_config(Some(config_path)).is_ok() {
+        if grimoire::is_config_initialized()
+            || grimoire::config::init_config(Some(config_path)).is_ok()
+        {
             let config = grimoire::config::get_config();
             return Some(config.data_dir.display().to_string());
         }
@@ -496,6 +492,7 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
+        use std::process::Command;
         app_handle
             .opener()
             .open_path(path.to_string_lossy().to_string(), None::<&str>)
@@ -1023,54 +1020,50 @@ pub async fn resume_pending_jobs_polling(
 
         let jobs_response = list_jobs(None, None, Some(1000), None).await;
 
-        match jobs_response.data {
-            Some(jobs) => {
-                let jobs_total = jobs.len() as u32;
-                let pending = jobs
-                    .iter()
-                    .filter(|j| {
-                        j.status()
-                            .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
-                            .unwrap_or(false)
-                    })
-                    .count() as u32;
+        if let Some(jobs) = jobs_response.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
 
-                let current_stats = get_overview_stats().await.data;
-                let (songs_added, albums_added, artists_added) = match &current_stats {
-                    Some(stats) => (
-                        (stats.total_songs - baseline.0).max(0) as u32,
-                        (stats.total_albums - baseline.1).max(0) as u32,
-                        (stats.total_artists - baseline.2).max(0) as u32,
-                    ),
-                    None => (0, 0, 0),
-                };
+            let current_stats = get_overview_stats().await.data;
+            let (songs_added, albums_added, artists_added) = match &current_stats {
+                Some(stats) => (
+                    (stats.total_songs - baseline.0).max(0) as u32,
+                    (stats.total_albums - baseline.1).max(0) as u32,
+                    (stats.total_artists - baseline.2).max(0) as u32,
+                ),
+                None => (0, 0, 0),
+            };
 
-                let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
-                    let _ = notify_scan_progress(
-                        &app_handle,
-                        songs_added,
-                        albums_added,
-                        artists_added,
-                        pending,
-                        jobs_total,
-                    );
-                }
-
-                if pending == 0 {
-                    let _ =
-                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
-                    tracing::info!(
-                        songs = songs_added,
-                        albums = albums_added,
-                        artists = artists_added,
-                        "scan-poll: resume complete"
-                    );
-                    return;
-                }
+            let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
+            if current_songs != last_songs {
+                last_songs = current_songs;
+                let _ = notify_scan_progress(
+                    &app_handle,
+                    songs_added,
+                    albums_added,
+                    artists_added,
+                    pending,
+                    jobs_total,
+                );
             }
-            None => {}
+
+            if pending == 0 {
+                let _ = notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
+                tracing::info!(
+                    songs = songs_added,
+                    albums = albums_added,
+                    artists = artists_added,
+                    "scan-poll: resume complete"
+                );
+                return;
+            }
         }
     }
 
@@ -1685,7 +1678,7 @@ pub fn read_logs(app_handle: tauri::AppHandle, max_lines: Option<usize>) -> Vec<
     };
 
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
     // take at most max_lines from the end (newest)
     let start = if lines.len() > max {

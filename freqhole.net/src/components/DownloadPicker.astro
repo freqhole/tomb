@@ -87,7 +87,17 @@ const urlsJson = JSON.stringify(
   )}
 
   {!buttonOnly && !heroOnly && (
-  <div class="dl-more">
+  <div class="dl-more" data-dl-more>
+    <div class="dl-brainstorm-note" data-dl-brainstorm-note hidden>
+      <span class="dl-brainstorm-note-text">highlighted below are the builds matching your <a href="/getting-started/brainstorm/">brainstorm</a> picks.</span>
+      <button type="button" class="dl-brainstorm-reset" data-dl-brainstorm-reset>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>reset</span>
+      </button>
+    </div>
+    <div class="dl-brainstorm-help" data-dl-brainstorm-help>
+      <span class="dl-brainstorm-help-text">having trouble figuring out which file to download? get help on the <a href="/getting-started/brainstorm/">brainstorm</a> page.</span>
+    </div>
     <h2 class="dl-more-title">all releases</h2>
     <h3 class="dl-section-title">
       <span class="dl-section-icon"><Icon name="laptop" size="1.1rem" /></span>
@@ -203,12 +213,12 @@ const urlsJson = JSON.stringify(
       </section>
     </div>
 
-    <h3 class="dl-section-title">
+    <h3 class="dl-section-title" data-dl-web-section>
       <span class="dl-section-icon"><Icon name="cloud" size="1.1rem" /></span>
       web
     </h3>
     <ul class="dl-list dl-web-list">
-      <li><a href="https://spume.freqhole.net" rel="noopener">spume.freqhole.net</a> — hosted web app</li>
+      <li><a href="https://spume.freqhole.net" rel="noopener" data-dl="web-spume">spume.freqhole.net</a> — hosted web app</li>
       <li>self-hosted: bundled with the server, available at <code>http://your-server:8080</code></li>
     </ul>
 
@@ -390,6 +400,105 @@ const urlsJson = JSON.stringify(
     }
 
     renderHero();
+
+    // ---- brainstorm highlights ---------------------------------------------
+    // read the selections saved by the brainstorm page (same localStorage key)
+    // and highlight the matching builds in the "all releases" grid: selected
+    // pills + their platform sections get an accent; everything else is muted.
+    const BRAINSTORM_KEY = "freqhole-brainstorm-v1";
+    const moreEl = root.querySelector("[data-dl-more]");
+    const bsNote = root.querySelector("[data-dl-brainstorm-note]");
+    const bsHelp = root.querySelector("[data-dl-brainstorm-help]");
+    const bsReset = root.querySelector("[data-dl-brainstorm-reset]");
+
+    function readBrainstorm() {
+      try {
+        const raw = localStorage.getItem(BRAINSTORM_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    // the brainstorm flow records the exact files it wants as asset keys in
+    // state.files; those are the data-dl values to highlight here.
+    function highlightedKeys(state) {
+      return new Set(Array.isArray(state.files) ? state.files : []);
+    }
+
+    function applyHighlights() {
+      const state = readBrainstorm();
+      const keys = state ? highlightedKeys(state) : new Set();
+      const active = keys.size > 0;
+
+      if (moreEl) moreEl.classList.toggle("dl-more--brainstorm", active);
+      if (bsNote) bsNote.toggleAttribute("hidden", !active);
+      // the help prompt is the inverse: show it only when no brainstorm
+      // picks are active, so the page always offers a route to figuring
+      // out which file to grab.
+      if (bsHelp) bsHelp.toggleAttribute("hidden", active);
+
+      // pills
+      root.querySelectorAll("a[data-dl]").forEach((a) => {
+        const key = a.getAttribute("data-dl");
+        const on = active && key && keys.has(key);
+        a.classList.toggle("dl-pick", !!on);
+        a.classList.toggle("dl-muted", active && !on);
+      });
+
+      // platform sections (highlight if they contain a picked pill)
+      root.querySelectorAll(".dl-plat").forEach((sec) => {
+        const has = active && !!sec.querySelector("a.dl-pick");
+        sec.classList.toggle("dl-plat--pick", has);
+        sec.classList.toggle("dl-plat--muted", active && !has);
+      });
+
+      // web section header
+      const webHead = root.querySelector("[data-dl-web-section]");
+      if (webHead) {
+        const has = active && !!root.querySelector('a[data-dl="web-spume"].dl-pick');
+        webHead.classList.toggle("dl-section--pick", has);
+        webHead.classList.toggle("dl-section--muted", active && !has);
+      }
+
+      syncBrainstormToc(active);
+    }
+
+    // add/remove an "all releases" entry in the starlight "on this page"
+    // sidebar so the brainstorm-highlighted container is reachable from the toc.
+    function syncBrainstormToc(show) {
+      if (moreEl && !moreEl.id) moreEl.id = "all-releases";
+      const tocLists = document.querySelectorAll("starlight-toc nav > ul, mobile-starlight-toc nav ul");
+      tocLists.forEach((list) => {
+        const existing = list.querySelector("[data-brainstorm-toc]");
+        if (show && !existing && moreEl) {
+          const li = document.createElement("li");
+          li.setAttribute("data-brainstorm-toc", "");
+          const first = list.querySelector("li");
+          if (first) li.className = first.className;
+          const a = document.createElement("a");
+          a.href = `#${moreEl.id}`;
+          a.textContent = "your picks";
+          const tmpl = first?.querySelector("a");
+          if (tmpl) a.className = tmpl.className;
+          li.appendChild(a);
+          list.insertBefore(li, list.firstChild);
+        } else if (!show && existing) {
+          existing.remove();
+        }
+      });
+    }
+
+    if (bsReset) {
+      bsReset.addEventListener("click", () => {
+        try {
+          localStorage.removeItem(BRAINSTORM_KEY);
+        } catch {}
+        applyHighlights();
+      });
+    }
+
+    applyHighlights();
   })();
 </script>
 
@@ -399,6 +508,79 @@ const urlsJson = JSON.stringify(
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+  }
+
+  /* brainstorm-driven highlighting of the "all releases" container */
+  .dl-more--brainstorm {
+    padding: 1.25rem 1.4rem 1.5rem;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--sl-color-accent, #d63384) 45%, transparent);
+    background:
+      radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--sl-color-accent-low, #2a1622) 45%, transparent), transparent 65%),
+      var(--sl-color-gray-7, #0f0f0f);
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--sl-color-accent, #d63384) 30%, transparent) inset,
+      0 14px 36px -14px color-mix(in srgb, var(--sl-color-accent, #d63384) 45%, transparent);
+  }
+  .dl-brainstorm-note {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--sl-color-accent, #d63384) 30%, var(--sl-color-gray-6, #1a1a1a));
+  }
+  .dl-brainstorm-note[hidden] { display: none; }
+  .dl-brainstorm-note-text { font-size: 0.85rem; color: var(--sl-color-gray-2, #ccc); }
+  .dl-brainstorm-help {
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--sl-color-gray-6, #1a1a1a);
+  }
+  .dl-brainstorm-help[hidden] { display: none; }
+  .dl-brainstorm-help-text { font-size: 0.85rem; color: var(--sl-color-gray-3, #999); }
+  .dl-brainstorm-reset {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid var(--sl-color-gray-5, #2a2a2a);
+    background: var(--sl-color-gray-6, #1a1a1a);
+    color: var(--sl-color-gray-2, #ccc);
+    cursor: pointer;
+    flex: none;
+  }
+  .dl-brainstorm-reset:hover { color: var(--sl-color-white, #fff); border-color: var(--sl-color-accent, #d63384); }
+
+  /* picked platform sections get an accent border + subtle lift */
+  .dl-plat--pick {
+    border-color: color-mix(in srgb, var(--sl-color-accent, #d63384) 55%, var(--sl-color-gray-5, #2a2a2a));
+    box-shadow: 0 8px 24px -14px color-mix(in srgb, var(--sl-color-accent, #d63384) 70%, transparent);
+  }
+  .dl-plat--muted { opacity: 0.55; transition: opacity 0.15s; }
+  .dl-plat--muted:hover { opacity: 1; }
+  .dl-section--muted { opacity: 0.55; transition: opacity 0.15s; }
+  .dl-section--muted:hover { opacity: 1; }
+  .dl-section--pick { color: var(--sl-color-white, #fff); }
+
+  /* picked download pills get a glow; unpicked ones mute until hovered */
+  .dl-list a.dl-pick {
+    border-color: var(--sl-color-accent, #d63384);
+    color: var(--sl-color-white, #fff);
+    background: color-mix(in srgb, var(--sl-color-accent-low, #2a1622) 70%, var(--sl-color-gray-7, #0f0f0f));
+    box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--sl-color-accent, #d63384) 70%, transparent);
+  }
+  .dl-list a.dl-muted {
+    opacity: 0.5;
+    transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .dl-list a.dl-muted:hover {
+    opacity: 1;
+    border-color: var(--sl-color-accent, #d63384);
   }
 
   .dl-hero {

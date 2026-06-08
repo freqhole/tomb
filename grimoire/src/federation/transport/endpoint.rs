@@ -8,7 +8,7 @@
 //! - freqhole-blobz: iroh-blobs verified streaming (audio files)
 
 use crate::blobz::{get_blobs_store, BLOBS_ALPN};
-use crate::config::get_config;
+use crate::config::{get_config, FederationConfig, RelayModeConfig};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
 use crate::federation::transport::admin_iroh::AdminProtocol;
@@ -16,13 +16,64 @@ use crate::federation::transport::admin_protocol::ADMIN_ALPN;
 use crate::federation::transport::events_protocol::{EventsProtocol, EVENTS_ALPN};
 use crate::federation::transport::freqhole_protocol::FreqholeProtocol;
 use crate::federation::transport::protocol::FREQHOLE_ALPN;
-use iroh::endpoint::presets;
+use iroh::endpoint::{presets, RelayMode};
 use iroh::protocol::{Router, RouterBuilder};
-use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
+use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayUrl, SecretKey};
 use iroh_blobs::provider::events::{EventMask, EventSender};
 use iroh_blobs::BlobsProtocol;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tracing::{info, warn};
+
+/// resolve the iroh relay mode from federation config.
+///
+/// returns `Ok(None)` when the public iroh relay should be used as-is (the
+/// default, matching the preset). returns `Ok(Some(mode))` to override the
+/// preset's relay setup:
+/// - `custom_only`: route through `relay_url` only, no public fallback.
+/// - `prefer_custom`: include both `relay_url` and the public n0 relays so the
+///   endpoint can use whichever is reachable / lowest-latency (custom acts as
+///   the preferred home relay when it is the closest).
+///
+/// errors when a custom mode is selected but `relay_url` is missing or invalid.
+fn resolve_relay_mode(fed: Option<&FederationConfig>) -> GrimoireResult<Option<RelayMode>> {
+    let fed = match fed {
+        Some(f) => f,
+        None => return Ok(None),
+    };
+
+    match fed.relay_mode {
+        RelayModeConfig::Default => Ok(None),
+        RelayModeConfig::CustomOnly => {
+            let url = parse_relay_url(fed.relay_url.as_deref())?;
+            info!("using custom iroh relay only: {}", url);
+            Ok(Some(RelayMode::custom([url])))
+        }
+        RelayModeConfig::PreferCustom => {
+            let url = parse_relay_url(fed.relay_url.as_deref())?;
+            // start with the custom relay, then add the public n0 relays as
+            // fallback. iroh selects its home relay by reachability/latency.
+            let map = RelayMap::from(url.clone());
+            map.extend(&RelayMode::Default.relay_map());
+            info!("preferring custom iroh relay {} with public fallback", url);
+            Ok(Some(RelayMode::Custom(map)))
+        }
+    }
+}
+
+/// parse a configured relay url string into a `RelayUrl`, rejecting empty or
+/// missing values (required when a custom relay mode is selected).
+fn parse_relay_url(url: Option<&str>) -> GrimoireResult<RelayUrl> {
+    let url = url
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| GrimoireError::FederationApiError {
+            message: "federation.relay_mode requires a non-empty federation.relay_url".to_string(),
+        })?;
+    url.parse::<RelayUrl>()
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("invalid federation.relay_url '{}': {}", url, e),
+        })
+}
 
 /// federation endpoint - manages iroh P2P connections
 pub struct FederationEndpoint {
@@ -65,7 +116,14 @@ impl FederationEndpoint {
             .filter(|&p| p != 0);
 
         // use N0 preset for relay + DNS discovery (peers can find each other)
-        let builder = Endpoint::builder(presets::N0).secret_key(secret_key);
+        let mut builder = Endpoint::builder(presets::N0).secret_key(secret_key);
+
+        // apply a custom relay map when configured. when relay_mode is the
+        // default (public iroh relay only), leave the preset's relay setup
+        // untouched.
+        if let Some(relay_mode) = resolve_relay_mode(get_config().federation.as_ref())? {
+            builder = builder.relay_mode(relay_mode);
+        }
 
         let endpoint = if let Some(port) = bind_port {
             // bind to specific port (for users with manual router port forwarding)

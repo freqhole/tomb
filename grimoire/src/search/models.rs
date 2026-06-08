@@ -5,21 +5,16 @@ use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
 /// search field enum for scoping searches
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchField {
+    #[default]
     All,
     Artists,
     Albums,
     Songs,
     Genres,
     Playlists,
-}
-
-impl Default for SearchField {
-    fn default() -> Self {
-        SearchField::All
-    }
 }
 
 impl ZodSchemaTrait for SearchField {
@@ -268,6 +263,7 @@ impl MatchType {
     }
 
     /// parse match type from string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "title" => MatchType::Title,

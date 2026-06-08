@@ -189,7 +189,7 @@ impl LastFmClient {
                 Err(e) => {
                     let msg = format!("{}", e);
                     let is_not_found = msg.contains("error 6") || msg.contains("not found");
-                    if !(is_not_found && !artist.is_empty()) {
+                    if !is_not_found || artist.is_empty() {
                         return GrimoireResponse::failure(
                             "lastfm artist.getInfo failed",
                             vec![e.into()],
@@ -253,7 +253,7 @@ impl LastFmClient {
                 Err(e) => {
                     let msg = format!("{}", e);
                     let is_not_found = msg.contains("error 6") || msg.contains("not found");
-                    if !(is_not_found && !artist.is_empty()) {
+                    if !is_not_found || artist.is_empty() {
                         return GrimoireResponse::failure(
                             "lastfm artist.getSimilar failed",
                             vec![e.into()],

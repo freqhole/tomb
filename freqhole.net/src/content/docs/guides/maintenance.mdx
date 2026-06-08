@@ -219,6 +219,6 @@ if playback in the desktop app crackles, stutters, or drops samples on linux —
 linux_buffer_frames = 4096   # or 8192 if 4096 still glitches
 ```
 
-default is `2048` (~43ms latency @ 48kHz). doubling roughly doubles latency but adds proportional headroom against pipewire/pulseaudio scheduler jitter. restart the app for the change to take effect. ignored on macOS / windows.
+default is `2048` (~43ms latency @ 48kHz). doubling roughly doubles latency but adds proportional headroom against pipewire/pulseaudio scheduler jitter. restart the app for the change to take effect.
 
 see the [audio config section](/concepts/configuration/#audio-rodiocpal-buffer) for details.

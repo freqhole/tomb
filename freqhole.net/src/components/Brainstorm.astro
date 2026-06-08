@@ -1,0 +1,1044 @@
+---
+// interactive "brainstorm" widget for the freqhole docs.
+//
+// a stateful, multi-stage flow that helps a new user think through their setup
+// before they start: what hardware do you have, where does your music live,
+// how do you want to share, and how to manage the library. vanilla TS state
+// machine + d3 for the two svg visuals (the hardware flow diagram and the
+// device-connection graph). all selections persist to a single localStorage
+// key; a reset button appears when state exists.
+//
+// styles are global (namespaced under .brainstorm) because d3-created
+// elements don't receive astro's scoped-style attribute.
+---
+
+<div class="brainstorm not-content" data-brainstorm>
+  <noscript>
+    <div class="sw-noscript">
+      this walkthrough needs javascript. here are the same steps as plain
+      links:
+      <ul>
+        <li><a href="/getting-started/download/">download a build</a></li>
+        <li><a href="/getting-started/prerequisites/">prerequisites (ffmpeg, yt-dlp)</a></li>
+        <li><a href="/guides/scanning/">scanning your library</a></li>
+        <li><a href="/guides/sharing/">sharing with friends</a></li>
+        <li><a href="/guides/metadata-enrichment/">metadata enrichment</a></li>
+        <li><a href="/concepts/transports/">HTTP vs P2P</a></li>
+      </ul>
+    </div>
+  </noscript>
+
+  <header class="sw-head">
+    <div class="sw-head-title">brainstorm your setup</div>
+    <button type="button" class="sw-reset" data-sw-reset hidden>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      <span>reset</span>
+    </button>
+  </header>
+
+  <div class="sw-sections" data-sw-sections></div>
+</div>
+
+<style is:global>
+  .brainstorm {
+    --sw-edge: var(--sl-color-gray-4, #9ca3af);
+    --sw-card-bg: var(--sl-color-gray-6, #1b1b25);
+    --sw-card-border: var(--sl-color-gray-5, #2b2b3a);
+    margin: 1.5rem 0 2.5rem;
+    border: 1px solid var(--sw-card-border);
+    border-radius: 14px;
+    background:
+      radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--sl-color-accent-low) 22%, transparent), transparent 60%),
+      var(--sl-color-black, #0b0b10);
+    overflow: hidden;
+  }
+
+  .sw-noscript {
+    padding: 1rem 1.25rem;
+    color: var(--sl-color-gray-2);
+  }
+
+  .sw-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--sw-card-border);
+    flex-wrap: wrap;
+    position: sticky;
+    top: var(--sl-nav-height, 0);
+    z-index: 5;
+    background: var(--sl-color-black, #0b0b10);
+  }
+  .sw-head-title { font-size: 0.95rem; font-weight: 600; color: var(--sl-color-white); }
+
+  /* vertically-stacked sections */
+  .sw-sections { display: flex; flex-direction: column; }
+  .sw-section {
+    padding: 1.4rem 1.25rem;
+    border-bottom: 1px solid var(--sw-card-border);
+    scroll-margin-top: calc(var(--sl-nav-height, 0px) + 3.5rem);
+  }
+  .sw-section:last-child { border-bottom: none; }
+  .sw-section-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+  }
+  .sw-section-num {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background: var(--sl-color-accent);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sw-reset {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid var(--sw-card-border);
+    background: var(--sw-card-bg);
+    color: var(--sl-color-gray-2);
+    cursor: pointer;
+  }
+  .sw-reset:hover { color: var(--sl-color-white); border-color: var(--sl-color-accent); }
+
+  .sw-stage-title { margin: 0; font-size: 1.35rem; line-height: 1.2; }
+  .sw-stage-sub { margin: 0 0 1.1rem; color: var(--sl-color-gray-2); font-size: 0.95rem; }
+  .sw-q-label { font-size: 0.92rem; color: var(--sl-color-gray-2); margin: 1.1rem 0 0.5rem; }
+
+  /* chips (multi-select) */
+  .sw-chips { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+  .sw-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid var(--sw-card-border);
+    background: var(--sw-card-bg);
+    color: var(--sl-color-gray-1);
+    cursor: pointer;
+    font-size: 0.92rem;
+    transition: all 0.14s ease;
+  }
+  .sw-chip:hover { border-color: var(--sl-color-accent); transform: translateY(-1px); }
+  .sw-chip[aria-pressed="true"] {
+    border-color: var(--sl-color-accent);
+    background: color-mix(in srgb, var(--sl-color-accent) 18%, var(--sw-card-bg));
+    color: var(--sl-color-white);
+    box-shadow: 0 0 0 1px var(--sl-color-accent) inset;
+  }
+  .sw-chip svg { flex: none; }
+  .sw-chip .sw-chip-ico { width: 1.25rem; height: 1.25rem; display: grid; place-items: center; color: var(--sl-color-accent-high); }
+
+  /* hardware flow svg */
+  .sw-flow-wrap { width: 100%; overflow-x: auto; margin: 0.5rem 0 0.25rem; }
+  .sw-flow { display: block; }
+  .sw-flow .sw-node rect {
+    fill: var(--sw-card-bg);
+    stroke: var(--sw-card-border);
+    stroke-width: 1.5;
+    transition: fill 0.15s ease, stroke 0.15s ease;
+    cursor: pointer;
+  }
+  .sw-flow .sw-node:hover rect { stroke: var(--sl-color-accent); }
+  .sw-flow .sw-node[data-on="1"] rect {
+    fill: color-mix(in srgb, var(--sl-color-accent) 20%, var(--sw-card-bg));
+    stroke: var(--sl-color-accent);
+  }
+  /* leaf nodes are real download files - dashed outline + accent text */
+  .sw-flow .sw-node[data-leaf="1"] rect { stroke-dasharray: 4 3; }
+  .sw-flow .sw-node[data-leaf="1"][data-on="1"] rect {
+    fill: color-mix(in srgb, var(--sl-color-accent) 32%, var(--sw-card-bg));
+    stroke-dasharray: none;
+  }
+  .sw-flow .sw-node text { fill: var(--sl-color-gray-1); font-size: 13px; pointer-events: none; }
+  .sw-flow .sw-node[data-on="1"] text { fill: var(--sl-color-white); }
+  .sw-flow .sw-node-sub { fill: var(--sl-color-gray-3); font-size: 10px; }
+  .sw-flow .sw-node[data-on="1"] .sw-node-sub { fill: var(--sl-color-accent-high); }
+  .sw-flow .sw-node .sw-node-ico { color: var(--sl-color-accent-high); pointer-events: none; }
+  .sw-flow .sw-col-title { fill: var(--sl-color-gray-3); font-size: 11px; text-transform: lowercase; letter-spacing: 0.04em; }
+  .sw-flow .sw-link { fill: none; stroke: var(--sw-edge); stroke-width: 1.5; opacity: 0.35; }
+  .sw-flow .sw-link[data-on="1"] { stroke: var(--sl-color-accent); opacity: 0.9; stroke-width: 2; }
+
+  /* result / guidance cards */
+  .sw-cards { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin-top: 0.75rem; }
+  .sw-card {
+    border: 1px solid var(--sw-card-border);
+    border-radius: 12px;
+    background: var(--sw-card-bg);
+    padding: 0.85rem 0.95rem;
+  }
+  .sw-card h4 { margin: 0 0 0.35rem; font-size: 0.98rem; display: flex; align-items: center; gap: 0.45rem; }
+  .sw-card h4 .sw-card-ico { color: var(--sl-color-accent-high); width: 1.2rem; height: 1.2rem; display: grid; place-items: center; }
+  .sw-card p { margin: 0 0 0.5rem; font-size: 0.86rem; color: var(--sl-color-gray-2); }
+  .sw-card .sw-card-link {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.85rem; font-weight: 600; color: var(--sl-color-accent-high); text-decoration: none;
+  }
+  .sw-card .sw-card-link:hover { text-decoration: underline; }
+  .sw-card[data-variant="web"] { border-color: color-mix(in srgb, var(--sl-color-accent) 45%, var(--sw-card-border)); }
+  .sw-card-badge {
+    display: inline-block; font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 6px;
+    background: color-mix(in srgb, var(--sl-color-accent) 25%, transparent); color: var(--sl-color-accent-high);
+    margin-left: 0.4rem; vertical-align: middle;
+  }
+
+  .sw-empty { color: var(--sl-color-gray-3); font-size: 0.9rem; font-style: italic; padding: 0.5rem 0; }
+
+  /* device graph svg */
+  .sw-graph-wrap { width: 100%; margin-top: 0.5rem; border: 1px solid var(--sw-card-border); border-radius: 12px; background: var(--sw-card-bg); overflow: hidden; }
+  .sw-graph { display: block; width: 100%; height: 440px; touch-action: none; }
+  /* the graph sits gently muted; hovering a node brings it + its neighbors to
+     full color while the rest dims back. */
+  .sw-graph .sw-g-node { filter: saturate(0.7) brightness(0.92); transition: opacity 0.15s ease, filter 0.15s ease; }
+  .sw-graph .sw-g-node.hot { filter: none; }
+  .sw-graph .sw-g-node.dim { opacity: 0.22; filter: saturate(0.4) brightness(0.7); }
+  .sw-graph .sw-g-node .sw-g-shape { stroke-width: 4; cursor: grab; }
+  .sw-graph .sw-g-node text { fill: var(--sl-color-gray-1); font-size: 11px; text-anchor: middle; pointer-events: none; }
+  .sw-graph .sw-g-node .sw-g-label-bg {
+    fill: color-mix(in srgb, var(--sl-color-black, #0b0b10) 78%, transparent);
+    stroke: var(--sw-card-border);
+    stroke-width: 1;
+    pointer-events: none;
+  }
+  .sw-graph .sw-g-node .sw-g-ico { color: #fff; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.45)); }
+  .sw-graph .sw-g-link { stroke-width: 2.5; opacity: 0.5; fill: none; filter: saturate(0.7); transition: opacity 0.15s ease, filter 0.15s ease; }
+  .sw-graph .sw-g-link.hot { opacity: 0.95; filter: none; stroke-width: 3; }
+  .sw-graph .sw-g-link.dim { opacity: 0.08; }
+  .sw-graph .sw-g-link.http { stroke-dasharray: 6 4; }
+  .sw-graph .sw-g-link.relay { stroke-dasharray: 2 5; stroke-linecap: round; }
+  .sw-graph .sw-g-link.mesh { stroke: var(--sl-color-gray-3); opacity: 0.12; stroke-width: 1.5; }
+  .sw-graph .sw-g-link.mesh.hot { opacity: 0.3; stroke-width: 1.5; }
+  .sw-graph .sw-g-link.mesh.dim { opacity: 0.05; }
+  .sw-legend { display: flex; gap: 0.7rem 1.1rem; flex-wrap: wrap; align-items: center; padding: 0.6rem 0.85rem; border-top: 1px solid var(--sw-card-border); font-size: 0.8rem; color: var(--sl-color-gray-2); }
+  .sw-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .sw-legend .sw-legend-sep { width: 1px; height: 0.95rem; background: var(--sw-card-border); }
+  .sw-legend i { width: 1.4rem; height: 0; border-top-width: 3px; border-top-style: solid; display: inline-block; }
+  .sw-legend i.p2p { border-top-color: var(--sl-color-gray-2); }
+  .sw-legend i.http { border-top-color: var(--sl-color-gray-2); border-top-style: dashed; }
+  .sw-legend i.relay { border-top-color: var(--sl-color-gray-2); border-top-style: dotted; }
+  .sw-legend i.ring { width: 0.82rem; height: 0.82rem; border: 3px solid; border-radius: 50%; background: transparent; box-sizing: border-box; }
+  .sw-legend i.ring.you { border-color: var(--sl-color-accent); }
+  .sw-legend i.ring.family { border-color: #22c55e; }
+  .sw-legend i.ring.friend { border-color: #38bdf8; }
+
+  @media (max-width: 560px) {
+    .sw-section { padding: 1.1rem 0.85rem; }
+  }
+</style>
+
+<script>
+  import * as d3 from "d3";
+
+  // ---- icons (inner svg, 0 0 24 24 viewBox, currentColor) -----------------
+  const ICONS: Record<string, string> = {
+    desktop: `<rect x="4" y="5" width="16" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2 19h20M9 19l.5-2h5l.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+    mobile: `<rect x="7" y="3" width="10" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 18h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+    raspi: `<g fill="currentColor"><path d="M12 10.6C10.5 8 7.5 7 5.6 7.6 7 9.8 9.8 11 12 10.6ZM12 10.6C13.5 8 16.5 7 18.4 7.6 17 9.8 14.2 11 12 10.6Z"/><circle cx="8.3" cy="13.8" r="2.4"/><circle cx="12" cy="13.8" r="2.4"/><circle cx="15.7" cy="13.8" r="2.4"/><circle cx="10.1" cy="17.3" r="2.4"/><circle cx="13.9" cy="17.3" r="2.4"/><circle cx="12" cy="20.6" r="2.4"/></g>`,
+    apple: `<path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701z"/>`,
+    windows: `<path fill="currentColor" d="M3 5.6 10.4 4.6v6.8H3zM11.6 4.45 21 3.1v8.3h-9.4zM3 12.6h7.4v6.8L3 18.4zM11.6 12.6H21v8.3l-9.4-1.35z"/>`,
+    linux: `<path fill="currentColor" d="M12 2c-1.9 0-3.1 1.5-3.1 3.5 0 .8.2 1.4.2 2-.6.6-1.9 2.3-2.5 4.4-.5 1.7-1.1 2.7-1.7 3.4-.5.6-.2 1.5.7 1.6.5.1.7.4.7.9 0 .9.9 1.8 2.9 1.8h5.6c2 0 2.9-.9 2.9-1.8 0-.5.2-.8.7-.9.9-.1 1.2-1 .7-1.6-.6-.7-1.2-1.7-1.7-3.4-.6-2.1-1.9-3.8-2.5-4.4 0-.6.2-1.2.2-2C15.1 3.5 13.9 2 12 2z"/><ellipse cx="10.2" cy="6.2" rx=".9" ry="1.1" fill="#0b0b10"/><ellipse cx="13.8" cy="6.2" rx=".9" ry="1.1" fill="#0b0b10"/><path d="M10.8 8.6 12 9.6l1.2-1c-.4-.5-2-.5-2.4 0z" fill="#f59e0b"/>`,
+    android: `<g fill="currentColor"><path d="M6.2 9.2h11.6v6.6a1.4 1.4 0 0 1-1.4 1.4H7.6a1.4 1.4 0 0 1-1.4-1.4z"/><rect x="3.3" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="18.8" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="8.4" y="16.6" width="1.9" height="4.2" rx=".95"/><rect x="13.7" y="16.6" width="1.9" height="4.2" rx=".95"/><path d="M6.2 8.4a5.8 5.8 0 0 1 11.6 0z"/></g><path d="M7.8 3.6 9.1 5.5M16.2 3.6 14.9 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="9.5" cy="6.2" r=".6" fill="#0b0b10"/><circle cx="14.5" cy="6.2" r=".6" fill="#0b0b10"/>`,
+    gui: `<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="6.5" r=".6" fill="currentColor"/><circle cx="8" cy="6.5" r=".6" fill="currentColor"/>`,
+    cli: `<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 9l3 3-3 3M13 15h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
+    chip: `<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+    download: `<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+    web: `<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18" fill="none" stroke="currentColor" stroke-width="1.8"/>`,
+    music: `<path d="M9 18V5l10-2v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="16" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/>`,
+    link: `<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+    qr: `<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M14 14h3v3M20 14v6M14 20h6" fill="none" stroke="currentColor" stroke-width="1.7"/>`,
+    share: `<circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 10.8 15.8 7.2M8.2 13.2 15.8 16.8" stroke="currentColor" stroke-width="1.8"/>`,
+    edit: `<path d="M4 20h4l10-10-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 6l4 4" stroke="currentColor" stroke-width="1.8"/>`,
+    table: `<rect x="3" y="4" width="18" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18M3 14h18M9 9v11" stroke="currentColor" stroke-width="1.7"/>`,
+    server: `<rect x="3" y="4" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="7" r=".9" fill="currentColor"/><circle cx="7" cy="17" r=".9" fill="currentColor"/>`,
+    friend: `<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
+    sparkle: `<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>`,
+  };
+
+  function svgIcon(name: string, size = 20): string {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+  }
+
+  // ---- state --------------------------------------------------------------
+  const KEY = "freqhole-brainstorm-v1";
+  type State = {
+    picks: string[];   // selected flow node ids (path-scoped, e.g. "mac/gui/arm")
+    files: string[];   // derived asset keys for the leaf nodes (consumed by the download page)
+    music: string[];   // local, url
+    library: string[]; // dirs, addmusic, enrich
+  };
+  // always hand back fresh arrays. a shared const with array fields would get
+  // mutated in place by the toggle/push helpers, which poisons the "empty"
+  // baseline and makes reset fail to return to a clean slate.
+  function freshState(): State {
+    return { picks: [], files: [], music: [], library: [] };
+  }
+
+  function load(): State {
+    const base = freshState();
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return base;
+      const p = JSON.parse(raw);
+      if (!p || typeof p !== "object") return base;
+      return {
+        picks: Array.isArray(p.picks) ? p.picks.slice() : base.picks,
+        files: Array.isArray(p.files) ? p.files.slice() : base.files,
+        music: Array.isArray(p.music) ? p.music.slice() : base.music,
+        library: Array.isArray(p.library) ? p.library.slice() : base.library,
+      };
+    } catch { return freshState(); }
+  }
+  let state = load();
+  let hasStored = !!localStorage.getItem(KEY);
+  let updateReset = () => {};
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); hasStored = true; } catch { /* ignore */ }
+    updateReset();
+  }
+  function toggle(arr: string[], v: string) {
+    const i = arr.indexOf(v);
+    if (i >= 0) arr.splice(i, 1); else arr.push(v);
+  }
+
+  // ---- dom refs -----------------------------------------------------------
+  // init runs at the very bottom of this script, after every const (CARDS,
+  // flowSpec, etc.) is initialized. calling it here would hit the temporal
+  // dead zone for those later declarations when the render path touches them.
+  const root = document.querySelector<HTMLElement>("[data-brainstorm]");
+
+  function init(root: HTMLElement) {
+    const sectionsEl = root.querySelector<HTMLElement>("[data-sw-sections]")!;
+    const resetBtn = root.querySelector<HTMLButtonElement>("[data-sw-reset]")!;
+
+    const STAGES = [
+      { key: "hardware", label: "hardware", render: renderHardware },
+      { key: "music", label: "music", render: renderMusic },
+      { key: "sharing", label: "sharing", render: renderSharing },
+      { key: "library", label: "library", render: renderLibrary },
+    ];
+
+    updateReset = () => { resetBtn.hidden = !hasStored; };
+
+    function paint() {
+      sectionsEl.innerHTML = "";
+      STAGES.forEach((s, i) => {
+        const section = document.createElement("section");
+        section.className = "sw-section";
+        section.id = `brainstorm-${s.key}`;
+        section.dataset.num = String(i + 1);
+        s.render(section);
+        sectionsEl.appendChild(section);
+      });
+      updateReset();
+    }
+
+    resetBtn.addEventListener("click", () => {
+      localStorage.removeItem(KEY);
+      hasStored = false;
+      state = freshState();
+      paint();
+    });
+
+    paint();
+    syncBrainstormToc();
+  }
+
+  // add numbered entries for the four stages to starlight's "on this page"
+  // sidebar so each section is reachable from the table of contents.
+  function syncBrainstormToc() {
+    const entries = [
+      { id: "brainstorm-hardware", text: "1. hardware" },
+      { id: "brainstorm-music", text: "2. music" },
+      { id: "brainstorm-sharing", text: "3. sharing" },
+      { id: "brainstorm-library", text: "4. library" },
+    ];
+    const lists = document.querySelectorAll("starlight-toc nav > ul, mobile-starlight-toc nav ul");
+    lists.forEach((list) => {
+      if (list.querySelector("[data-brainstorm-toc]")) return;
+      const first = list.querySelector("li");
+      const tmplA = first?.querySelector("a");
+      entries.forEach((e) => {
+        const li = document.createElement("li");
+        li.setAttribute("data-brainstorm-toc", "");
+        if (first) li.className = first.className;
+        const a = document.createElement("a");
+        a.href = `#${e.id}`;
+        a.textContent = e.text;
+        if (tmplA) a.className = tmplA.className;
+        li.appendChild(a);
+        list.appendChild(li);
+      });
+    });
+  }
+
+  // ---- helpers for chip rows ---------------------------------------------
+  function chipRow(
+    container: HTMLElement,
+    arr: string[],
+    opts: { id: string; label: string; icon?: string }[],
+    onChange: () => void,
+  ) {
+    const row = document.createElement("div");
+    row.className = "sw-chips";
+    opts.forEach((o) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "sw-chip";
+      b.setAttribute("aria-pressed", String(arr.includes(o.id)));
+      b.innerHTML = `${o.icon ? `<span class="sw-chip-ico">${svgIcon(o.icon)}</span>` : ""}<span>${o.label}</span>`;
+      b.addEventListener("click", () => {
+        toggle(arr, o.id);
+        b.setAttribute("aria-pressed", String(arr.includes(o.id)));
+        save();
+        onChange();
+      });
+      row.appendChild(b);
+    });
+    container.appendChild(row);
+  }
+
+  function label(container: HTMLElement, text: string) {
+    const d = document.createElement("div");
+    d.className = "sw-q-label";
+    d.textContent = text;
+    container.appendChild(d);
+  }
+  function stageHeader(container: HTMLElement, title: string, sub: string) {
+    const num = container.closest<HTMLElement>(".sw-section")?.dataset.num || "";
+    const head = document.createElement("div");
+    head.className = "sw-section-head";
+    if (num) {
+      const numEl = document.createElement("div");
+      numEl.className = "sw-section-num";
+      numEl.textContent = num;
+      head.appendChild(numEl);
+    }
+    const body = document.createElement("div");
+    const h = document.createElement("h3");
+    h.className = "sw-stage-title";
+    h.textContent = title;
+    body.appendChild(h);
+    head.appendChild(body);
+    const s = document.createElement("p");
+    s.className = "sw-stage-sub";
+    s.textContent = sub;
+    container.appendChild(head);
+    container.appendChild(s);
+  }
+
+  type Card = { variant?: string; icon: string; title: string; badge?: string; body: string; link?: { href: string; text: string } };
+  function cardGrid(container: HTMLElement, cards: Card[]) {
+    if (!cards.length) {
+      const e = document.createElement("div");
+      e.className = "sw-empty";
+      e.textContent = "make a selection above to see suggestions.";
+      container.appendChild(e);
+      return;
+    }
+    const grid = document.createElement("div");
+    grid.className = "sw-cards";
+    cards.forEach((c) => {
+      const el = document.createElement("div");
+      el.className = "sw-card";
+      if (c.variant) el.dataset.variant = c.variant;
+      el.innerHTML = `
+        <h4><span class="sw-card-ico">${svgIcon(c.icon)}</span>${c.title}${c.badge ? `<span class="sw-card-badge">${c.badge}</span>` : ""}</h4>
+        <p>${c.body}</p>
+        ${c.link ? `<a class="sw-card-link" href="${c.link.href}">${svgIcon("link", 14)} ${c.link.text}</a>` : ""}`;
+      grid.appendChild(el);
+    });
+    container.appendChild(grid);
+  }
+
+  // ===== stage 1: hardware =================================================
+  // the hardware flow is a tree. each device fans out into its own platform,
+  // interface, cpu and package branches, and every branch ends in a leaf node
+  // that maps to a real download file. branches are independent: picking arm64
+  // for mac doesn't touch the cpu choice for linux or android. selections are
+  // stored as path-scoped node ids in state.picks; the leaf asset keys are
+  // mirrored into state.files for the download page to highlight.
+  type Leaf = { key: string; ext: string };
+  type FNode = { id: string; label: string; sub?: string; icon?: string; leaf?: Leaf; kids?: FNode[] };
+
+  const DL = "/getting-started/download/";
+  const SPUME = "https://spume.freqhole.net";
+
+  function flowSpec(): FNode[] {
+    const charnel = (key: string, ext: string): Leaf => ({ key, ext });
+    const rathole = (key: string): Leaf => ({ key, ext: "binary" });
+    const web: Leaf = { key: "web-spume", ext: "web app" };
+    return [
+      { id: "desktop", label: "desktop", sub: "/ laptop", icon: "desktop", kids: [
+        { id: "mac", label: "macOS", icon: "apple", kids: [
+          { id: "mac/gui", label: "gui app", sub: "charnel", icon: "gui", kids: [
+            { id: "mac/gui/arm", label: "arm64", sub: ".dmg", icon: "chip", leaf: charnel("charnel-mac-arm", ".dmg") },
+            { id: "mac/gui/x86", label: "x86_64", sub: ".dmg", icon: "chip", leaf: charnel("charnel-mac-intel", ".dmg") },
+          ] },
+          { id: "mac/cli", label: "command line", sub: "rathole", icon: "cli", kids: [
+            { id: "mac/cli/arm", label: "arm64", sub: "binary", icon: "chip", leaf: rathole("cli-mac-arm") },
+            { id: "mac/cli/x86", label: "x86_64", sub: "binary", icon: "chip", leaf: rathole("cli-mac-intel") },
+          ] },
+        ] },
+        { id: "windows", label: "windows", icon: "windows", kids: [
+          { id: "windows/web", label: "web app", sub: "spume", icon: "web", leaf: web },
+        ] },
+        { id: "linux", label: "linux", icon: "linux", kids: [
+          { id: "linux/gui", label: "gui app", sub: "charnel", icon: "gui", kids: [
+            { id: "linux/gui/x86", label: "x86_64", sub: "intel / amd", icon: "chip", kids: [
+              { id: "linux/gui/x86/deb", label: ".deb", sub: "debian / ubuntu", icon: "download", leaf: charnel("charnel-linux-x86-deb", ".deb") },
+              { id: "linux/gui/x86/rpm", label: ".rpm", sub: "fedora / red hat", icon: "download", leaf: charnel("charnel-linux-x86-rpm", ".rpm") },
+              { id: "linux/gui/x86/flatpak", label: ".flatpak", sub: "arch / immutable", icon: "download", leaf: charnel("charnel-linux-x86-flatpak", ".flatpak") },
+            ] },
+            { id: "linux/gui/arm", label: "arm64", sub: "aarch64", icon: "chip", kids: [
+              { id: "linux/gui/arm/deb", label: ".deb", sub: "debian / ubuntu", icon: "download", leaf: charnel("charnel-linux-arm-deb", ".deb") },
+              { id: "linux/gui/arm/rpm", label: ".rpm", sub: "fedora / red hat", icon: "download", leaf: charnel("charnel-linux-arm-rpm", ".rpm") },
+              { id: "linux/gui/arm/flatpak", label: ".flatpak", sub: "arch / immutable", icon: "download", leaf: charnel("charnel-linux-arm-flatpak", ".flatpak") },
+            ] },
+          ] },
+          { id: "linux/cli", label: "command line", sub: "rathole", icon: "cli", kids: [
+            { id: "linux/cli/x86", label: "x86_64", sub: "binary", icon: "chip", leaf: rathole("cli-linux-x86") },
+            { id: "linux/cli/arm", label: "arm64", sub: "binary", icon: "chip", leaf: rathole("cli-linux-arm64") },
+          ] },
+        ] },
+      ] },
+      { id: "mobile", label: "mobile", sub: "phone / tablet", icon: "mobile", kids: [
+        { id: "android", label: "android", icon: "android", kids: [
+          { id: "android/arm64", label: "arm64", sub: "default .apk", icon: "chip", leaf: charnel("charnel-android-arm64", ".apk") },
+          { id: "android/universal", label: "universal", sub: "any cpu .apk", icon: "chip", leaf: charnel("charnel-android", ".apk") },
+        ] },
+        { id: "ios", label: "iphone / ios", icon: "apple", kids: [
+          { id: "ios/web", label: "web app", sub: "spume", icon: "web", leaf: web },
+        ] },
+        { id: "other", label: "everything else", sub: "other os", icon: "mobile", kids: [
+          { id: "other/web", label: "web app", sub: "spume", icon: "web", leaf: web },
+        ] },
+      ] },
+      { id: "raspi", label: "raspberry pi", sub: "linux / arm", icon: "raspi", kids: [
+        { id: "raspi/gui", label: "gui app", sub: "charnel", icon: "gui", kids: [
+          { id: "raspi/gui/deb", label: ".deb", sub: "raspberry pi os", icon: "download", leaf: charnel("charnel-linux-arm-deb", ".deb") },
+          { id: "raspi/gui/rpm", label: ".rpm", sub: "fedora / red hat", icon: "download", leaf: charnel("charnel-linux-arm-rpm", ".rpm") },
+          { id: "raspi/gui/flatpak", label: ".flatpak", sub: "arch / immutable", icon: "download", leaf: charnel("charnel-linux-arm-flatpak", ".flatpak") },
+        ] },
+        { id: "raspi/cli", label: "command line", sub: "rathole", icon: "cli", kids: [
+          { id: "raspi/cli/arm64", label: "arm64", sub: "pi 4 / 5", icon: "chip", leaf: rathole("cli-linux-arm64") },
+          { id: "raspi/cli/armv7", label: "armv7", sub: "older pi", icon: "chip", leaf: rathole("cli-linux-armv7") },
+        ] },
+      ] },
+    ];
+  }
+
+  // download-card metadata, keyed by leaf asset key. multiple leaves can share
+  // a key (e.g. windows + iphone both end at the web app), so cards are deduped.
+  const CARDS: Record<string, Card> = {
+    "charnel-mac-arm": { icon: "download", title: "charnel for macOS", badge: "gui", body: "the desktop app, .dmg for apple silicon.", link: { href: DL, text: "download charnel" } },
+    "charnel-mac-intel": { icon: "download", title: "charnel for macOS", badge: "gui", body: "the desktop app, .dmg for intel macs.", link: { href: DL, text: "download charnel" } },
+    "cli-mac-arm": { icon: "cli", title: "rathole for macOS", badge: "cli", body: "the tui/server binary for apple silicon.", link: { href: DL, text: "download rathole" } },
+    "cli-mac-intel": { icon: "cli", title: "rathole for macOS", badge: "cli", body: "the tui/server binary for intel macs.", link: { href: DL, text: "download rathole" } },
+    "charnel-linux-x86-deb": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .deb (debian / ubuntu), x86_64.", link: { href: DL, text: "download charnel" } },
+    "charnel-linux-x86-rpm": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as an .rpm (fedora / red hat), x86_64.", link: { href: DL, text: "download charnel" } },
+    "charnel-linux-x86-flatpak": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .flatpak, x86_64.", link: { href: DL, text: "download charnel" } },
+    "charnel-linux-arm-deb": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .deb (debian / ubuntu), aarch64.", link: { href: DL, text: "download charnel" } },
+    "charnel-linux-arm-rpm": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as an .rpm (fedora / red hat), aarch64.", link: { href: DL, text: "download charnel" } },
+    "charnel-linux-arm-flatpak": { icon: "download", title: "charnel for linux", badge: "gui", body: "desktop app as a .flatpak, aarch64 (works on a raspberry pi desktop).", link: { href: DL, text: "download charnel" } },
+    "cli-linux-x86": { icon: "cli", title: "rathole for linux", badge: "cli", body: "server/tui binary, x86_64.", link: { href: DL, text: "download rathole" } },
+    "cli-linux-arm64": { icon: "cli", title: "rathole for linux", badge: "cli", body: "server/tui binary, aarch64 (pi 4+ and other arm64 boards).", link: { href: DL, text: "download rathole" } },
+    "cli-linux-armv7": { icon: "cli", title: "rathole for linux", badge: "cli", body: "server/tui binary, armv7 (older raspberry pis).", link: { href: DL, text: "download rathole" } },
+    "charnel-android-arm64": { icon: "android", title: "charnel for android", badge: "apk", body: "the android app, arm64 .apk (the default for most phones).", link: { href: DL, text: "download apk" } },
+    "charnel-android": { icon: "android", title: "charnel for android", badge: "apk", body: "the android app, universal .apk (any cpu).", link: { href: DL, text: "download apk" } },
+    "web-spume": { variant: "web", icon: "web", title: "spume web app", badge: "web", body: "use the hosted web app, or self-host it.", link: { href: SPUME, text: "open spume.freqhole.net" } },
+  };
+
+  // walk the tree, collecting the leaf asset keys for every selected leaf.
+  function collectFiles(picks: Set<string>): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const walk = (nodes: FNode[]) => nodes.forEach((n) => {
+      if (n.leaf && picks.has(n.id) && !seen.has(n.leaf.key)) { seen.add(n.leaf.key); out.push(n.leaf.key); }
+      if (n.kids) walk(n.kids);
+    });
+    walk(flowSpec());
+    return out;
+  }
+  function syncFiles() { state.files = collectFiles(new Set(state.picks)); }
+
+  function renderHardware(c: HTMLElement) {
+    stageHeader(c, "what hardware do you have?", "click a device, then follow the branches down to the exact files you need. pick as many as you like.");
+    drawFlow(c);
+
+    const sug = document.createElement("div");
+    sug.style.marginTop = "1rem";
+    label(sug, "your downloads");
+    cardGrid(sug, buildSuggestions());
+    c.appendChild(sug);
+  }
+
+  function rerender(c: HTMLElement) { c.innerHTML = ""; renderHardware(c); }
+
+  function drawFlow(c: HTMLElement) {
+    const spec = flowSpec();
+    const picks = new Set(state.picks);
+
+    const NW = 150, NH = 54, COLGAP = 64, ROWGAP = 14, PADX = 12, PADY = 12;
+
+    // tree layout: leaves take sequential rows, parents center on their kids.
+    const pos = new Map<string, { x: number; y: number }>();
+    const placed: { node: FNode; x: number; y: number; depth: number }[] = [];
+    let row = 0, maxDepth = 0;
+
+    function place(node: FNode, depth: number): number {
+      maxDepth = Math.max(maxDepth, depth);
+      const selected = picks.has(node.id);
+      const kids = selected && node.kids ? node.kids : [];
+      let y: number;
+      if (!kids.length) {
+        y = PADY + row * (NH + ROWGAP);
+        row++;
+      } else {
+        const ys = kids.map((k) => place(k, depth + 1));
+        y = (ys[0] + ys[ys.length - 1]) / 2;
+      }
+      const x = PADX + depth * (NW + COLGAP);
+      pos.set(node.id, { x, y });
+      placed.push({ node, x, y, depth });
+      return y;
+    }
+    spec.forEach((r) => place(r, 0));
+
+    const height = PADY * 2 + Math.max(1, row) * (NH + ROWGAP) - ROWGAP;
+    const width = PADX * 2 + (maxDepth + 1) * NW + maxDepth * COLGAP;
+
+    const wrap = document.createElement("div");
+    wrap.className = "sw-flow-wrap";
+    c.appendChild(wrap);
+
+    const svg = d3.select(wrap).append("svg")
+      .attr("class", "sw-flow")
+      .attr("viewBox", `0 0 ${width} ${height}`)
+      .attr("width", width)
+      .attr("height", height)
+      .style("max-width", "100%");
+
+    // edges from each selected node to its (now visible) children
+    const links: { x1: number; y1: number; x2: number; y2: number; on: boolean }[] = [];
+    placed.forEach(({ node, x, y }) => {
+      if (!picks.has(node.id) || !node.kids) return;
+      const p = pos.get(node.id)!;
+      node.kids.forEach((k) => {
+        const cp = pos.get(k.id);
+        if (!cp) return;
+        links.push({ x1: p.x + NW, y1: y + NH / 2, x2: cp.x, y2: cp.y + NH / 2, on: picks.has(k.id) });
+      });
+    });
+
+    svg.append("g").selectAll("path").data(links.sort((a) => (a.on ? 1 : -1))).join("path")
+      .attr("class", "sw-link")
+      .attr("data-on", (d) => (d.on ? "1" : "0"))
+      .attr("d", (d) => {
+        const mx = (d.x1 + d.x2) / 2;
+        return `M${d.x1},${d.y1} C${mx},${d.y1} ${mx},${d.y2} ${d.x2},${d.y2}`;
+      });
+
+    placed.forEach(({ node, x, y }) => {
+      const on = picks.has(node.id);
+      const g = svg.append("g")
+        .attr("class", "sw-node")
+        .attr("data-on", on ? "1" : "0")
+        .attr("data-leaf", node.leaf ? "1" : "0")
+        .attr("transform", `translate(${x},${y})`)
+        .style("cursor", "pointer")
+        .on("click", () => {
+          if (picks.has(node.id)) {
+            // deselect this node and any of its descendant branches
+            state.picks = state.picks.filter((p) => p !== node.id && !p.startsWith(node.id + "/"));
+          } else {
+            state.picks.push(node.id);
+            // selecting android pre-picks the arm64 .apk (the common default)
+            if (node.id === "android" && !state.picks.includes("android/arm64")) {
+              state.picks.push("android/arm64");
+            }
+          }
+          syncFiles();
+          save();
+          rerender(c);
+        });
+      g.append("rect").attr("width", NW).attr("height", NH).attr("rx", 10);
+      g.append("g").attr("class", "sw-node-ico")
+        .attr("transform", `translate(12,${NH / 2 - 12})`)
+        .html(node.icon && ICONS[node.icon] ? `<svg width="24" height="24" viewBox="0 0 24 24">${ICONS[node.icon]}</svg>` : "");
+      if (node.sub) {
+        g.append("text").attr("x", 46).attr("y", NH / 2 - 1).text(node.label);
+        g.append("text").attr("class", "sw-node-sub").attr("x", 46).attr("y", NH / 2 + 14).text(node.sub);
+      } else {
+        g.append("text").attr("x", 46).attr("y", NH / 2 + 4).text(node.label);
+      }
+    });
+  }
+
+  function buildSuggestions(): Card[] {
+    return (state.files || []).map((k) => CARDS[k]).filter(Boolean);
+  }
+
+  // ===== stage 2: music sources ===========================================
+  function renderMusic(c: HTMLElement) {
+    stageHeader(c, "where's your music coming from?", "freqhole can import audio you already have, or fetch it from urls with yt-dlp.");
+    label(c, "music sources (multi-select)");
+    chipRow(c, state.music, [
+      { id: "local", label: "local audio files", icon: "music" },
+      { id: "url", label: "urls (yt-dlp)", icon: "link" },
+    ], () => { save(); renderMusicCards(); });
+
+    const holder = document.createElement("div");
+    holder.style.marginTop = "1rem";
+    c.appendChild(holder);
+
+    function renderMusicCards() {
+      holder.innerHTML = "";
+      const cards: Card[] = [];
+      if (state.music.includes("local")) {
+        cards.push({ icon: "music", title: "scan local files",
+          body: "point freqhole at folders of mp3, flac, m4a, ogg, opus, wav and more. it imports tags + builds your catalog without touching the originals.",
+          link: { href: "/guides/scanning/", text: "initial scan + add music" } });
+      }
+      if (state.music.includes("url")) {
+        cards.push({ icon: "link", title: "fetch from urls",
+          body: "give freqhole a url that yt-dlp understands and it downloads + imports the audio. install yt-dlp first.",
+          link: { href: "/getting-started/prerequisites/", text: "set up yt-dlp" } });
+      }
+      cardGrid(holder, cards);
+    }
+    renderMusicCards();
+  }
+
+  // ===== stage 3: sharing ==================================================
+  function renderSharing(c: HTMLElement) {
+    stageHeader(c, "share across your devices", "connect your phone, laptop, and friends to your library. freqhole has peer-to-peer networking so you don't need a public ip or port forwarding.");
+
+    const steps = document.createElement("div");
+    steps.className = "sw-cards";
+    const phoneFirst = state.picks.includes("mobile") || state.picks.includes("android");
+    const cards: Card[] = [
+      { icon: "qr", title: phoneFirst ? "start with your phone" : "pair a device",
+        body: "web open the app on another device and scan your server's node id qr code (or paste the node id). that's the whole pairing step.",
+        link: { href: "/guides/sharing/", text: "sharing with friends" } },
+      { icon: "share", title: "p2p by default", badge: "recommended",
+        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage.",
+        link: { href: "/concepts/transports/", text: "how transports work" } },
+      { icon: "web", title: "http if you must",
+        body: "same-network or reverse-proxy setups can use http, but https certs + single-origin auth make it fiddly. p2p sidesteps all of it.",
+        link: { href: "/concepts/transports/", text: "http vs p2p" } },
+    ];
+    cards.forEach((cd) => {
+      const el = document.createElement("div");
+      el.className = "sw-card";
+      if (cd.badge) el.dataset.variant = "web";
+      el.innerHTML = `
+        <h4><span class="sw-card-ico">${svgIcon(cd.icon)}</span>${cd.title}${cd.badge ? `<span class="sw-card-badge">${cd.badge}</span>` : ""}</h4>
+        <p>${cd.body}</p>
+        <a class="sw-card-link" href="${cd.link!.href}">${svgIcon("link", 14)} ${cd.link!.text}</a>`;
+      steps.appendChild(el);
+    });
+    c.appendChild(steps);
+
+    label(c, "your network at a glance");
+    drawDeviceGraph(c);
+  }
+
+  function drawDeviceGraph(c: HTMLElement) {
+    type Group = "you" | "family" | "friend";
+    type GNode = { id: string; label: string; icon: string; group: Group; person: string; server?: boolean; fx?: number; fy?: number; x?: number; y?: number };
+    type GLink = { source: string; target: string; kind: "p2p" | "http" | "relay" | "mesh" };
+
+    const accent = getComputedStyle(document.documentElement).getPropertyValue("--sl-color-accent").trim() || "#c026d3";
+    // the ring around each node shows how you know them (you / family / friend)
+    const GROUP: Record<Group, string> = { you: accent, family: "#22c55e", friend: "#38bdf8" };
+    // the fill of each node is a unique per-person color so individuals stand out
+    const PERSON_COLOR: Record<string, string> = {
+      you: "#2dd4bf", nancy: "#fb7185", fritzi: "#a78bfa", sluggo: "#ec4899",
+      rollo: "#f472b6", butch: "#facc15", irma: "#fb923c", oona: "#c084fc", phil: "#f87171",
+    };
+
+    // the four freqhole-mark vertices, centered on the node origin. used to give
+    // server nodes the wonky triangle silhouette instead of a plain circle.
+    function freqholePoints(r: number): string {
+      const frac: ReadonlyArray<readonly [number, number]> = [
+        [0.5, 0.95], [0.14, 0.18], [0.86, 0.18], [0.66, 0.74],
+      ];
+      const cfx = 0.54, cfy = 0.5125; // centroid of the four vertices
+      return frac.map(([fx, fy]) => `${((fx - cfx) * 2 * r).toFixed(1)},${((fy - cfy) * 2 * r).toFixed(1)}`).join(" ");
+    }
+
+    // three servers — yours, a family member's (nancy), and a friend's (sluggo).
+    // each server hosts its own devices plus guest accounts for friends + family.
+    // people aren't tied to one host: several guests have accounts on more than
+    // one server.
+    const nodes: GNode[] = [
+      // your stuff
+      { id: "srv-you", label: "your raspi", icon: "server", group: "you", person: "you", server: true },
+      { id: "fritzi", label: "fritzi", icon: "friend", group: "family", person: "fritzi" },
+      // nancy — a family member running her own server (two devices)
+      { id: "srv-nancy", label: "nancy's pc", icon: "server", group: "family", person: "nancy", server: true },
+      { id: "nancy-android", label: "nancy's android", icon: "mobile", group: "family", person: "nancy" },
+      { id: "nancy-web", label: "nancy's web browser", icon: "web", group: "family", person: "nancy" },
+      { id: "rollo", label: "rollo", icon: "friend", group: "friend", person: "rollo" },
+      { id: "butch", label: "butch", icon: "friend", group: "friend", person: "butch" },
+      // sluggo — a friend running his own server (two devices)
+      { id: "srv-sluggo", label: "sluggo's raspi", icon: "server", group: "friend", person: "sluggo", server: true },
+      { id: "sluggo-phone", label: "sluggo's tablet", icon: "mobile", group: "friend", person: "sluggo" },
+      { id: "sluggo-laptop", label: "sluggo's laptop", icon: "desktop", group: "friend", person: "sluggo" },
+      { id: "irma", label: "irma", icon: "friend", group: "friend", person: "irma" },
+      { id: "oona", label: "oona goosepimple", icon: "friend", group: "friend", person: "oona" },
+      { id: "phil", label: "phil fumble", icon: "friend", group: "friend", person: "phil" },
+    ];
+    const links: GLink[] = [
+      { source: "fritzi", target: "srv-you", kind: "p2p" },
+      // nancy's own devices + the friends she hosts. phones + web apps go over
+      // the p2p http relay; laptops connect direct p2p.
+      // nancy's android connects direct p2p to all three servers it has accounts on
+      { source: "nancy-android", target: "srv-nancy", kind: "p2p" },
+      { source: "nancy-android", target: "srv-you", kind: "p2p" },
+      { source: "nancy-android", target: "srv-sluggo", kind: "p2p" },
+      { source: "nancy-web", target: "srv-nancy", kind: "relay" },
+      { source: "rollo", target: "srv-nancy", kind: "p2p" },
+      { source: "butch", target: "srv-nancy", kind: "http" },
+      // sluggo's own devices + the friends he hosts
+      { source: "sluggo-phone", target: "srv-sluggo", kind: "relay" },
+      { source: "sluggo-laptop", target: "srv-sluggo", kind: "p2p" },
+      // sluggo's tablet reaches his laptop over the p2p http relay
+      { source: "sluggo-phone", target: "sluggo-laptop", kind: "relay" },
+      // nancy's android also peers direct p2p with sluggo's laptop
+      { source: "nancy-android", target: "sluggo-laptop", kind: "p2p" },
+      { source: "irma", target: "srv-sluggo", kind: "p2p" },
+      { source: "oona", target: "srv-sluggo", kind: "relay" },
+      { source: "phil", target: "srv-sluggo", kind: "http" },
+      // several people have accounts on more than one server — guests aren't
+      // locked to a single host.
+      { source: "fritzi", target: "srv-nancy", kind: "p2p" },
+      { source: "rollo", target: "srv-you", kind: "p2p" },
+      { source: "irma", target: "srv-nancy", kind: "http" },
+      { source: "phil", target: "srv-you", kind: "relay" },
+      { source: "oona", target: "srv-nancy", kind: "p2p" },
+      { source: "butch", target: "srv-sluggo", kind: "p2p" },
+    ];
+
+    // add your own devices based on the hardware you picked earlier. phones go
+    // over the p2p http relay; laptops connect direct p2p.
+    if (state.picks.includes("mobile") || state.picks.includes("android")) {
+      nodes.push({ id: "you-phone", label: "your iphone", icon: "mobile", group: "you", person: "you" });
+      // your phone reaches every server you have an account on through the relay
+      links.push({ source: "you-phone", target: "srv-you", kind: "relay" });
+      links.push({ source: "you-phone", target: "srv-nancy", kind: "relay" });
+      links.push({ source: "you-phone", target: "srv-sluggo", kind: "relay" });
+    }
+    if (state.picks.includes("desktop")) {
+      nodes.push({ id: "you-laptop", label: "your laptop (cli)", icon: "desktop", group: "you", person: "you" });
+      links.push({ source: "you-laptop", target: "srv-you", kind: "p2p" });
+      // nancy's android peers direct p2p with your laptop too
+      links.push({ source: "nancy-android", target: "you-laptop", kind: "p2p" });
+      // if you also have a phone, it reaches your laptop over the relay
+      if (state.picks.includes("mobile") || state.picks.includes("android")) {
+        links.push({ source: "you-phone", target: "you-laptop", kind: "relay" });
+      }
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "sw-graph-wrap";
+    c.appendChild(wrap);
+
+    const W = Math.max(320, Math.min(820, c.clientWidth || 700));
+    const H = 540;
+    const svg = d3.select(wrap).append("svg")
+      .attr("class", "sw-graph")
+      .attr("viewBox", `0 0 ${W} ${H}`)
+      .attr("preserveAspectRatio", "xMidYMid meet");
+
+    // each edge is colored by the person it originates from; the dash pattern
+    // shows the transport (solid p2p, dashed http, dotted relay).
+    const personById = new Map(nodes.map((n) => [n.id, n.person]));
+    const linkSel = svg.append("g").selectAll("line").data(links).join("line")
+      .attr("class", (d) => `sw-g-link ${d.kind}`)
+      .style("stroke", (d) => {
+        if (d.kind === "mesh") return null;
+        const sid = typeof d.source === "object" ? (d.source as any).id : d.source;
+        return PERSON_COLOR[personById.get(sid) || ""] || null;
+      });
+
+    const nodeSel = svg.append("g").selectAll("g").data(nodes).join("g")
+      .attr("class", "sw-g-node");
+    nodeSel.each(function (d) {
+      const g = d3.select(this);
+      const fill = PERSON_COLOR[d.person] || GROUP[d.group];
+      if (d.server) {
+        g.append("polygon").attr("class", "sw-g-shape")
+          .attr("points", freqholePoints(40))
+          .attr("fill", fill).attr("stroke", GROUP[d.group])
+          .attr("stroke-linejoin", "round");
+      } else {
+        g.append("circle").attr("class", "sw-g-shape").attr("r", 18)
+          .attr("fill", fill).attr("stroke", GROUP[d.group]);
+      }
+    });
+    nodeSel.append("g").attr("class", "sw-g-ico")
+      .attr("transform", (d) => `translate(${d.server ? -11 : -10},${d.server ? -17 : -10})`)
+      .html((d) => `<svg width="${d.server ? 16 : 20}" height="${d.server ? 16 : 20}" viewBox="0 0 24 24">${ICONS[d.icon] || ""}</svg>`);
+    // each label gets a rounded pill behind it for legibility over edges/nodes.
+    // the svg isn't attached to the document yet when this runs, so getBBox()
+    // would return zeros - estimate the box from the label length instead.
+    nodeSel.each(function (d) {
+      const g = d3.select(this);
+      const lg = g.append("g").attr("class", "sw-g-label");
+      const ly = d.server ? 48 : 33;
+      const w = d.label.length * 6.1 + 12; // ~6px per char at 11px + padding
+      const h = 16;
+      lg.append("rect")
+        .attr("class", "sw-g-label-bg")
+        .attr("x", -w / 2).attr("y", ly - 11)
+        .attr("width", w).attr("height", h)
+        .attr("rx", h / 2);
+      lg.append("text").attr("y", ly).text(d.label);
+    });
+
+    const sim = d3.forceSimulation<GNode>(nodes)
+      .force("link", d3.forceLink<GNode, GLink>(links).id((d) => d.id)
+        .distance((d: any) => {
+          // keep each person's own devices clumped tight to their server, but
+          // stretch cross-person (guest) links long so the clusters fan out
+          // into any free space.
+          const sid = typeof d.source === "object" ? d.source.id : d.source;
+          const tid = typeof d.target === "object" ? d.target.id : d.target;
+          const same = personById.get(sid) === personById.get(tid);
+          return same ? 64 : 175;
+        })
+        .strength((d: any) => {
+          const sid = typeof d.source === "object" ? d.source.id : d.source;
+          const tid = typeof d.target === "object" ? d.target.id : d.target;
+          const same = personById.get(sid) === personById.get(tid);
+          return same ? 0.85 : 0.18;
+        }))
+      .force("charge", d3.forceManyBody().strength(-720))
+      .force("center", d3.forceCenter(W / 2, H / 2 - 6))
+      .force("collide", d3.forceCollide(46))
+      // gently anchor your own nodes toward the top-left so everyone else fans
+      // out from there; weak strength keeps the overall spread intact.
+      .force("anchorX", d3.forceX<GNode>((d) => (d.person === "you" ? W * 0.2 : W / 2)).strength((d) => (d.person === "you" ? 0.25 : 0.02)))
+      .force("anchorY", d3.forceY<GNode>((d) => (d.person === "you" ? H * 0.2 : H / 2)).strength((d) => (d.person === "you" ? 0.25 : 0.02)))
+      .on("tick", () => {
+        nodes.forEach((n) => {
+          n.x = Math.max(34, Math.min(W - 34, n.x!));
+          // labels sit below the node center (server label ~53px down), so keep
+          // a bigger bottom margin to avoid clipping them on the lower edge.
+          n.y = Math.max(28, Math.min(H - 62, n.y!));
+        });
+        linkSel
+          .attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y)
+          .attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
+        nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
+      });
+
+    const drag = d3.drag<SVGGElement, GNode>()
+      .on("start", (event, d) => { if (!event.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on("end", (event, d) => { if (!event.active) sim.alphaTarget(0); d.fx = undefined; d.fy = undefined; });
+    nodeSel.call(drag as any);
+
+    // hover highlight: the graph sits muted by default, and hovering a node
+    // brings it, its neighbors, and their edges up to full brightness while
+    // dimming everything else.
+    const linkId = (v: any) => (typeof v === "object" ? v.id : v);
+    const neighbors = new Map<string, Set<string>>(nodes.map((n) => [n.id, new Set<string>([n.id])]));
+    links.forEach((l) => {
+      const s = linkId(l.source), t = linkId(l.target);
+      neighbors.get(s)?.add(t);
+      neighbors.get(t)?.add(s);
+    });
+    function highlight(id: string | null) {
+      if (!id) {
+        nodeSel.classed("dim", false).classed("hot", false);
+        linkSel.classed("dim", false).classed("hot", false);
+        return;
+      }
+      const near = neighbors.get(id) || new Set([id]);
+      nodeSel.classed("hot", (d) => near.has(d.id)).classed("dim", (d) => !near.has(d.id));
+      linkSel
+        .classed("hot", (d: any) => linkId(d.source) === id || linkId(d.target) === id)
+        .classed("dim", (d: any) => !(linkId(d.source) === id || linkId(d.target) === id));
+    }
+    nodeSel
+      .on("mouseenter", (_e, d) => highlight(d.id))
+      .on("mouseleave", () => highlight(null));
+
+    const legend = document.createElement("div");
+    legend.className = "sw-legend";
+    legend.innerHTML =
+      `<span><i class="p2p"></i> p2p (direct)</span>` +
+      `<span><i class="http"></i> http (same network / proxy)</span>` +
+      `<span><i class="relay"></i> p2p http relay (phones + web apps)</span>` +
+      `<span class="sw-legend-sep"></span>` +
+      `<span><i class="ring you"></i> you</span>` +
+      `<span><i class="ring family"></i> family</span>` +
+      `<span><i class="ring friend"></i> friend</span>`;
+    wrap.appendChild(legend);
+  }
+
+  // ===== stage 4: library management ======================================
+  function renderLibrary(c: HTMLElement) {
+    stageHeader(c, "manage + enrich your library", "grow your catalog, let trusted users add music, and clean up metadata with free enrichment sources.");
+
+    label(c, "what do you want to do? (multi-select)");
+    chipRow(c, state.library, [
+      { id: "dirs", label: "add / edit scan dirs", icon: "edit" },
+      { id: "enrich", label: "edit + enrich metadata", icon: "sparkle" },
+      { id: "addmusic", label: "share with friends", icon: "share" },
+    ], () => { save(); renderLibCards(); });
+
+    const holder = document.createElement("div");
+    holder.style.marginTop = "1rem";
+    c.appendChild(holder);
+
+    function renderLibCards() {
+      holder.innerHTML = "";
+      const cards: Card[] = [];
+      if (state.library.includes("dirs")) {
+        cards.push({ icon: "edit", title: "scan directories",
+          body: "add more folders any time and rescan. the desktop app has library → add folder; the cli takes --path.",
+          link: { href: "/guides/scanning/", text: "scanning your library" } });
+      }
+      if (state.library.includes("addmusic")) {
+        cards.push({ icon: "share", title: "users add music", badge: "member / admin",
+          body: "client users with the member or admin role can upload + add music to the server; viewer roles can browse it.",
+          link: { href: "/concepts/user-roles/", text: "user roles" } });
+      }
+      if (state.library.includes("enrich")) {
+        cards.push({ icon: "edit", title: "edit album modal", badge: "one-off",
+          body: "open an album → edit album to fix a single release: titles, dates, art, and a manual musicbrainz lookup.",
+          link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } });
+        cards.push({ icon: "table", title: "albums table bulk edit", badge: "whole library",
+          body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
+          link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } });
+        cards.push({ icon: "sparkle", title: "enrichment sources",
+          body: "musicbrainz (canonical metadata + cover art), last.fm (bios + tags, needs an api key in node config), and theaudiodb (artist imagery).",
+          link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } });
+      }
+      cardGrid(holder, cards);
+    }
+    renderLibCards();
+  }
+
+  // kick off once everything above is declared and initialized.
+  if (root) init(root);
+</script>

@@ -100,10 +100,7 @@ pub async fn setup_federation(
 
     for group in &groups {
         // get instance name from server config if available
-        let instance_name = app_config
-            .server
-            .as_ref()
-            .map(|s| s.name.as_str());
+        let instance_name = app_config.server.as_ref().map(|s| s.name.as_str());
 
         match authed_client
             .register_peer(&node_id, &group.id, None, instance_name)
@@ -112,7 +109,10 @@ pub async fn setup_federation(
             Ok(_) => groups_registered += 1,
             Err(e) => {
                 // log but don't fail - registration is best-effort
-                eprintln!("warning: failed to register with group {}: {}", group.name, e);
+                eprintln!(
+                    "warning: failed to register with group {}: {}",
+                    group.name, e
+                );
             }
         }
     }
@@ -135,7 +135,7 @@ pub async fn setup_federation(
 pub fn get_setup_status() -> SetupStatus {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
-    let federation_enabled = config.federation.as_ref().map_or(false, |f| f.enabled);
+    let federation_enabled = config.federation.as_ref().is_some_and(|f| f.enabled);
 
     // check identity
     let identity_exists = identity::keypair_exists();

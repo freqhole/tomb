@@ -228,7 +228,11 @@ impl PeerConnection {
                     });
                 }
                 if let Some(err) = error {
-                    debug!("ensure_blob error for {}: {}", &blake3_hash[..16.min(blake3_hash.len())], err);
+                    debug!(
+                        "ensure_blob error for {}: {}",
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                        err
+                    );
                     // distinguish "unauthorized" so the caller can knock.
                     // source returns literal "unauthorized: peer not registered".
                     if err.starts_with("unauthorized") {

@@ -68,7 +68,7 @@ impl From<DirectoryTagRule> for DirTagRuleOutput {
         DirTagRuleOutput {
             id: rule.id,
             directory_path: rule.directory_path,
-            tag_name: rule.tag_name.unwrap_or_else(|| rule.tag_id),
+            tag_name: rule.tag_name.unwrap_or(rule.tag_id),
             created_at: super::utils::format_timestamp(rule.created_at),
         }
     }
@@ -165,7 +165,10 @@ pub async fn handle_command(action: DirTagsAction) -> CommandOutput<serde_json::
 
             let stripped = response.data.unwrap_or(0);
             CommandOutput::success(
-                format!("stripped {} tag assignments from albums under {}", stripped, path),
+                format!(
+                    "stripped {} tag assignments from albums under {}",
+                    stripped, path
+                ),
                 serde_json::json!({ "stripped": stripped }),
             )
         }
@@ -179,7 +182,10 @@ pub async fn handle_command(action: DirTagsAction) -> CommandOutput<serde_json::
 
             let cleared = response.data.unwrap_or(0);
             CommandOutput::success(
-                format!("cleared {} rule-based tag assignments from albums under {}", cleared, path),
+                format!(
+                    "cleared {} rule-based tag assignments from albums under {}",
+                    cleared, path
+                ),
                 serde_json::json!({ "cleared": cleared }),
             )
         }

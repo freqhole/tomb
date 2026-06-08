@@ -54,7 +54,7 @@ pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -80,7 +80,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -99,7 +99,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
             let has_more = favorites.len() >= limit as usize;
 
             GrimoireResponse::success(
-                &format!("found {} favorites", favorites.len()),
+                format!("found {} favorites", favorites.len()),
                 serde_json::to_value(ListFavoritesResponse {
                     favorites,
                     total_count,
@@ -116,10 +116,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
 /// list "beloved" album + artist ids — favorited by any user on this
 /// remote (direct favorites unioned with song-favorite-derived ids).
-pub async fn list_beloved(
-    _caller: &Caller,
-    _body: JsonValue,
-) -> GrimoireResponse<JsonValue> {
+pub async fn list_beloved(_caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
     let response = FavoritesService::new().list_beloved_ids().await;
     match response.data {
         Some((album_ids, artist_ids)) => {

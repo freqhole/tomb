@@ -76,7 +76,7 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
                     vec![ErrorDetail::new(
                         "duplicate_song",
                         "Duplicate Song",
-                        &format!("a song already exists with blob_id {}", req.media_blob_id),
+                        format!("a song already exists with blob_id {}", req.media_blob_id),
                     )],
                 );
             }

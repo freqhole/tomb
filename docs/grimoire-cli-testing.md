@@ -1782,7 +1782,7 @@ This is the **easiest way** to find album art - it searches and fetches cover ar
 # Free-form search (easiest!)
 cargo run -- music music-brainz search-album-with-art --query "Radiohead Kid A"
 
-cargo run -- music music-brainz search-album-with-art --query "Beatles Abbey Road"
+cargo run -- music music-brainz search-album-with-art --query "Mindless Self Indulgence"
 
 # Or use explicit artist/album
 cargo run -- music music-brainz search-album-with-art \

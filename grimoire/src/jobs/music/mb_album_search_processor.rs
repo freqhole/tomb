@@ -8,8 +8,7 @@
 //!    cheap title/artist token-overlap heuristic on top of MB's lucene score.
 //! 5. merge candidates + last_query into the album metadata blob.
 //! 6. choose final status:
-//!      - `Confirmed`  if exactly one strong candidate >= auto_confirm_threshold
-//!                     AND a threshold was provided.
+//!      - `Confirmed`  if exactly one strong candidate >= auto_confirm_threshold AND a threshold was provided.
 //!      - `NeedsReview` if multiple strong candidates.
 //!      - `Candidates`  if at least one candidate but nothing strong.
 //!      - `NoMatch`     if zero results.
@@ -80,6 +79,7 @@ fn collect_cross_api_ids(meta: &AlbumMetadata) -> CrossApiIds {
 }
 
 /// holds the output of a single mb release-search stage (query, score, sort).
+#[allow(clippy::type_complexity)]
 struct StageResult {
     sorted: Vec<MbCandidate>,
     last_query: MbLastQuery,
@@ -385,7 +385,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 // rg lookup failed: mbid may be a release id (e.g. from last.fm)
                 crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
                 let rel_resp = client.lookup_release_search(mbid).await;
-                rel_resp.data.as_ref().map(|r| candidate_from_release(r))
+                rel_resp.data.as_ref().map(candidate_from_release)
             };
             let Some(mut direct_cand) = direct_cand else {
                 continue 'direct;
@@ -545,7 +545,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
             .unwrap_or(0.0)
             < FALLBACK_TRIGGER;
     let stage2: Option<StageResult> = if need_stage2
-        && (ids.artist_mbids.first().is_some()
+        && (!ids.artist_mbids.is_empty()
             || artist.as_deref().map(|s| !s.is_empty()).unwrap_or(false))
     {
         job_events::emit_stage_from_job(
@@ -943,6 +943,8 @@ fn pick_adopted(stage1: StageResult, stage2: Option<StageResult>) -> StageResult
     stage1
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 async fn run_release_search(
     client: &MusicBrainzClient,
     title: &str,
@@ -1238,7 +1240,7 @@ async fn run_release_search(
 /// ordering of importance (largest deltas first):
 ///   cross-api mbid agreement > long-song duration match > cover art
 ///   > country > format > earliest pressing > tags.
-/// cover art intentionally outranks release date per product spec.
+/// > cover art intentionally outranks release date per product spec.
 ///
 /// optional inputs (pass `None`/`false`/`0` when unavailable):
 ///   * `tag_count` — MB tags on this release/release-group. Some(0) =
@@ -1264,6 +1266,7 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_local_confidence(
     query_title: &str,
     query_artist: Option<&str>,
@@ -1481,7 +1484,7 @@ mod tests {
             None,
             "US",
         );
-        assert!(c >= 0.84 && c <= 0.86, "expected ~0.85, got {}", c);
+        assert!((0.84..=0.86).contains(&c), "expected ~0.85, got {}", c);
     }
 
     #[test]

@@ -62,7 +62,10 @@ pub fn enter(state: &mut AppState) {
 /// admin palette if none was saved).
 pub fn leave(state: &mut AppState) {
     let eph = &mut state.ephemeral;
-    let prev = eph.player_row_return_focus.take().unwrap_or(Focus::AdminPalette);
+    let prev = eph
+        .player_row_return_focus
+        .take()
+        .unwrap_or(Focus::AdminPalette);
     eph.focus = prev;
 }
 

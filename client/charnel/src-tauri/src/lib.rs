@@ -96,6 +96,12 @@ impl PendingDeepLinks {
 #[derive(Clone)]
 pub struct ShutdownToken(pub Arc<CancellationToken>);
 
+impl Default for ShutdownToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShutdownToken {
     pub fn new() -> Self {
         Self(Arc::new(CancellationToken::new()))
@@ -163,7 +169,7 @@ fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
     };
 
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
     if lines.len() <= max_lines {
         return;
@@ -641,6 +647,8 @@ pub fn run() {
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
 
                 let window = win_builder.build()?;
+                // suppress unused variable warning on non-macOS
+                let _ = &window;
 
                 // set background color only when building for macOS
                 #[cfg(target_os = "macos")]

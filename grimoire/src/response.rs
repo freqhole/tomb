@@ -80,7 +80,7 @@ impl<T> GrimoireResponse<T> {
     /// Convert to a Result type for easier error handling
     pub fn into_result(self) -> Result<T, Vec<ErrorDetail>> {
         if self.success {
-            self.data.ok_or_else(|| vec![])
+            self.data.ok_or_else(Vec::new)
         } else {
             Err(self.errors)
         }

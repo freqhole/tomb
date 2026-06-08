@@ -220,7 +220,7 @@ pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -257,7 +257,7 @@ pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -301,7 +301,7 @@ pub async fn reject(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -339,7 +339,7 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

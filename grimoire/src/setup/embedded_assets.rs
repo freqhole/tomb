@@ -51,7 +51,7 @@ fn extract_dir_recursive(dir: &Dir<'_>, dest: &Path, result: &mut ExtractResult)
     // extract all files in this directory
     for file in dir.files() {
         let file_dest = dest.join(file.path());
-        
+
         // ensure parent directory exists
         if let Some(parent) = file_dest.parent() {
             if !parent.exists() {
@@ -172,14 +172,17 @@ fn looks_like_spume_dir(path: &Path) -> bool {
     if !path.is_dir() {
         return false;
     }
-    
+
     // check for typical spume files/dirs
     let has_index = path.join("index.html").exists();
     let has_assets = path.join("assets").is_dir();
-    
+
     // also accept empty directories
-    let is_empty = path.read_dir().map(|mut d| d.next().is_none()).unwrap_or(false);
-    
+    let is_empty = path
+        .read_dir()
+        .map(|mut d| d.next().is_none())
+        .unwrap_or(false);
+
     has_index || has_assets || is_empty
 }
 
@@ -193,7 +196,7 @@ fn clean_spume_dir(path: &Path) -> io::Result<usize> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let entry_path = entry.path();
-        
+
         if entry_path.is_dir() {
             fs::remove_dir_all(&entry_path)?;
         } else {
@@ -264,17 +267,20 @@ mod tests {
     fn test_is_safe_to_clean() {
         // unsafe paths should fail
         assert!(is_safe_to_clean(Path::new("/")).is_err());
-        
+
         // relative paths should fail
         assert!(is_safe_to_clean(Path::new("spume")).is_err());
         assert!(is_safe_to_clean(Path::new("./spume")).is_err());
-        
+
         // paths not containing "spume" should fail
         assert!(is_safe_to_clean(Path::new("/tmp/myapp")).is_err());
-        
+
         // valid spume paths should pass
         assert!(is_safe_to_clean(Path::new("/tmp/spume")).is_ok());
         assert!(is_safe_to_clean(Path::new("/home/user/data/spume")).is_ok());
-        assert!(is_safe_to_clean(Path::new("/Users/test/Library/Application Support/freqhole/spume")).is_ok());
+        assert!(is_safe_to_clean(Path::new(
+            "/Users/test/Library/Application Support/freqhole/spume"
+        ))
+        .is_ok());
     }
 }

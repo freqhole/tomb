@@ -140,9 +140,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
 
     let writer_task = async move {
         while let Some(msg) = ctrl_rx.recv().await {
-            if let Err(e) = write_control_message(&mut ctrl_send, &msg).await {
-                return Err::<(), GrimoireError>(e);
-            }
+            write_control_message(&mut ctrl_send, &msg).await?;
         }
         Ok(())
     };

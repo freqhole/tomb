@@ -33,7 +33,7 @@ pub(in crate::admin_dispatch) async fn cancel_session(
                 vec![crate::ErrorDetail::new(
                     "database_error",
                     "database unavailable",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -58,7 +58,7 @@ pub(in crate::admin_dispatch) async fn cancel_session(
                 vec![crate::ErrorDetail::new(
                     "database_error",
                     "failed to cancel session jobs",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

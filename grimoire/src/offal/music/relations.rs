@@ -146,7 +146,7 @@ pub async fn albums_by_value(caller: &Caller, body: JsonValue) -> GrimoireRespon
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -209,7 +209,7 @@ pub async fn entity_taxons_batch(_caller: &Caller, body: JsonValue) -> GrimoireR
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -221,7 +221,7 @@ pub async fn entity_taxons_batch(_caller: &Caller, body: JsonValue) -> GrimoireR
             vec![ErrorDetail::new(
                 "too_many_ids",
                 "too many ids",
-                &format!(
+                format!(
                     "got {}, max {} per batch",
                     req.entity_ids.len(),
                     BATCH_MAX_IDS
@@ -289,7 +289,7 @@ pub async fn entity_taxons_batch(_caller: &Caller, body: JsonValue) -> GrimoireR
             vec![ErrorDetail::new(
                 "bad_request",
                 "unsupported entity kind",
-                &format!("entity_kind must be 'album' or 'artist', got {}", other),
+                format!("entity_kind must be 'album' or 'artist', got {}", other),
             )],
         ),
     }
@@ -337,7 +337,7 @@ pub async fn find_by_merged_key(_caller: &Caller, body: JsonValue) -> GrimoireRe
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -349,7 +349,7 @@ pub async fn find_by_merged_key(_caller: &Caller, body: JsonValue) -> GrimoireRe
             vec![ErrorDetail::new(
                 "too_many_keys",
                 "too many keys",
-                &format!("got {}, max {} per batch", req.keys.len(), BATCH_MAX_IDS),
+                format!("got {}, max {} per batch", req.keys.len(), BATCH_MAX_IDS),
             )],
         );
     }
@@ -406,7 +406,7 @@ pub async fn find_by_merged_key(_caller: &Caller, body: JsonValue) -> GrimoireRe
             vec![ErrorDetail::new(
                 "bad_request",
                 "unsupported entity kind",
-                &format!("entity_kind must be 'album' or 'artist', got {}", other),
+                format!("entity_kind must be 'album' or 'artist', got {}", other),
             )],
         ),
     }
@@ -457,7 +457,7 @@ pub async fn era_bins(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
                     vec![ErrorDetail::new(
                         "bad_request",
                         "bad request",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 )
             }
@@ -502,7 +502,7 @@ pub async fn recently_added_albums(
                     vec![ErrorDetail::new(
                         "bad_request",
                         "bad request",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 )
             }
@@ -549,7 +549,7 @@ pub async fn era_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -614,7 +614,7 @@ pub async fn unassigned_albums(caller: &Caller, body: JsonValue) -> GrimoireResp
                     vec![ErrorDetail::new(
                         "bad_request",
                         "bad request",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 )
             }

@@ -100,7 +100,8 @@ export function drawNode(
   radius: number,
   getImage?: (id: string) => ImageMetadata | null,
   isOffline?: boolean,
-  isHovered?: boolean
+  isHovered?: boolean,
+  isDisabled?: boolean
 ) {
   // ghost artists are label-only: skip all shape/fill/stroke; drawLabel
   // handles their text styling in the label pass.
@@ -119,9 +120,10 @@ export function drawNode(
 
   // offline nodes (e.g. unreachable remote hubs): dim everything we draw
   // for this node by reducing alpha. label pass also dims separately below.
+  // graph-disabled nodes use a stronger dim (~0.18) than plain offline (~0.35).
   if (isOffline) {
     ctx.save();
-    ctx.globalAlpha = 0.35;
+    ctx.globalAlpha = isDisabled ? 0.18 : 0.35;
   }
 
   // newly-created taxons (no children, no albums yet) render dimmed
@@ -268,6 +270,27 @@ export function drawNode(
   if (isOffline) {
     ctx.restore();
   }
+
+  // diagonal slash across disabled remote nodes - drawn after restoring alpha
+  // so the slash sits on top at its own opacity (not doubly-dimmed).
+  if (isDisabled && n.role === "remote") {
+    // half-extent of the rounded square shape (matches nodeShapePath "remote" case)
+    const lineW = Math.max(4, radius * 0.32);
+    // inset the endpoints by half the line width so the round end caps
+    // stay inside the square's edges instead of poking past the corners.
+    const half = radius - lineW * 0.5;
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = lineW;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x - half, y - half);
+    ctx.lineTo(x + half, y + half);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (isPlaceholderTaxon) {
     ctx.restore();
   }

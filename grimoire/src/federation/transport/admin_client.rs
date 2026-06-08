@@ -113,7 +113,7 @@ pub async fn send_admin_request(
                     vec![ErrorDetail::new(
                         "id_mismatch",
                         "admin response id mismatch",
-                        &format!("expected {}, got {}", id, resp_id),
+                        format!("expected {}, got {}", id, resp_id),
                     )],
                 ));
             }

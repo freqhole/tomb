@@ -34,18 +34,13 @@ pub struct SongRow {
 }
 
 /// portable mirror of `grimoire::player::PlayerState`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlayerState {
+    #[default]
     Stopped,
     Loading,
     Playing,
     Paused,
-}
-
-impl Default for PlayerState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 /// portable mirror of `grimoire::player::PlayerEvent`. shells fan
@@ -53,29 +48,32 @@ impl Default for PlayerState {
 #[derive(Debug, Clone)]
 pub enum MusicEvent {
     State(PlayerState),
-    Progress { ms: u64, total_ms: u64 },
-    TrackChanged { index: usize, path: String },
+    Progress {
+        ms: u64,
+        total_ms: u64,
+    },
+    TrackChanged {
+        index: usize,
+        path: String,
+    },
     /// shells emit this from background blob-resolution tasks so the
     /// ui can show "loading N more" while a queue is still being
     /// fetched. `remaining` is the number of rows still pending.
-    QueueResolveProgress { remaining: usize },
+    QueueResolveProgress {
+        remaining: usize,
+    },
     Ended,
     Error(String),
 }
 
 /// which sub-area of the music view has focus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MusicMode {
     /// editing the search box.
+    #[default]
     Search,
     /// browsing the results list.
     Results,
-}
-
-impl Default for MusicMode {
-    fn default() -> Self {
-        Self::Search
-    }
 }
 
 /// in-memory state for the music view. lives on `EphemeralState`.

@@ -19,7 +19,7 @@ use crate::auth::middleware::AuthenticatedUser;
 /// convert AuthenticatedUser to offal Caller
 impl From<&AuthenticatedUser> for Caller {
     fn from(user: &AuthenticatedUser) -> Self {
-        Caller::new(&user.user_id, &user.username, user.role.clone())
+        Caller::new(&user.user_id, &user.username, user.role)
     }
 }
 

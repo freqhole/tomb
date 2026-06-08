@@ -249,7 +249,7 @@ fn bad_req(e: impl std::fmt::Display) -> GrimoireResponse<JsonValue> {
         vec![ErrorDetail::new(
             "bad_request",
             "bad request",
-            &e.to_string(),
+            e.to_string(),
         )],
     )
 }

@@ -184,7 +184,7 @@ pub async fn get_metadata(_caller: &Caller, body: JsonValue) -> GrimoireResponse
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -213,7 +213,7 @@ pub async fn get_metadata_by_blake3(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -245,7 +245,7 @@ pub async fn has_blobs(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

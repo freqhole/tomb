@@ -24,6 +24,10 @@ export interface RemoteDetailPopoverProps {
   onToggleEdit?: () => void;
   /** whether edit mode is currently active for this remote. */
   isEditing?: Accessor<boolean>;
+  /** whether this remote is currently excluded from graph visualization. */
+  graphDisabled: Accessor<boolean>;
+  /** called when the user clicks the graph enable/disable toggle. */
+  onToggleGraphDisabled: () => void;
 }
 
 // derive a url-safe slug from a freeform label. matches the
@@ -291,6 +295,26 @@ export function RemoteDetailPopover(props: RemoteDetailPopoverProps) {
               </div>
             </div>
           </Show>
+        </div>
+
+        {/* graph visibility toggle - available to all users, not just admins */}
+        <div class="px-3 pb-3">
+          <button
+            type="button"
+            class={`w-full py-1.5 px-3 rounded text-xs font-medium border transition-colors cursor-pointer ${
+              props.graphDisabled()
+                ? "border-orange-400/40 bg-orange-500/15 hover:bg-orange-500/25 text-orange-200 hover:text-orange-100"
+                : "border-white/15 bg-white/5 hover:bg-white/10 hover:border-white/25 text-white/70 hover:text-white"
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onToggleGraphDisabled();
+            }}
+          >
+            {props.graphDisabled()
+              ? "graphing: off - click to enable"
+              : "graphing: on - click to disable"}
+          </button>
         </div>
       </div>
     </Show>

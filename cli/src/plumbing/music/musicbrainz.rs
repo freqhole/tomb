@@ -66,7 +66,10 @@ pub enum MusicBrainzAction {
 /// Handle MusicBrainz commands
 pub async fn handle_command(action: MusicBrainzAction) -> CommandOutput<serde_json::Value> {
     // Create client with config enabled
-    let client = match MusicBrainzClient::new(MusicBrainzConfig { enabled: true, preferred_country: "US".to_string() }) {
+    let client = match MusicBrainzClient::new(MusicBrainzConfig {
+        enabled: true,
+        preferred_country: "US".to_string(),
+    }) {
         Ok(c) => c,
         Err(e) => {
             return CommandOutput::failure(

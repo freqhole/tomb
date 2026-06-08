@@ -129,9 +129,8 @@ fn test_analytics_session() {
     let result = ctx.run_json(&["analytics", "session", "session-id-does-not-exist"]);
 
     // Should fail because session doesn't exist
-    assert_eq!(
-        result["success"].as_bool().unwrap(),
-        false,
+    assert!(
+        !result["success"].as_bool().unwrap(),
         "Should fail with non-existent session ID"
     );
 }
@@ -331,16 +330,30 @@ fn test_play_count_increments_on_song_view() {
             .as_millis()
     );
     let user = ctx.run_json(&[
-        "users", "create", "--username", &username, "--role", "admin", "--bootstrap",
+        "users",
+        "create",
+        "--username",
+        &username,
+        "--role",
+        "admin",
+        "--bootstrap",
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
     // record three plays
     for _ in 0..3 {
         let res = ctx.run_json(&[
-            "analytics", "record-play", "--song-id", &song_id, "--user-id", user_id,
+            "analytics",
+            "record-play",
+            "--song-id",
+            &song_id,
+            "--user-id",
+            user_id,
         ]);
-        assert!(res["success"].as_bool().unwrap(), "record-play should succeed");
+        assert!(
+            res["success"].as_bool().unwrap(),
+            "record-play should succeed"
+        );
     }
 
     // verify total_plays increased by exactly 3

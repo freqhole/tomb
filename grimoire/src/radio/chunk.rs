@@ -160,7 +160,7 @@ mod tests {
         let mut v = Vec::with_capacity(total as usize);
         v.extend_from_slice(&total.to_be_bytes());
         v.extend_from_slice(kind);
-        v.extend(std::iter::repeat(0).take(payload_len));
+        v.extend(std::iter::repeat_n(0, payload_len));
         v
     }
 

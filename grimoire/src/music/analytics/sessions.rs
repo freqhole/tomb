@@ -51,6 +51,7 @@ impl std::fmt::Display for ListenSessionType {
 }
 
 impl ListenSessionType {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "song" => Self::Song,
@@ -95,6 +96,7 @@ impl std::fmt::Display for ListenSessionStatus {
 }
 
 impl ListenSessionStatus {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "active" => Self::Active,
@@ -270,7 +272,7 @@ pub async fn create_listen_session(
                 vec![crate::error::ErrorDetail::new(
                     "invalid_song_ids",
                     "invalid song IDs",
-                    &format!(
+                    format!(
                         "none of the {} provided song IDs exist on this server",
                         req.song_ids.len()
                     ),

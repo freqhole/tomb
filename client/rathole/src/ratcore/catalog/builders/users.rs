@@ -161,7 +161,10 @@ pub(in crate::ratcore::catalog) fn generate_api_key() -> AdminCommand {
         response_type: "AdminUserSummary".to_string(),
         auth: "Admin".to_string(),
         kind: CommandKind::Admin,
-        args: vec![pick_user("user_id", "pick a user to (re)generate an api key for")],
+        args: vec![pick_user(
+            "user_id",
+            "pick a user to (re)generate an api key for",
+        )],
     }
 }
 

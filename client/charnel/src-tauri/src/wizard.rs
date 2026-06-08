@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::webview::Color;
-#[cfg(desktop)]
+#[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindowBuilder, Wry};
 

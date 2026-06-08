@@ -137,7 +137,7 @@ pub async fn status(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -160,10 +160,7 @@ struct ListJobsRequest {
 }
 
 pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: ListJobsRequest = match serde_json::from_value(body) {
-        Ok(r) => r,
-        Err(_) => ListJobsRequest::default(), // allow empty body
-    };
+    let req: ListJobsRequest = serde_json::from_value(body).unwrap_or_default();
 
     let response = list_jobs(req.job_type.as_deref(), req.status, req.limit, req.offset).await;
     response.map(|data| serde_json::to_value(data).unwrap())
@@ -188,7 +185,7 @@ pub async fn create_fetch(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -205,7 +202,7 @@ pub async fn create_fetch(caller: &Caller, body: JsonValue) -> GrimoireResponse<
                     vec![ErrorDetail::new(
                         "serialization_error",
                         "failed to serialize parameters",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 )
             }
@@ -232,7 +229,7 @@ pub async fn get_fetch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -264,7 +261,7 @@ pub async fn enqueue_mb_album_search(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -391,7 +388,7 @@ pub async fn enqueue_lastfm_album_detail(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -469,7 +466,7 @@ pub async fn enqueue_audiodb_album_detail(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -530,7 +527,7 @@ pub async fn enqueue_audiodb_album_detail(
 
 /// enqueue an `AlbumEnrichmentPipeline` orchestrator job per album. each
 /// orchestrator then enqueues per-source detail jobs respecting freshness
-/// + `force`. all spawned pipeline jobs share one `job_session_id` so the
+/// and `force`. all spawned pipeline jobs share one `job_session_id` so the
 /// modal queue can show grouped progress and `cancel_bulk_enrichment` can
 /// flip every pending child to `Cancelled` in one call.
 ///
@@ -553,7 +550,7 @@ pub async fn enqueue_bulk_enrichment(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -659,7 +656,7 @@ pub async fn cancel_bulk_enrichment(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -673,7 +670,7 @@ pub async fn cancel_bulk_enrichment(
                 vec![ErrorDetail::new(
                     "database_error",
                     "database unavailable",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -698,7 +695,7 @@ pub async fn cancel_bulk_enrichment(
                 vec![ErrorDetail::new(
                     "database_error",
                     "failed to cancel session jobs",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -738,7 +735,7 @@ pub async fn get_enrichment_progress(
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -752,7 +749,7 @@ pub async fn get_enrichment_progress(
                 vec![ErrorDetail::new(
                     "database_error",
                     "database unavailable",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }
@@ -797,7 +794,7 @@ pub async fn get_enrichment_progress(
                     vec![ErrorDetail::new(
                         "database_error",
                         "failed to read enrichment progress",
-                        &e.to_string(),
+                        e.to_string(),
                     )],
                 )
             }
@@ -864,7 +861,7 @@ pub async fn requery_enrichment(caller: &Caller, body: JsonValue) -> GrimoireRes
                 vec![ErrorDetail::new(
                     "bad_request",
                     "bad request",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             )
         }

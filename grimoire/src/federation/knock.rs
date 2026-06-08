@@ -145,7 +145,7 @@ pub async fn create_knock(
 
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => return GrimoireResponse::failure(&format!("database error: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
     // check if node_id was previously rejected - silently "succeed" without creating
@@ -214,7 +214,7 @@ pub async fn create_knock(
 
             GrimoireResponse::success("knock request created", knock)
         }
-        Err(e) => GrimoireResponse::failure(&format!("failed to create knock: {}", e), vec![]),
+        Err(e) => GrimoireResponse::failure(format!("failed to create knock: {}", e), vec![]),
     }
 }
 
@@ -222,7 +222,7 @@ pub async fn create_knock(
 pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResponse> {
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => return GrimoireResponse::failure(&format!("database error: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
     let row = sqlx::query!(
@@ -262,7 +262,7 @@ pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResp
 pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest>> {
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => return GrimoireResponse::failure(&format!("database error: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
     struct KnockJoinRow {
@@ -363,7 +363,7 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
 pub async fn get_knock(id: &str) -> GrimoireResponse<KnockRequest> {
     let pool = match database::connect().await {
         Ok(p) => p,
-        Err(e) => return GrimoireResponse::failure(&format!("database error: {}", e), vec![]),
+        Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
     let row = sqlx::query_as!(

@@ -84,7 +84,7 @@ fn test_music_sorting() {
 
         // Note: sorting might not be perfect depending on DB collation
         // This test just ensures the command works, not strict ordering
-        assert!(titles.len() > 0, "Should have some results");
+        assert!(!titles.is_empty(), "Should have some results");
     }
 }
 

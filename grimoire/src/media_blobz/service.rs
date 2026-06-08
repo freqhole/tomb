@@ -89,7 +89,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
 
             let mut undeleted_with_metadata = undeleted_blob;
             undeleted_with_metadata.metadata =
-                serde_json::from_str(&undeleted_with_metadata.metadata.as_str().unwrap_or("{}"))
+                serde_json::from_str(undeleted_with_metadata.metadata.as_str().unwrap_or("{}"))
                     .unwrap_or_default();
 
             // same path-relocation logic as the active-existing branch:
@@ -101,7 +101,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
                     let mut relocated =
                         maybe_relocate_existing_blob(&pool, &undeleted_with_metadata, &req).await?;
                     relocated.metadata =
-                        serde_json::from_str(&relocated.metadata.as_str().unwrap_or("{}"))
+                        serde_json::from_str(relocated.metadata.as_str().unwrap_or("{}"))
                             .unwrap_or_default();
                     relocated
                 }
@@ -136,7 +136,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
 
         let mut existing_with_metadata = relocated;
         existing_with_metadata.metadata =
-            serde_json::from_str(&existing_with_metadata.metadata.as_str().unwrap_or("{}"))
+            serde_json::from_str(existing_with_metadata.metadata.as_str().unwrap_or("{}"))
                 .unwrap_or_default();
         return Ok(existing_with_metadata);
     }
@@ -190,7 +190,7 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
     // Parse the metadata JSON from the returned string
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
-        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
     // If binary data was provided, store it in blob_data table
@@ -251,7 +251,7 @@ pub async fn list_media_blobs() -> GrimoireResult<Vec<MediaBlob>> {
         .into_iter()
         .map(|mut blob| {
             blob.metadata =
-                serde_json::from_str(&blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
+                serde_json::from_str(blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
             blob
         })
         .collect();
@@ -296,7 +296,7 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
     // Parse the metadata JSON
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
-        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
@@ -338,7 +338,7 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
 
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
-        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
@@ -413,7 +413,7 @@ pub async fn update_blob_local_path(
     // parse the metadata JSON
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
-        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
@@ -608,7 +608,7 @@ pub async fn get_media_blob_by_blake3(blake3: &str) -> GrimoireResult<MediaBlob>
 
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
-        serde_json::from_str(&blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
@@ -668,7 +668,7 @@ pub async fn list_blobs_needing_blake3(limit: i64) -> GrimoireResult<Vec<MediaBl
         .into_iter()
         .map(|mut blob| {
             blob.metadata =
-                serde_json::from_str(&blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
+                serde_json::from_str(blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
             blob
         })
         .collect();

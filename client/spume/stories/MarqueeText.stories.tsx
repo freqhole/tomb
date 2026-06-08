@@ -14,8 +14,7 @@ const meta = {
     },
     hoverOnly: {
       control: "boolean",
-      description:
-        "only marquee on hover (default: false = always marquee when overflow)",
+      description: "only marquee on hover (default: false = always marquee when overflow)",
     },
   },
 } satisfies Meta<typeof MarqueeText>;
@@ -59,8 +58,7 @@ export const CustomStyling: Story = {
 export const HoverOnly: Story = {
   args: {
     text: "this text will only marquee when you hover over it - try it out!",
-    class:
-      "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
+    class: "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
     hoverOnly: true,
   },
 };
@@ -69,8 +67,7 @@ export const HoverOnly: Story = {
 export const AlwaysMarquee: Story = {
   args: {
     text: "this text always marquees when it overflows - no hover needed",
-    class:
-      "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
+    class: "w-64 text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded",
     hoverOnly: false,
   },
 };
@@ -80,9 +77,7 @@ export const HoverOnlyComparison: Story = {
   render: () => (
     <div class="p-4 space-y-4 w-80">
       <div class="space-y-2">
-        <div class="text-gray-400 text-xs uppercase tracking-wide">
-          always marquee (default)
-        </div>
+        <div class="text-gray-400 text-xs uppercase tracking-wide">always marquee (default)</div>
         <MarqueeText
           text={`${mockArtists[0].name} - ${mockSongs[0].title} (extended version)`}
           class="text-[var(--color-text-primary)] bg-[var(--color-bg-secondary)] px-3 py-2 rounded"
@@ -115,8 +110,7 @@ export const GenreList: Story = {
 export const InteractiveWidth: Story = {
   render: () => {
     const [width, setWidth] = createSignal(200);
-    const artist =
-      mockArtists.find((a) => a.name === "The Beatles") || mockArtists[3];
+    const artist = mockArtists.find((a) => a.name === "Mindless Self Indulgence") || mockArtists[3];
     const longText = `${artist.name} - ${mockAlbums.find((a) => a.artist === artist.name)?.title || mockAlbums[3].title} (remastered)`;
 
     return (
@@ -134,18 +128,10 @@ export const InteractiveWidth: Story = {
             class="w-full"
           />
         </div>
-        <div
-          style={{ width: `${width()}px` }}
-          class="border border-gray-700 rounded p-2"
-        >
-          <MarqueeText
-            text={longText}
-            class="text-[var(--color-text-primary)]"
-          />
+        <div style={{ width: `${width()}px` }} class="border border-gray-700 rounded p-2">
+          <MarqueeText text={longText} class="text-[var(--color-text-primary)]" />
         </div>
-        <div class="text-gray-500 text-xs">
-          resize the container to see when marquee activates
-        </div>
+        <div class="text-gray-500 text-xs">resize the container to see when marquee activates</div>
       </div>
     );
   },
@@ -155,9 +141,7 @@ export const InteractiveWidth: Story = {
 export const MultipleMarquees: Story = {
   render: () => (
     <div class="p-4 space-y-2 w-64">
-      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">
-        now playing queue
-      </div>
+      <div class="text-gray-300 text-xs uppercase tracking-wide mb-2">now playing queue</div>
       <MarqueeText
         text="tame impala - let it happen"
         class="text-[var(--color-text-primary)] text-sm"
@@ -170,14 +154,8 @@ export const MultipleMarquees: Story = {
         text="king crimson - in the court of the crimson king"
         class="text-gray-400 text-sm"
       />
-      <MarqueeText
-        text="tool - lateralus (extended version)"
-        class="text-gray-400 text-sm"
-      />
-      <MarqueeText
-        text="black midi - welcome to hell"
-        class="text-gray-400 text-sm"
-      />
+      <MarqueeText text="tool - lateralus (extended version)" class="text-gray-400 text-sm" />
+      <MarqueeText text="black midi - welcome to hell" class="text-gray-400 text-sm" />
     </div>
   ),
 };
@@ -186,8 +164,7 @@ export const MultipleMarquees: Story = {
 export const EmptyText: Story = {
   args: {
     text: "",
-    class:
-      "w-64 text-[var(--color-text-primary)] border border-[var(--color-border-default)] h-8",
+    class: "w-64 text-[var(--color-text-primary)] border border-[var(--color-border-default)] h-8",
   },
 };
 
@@ -204,18 +181,11 @@ export const InCard: Story = {
   render: () => (
     <div class="w-48 bg-dark-800 rounded-lg p-3 space-y-2">
       <div class="w-full h-32 bg-magenta-800/30 rounded flex items-center justify-center">
-        <svg
-          class="w-12 h-12 text-magenta-400"
-          fill="currentColor"
-          viewBox="0 0 24 24"
-        >
+        <svg class="w-12 h-12 text-magenta-400" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
         </svg>
       </div>
-      <MarqueeText
-        text="in the aeroplane over the sea"
-        class="text-white font-medium text-sm"
-      />
+      <MarqueeText text="in the aeroplane over the sea" class="text-white font-medium text-sm" />
       <MarqueeText text="neutral milk hotel" class="text-gray-400 text-xs" />
       <MarqueeText
         text="indie rock, lo-fi, psychedelic folk"

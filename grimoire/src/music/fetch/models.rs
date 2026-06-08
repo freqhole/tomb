@@ -36,9 +36,9 @@ pub struct FetchMediaResult {
 impl ZodSchema for FetchMediaResult {
     fn zod_schema() -> String {
         zod_object(&[
-            ("items_requested", &zod_number()),
-            ("items_downloaded", &zod_number()),
-            ("items_failed", &zod_number()),
+            ("items_requested", zod_number()),
+            ("items_downloaded", zod_number()),
+            ("items_failed", zod_number()),
             ("media_blob_ids", &zod_array(zod_string())),
             ("song_ids", &zod_array(zod_string())),
             ("errors", &zod_array(zod_string())),

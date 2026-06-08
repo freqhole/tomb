@@ -618,10 +618,7 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
         }
         tokio::select! {
             res = workers.join_next() => {
-                match res {
-                    Some(Err(e)) => warn!("worker task panicked during drain: {:?}", e),
-                    Some(Ok(())) | None => {}
-                }
+                if let Some(Err(e)) = res { warn!("worker task panicked during drain: {:?}", e) }
             }
             _ = &mut drain_deadline => {
                 warn!(
@@ -629,7 +626,7 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
                     workers.len()
                 );
                 workers.abort_all();
-                while let Some(_) = workers.join_next().await {}
+                while workers.join_next().await.is_some() {}
                 break;
             }
         }

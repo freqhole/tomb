@@ -8,7 +8,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'freqhole',
-			tagline: 'self-hosted music library && web, android, and desktop client that talks http or p2p',
+			tagline: 'self-hosted music library && web, android, and desktop clientz that can talk http or p2p',
 			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
@@ -21,6 +21,7 @@ export default defineConfig({
 				{
 					label: 'getting started',
 					items: [
+						{ label: 'brainstorm', slug: 'getting-started/brainstorm' },
 						{ label: 'download', slug: 'getting-started/download' },
 						{ label: 'prerequisites', slug: 'getting-started/prerequisites' },
 						{ label: 'thankz', slug: 'getting-started/thankz' },
