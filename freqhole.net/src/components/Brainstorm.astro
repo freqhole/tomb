@@ -271,6 +271,7 @@
     server: `<rect x="3" y="4" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="14" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="7" r=".9" fill="currentColor"/><circle cx="7" cy="17" r=".9" fill="currentColor"/>`,
     friend: `<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`,
     sparkle: `<path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>`,
+    eyes: `<ellipse cx="6.4" cy="12" rx="5.4" ry="7.6" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="17.6" cy="12" rx="5.4" ry="7.6" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="8.1" cy="13.3" rx="3.9" ry="2.7" fill="currentColor"/><ellipse cx="18.9" cy="13.3" rx="3.9" ry="2.7" fill="currentColor"/><circle cx="8.7" cy="13.9" r="0.9" fill="var(--sw-card-bg)"/><circle cx="19.5" cy="13.9" r="0.9" fill="var(--sw-card-bg)"/>`,
   };
 
   function svgIcon(name: string, size = 20): string {
@@ -738,10 +739,10 @@
     const phoneFirst = state.picks.includes("mobile") || state.picks.includes("android");
     const cards: Card[] = [
       { icon: "qr", title: phoneFirst ? "start with your phone" : "pair a device",
-        body: "web open the app on another device and scan your server's node id qr code (or paste the node id). download music and listen offline.",
+        body: "open the app on another device and scan your server's node id qr code (or paste the node id). download music and listen offline.",
         link: { href: "/guides/sharing/", text: "sharing with friends" } },
       { icon: "share", title: "p2p by default", badge: "recommended",
-        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage; but you can use http if you want.",
+        body: "peer-to-peer connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage; but you can use http, and self-host everything if you want.",
         link: { href: "/concepts/transports/", text: "how transports work" } },
     ];
     cards.forEach((cd) => {
@@ -997,19 +998,19 @@
     c.appendChild(holder);
 
     const cards: Card[] = [
-      { icon: "edit", title: "scan directories",
-        body: "add more folders of music at any time. rescan existing folders to catch new or deleted files.",
+      { icon: "eyes", title: "scan directories",
+        body: "add more folders of music at any time. rescan existing folders to catch new or deleted files. you can tag all the music in a directory so it's easier to find later.",
         link: { href: "/guides/scanning/", text: "scanning your library" } },
       { icon: "share", title: "users can add music",
-        body: "users with the member or admin role can upload + add new music, create playlists, and edit metadata; viewer roles can browse and add things to their favorite list.",
+        body: "you or other users with a member or admin role can upload + add new music, create playlists, and edit metadata; viewer roles can browse and add things to their favorite list.",
         link: { href: "/concepts/user-roles/", text: "user roles" } },
       { icon: "sparkle", title: "enrichment sources",
         body: "musicbrainz (canonical metadata + cover art), last.fm (bios + tags, needs an api key in node config), and theaudiodb (artist imagery).",
         link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } },
-      { icon: "sparkle", title: "edit metadata", badge: "one-off",
+      { icon: "edit", title: "edit metadata", badge: "one-off",
         body: "open an album → edit album to fix a single release: titles, dates, art, and a manual musicbrainz lookup.",
         link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } },
-      { icon: "sparkle", title: "albums table bulk edit", badge: "whole library",
+      { icon: "table", title: "albums table bulk edit", badge: "whole library",
         body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
         link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } },
     ];
