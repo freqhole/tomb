@@ -7,7 +7,7 @@
 //! the config's data_dir field can point to a different location for the database/media
 
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -24,14 +24,14 @@ fn canonicalize_or_original(path: &str) -> String {
 }
 
 /// ensure config is initialized, returns Ok if already initialized or successfully initialized
-fn ensure_config_initialized(config_path: &PathBuf) -> Result<(), String> {
+fn ensure_config_initialized(config_path: &Path) -> Result<(), String> {
     if grimoire::is_config_initialized() {
         return Ok(());
     }
     if !config_path.exists() {
         return Err(format!("config file not found: {}", config_path.display()));
     }
-    match grimoire::config::init_config(Some(config_path.clone())) {
+    match grimoire::config::init_config(Some(config_path.to_path_buf())) {
         Ok(_) => Ok(()),
         Err(e) => {
             // race condition: another call initialized it first - that's fine
@@ -118,6 +118,7 @@ pub async fn get_setup_defaults() -> grimoire::setup::SetupDefaults {
 /// this handles the infrastructure setup without creating an admin user.
 /// use create_admin_user after this to create the admin user with API key.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn run_setup_core(
     config_path: String,
     data_dir: String,
@@ -297,23 +298,21 @@ pub async fn check_setup_status(app_handle: tauri::AppHandle) -> SetupStatus {
 
     // try to load config if not already initialized
     if !grimoire::is_config_initialized()
-        && grimoire::config::init_config(Some(config_path.clone())).is_err() {
-            return SetupStatus {
-                needs_setup: true,
-                config_exists: true,
-                has_root_user: false,
-                config_path: Some(config_path.display().to_string()),
-                data_dir: None,
-            };
-        }
+        && grimoire::config::init_config(Some(config_path.clone())).is_err()
+    {
+        return SetupStatus {
+            needs_setup: true,
+            config_exists: true,
+            has_root_user: false,
+            config_path: Some(config_path.display().to_string()),
+            data_dir: None,
+        };
+    }
 
     let config = grimoire::config::get_config();
 
     // check if we can connect to db and find a root user
-    let has_root = match check_has_root_user().await {
-        Ok(has) => has,
-        Err(_) => false,
-    };
+    let has_root = check_has_root_user().await.unwrap_or_default();
 
     SetupStatus {
         needs_setup: !has_root,
@@ -401,10 +400,9 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
 
     if config_path.exists() {
         // use existing config if initialized, otherwise try to init
-        if grimoire::is_config_initialized() {
-            let config = grimoire::config::get_config();
-            return Some(config.data_dir.display().to_string());
-        } else if grimoire::config::init_config(Some(config_path)).is_ok() {
+        if grimoire::is_config_initialized()
+            || grimoire::config::init_config(Some(config_path)).is_ok()
+        {
             let config = grimoire::config::get_config();
             return Some(config.data_dir.display().to_string());
         }
@@ -1056,8 +1054,7 @@ pub async fn resume_pending_jobs_polling(
             }
 
             if pending == 0 {
-                let _ =
-                    notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
+                let _ = notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
                 tracing::info!(
                     songs = songs_added,
                     albums = albums_added,
@@ -1680,7 +1677,7 @@ pub fn read_logs(app_handle: tauri::AppHandle, max_lines: Option<usize>) -> Vec<
     };
 
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
     // take at most max_lines from the end (newest)
     let start = if lines.len() > max {

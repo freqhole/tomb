@@ -28,6 +28,7 @@ pub use user_favorites::FavoritesAction;
 pub use user_ratings::RatingsAction;
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum MusicAction {
     /// Query songs with filters and sorting
     QuerySongs {

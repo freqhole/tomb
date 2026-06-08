@@ -149,6 +149,7 @@ struct ScanHandle {
     enqueue: Arc<Mutex<Option<std::result::Result<usize, String>>>>,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Phase {
     Form,
     Scan(ScanState),

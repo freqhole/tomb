@@ -145,8 +145,6 @@ fn parse_role(role_str: &str) -> UserRole {
     }
 }
 
-/// Convert any error to GrimoireError with context
-
 /// Handle user commands
 pub async fn handle_command(action: UserAction) -> CommandOutput<serde_json::Value> {
     let service = UserService::new();

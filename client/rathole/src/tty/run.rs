@@ -1504,14 +1504,14 @@ fn on_form_key(
                 }
                 (
                     FieldState::SelectFrom {
-                        options, selected, ..
+                        options: Some(opts),
+                        selected,
+                        ..
                     },
                     KeyCode::Right,
                 ) => {
-                    if let Some(opts) = options {
-                        if !opts.is_empty() {
-                            *selected = (*selected + 1).min(opts.len() - 1);
-                        }
+                    if !opts.is_empty() {
+                        *selected = (*selected + 1).min(opts.len() - 1);
                     }
                 }
                 (
@@ -1526,56 +1526,54 @@ fn on_form_key(
                 }
                 (
                     FieldState::MultiSelect {
-                        options, cursor, ..
+                        options: Some(opts),
+                        cursor,
+                        ..
                     },
                     KeyCode::Down | KeyCode::Char('j'),
                 ) => {
-                    if let Some(opts) = options {
-                        if !opts.is_empty() {
-                            *cursor = (*cursor + 1).min(opts.len() - 1);
-                        }
+                    if !opts.is_empty() {
+                        *cursor = (*cursor + 1).min(opts.len() - 1);
                     }
                 }
                 (
                     FieldState::MultiSelect {
-                        options,
+                        options: Some(opts),
                         cursor,
                         checked,
                         ..
                     },
                     KeyCode::Char(' '),
                 ) => {
-                    if let Some(opts) = options {
-                        if !opts.is_empty() {
-                            let idx = (*cursor).min(opts.len() - 1);
-                            if checked.len() != opts.len() {
-                                checked.resize(opts.len(), false);
-                            }
-                            if let Some(slot) = checked.get_mut(idx) {
-                                *slot = !*slot;
-                            }
+                    if !opts.is_empty() {
+                        let idx = (*cursor).min(opts.len() - 1);
+                        if checked.len() != opts.len() {
+                            checked.resize(opts.len(), false);
+                        }
+                        if let Some(slot) = checked.get_mut(idx) {
+                            *slot = !*slot;
                         }
                     }
                 }
                 (
                     FieldState::MultiSelect {
-                        options, checked, ..
+                        options: Some(opts),
+                        checked,
+                        ..
                     },
                     KeyCode::Char('a'),
                 ) => {
-                    if let Some(opts) = options {
-                        *checked = vec![true; opts.len()];
-                    }
+                    *checked = vec![true; opts.len()];
                 }
                 (
                     FieldState::MultiSelect {
-                        options, checked, ..
+                        options: Some(opts),
+                        checked,
+                        ..
                     },
                     KeyCode::Char('n'),
                 ) => {
-                    if let Some(opts) = options {
-                        *checked = vec![false; opts.len()];
-                    }
+                    *checked = vec![false; opts.len()];
                 }
                 _ => {}
             }

@@ -436,8 +436,8 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
     let range_part = &range_str[6..].trim();
 
     // handle suffix range: -500 (last 500 bytes)
-    if range_part.starts_with('-') {
-        let suffix_length: u64 = range_part[1..]
+    if let Some(rest) = range_part.strip_prefix('-') {
+        let suffix_length: u64 = rest
             .parse()
             .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
 
@@ -449,8 +449,8 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
     }
 
     // handle prefix range: 500- (from byte 500 to end)
-    if range_part.ends_with('-') {
-        let start: u64 = range_part[..range_part.len() - 1]
+    if let Some(rest) = range_part.strip_suffix('-') {
+        let start: u64 = rest
             .parse()
             .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
 

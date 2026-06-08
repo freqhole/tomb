@@ -29,6 +29,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum Commands {
     /// Initial setup (config, database, wordlist)
     Setup(commands::setup::SetupArgs),
