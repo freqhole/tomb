@@ -417,6 +417,13 @@ jobs:
           if [ ! -d client/charnel/src-tauri/gen/android ]; then
             (cd client/charnel && npm run tauri android init)
           fi
+      # cache + provision gradle so the gradle wrapper doesn't have to download
+      # the distribution on the build hot path (services.gradle.org times out
+      # intermittently, which fails the apk build at the very end).
+      - name: setup gradle (cache + provisioning)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: client/charnel/src-tauri/gen/android
       - name: decode android keystore
         if: env.ANDROID_KEY_ALIAS != ''
         run: |
