@@ -1004,15 +1004,15 @@
       { icon: "share", title: "users can add music",
         body: "you or other users with a member or admin role can upload + add new music, create playlists, and edit metadata; viewer roles can browse and add things to their favorite list.",
         link: { href: "/concepts/user-roles/", text: "user roles" } },
-      { icon: "sparkle", title: "enrichment sources",
-        body: "musicbrainz (canonical metadata + cover art), last.fm (bios + tags, needs an api key in node config), and theaudiodb (artist imagery).",
-        link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } },
       { icon: "edit", title: "edit metadata", badge: "one-off",
-        body: "open an album → edit album to fix a single release: titles, dates, art, and a manual musicbrainz lookup.",
+        body: "open an album → edit album to fix a single release: titles, dates, art images, taxons, track + disc order, and a manual musicbrainz lookup.",
         link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } },
       { icon: "table", title: "albums table bulk edit", badge: "whole library",
         body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
         link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } },
+      { icon: "sparkle", title: "enrichment sources",
+        body: "musicbrainz (canonical metadata + cover art), last.fm (related artists, bios, and tags note: you need to add an api key to freqhole-config.toml), and theaudiodb (artist imagery and tags).",
+        link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } },
     ];
     cardGrid(holder, cards);
   }

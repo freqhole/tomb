@@ -43,8 +43,8 @@ hosted defaults with self-hosted labels. unset = hosted default.
 | `APPLE_TEAM_ID`                | apple team id                                  |
 | `ANDROID_KEYSTORE_BASE64`      | base64 of release .keystore                    |
 | `ANDROID_KEYSTORE_PASSWORD`    | keystore password                              |
-| `ANDROID_KEY_ALIAS`            | key alias                                      |
-| `ANDROID_KEY_PASSWORD`         | key password                                   |
+| `ANDROID_KEY_ALIAS`            | key alias (probably "my-key-alias")            |
+| `ANDROID_KEY_PASSWORD`         | key password (probably blank)                  |
 
 ## build split (release pipeline)
 
