@@ -90,6 +90,14 @@ jobs:
             gh release create "$TAG" --draft --target main --generate-notes --title "$TAG"
           fi
 
+      # set the draft body to the changeset changelog + generated notes so the
+      # "what changed" text is visible in the draft (not just after publish).
+      # idempotent: re-runs on each push to the version PR replace the body.
+      - name: set draft release notes from changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-notes.mjs "${{ steps.meta.outputs.tag }}"
+
   # ---- macOS arm64: rathole cli + charnel .dmg ------------------------------
   mac-arm64:
     name: macOS arm64 (cli + dmg)
@@ -134,6 +142,10 @@ jobs:
           (cd client-codegen/freqhole-api-client && npm ci)
           (cd client/spume && npm ci)
           (cd client/charnel && npm ci)
+      # grimoire embeds client/spume/dist via include_dir!, so the frontend
+      # must be built before the cli (which links grimoire) compiles.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (arm64)
         run: make build-mac-arm
       - name: build charnel dmg (arm64)
@@ -150,10 +162,14 @@ jobs:
             --clobber
 
   # ---- macOS x86_64: rathole cli + charnel .dmg -----------------------------
+  # github retired the intel `macos-13` image, so there is no x86_64 hosted
+  # runner anymore (macos-14/15 are arm64). we cross-compile the x86_64 target
+  # from the arm64 runner instead - the make targets already pass
+  # `--target x86_64-apple-darwin`, which builds + bundles fine from arm64.
   mac-intel:
     name: macOS x86_64 (cli + dmg)
     needs: create-release
-    runs-on: ${{ vars.MACOS_X86_64_RUNNER || 'macos-13' }}
+    runs-on: ${{ vars.MACOS_X86_64_RUNNER || 'macos-14' }}
     env:
       DATABASE_URL: sqlite:data/grimoire.db
       APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
@@ -193,6 +209,10 @@ jobs:
           (cd client-codegen/freqhole-api-client && npm ci)
           (cd client/spume && npm ci)
           (cd client/charnel && npm ci)
+      # grimoire embeds client/spume/dist via include_dir!, so the frontend
+      # must be built before the cli (which links grimoire) compiles.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (x86_64)
         run: make build-mac-intel
       - name: build charnel dmg (x86_64)
@@ -219,10 +239,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: install host deps (sqlite + alsa for db-prepare)
         run: sudo apt-get update && sudo apt-get install -y sqlite3 libasound2-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+      # the docker build COPYs the workspace (incl. client/spume/dist) into the
+      # image; grimoire embeds that dir via include_dir!, so it must be built on
+      # the host first or the cli compile inside docker panics.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (linux x86_64)
         run: make build-linux
       - name: build charnel deb/rpm (linux x86_64)
@@ -250,10 +278,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: install host deps (sqlite + alsa for db-prepare)
         run: sudo apt-get update && sudo apt-get install -y sqlite3 libasound2-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+      # the docker build COPYs the workspace (incl. client/spume/dist) into the
+      # image; grimoire embeds that dir via include_dir!, so it must be built on
+      # the host first or the cli compile inside docker panics.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (linux aarch64)
         run: make build-pi
       - name: build charnel deb/rpm (linux aarch64)
@@ -381,11 +417,37 @@ jobs:
           if [ ! -d client/charnel/src-tauri/gen/android ]; then
             (cd client/charnel && npm run tauri android init)
           fi
+      # cache + provision gradle so the gradle wrapper doesn't have to download
+      # the distribution on the build hot path (services.gradle.org times out
+      # intermittently, which fails the apk build at the very end).
+      - name: setup gradle (cache + provisioning)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: client/charnel/src-tauri/gen/android
       - name: decode android keystore
         if: env.ANDROID_KEY_ALIAS != ''
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.keystore"
           echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      # forks without android signing secrets still get a working apk, signed
+      # with a throwaway key generated here. the key is ephemeral, so these
+      # apks can't upgrade-in-place over an official-signed install - that's
+      # fine for draft/ci artifacts and local testing.
+      - name: generate ephemeral android keystore (no signing secrets)
+        if: env.ANDROID_KEY_ALIAS == ''
+        run: |
+          KS="$RUNNER_TEMP/ephemeral.keystore"
+          PW="$(openssl rand -base64 24)"
+          echo "::add-mask::$PW"
+          keytool -genkeypair -v \
+            -keystore "$KS" -storetype PKCS12 \
+            -alias ephemeral -keyalg RSA -keysize 2048 -validity 365 \
+            -storepass "$PW" -keypass "$PW" \
+            -dname "CN=freqhole ci, OU=ci, O=freqhole, C=US"
+          echo "ANDROID_KEYSTORE=$KS" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=ephemeral" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$PW" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$PW" >> "$GITHUB_ENV"
       - name: build apks
         run: |
           make build-tauri-android
@@ -413,10 +475,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: install host deps (sqlite + alsa for db-prepare)
         run: sudo apt-get update && sudo apt-get install -y sqlite3 libasound2-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+      # the docker build COPYs the workspace (incl. client/spume/dist) into the
+      # image; grimoire embeds that dir via include_dir!, so it must be built on
+      # the host first or the cli compile (and db-prepare) panics.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (linux armv7)
         run: make build-pi32
       - name: upload asset

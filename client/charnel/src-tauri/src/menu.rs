@@ -18,6 +18,7 @@ use crate::server_controls::{open_wizard_at_route, quit_app};
 
 /// menu item IDs
 const MENU_ABOUT: &str = "about";
+const MENU_CHECK_UPDATES: &str = "check_updates";
 const MENU_P2P_STATUS: &str = "p2p_status";
 const MENU_P2P_START: &str = "p2p_start";
 const MENU_P2P_STOP: &str = "p2p_stop";
@@ -186,6 +187,9 @@ fn is_federation_enabled() -> bool {
 fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
     let about_item = MenuItemBuilder::with_id(MENU_ABOUT, "about freqhole").build(app)?;
 
+    let check_updates_item =
+        MenuItemBuilder::with_id(MENU_CHECK_UPDATES, "check for updates...").build(app)?;
+
     let open_config_item =
         MenuItemBuilder::with_id(MENU_OPEN_CONFIG, "open data folder...").build(app)?;
 
@@ -195,6 +199,7 @@ fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
 
     let mut builder = SubmenuBuilder::with_id(app, "freqhole", "freqhole")
         .item(&about_item)
+        .item(&check_updates_item)
         .separator();
 
     // only show P2P controls if federation is enabled in config
@@ -288,6 +293,38 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
                 if let Err(e) = state.restart().await {
                     tracing::error!(error = %e, "failed to restart P2P");
                 }
+            });
+        }
+        MENU_CHECK_UPDATES => {
+            // run an ungated update check (works even when automatic checks are
+            // disabled in config) and push the result to spume as a toast.
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let (available, current, latest, download_url, error) =
+                    match grimoire::check_for_update_now().await {
+                        Ok(status) => (
+                            status.update_available,
+                            status.current_version,
+                            status.latest_version,
+                            status.download_url,
+                            None,
+                        ),
+                        Err(e) => (
+                            false,
+                            grimoire::config::get_binary_version().to_string(),
+                            None,
+                            grimoire::updates::DOWNLOAD_URL.to_string(),
+                            Some(e.to_string()),
+                        ),
+                    };
+                let _ = crate::spume_bridge::notify_update_check_result(
+                    &app_clone,
+                    available,
+                    &current,
+                    latest,
+                    &download_url,
+                    error,
+                );
             });
         }
         MENU_OPEN_CONFIG => {

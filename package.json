@@ -1,13 +1,13 @@
 {
     "name": "freqhole-release",
-    "version": "0.1.28",
+    "version": "0.1.29",
     "private": true,
     "description": "release coordination (changesets + version sync) for freqhole. not published.",
     "type": "module",
     "scripts": {
         "changeset": "changeset",
         "changeset:status": "changeset status",
-        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\")",
+        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\") && npm --prefix freqhole.net run gen:dates",
         "release:publish": "node scripts/release-publish.mjs"
     },
     "devDependencies": {

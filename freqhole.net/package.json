@@ -8,7 +8,10 @@
     "prebuild": "npm --prefix ../client/spume ci && npm --prefix ../client/spume run build:coach:wc",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "gen:dates": "node scripts/gen-page-dates.mjs",
+    "gen:dates:force": "node scripts/gen-page-dates.mjs --force",
+    "check:dates": "node scripts/gen-page-dates.mjs --check"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.38.2",

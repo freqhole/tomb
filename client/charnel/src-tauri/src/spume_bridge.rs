@@ -61,6 +61,23 @@ pub enum SpumeEvent {
         /// error message describing the failure
         reason: String,
     },
+
+    /// result of a manual "check for updates" menu action
+    #[serde(rename = "update-check-result")]
+    UpdateCheckResult {
+        /// true when a newer release than the running binary exists
+        update_available: bool,
+        /// running binary version (semver, e.g. "0.1.28")
+        current_version: String,
+        /// latest published release version, when the check succeeded
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latest_version: Option<String>,
+        /// download page url surfaced in the toast
+        download_url: String,
+        /// error message when the check failed (network, parse, etc.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }
 
 /// emit an event to spume via tauri's event system
@@ -164,6 +181,27 @@ pub fn notify_peer_offline(
         SpumeEvent::PeerOffline {
             peer_addr: peer_addr.to_string(),
             reason: reason.to_string(),
+        },
+    )
+}
+
+/// notify spume of the result of a manual update check (menu-triggered)
+pub fn notify_update_check_result(
+    app: &AppHandle<Wry>,
+    update_available: bool,
+    current_version: &str,
+    latest_version: Option<String>,
+    download_url: &str,
+    error: Option<String>,
+) -> Result<(), String> {
+    emit_event(
+        app,
+        SpumeEvent::UpdateCheckResult {
+            update_available,
+            current_version: current_version.to_string(),
+            latest_version,
+            download_url: download_url.to_string(),
+            error,
         },
     )
 }

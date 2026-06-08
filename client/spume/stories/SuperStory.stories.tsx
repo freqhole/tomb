@@ -43,7 +43,6 @@ import {
   mockAlbums,
   mockArtists,
   mockFavorites,
-  mockGenres,
   mockPlaylists,
   mockRadioStations,
   mockRemotes,
@@ -57,7 +56,6 @@ import {
   fakeScanRunning,
   setFakeScanRunning,
   type Artist,
-  type Genre,
   type Playlist,
 } from "./mockData";
 
@@ -83,7 +81,6 @@ type Route =
   | "songs"
   | "albums"
   | "artists"
-  | "genres"
   | "playlists"
   | "favorites"
   | "feed"
@@ -104,16 +101,6 @@ const artistSortFields = [
   { value: "name", label: "name", description: "sort by artist name" },
   { value: "songCount", label: "songs", description: "sort by song count" },
   { value: "albumCount", label: "albums", description: "sort by album count" },
-];
-
-const genreSortFields = [
-  { value: "name", label: "name", description: "sort by genre name" },
-  { value: "songCount", label: "songs", description: "sort by song count" },
-  {
-    value: "artistCount",
-    label: "artists",
-    description: "sort by artist count",
-  },
 ];
 
 /**
@@ -243,9 +230,14 @@ export function FullAppDemoBody() {
   });
 
   // available height for virtualized lists/grids inside main content area.
-  // accounts for: TopNav (~60px), HeadingSection + margins (~60px), player bar (~80px).
-  const listHeight = () => Math.max(320, viewportHeight() - 180);
-  const gridHeight = () => Math.max(320, viewportHeight() - 140);
+  // mirrors the real spume views (AlbumsView / FeedView / FavoritesView):
+  // viewport minus the fixed nav (which only overlays content on narrow) and
+  // the player bar (only present while a song is loaded). no heading row is
+  // subtracted - those HeadingSections were removed from these views.
+  const navOffset = () => (isNarrow() ? 42 : 0);
+  const playerOffset = () => (currentSong() ? 80 : 0);
+  const listHeight = () => Math.max(320, viewportHeight() - navOffset() - playerOffset());
+  const gridHeight = listHeight;
 
   // compute page title and count based on current route
   const pageInfo = () => {
@@ -258,8 +250,6 @@ export function FullAppDemoBody() {
         return { title: "albums", count: mockAlbums.length };
       case "artists":
         return { title: "artists", count: mockArtists.length };
-      case "genres":
-        return { title: "genres", count: mockGenres.length };
       case "playlists":
         return { title: "playlists", count: mockPlaylists.length };
       case "favorites":
@@ -282,11 +272,6 @@ export function FullAppDemoBody() {
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
   const [selectedSongIds, setSelectedSongIds] = createSignal<Set<string>>(new Set());
-
-  // genres view state
-  const [_selectedGenre, _setSelectedGenre] = createSignal<Genre | null>(mockGenres[0]);
-  const [genreSortBy, setGenreSortBy] = createSignal("name");
-  const [genreSortDirection, setGenreSortDirection] = createSignal<"asc" | "desc">("asc");
 
   // playlists view state
   const [selectedPlaylist, setSelectedPlaylist] = createSignal<Playlist | null>(mockPlaylists[0]);
@@ -418,30 +403,6 @@ export function FullAppDemoBody() {
     });
 
     return artists;
-  };
-
-  // sort genres
-  const sortedGenres = () => {
-    const genres = [...mockGenres];
-    const field = genreSortBy() as keyof Genre;
-    const dir = genreSortDirection();
-
-    genres.sort((a, b) => {
-      const aVal = a[field];
-      const bVal = b[field];
-
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-
-      if (typeof aVal === "number" && typeof bVal === "number") {
-        return dir === "asc" ? aVal - bVal : bVal - aVal;
-      }
-
-      return 0;
-    });
-
-    return genres;
   };
 
   // get disabled letters for alphabet nav
@@ -985,16 +946,6 @@ export function FullAppDemoBody() {
           ...baseSort,
         });
         break;
-      case "genres":
-        setPageInfo({
-          title: "genres",
-          count: mockGenres.length,
-          sortFields: genreSortFields,
-          defaultSortBy: "name",
-          defaultSortDirection: "asc",
-          ...baseSort,
-        });
-        break;
       case "playlists":
         setPageInfo({
           title: "playlists",
@@ -1255,148 +1206,6 @@ export function FullAppDemoBody() {
     </div>
   );
 
-  // ===== GENRES VIEW (using ResponsiveMasterDetail) =====
-  const genresView = () => (
-    <ResponsiveMasterDetail<Genre>
-      items={sortedGenres}
-      initialSelection={mockGenres[0]}
-      getItemKey={(g) => g.id}
-      renderList={(ctx) => (
-        <div class="flex flex-col h-full">
-          <div class="mt-2 wide:mt-[60px]">
-            <HeadingSection
-              title="genres"
-              count={sortedGenres().length}
-              hideOnNarrow
-              controls={
-                <SearchSortControls
-                  sortBy={genreSortBy()}
-                  sortDirection={genreSortDirection()}
-                  onSortChange={(field, direction) => {
-                    setGenreSortBy(field);
-                    setGenreSortDirection(direction);
-                  }}
-                  sortFields={genreSortFields}
-                />
-              }
-            />
-          </div>
-
-          <div class="flex-1 overflow-y-auto">
-            <For each={sortedGenres()}>
-              {(genre) => (
-                <button
-                  class={`
-                      w-full px-6 py-3 text-left transition-colors border-l-2
-                      ${
-                        ctx.selectedItem()?.id === genre.id
-                          ? "bg-[var(--color-accent-500)]/20 text-[var(--color-text-primary)] border-[var(--color-accent-500)]"
-                          : "hover:bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] border-transparent"
-                      }
-                    `}
-                  onClick={() => ctx.selectItem(genre)}
-                >
-                  <div class="font-medium">{genre.name}</div>
-                  <div class="text-xs text-[var(--color-text-tertiary)]">
-                    {formatNumber(genre.songCount)} songs · {genre.artistCount} artists
-                  </div>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-      )}
-      renderDetail={(ctx) => (
-        <Show when={ctx.selectedItem()}>
-          {(genre) => (
-            <div class="flex flex-col h-full">
-              {/* sticky header with back button + title */}
-              <HeadingSection
-                title={genre().name}
-                variant="detail"
-                sticky
-                border
-                showBackButton={ctx.isNarrow() && ctx.showingDetail()}
-                onBack={() => ctx.onBack()}
-              />
-
-              {/* scrollable content area */}
-              <div class="flex-1 overflow-y-auto">
-                {/* stats section */}
-                <div class="p-3 wide:p-6">
-                  <StatsGrid columns={4} gap="md">
-                    <StatsCard label="songs" value={formatNumber(genre().songCount)} icon="music" />
-                    <StatsCard
-                      label="artists"
-                      value={formatNumber(genre().artistCount)}
-                      icon="artist"
-                    />
-                    <StatsCard
-                      label="albums"
-                      value={formatNumber(genre().albumCount)}
-                      icon="album"
-                    />
-                    <StatsCard
-                      label="duration"
-                      value={formatDuration(genre().totalDuration)}
-                      icon="recent"
-                    />
-                  </StatsGrid>
-                </div>
-
-                {/* top songs */}
-                <div class="px-3 wide:px-6 pb-4">
-                  <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-3">
-                    top songs
-                  </h3>
-                  <div class="space-y-1">
-                    <For each={generatedSongs.slice(0, 15)}>
-                      {(song) => (
-                        <div class="flex items-center gap-3 p-3 bg-[var(--color-bg-secondary)] rounded hover:bg-[var(--color-bg-hover)] transition-colors">
-                          <IconButton icon="play" size="sm" variant="ghost" aria-label="play" />
-                          <div class="flex-1 min-w-0">
-                            <div class="body-small text-[var(--color-text-primary)] truncate">
-                              {song.title}
-                            </div>
-                            <div class="caption truncate">{song.artist_name}</div>
-                          </div>
-                          <div class="monospace caption text-[var(--color-text-muted)]">
-                            {formatDuration(song.duration_seconds)}
-                          </div>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </div>
-              </div>
-
-              {/* sticky action buttons */}
-              <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
-                <Button variant="primary">
-                  <span class="hidden wide:inline">play all</span>
-                  <span class="wide:hidden">play</span>
-                </Button>
-                <Button variant="secondary">shuffle</Button>
-                <Button variant="ghost">
-                  <span class="hidden wide:inline">add to queue</span>
-                  <span class="wide:hidden">+queue</span>
-                </Button>
-              </div>
-            </div>
-          )}
-        </Show>
-      )}
-      renderEmpty={() => (
-        <div class="flex items-center justify-center h-full">
-          <div class="text-center text-[var(--color-text-tertiary)]">
-            <p class="text-xl mb-2">select a genre</p>
-            <p class="text-sm">choose from the list to see details</p>
-          </div>
-        </div>
-      )}
-    />
-  );
-
   // ===== PLAYLISTS VIEW (using ResponsiveMasterDetail - controlled mode) =====
   // uses controlled selection so TopNav "recent playlists" can select playlists
   const playlistsView = () => (
@@ -1615,7 +1424,7 @@ export function FullAppDemoBody() {
     <div class="h-full ml-0 wide:ml-[100px]" data-coach-anchor="favoritesGrid">
       <FavoritesLayout
         favorites={favoritesList()}
-        height={listHeight() + 60}
+        height={listHeight()}
         onSongClick={(song) => {
           setCurrentSong(song as DomainSong);
         }}
@@ -1896,14 +1705,7 @@ export function FullAppDemoBody() {
   );
 
   // determine which view to show
-  const ROUTES_WITH_LIBRARY: Route[] = [
-    "songs",
-    "albums",
-    "artists",
-    "genres",
-    "playlists",
-    "favorites",
-  ];
+  const ROUTES_WITH_LIBRARY: Route[] = ["songs", "albums", "artists", "playlists", "favorites"];
   const emptyLibraryView = () => (
     <div class="flex h-full w-full items-center justify-center p-6">
       <div class="text-center max-w-md">
@@ -2704,8 +2506,6 @@ export function FullAppDemoBody() {
         return favoritesView();
       case "artists":
         return artistsView();
-      case "genres":
-        return genresView();
       case "playlists":
         return playlistsView();
       case "feed":
@@ -2717,7 +2517,11 @@ export function FullAppDemoBody() {
     }
   };
 
-  const playerBarHeight = () => "var(--player-height)";
+  // reserve space for the player bar only while a song is loaded, matching
+  // the real AppLayout. when nothing is playing the player bar is hidden, so
+  // collapsing this to 0 lets the content region (including the library graph)
+  // reclaim that height instead of leaving a phantom gap at the bottom.
+  const playerBarHeight = () => (currentSong() ? "var(--player-height)" : "0px");
 
   return (
     <QueryClientProvider client={storyQueryClient}>
@@ -2767,10 +2571,6 @@ export function FullAppDemoBody() {
                       onClick: () => navigateTo("artists"),
                     },
                     {
-                      label: "genres",
-                      onClick: () => navigateTo("genres"),
-                    },
-                    {
                       label: "playlists",
                       onClick: () => navigateTo("playlists"),
                     },
@@ -2806,7 +2606,6 @@ export function FullAppDemoBody() {
                 { label: "songs", path: "/songs", count: generatedSongs.length },
                 { label: "albums", path: "/albums", count: mockAlbums.length },
                 { label: "artists", path: "/artists", count: mockArtists.length },
-                { label: "genres", path: "/genres", count: mockGenres.length },
                 { label: "playlists", path: "/playlists", count: mockPlaylists.length },
                 { label: "favorites", path: "/favorites", count: mockFavorites.length },
                 { label: "feed", path: "/feed" },
@@ -2818,7 +2617,6 @@ export function FullAppDemoBody() {
                   route === "songs" ||
                   route === "albums" ||
                   route === "artists" ||
-                  route === "genres" ||
                   route === "playlists" ||
                   route === "favorites" ||
                   route === "feed" ||

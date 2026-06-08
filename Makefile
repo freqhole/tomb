@@ -270,6 +270,22 @@ ANDROID_APKSIGNER := $(ANDROID_SDK_ROOT)/build-tools/$(ANDROID_BUILD_TOOLS_VERSI
 JAVA_HOME ?= /Applications/Android Studio.app/Contents/jbr/Contents/Home
 export JAVA_HOME
 
+.PHONY: android-key-info
+android-key-info:
+	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore"
+	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore" 2>/dev/null | grep -i 'keystore type'
+
+# build the spume web client into client/spume/dist. grimoire embeds that dir
+# via include_dir! at compile time, so it MUST exist before any cargo build of
+# the cli/server/grimoire crates (otherwise the macro panics). installs node
+# deps if missing so this works standalone in ci and locally.
+.PHONY: build-spume
+build-spume:
+	@echo "building spume client..."
+	@if [ ! -d client-codegen/freqhole-api-client/node_modules ]; then (cd client-codegen/freqhole-api-client && npm ci); fi
+	@if [ ! -d client/spume/node_modules ]; then (cd client/spume && npm ci); fi
+	cd client/spume && FREQHOLE_GIT_SHA=$(GIT_SHA) npm run build
+
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
 	@echo "building spume client..."
@@ -277,10 +293,10 @@ build-tauri-mac-arm:
 	@echo "building Tauri app for macOS arm64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
-		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" npm run tauri build -- --target aarch64-apple-darwin; \
 	else \
-		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
-		cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+		echo "  no signing identity - ad-hoc signing (runs locally; not distributable or notarizable)"; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- npm run tauri build -- --target aarch64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg
@@ -300,10 +316,10 @@ build-tauri-mac-intel:
 	@echo "building Tauri app for macOS x86_64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
-		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" npm run tauri build -- --target x86_64-apple-darwin; \
 	else \
-		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
-		cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+		echo "  no signing identity - ad-hoc signing (runs locally; not distributable or notarizable)"; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- npm run tauri build -- --target x86_64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg
@@ -464,6 +480,8 @@ bump-version:
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak; \
 		echo "  updating client/midden/Cargo.toml..."; \
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml && rm -f client/midden/Cargo.toml.bak; \
+		echo "  updating Cargo.lock (workspace member versions)..."; \
+		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen|midden)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
 		echo "  updating tauri.conf.json..."; \
 		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
@@ -516,7 +534,14 @@ db-migrate:
 
 db-prepare: db-migrate
 	@echo "preparing sqlx query cache..."
-	cd grimoire && DATABASE_URL=$(DATABASE_URL) cargo sqlx prepare
+	# cargo sqlx prepare writes grimoire/.sqlx, so it must run from grimoire/.
+	# a relative DATABASE_URL (sqlite:data/grimoire.db, as in ci) would resolve
+	# against grimoire/ after the cd and fail to open the db. resolve it to an
+	# absolute path here; an already-absolute url (sqlite:///... from .env) is
+	# left as-is.
+	@DB_PATH=$$(echo $(DATABASE_URL) | sed 's|^sqlite://||; s|^sqlite:||'); \
+		case "$$DB_PATH" in /*) ;; *) DB_PATH=$(CURDIR)/$$DB_PATH ;; esac; \
+		cd grimoire && DATABASE_URL=sqlite://$$DB_PATH cargo sqlx prepare
 
 # CLI testing commands (from grimoire)
 .PHONY: test-cli test-cli-list test-cli-coverage
