@@ -9,7 +9,7 @@ updatedBy: "edwardsharp"
 updatedSha: "d0a2360"
 ---
 
-there's no central server, each node (charnel sdesktop app or rathole CLI) owns its data; the browser client keeps data in the browser's indexed db. data is split across four stores:
+there's no central server, each node (charnel desktop app or rathole CLI) owns its data; the browser client keeps data in the browser's indexed db. data is split across four stores:
 
 - `data/grimoire.db` - the main music metadata **SQLite** database.
 - `data/grimoire-blobdata.db` - a second **SQLite** file (name derived from the main one). key/value store with one `blob_data` table mapping blob id to raw WebP bytes for images + thumbnails.
