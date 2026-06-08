@@ -250,7 +250,7 @@ pub async fn process_auto_apply_album_enrichment_job(job: &Job) -> Result<Option
             .into_iter()
             .filter(|p| !p.already_linked && !p.label.trim().is_empty())
             .map(|p| {
-                let source = p.sources.first().copied().unwrap_or_else(|| {
+                let source = p.sources.first().copied().unwrap_or({
                     // proposal must have at least one source by
                     // construction; fall back to mb arbitrarily.
                     crate::music::entities::albums::taxon_proposals::ProposalSource::Mb

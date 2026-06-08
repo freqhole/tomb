@@ -24,7 +24,7 @@ pub(in crate::admin_dispatch) async fn test() -> GrimoireResponse<JsonValue> {
 pub(in crate::admin_dispatch) async fn info() -> GrimoireResponse<JsonValue> {
     match crate::get_database_info().await {
         Ok(info) => match serde_json::to_value(&info) {
-            Ok(v) => GrimoireResponse::success(&format!("database: {}", info.database_file), v),
+            Ok(v) => GrimoireResponse::success(format!("database: {}", info.database_file), v),
             Err(e) => internal(format!("serialize failed: {e}")),
         },
         Err(e) => GrimoireResponse::failure("failed to get database info", vec![e.into()]),

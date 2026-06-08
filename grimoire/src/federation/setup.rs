@@ -135,7 +135,7 @@ pub async fn setup_federation(
 pub fn get_setup_status() -> SetupStatus {
     let config = get_config();
     let credentials_path = config.federation_credentials_path();
-    let federation_enabled = config.federation.as_ref().map_or(false, |f| f.enabled);
+    let federation_enabled = config.federation.as_ref().is_some_and(|f| f.enabled);
 
     // check identity
     let identity_exists = identity::keypair_exists();

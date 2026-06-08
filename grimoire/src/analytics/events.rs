@@ -26,9 +26,9 @@ pub async fn record_event_with_conn(
     let event_data_json = event
         .event_data
         .as_ref()
-        .map(|data| serde_json::to_string(data))
+        .map(serde_json::to_string)
         .transpose()
-        .map_err(|e| GrimoireError::Serialization(e))?;
+        .map_err(GrimoireError::Serialization)?;
 
     let event_type_str = event.event_type.as_str();
 

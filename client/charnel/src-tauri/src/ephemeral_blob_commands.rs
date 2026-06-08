@@ -190,7 +190,7 @@ pub async fn delete_ephemeral_blob(blake3: String, ext: String) -> Result<(), St
 #[tauri::command]
 pub async fn purge_ephemeral_dir() -> Result<u64, String> {
     let dir = ephemeral_dir();
-    if !tokio::fs::metadata(&dir).await.is_ok() {
+    if tokio::fs::metadata(&dir).await.is_err() {
         return Ok(0);
     }
 

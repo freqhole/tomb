@@ -281,7 +281,7 @@ pub async fn update_album(req: UpdateAlbumRequest) -> GrimoireResponse<Album> {
                     vec![ErrorDetail::new(
                         "invalid_date",
                         "Invalid Date",
-                        format!("{}", e),
+                        e.to_string(),
                     )],
                 )
             }

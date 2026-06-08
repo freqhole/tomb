@@ -853,7 +853,7 @@ fn cycle_path(buf: &mut String, state: &mut Option<CompletionState>) -> bool {
     // if the buffer has changed since we last touched it, the cached cycle
     // is stale — drop it and start over.
     if let Some(s) = state {
-        if buf.len() < s.cut || &buf[s.cut..] != s.last_filled {
+        if buf.len() < s.cut || buf[s.cut..] != s.last_filled {
             *state = None;
         }
     }

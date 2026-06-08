@@ -466,11 +466,10 @@ fn on_peer_input_key(app: &mut App, code: KeyCode) {
             // freqhole's clients via the same sqlite db).
             persist_peer_addr(addr);
         }
-        KeyCode::Char(c) => {
-            if !c.is_control() {
+        KeyCode::Char(c)
+            if !c.is_control() => {
                 ti::insert_char(&mut eph.peer_input, &mut eph.peer_cursor, c);
             }
-        }
         _ => {}
     }
 }
@@ -836,7 +835,7 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                         }
                     }
                 }
-                _ => return,
+                _ => (),
             }
         }
         // tty shell never produces these (no peer concept), but the
@@ -1873,7 +1872,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
             if opt.target_command == "__view_row__" {
                 let pretty = serde_json::to_string_pretty(&row).unwrap_or_else(|_| row.to_string());
                 eph.last_dispatch = Some(crate::ratcore::app::LastDispatch {
-                    command: format!("(view row)"),
+                    command: "(view row)".to_string(),
                     success: true,
                     message: "row detail".to_string(),
                     data_pretty: Some(pretty),
@@ -2407,12 +2406,11 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             let m = &mut app.state.ephemeral.music;
             ti::move_end(&m.query, &mut m.query_cursor);
         }
-        (MusicMode::Search, KeyCode::Char(c)) => {
-            if !c.is_control() {
+        (MusicMode::Search, KeyCode::Char(c))
+            if !c.is_control() => {
                 let m = &mut app.state.ephemeral.music;
                 ti::insert_char(&mut m.query, &mut m.query_cursor, c);
             }
-        }
         _ => {}
     }
 }
@@ -2924,11 +2922,10 @@ fn handle_queue_action(
             if let Some(c) = m.current {
                 if pos < c {
                     m.current = Some(c - 1);
-                } else if pos == c {
-                    if c >= m.queue.len() {
+                } else if pos == c
+                    && c >= m.queue.len() {
                         m.current = if m.queue.is_empty() { None } else { Some(0) };
                     }
-                }
             }
             let new_len = m.queue.len();
             if new_len == 0 {

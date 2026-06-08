@@ -235,7 +235,7 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
                 ..
             }
             | Commands::Config {
-                action: plumbing::ConfigAction::Validate { .. },
+                action: plumbing::ConfigAction::Validate,
                 ..
             }
     );

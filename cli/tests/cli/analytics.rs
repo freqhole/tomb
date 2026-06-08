@@ -129,9 +129,8 @@ fn test_analytics_session() {
     let result = ctx.run_json(&["analytics", "session", "session-id-does-not-exist"]);
 
     // Should fail because session doesn't exist
-    assert_eq!(
-        result["success"].as_bool().unwrap(),
-        false,
+    assert!(
+        !result["success"].as_bool().unwrap(),
         "Should fail with non-existent session ID"
     );
 }

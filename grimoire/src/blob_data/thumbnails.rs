@@ -301,7 +301,7 @@ pub async fn generate_sized_thumbnails(
     }
 
     GrimoireResponse::success(
-        &format!(
+        format!(
             "generated {} thumbnails for blob {}",
             generated.len(),
             parent_blob_id
@@ -456,7 +456,7 @@ async fn get_blobs_needing_thumbnails_batch() -> GrimoireResponse<Vec<MediaBlob>
     };
 
     GrimoireResponse::success(
-        &format!("found {} blobs needing thumbnails", blobs.len()),
+        format!("found {} blobs needing thumbnails", blobs.len()),
         blobs,
     )
 }
@@ -499,7 +499,7 @@ pub async fn count_blobs_needing_thumbnails() -> GrimoireResponse<u32> {
         Err(e) => return GrimoireResponse::failure("failed to count blobs", vec![e.into()]),
     };
 
-    GrimoireResponse::success(&format!("{} blobs need thumbnails", count), count as u32)
+    GrimoireResponse::success(format!("{} blobs need thumbnails", count), count as u32)
 }
 
 /// backfill thumbnails for all blobs that need them
@@ -562,7 +562,7 @@ pub async fn backfill_thumbnails(
     }
 
     GrimoireResponse::success(
-        &format!(
+        format!(
             "backfill complete: {} processed, {} succeeded, {} failed",
             result.processed, result.succeeded, result.failed
         ),

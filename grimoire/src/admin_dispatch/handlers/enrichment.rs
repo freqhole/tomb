@@ -88,7 +88,7 @@ async fn resolve_tag_names_to_ids(names: &[String]) -> (Vec<String>, Vec<ErrorDe
             errors.push(ErrorDetail::new(
                 "unknown_tag",
                 "unknown tag name",
-                &format!("no tag matches '{}'", n),
+                format!("no tag matches '{}'", n),
             ));
         }
     }

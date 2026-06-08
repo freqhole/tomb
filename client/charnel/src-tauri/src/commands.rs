@@ -8,7 +8,6 @@
 
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Command;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -297,8 +296,8 @@ pub async fn check_setup_status(app_handle: tauri::AppHandle) -> SetupStatus {
     }
 
     // try to load config if not already initialized
-    if !grimoire::is_config_initialized() {
-        if let Err(_) = grimoire::config::init_config(Some(config_path.clone())) {
+    if !grimoire::is_config_initialized()
+        && grimoire::config::init_config(Some(config_path.clone())).is_err() {
             return SetupStatus {
                 needs_setup: true,
                 config_exists: true,
@@ -307,7 +306,6 @@ pub async fn check_setup_status(app_handle: tauri::AppHandle) -> SetupStatus {
                 data_dir: None,
             };
         }
-    }
 
     let config = grimoire::config::get_config();
 
@@ -1023,54 +1021,51 @@ pub async fn resume_pending_jobs_polling(
 
         let jobs_response = list_jobs(None, None, Some(1000), None).await;
 
-        match jobs_response.data {
-            Some(jobs) => {
-                let jobs_total = jobs.len() as u32;
-                let pending = jobs
-                    .iter()
-                    .filter(|j| {
-                        j.status()
-                            .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
-                            .unwrap_or(false)
-                    })
-                    .count() as u32;
+        if let Some(jobs) = jobs_response.data {
+            let jobs_total = jobs.len() as u32;
+            let pending = jobs
+                .iter()
+                .filter(|j| {
+                    j.status()
+                        .map(|s| s == JobStatus::Pending || s == JobStatus::Running)
+                        .unwrap_or(false)
+                })
+                .count() as u32;
 
-                let current_stats = get_overview_stats().await.data;
-                let (songs_added, albums_added, artists_added) = match &current_stats {
-                    Some(stats) => (
-                        (stats.total_songs - baseline.0).max(0) as u32,
-                        (stats.total_albums - baseline.1).max(0) as u32,
-                        (stats.total_artists - baseline.2).max(0) as u32,
-                    ),
-                    None => (0, 0, 0),
-                };
+            let current_stats = get_overview_stats().await.data;
+            let (songs_added, albums_added, artists_added) = match &current_stats {
+                Some(stats) => (
+                    (stats.total_songs - baseline.0).max(0) as u32,
+                    (stats.total_albums - baseline.1).max(0) as u32,
+                    (stats.total_artists - baseline.2).max(0) as u32,
+                ),
+                None => (0, 0, 0),
+            };
 
-                let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
-                if current_songs != last_songs {
-                    last_songs = current_songs;
-                    let _ = notify_scan_progress(
-                        &app_handle,
-                        songs_added,
-                        albums_added,
-                        artists_added,
-                        pending,
-                        jobs_total,
-                    );
-                }
-
-                if pending == 0 {
-                    let _ =
-                        notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
-                    tracing::info!(
-                        songs = songs_added,
-                        albums = albums_added,
-                        artists = artists_added,
-                        "scan-poll: resume complete"
-                    );
-                    return;
-                }
+            let current_songs = current_stats.as_ref().map(|s| s.total_songs).unwrap_or(0);
+            if current_songs != last_songs {
+                last_songs = current_songs;
+                let _ = notify_scan_progress(
+                    &app_handle,
+                    songs_added,
+                    albums_added,
+                    artists_added,
+                    pending,
+                    jobs_total,
+                );
             }
-            None => {}
+
+            if pending == 0 {
+                let _ =
+                    notify_scan_complete(&app_handle, songs_added, albums_added, artists_added);
+                tracing::info!(
+                    songs = songs_added,
+                    albums = albums_added,
+                    artists = artists_added,
+                    "scan-poll: resume complete"
+                );
+                return;
+            }
         }
     }
 

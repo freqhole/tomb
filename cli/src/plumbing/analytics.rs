@@ -337,7 +337,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                     )
                 }
                 _ => {
-                    return CommandOutput::failure(
+                    CommandOutput::failure(
                         "Invalid entity_type",
                         vec![grimoire::error::ErrorDetail {
                             error_type: "validation_error".to_string(),
@@ -345,7 +345,7 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                             detail: "Must be 'song', 'album', or 'artist'".to_string(),
                         }],
                         (),
-                    );
+                    )
                 }
             }
         }

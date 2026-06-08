@@ -145,8 +145,7 @@ pub async fn sync_users_from_haruspex(
         // find the corresponding synced user
         if let Some(user) = synced_users.iter().find(|u| {
             u.haruspex_user_id
-                .as_ref()
-                .map_or(false, |h| h == &peer.user_id)
+                .as_ref() == Some(&peer.user_id)
         }) {
             match user_service
                 .upsert_peer_node(&user.id, &peer.node_id, peer.instance_name.as_deref())
@@ -245,7 +244,7 @@ pub async fn sync_users_from_stored_credentials(
             .sync_federated_user(
                 &username,
                 &member.user_id,
-                default_role.clone(),
+                default_role,
                 member.avatar_url.as_deref(),
             )
             .await
@@ -279,8 +278,7 @@ pub async fn sync_users_from_stored_credentials(
     for peer in &peers {
         if let Some(user) = synced_users.iter().find(|u| {
             u.haruspex_user_id
-                .as_ref()
-                .map_or(false, |h| h == &peer.user_id)
+                .as_ref() == Some(&peer.user_id)
         }) {
             match user_service
                 .upsert_peer_node(&user.id, &peer.node_id, peer.instance_name.as_deref())

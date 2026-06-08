@@ -1379,7 +1379,7 @@ fn set_nested_value(
             // navigate or create intermediate table
             match current {
                 toml_edit::Item::Table(t) => {
-                    if !t.contains_key(*part) {
+                    if !t.contains_key(part) {
                         t[*part] = toml_edit::Item::Table(toml_edit::Table::new());
                     }
                     current = &mut t[*part];

@@ -191,7 +191,7 @@ pub fn result_actions_for_row(
     };
 
     // music-row actions: by row.type (preferred) or by command name.
-    let music_kind = row_type.or_else(|| match command_name {
+    let music_kind = row_type.or(match command_name {
         "library_song" => Some("song"),
         "library_album" => Some("album"),
         "library_playlist" => Some("playlist"),

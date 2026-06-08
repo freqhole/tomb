@@ -465,12 +465,11 @@ fn normalize_album_title(s: &str) -> String {
         if c.is_alphanumeric() {
             out.push(c);
             last_space = false;
-        } else if c.is_whitespace() {
-            if !last_space && !out.is_empty() {
+        } else if c.is_whitespace()
+            && !last_space && !out.is_empty() {
                 out.push(' ');
                 last_space = true;
             }
-        }
     }
     out.trim().to_string()
 }

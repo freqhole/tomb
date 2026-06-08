@@ -68,7 +68,7 @@ impl From<DirectoryTagRule> for DirTagRuleOutput {
         DirTagRuleOutput {
             id: rule.id,
             directory_path: rule.directory_path,
-            tag_name: rule.tag_name.unwrap_or_else(|| rule.tag_id),
+            tag_name: rule.tag_name.unwrap_or(rule.tag_id),
             created_at: super::utils::format_timestamp(rule.created_at),
         }
     }

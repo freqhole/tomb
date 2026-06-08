@@ -74,13 +74,10 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &App) {
                 let selected_labels: Vec<String> = opts
                     .iter()
                     .enumerate()
-                    .filter_map(|(idx, opt)| {
-                        checked
+                    .filter(|&(idx, _opt)| checked
                             .get(idx)
                             .copied()
-                            .unwrap_or(false)
-                            .then(|| opt.label.clone())
-                    })
+                            .unwrap_or(false)).map(|(_idx, opt)| opt.label.clone())
                     .collect();
                 let preview = if selected_labels.is_empty() {
                     "(none)".to_string()

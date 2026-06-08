@@ -164,10 +164,12 @@ pub struct LocalRef {
 
 /// which top-level area has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum Focus {
     /// big-banner landing screen — the default startup view.
     /// the slash repl is reachable via ctrl-k from here so the
     /// user can `/commands`, `/music`, `/peer`, etc.
+    #[default]
     Landing,
     AdminPalette,
     /// modal text input for entering a peer node id (web shell only).
@@ -191,11 +193,6 @@ pub enum Focus {
     PlayerRow,
 }
 
-impl Default for Focus {
-    fn default() -> Self {
-        Focus::Landing
-    }
-}
 
 /// in-memory slice. rebuilt on every launch.
 pub struct EphemeralState {

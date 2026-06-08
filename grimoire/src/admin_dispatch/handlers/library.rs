@@ -331,7 +331,7 @@ pub(in crate::admin_dispatch) async fn fetch(
                 vec![crate::ErrorDetail::new(
                     "serialization_error",
                     "failed to serialize parameters",
-                    &e.to_string(),
+                    e.to_string(),
                 )],
             );
         }

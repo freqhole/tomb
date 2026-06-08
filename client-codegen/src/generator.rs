@@ -56,10 +56,10 @@ fn extract_type(rust_type: &str) -> Option<String> {
         return None;
     }
     if let Some(start) = rust_type.find("Vec<") {
-        return extract_type(&rust_type[start + 4..].trim_end_matches('>'));
+        return extract_type(rust_type[start + 4..].trim_end_matches('>'));
     }
     if let Some(start) = rust_type.find("Option<") {
-        return extract_type(&rust_type[start + 7..].trim_end_matches('>'));
+        return extract_type(rust_type[start + 7..].trim_end_matches('>'));
     }
     Some(
         rust_type
@@ -117,7 +117,7 @@ fn generate_routes_file(routes: &[RouteInfo]) -> String {
     for route in routes {
         domains
             .entry(route.domain.as_str())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(route);
     }
 

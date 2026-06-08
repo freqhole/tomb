@@ -252,7 +252,7 @@ fn detect_audio_mime_type(filename: &str, data: &[u8]) -> String {
 fn detect_extension(mime_type: &str, filename: &str) -> String {
     // try to get extension from filename first
     if let Some(ext) = filename.rsplit('.').next() {
-        if ext.len() <= 5 && ext.len() > 0 && ext != filename {
+        if ext.len() <= 5 && !ext.is_empty() && ext != filename {
             return ext.to_lowercase();
         }
     }

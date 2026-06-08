@@ -653,7 +653,7 @@ fn year_to_decade(date_or_year: &str) -> Option<String> {
 /// split an audiodb-style compound field (`"Rock / Pop"`, `"Jazz, Funk"`)
 /// into individual labels. strips whitespace and skips empties.
 fn split_compound(raw: &str) -> Vec<String> {
-    raw.split(|c: char| c == ',' || c == '/' || c == ';' || c == '|')
+    raw.split([',', '/', ';', '|'])
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()

@@ -9,7 +9,7 @@ use serde_json::{json, Value as JsonValue};
 pub(in crate::admin_dispatch) async fn blake3_status() -> GrimoireResponse<JsonValue> {
     match crate::media_blobz::count_blobs_needing_blake3().await {
         Ok(n) => GrimoireResponse::success(
-            &format!("{n} blobs need blake3 backfill"),
+            format!("{n} blobs need blake3 backfill"),
             json!({ "needing_backfill": n }),
         ),
         Err(e) => GrimoireResponse::failure("failed to count blobs", vec![e.into()]),
@@ -29,7 +29,7 @@ pub(in crate::admin_dispatch) async fn backfill_blake3(
     let concurrency = opt_i64(&args, "concurrency", 16).max(1) as usize;
     match crate::blobz::backfill_blake3_hashes(batch_size, concurrency).await {
         Ok((scanned, hashed)) => GrimoireResponse::success(
-            &format!("scanned {scanned} blobs, hashed {hashed}"),
+            format!("scanned {scanned} blobs, hashed {hashed}"),
             json!({ "scanned": scanned, "hashed": hashed }),
         ),
         Err(e) => GrimoireResponse::failure("backfill failed", vec![e.into()]),

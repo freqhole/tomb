@@ -385,7 +385,7 @@ pub async fn process_mb_album_search_job(job: &Job) -> Result<Option<Value>, Job
                 // rg lookup failed: mbid may be a release id (e.g. from last.fm)
                 crate::jobs::rate_limit::acquire(crate::jobs::rate_limit::Source::Mb).await;
                 let rel_resp = client.lookup_release_search(mbid).await;
-                rel_resp.data.as_ref().map(|r| candidate_from_release(r))
+                rel_resp.data.as_ref().map(candidate_from_release)
             };
             let Some(mut direct_cand) = direct_cand else {
                 continue 'direct;
@@ -1238,7 +1238,7 @@ async fn run_release_search(
 /// ordering of importance (largest deltas first):
 ///   cross-api mbid agreement > long-song duration match > cover art
 ///   > country > format > earliest pressing > tags.
-/// cover art intentionally outranks release date per product spec.
+/// > cover art intentionally outranks release date per product spec.
 ///
 /// optional inputs (pass `None`/`false`/`0` when unavailable):
 ///   * `tag_count` — MB tags on this release/release-group. Some(0) =

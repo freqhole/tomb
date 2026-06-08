@@ -43,7 +43,7 @@ pub(in crate::admin_dispatch) async fn stations_get(
             vec![ErrorDetail::new(
                 "not_found",
                 "radio station not found",
-                &format!("no station with id {}", req.id),
+                format!("no station with id {}", req.id),
             )],
         ),
         Err(e) => GrimoireResponse::failure("failed to get radio station", vec![e.into()]),
@@ -356,7 +356,7 @@ pub(in crate::admin_dispatch) async fn seed_suggest(
         }
         other => {
             return GrimoireResponse::failure(
-                &format!("unknown seed-suggest kind: {}", other),
+                format!("unknown seed-suggest kind: {}", other),
                 vec![],
             );
         }

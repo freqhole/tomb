@@ -161,7 +161,7 @@ impl ZodSchema for MediaBlob {
             ("filename", &zod_nullable(zod_string())),
             ("parent_blob_id", &zod_nullable(zod_string())),
             ("blob_type", &BlobType::zod_schema()),
-            ("metadata", &"z.any()".to_string()),
+            ("metadata", "z.any()"),
             ("created_at", zod_number()),
             ("updated_at", zod_number()),
             ("deleted_at", &zod_nullable(zod_number())),
