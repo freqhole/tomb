@@ -445,10 +445,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: install host deps (sqlite + alsa for db-prepare)
         run: sudo apt-get update && sudo apt-get install -y sqlite3 libasound2-dev
       - name: install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+      # the docker build COPYs the workspace (incl. client/spume/dist) into the
+      # image; grimoire embeds that dir via include_dir!, so it must be built on
+      # the host first or the cli compile (and db-prepare) panics.
+      - name: build spume client
+        run: make build-spume
       - name: build rathole cli (linux armv7)
         run: make build-pi32
       - name: upload asset
