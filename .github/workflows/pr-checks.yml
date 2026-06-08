@@ -22,6 +22,10 @@ env:
 jobs:
   rust-check:
     name: rust (fmt + clippy + check + unit tests)
+    # skip on the changesets "Version Packages" PR: it only bumps versions +
+    # changelogs (no source changes), and release.yml already builds it. these
+    # jobs report as skipped, which satisfies required-status-check branch rules.
+    if: github.head_ref != 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +76,7 @@ jobs:
 
   web-check:
     name: web (typecheck + vitest + circular deps)
+    if: github.head_ref != 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +115,7 @@ jobs:
   # so keep it visible + independent of the core web gate above.
   lint:
     name: web (eslint)
+    if: github.head_ref != 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
@@ -135,6 +141,7 @@ jobs:
 
   changeset-check:
     name: changeset present
+    if: github.head_ref != 'changeset-release/main'
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
