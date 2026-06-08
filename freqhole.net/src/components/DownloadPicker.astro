@@ -13,7 +13,10 @@ interface Props {
 const { heroOnly = false, buttonOnly = false } = Astro.props;
 
 const REPO = "freqhole/tomb";
-const BASE = `https://github.com/${REPO}/releases/download/${VERSION}`;
+// release tags are prefixed with `v` (e.g. v0.1.29) but the asset filenames
+// are not (e.g. freqhole_charnel_0.1.29_aarch64.dmg), so only the tag path
+// segment gets the prefix.
+const BASE = `https://github.com/${REPO}/releases/download/v${VERSION}`;
 
 const ASSETS: Record<string, string> = {
   "charnel-mac-arm": `freqhole_charnel_${VERSION}_aarch64.dmg`,
