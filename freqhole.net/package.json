@@ -11,6 +11,7 @@
     "astro": "astro",
     "gen:dates": "node scripts/gen-page-dates.mjs",
     "gen:dates:force": "node scripts/gen-page-dates.mjs --force",
+    "gen:schema": "node scripts/gen-schema-diagrams.mjs",
     "check:dates": "node scripts/gen-page-dates.mjs --check"
   },
   "dependencies": {
@@ -20,6 +21,8 @@
     "sharp": "^0.34.2"
   },
   "devDependencies": {
-    "@types/d3": "^7.4.3"
+    "@types/d3": "^7.4.3",
+    "astro-mermaid": "^2.0.2",
+    "mermaid": "^11.15.0"
   }
 }

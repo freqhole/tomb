@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import mermaid from 'astro-mermaid';
 
 // https://astro.build/config
 export default defineConfig({
@@ -11,6 +12,21 @@ export default defineConfig({
 		'/download': '/getting-started/download',
 	},
 	integrations: [
+		// mermaid must come before starlight so it can register its remark plugin
+		// and client script. renders ```mermaid fences client-side (no headless
+		// browser at build) with automatic light/dark theme switching.
+		//
+		// useMaxWidth: false makes diagrams render at their natural size instead
+		// of being squeezed to fit the content column - the big er diagrams on the
+		// database page are unreadable otherwise. custom.css adds horizontal scroll
+		// for the cases where the natural size is wider than the page.
+		mermaid({
+			autoTheme: true,
+			mermaidConfig: {
+				er: { useMaxWidth: false },
+				flowchart: { useMaxWidth: false },
+			},
+		}),
 		starlight({
 			title: 'freqhole',
 			tagline: 'self-hosted music library && web, android, and desktop clientz that can talk http or p2p',
@@ -37,6 +53,7 @@ export default defineConfig({
 					label: 'concepts',
 					items: [
 						{ label: 'configuration', slug: 'concepts/configuration' },
+						{ label: 'the database', slug: 'concepts/database' },
 						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
 						{ label: 'web app architecture', slug: 'concepts/web-app' },
 						{ label: 'where music lives', slug: 'concepts/storage' },

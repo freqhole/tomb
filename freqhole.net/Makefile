@@ -26,6 +26,7 @@ build:
 	npm run build
 
 dev:
+	$(MAKE) build-coach-demo
 	npm run dev
 
 clean:

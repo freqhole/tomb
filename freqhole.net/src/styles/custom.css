@@ -11,3 +11,16 @@
 	--sl-color-accent: #a21caf;
 	--sl-color-accent-high: #4a044e;
 }
+
+/* mermaid diagrams render at natural size (useMaxWidth: false in astro.config).
+   center them and allow horizontal scroll when a diagram is wider than the page
+   so the big er diagrams stay legible instead of being squeezed to fit. */
+.mermaid {
+	overflow-x: auto;
+	text-align: center;
+}
+
+.mermaid svg {
+	height: auto;
+}
+
