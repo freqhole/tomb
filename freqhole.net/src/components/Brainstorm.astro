@@ -169,7 +169,11 @@
   .sw-flow .sw-node[data-on="1"] text { fill: var(--sl-color-white); }
   .sw-flow .sw-node-sub { fill: var(--sl-color-gray-3); font-size: 10px; }
   .sw-flow .sw-node[data-on="1"] .sw-node-sub { fill: var(--sl-color-accent-high); }
-  .sw-flow .sw-node .sw-node-ico { color: var(--sl-color-accent-high); pointer-events: none; }
+  /* default icon is near-white for contrast on the dark card; the accent tint
+     is kept for hover + selected, where the accent border/fill frames it. */
+  .sw-flow .sw-node .sw-node-ico { color: var(--sl-color-gray-1); pointer-events: none; transition: color 0.15s ease; }
+  .sw-flow .sw-node:hover .sw-node-ico,
+  .sw-flow .sw-node[data-on="1"] .sw-node-ico { color: var(--sl-color-accent-high); }
   .sw-flow .sw-col-title { fill: var(--sl-color-gray-3); font-size: 11px; text-transform: lowercase; letter-spacing: 0.04em; }
   .sw-flow .sw-link { fill: none; stroke: var(--sw-edge); stroke-width: 1.5; opacity: 0.35; }
   .sw-flow .sw-link[data-on="1"] { stroke: var(--sl-color-accent); opacity: 0.9; stroke-width: 2; }
@@ -251,8 +255,8 @@
     raspi: `<g fill="currentColor"><path d="M12 10.6C10.5 8 7.5 7 5.6 7.6 7 9.8 9.8 11 12 10.6ZM12 10.6C13.5 8 16.5 7 18.4 7.6 17 9.8 14.2 11 12 10.6Z"/><circle cx="8.3" cy="13.8" r="2.4"/><circle cx="12" cy="13.8" r="2.4"/><circle cx="15.7" cy="13.8" r="2.4"/><circle cx="10.1" cy="17.3" r="2.4"/><circle cx="13.9" cy="17.3" r="2.4"/><circle cx="12" cy="20.6" r="2.4"/></g>`,
     apple: `<path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701z"/>`,
     windows: `<path fill="currentColor" d="M3 5.6 10.4 4.6v6.8H3zM11.6 4.45 21 3.1v8.3h-9.4zM3 12.6h7.4v6.8L3 18.4zM11.6 12.6H21v8.3l-9.4-1.35z"/>`,
-    linux: `<path fill="currentColor" d="M12 2c-1.9 0-3.1 1.5-3.1 3.5 0 .8.2 1.4.2 2-.6.6-1.9 2.3-2.5 4.4-.5 1.7-1.1 2.7-1.7 3.4-.5.6-.2 1.5.7 1.6.5.1.7.4.7.9 0 .9.9 1.8 2.9 1.8h5.6c2 0 2.9-.9 2.9-1.8 0-.5.2-.8.7-.9.9-.1 1.2-1 .7-1.6-.6-.7-1.2-1.7-1.7-3.4-.6-2.1-1.9-3.8-2.5-4.4 0-.6.2-1.2.2-2C15.1 3.5 13.9 2 12 2z"/><ellipse cx="10.2" cy="6.2" rx=".9" ry="1.1" fill="#0b0b10"/><ellipse cx="13.8" cy="6.2" rx=".9" ry="1.1" fill="#0b0b10"/><path d="M10.8 8.6 12 9.6l1.2-1c-.4-.5-2-.5-2.4 0z" fill="#f59e0b"/>`,
-    android: `<g fill="currentColor"><path d="M6.2 9.2h11.6v6.6a1.4 1.4 0 0 1-1.4 1.4H7.6a1.4 1.4 0 0 1-1.4-1.4z"/><rect x="3.3" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="18.8" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="8.4" y="16.6" width="1.9" height="4.2" rx=".95"/><rect x="13.7" y="16.6" width="1.9" height="4.2" rx=".95"/><path d="M6.2 8.4a5.8 5.8 0 0 1 11.6 0z"/></g><path d="M7.8 3.6 9.1 5.5M16.2 3.6 14.9 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="9.5" cy="6.2" r=".6" fill="#0b0b10"/><circle cx="14.5" cy="6.2" r=".6" fill="#0b0b10"/>`,
+    linux: `<path fill="currentColor" d="M12 2c-1.9 0-3.1 1.5-3.1 3.5 0 .8.2 1.4.2 2-.6.6-1.9 2.3-2.5 4.4-.5 1.7-1.1 2.7-1.7 3.4-.5.6-.2 1.5.7 1.6.5.1.7.4.7.9 0 .9.9 1.8 2.9 1.8h5.6c2 0 2.9-.9 2.9-1.8 0-.5.2-.8.7-.9.9-.1 1.2-1 .7-1.6-.6-.7-1.2-1.7-1.7-3.4-.6-2.1-1.9-3.8-2.5-4.4 0-.6.2-1.2.2-2C15.1 3.5 13.9 2 12 2z"/><ellipse cx="10.2" cy="6.2" rx=".9" ry="1.1" fill="#6b7280"/><ellipse cx="13.8" cy="6.2" rx=".9" ry="1.1" fill="#6b7280"/><path d="M10.8 8.6 12 9.6l1.2-1c-.4-.5-2-.5-2.4 0z" fill="#f59e0b"/>`,
+    android: `<g fill="currentColor"><path d="M6.2 9.2h11.6v6.6a1.4 1.4 0 0 1-1.4 1.4H7.6a1.4 1.4 0 0 1-1.4-1.4z"/><rect x="3.3" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="18.8" y="9.6" width="1.9" height="5.4" rx=".95"/><rect x="8.4" y="16.6" width="1.9" height="4.2" rx=".95"/><rect x="13.7" y="16.6" width="1.9" height="4.2" rx=".95"/><path d="M6.2 8.4a5.8 5.8 0 0 1 11.6 0z"/></g><path d="M7.8 3.6 9.1 5.5M16.2 3.6 14.9 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="9.5" cy="6.2" r=".6" fill="#6b7280"/><circle cx="14.5" cy="6.2" r=".6" fill="#6b7280"/>`,
     gui: `<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="6.5" r=".6" fill="currentColor"/><circle cx="8" cy="6.5" r=".6" fill="currentColor"/>`,
     cli: `<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 9l3 3-3 3M13 15h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`,
     chip: `<rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
@@ -734,14 +738,11 @@
     const phoneFirst = state.picks.includes("mobile") || state.picks.includes("android");
     const cards: Card[] = [
       { icon: "qr", title: phoneFirst ? "start with your phone" : "pair a device",
-        body: "web open the app on another device and scan your server's node id qr code (or paste the node id). that's the whole pairing step.",
+        body: "web open the app on another device and scan your server's node id qr code (or paste the node id). download music and listen offline.",
         link: { href: "/guides/sharing/", text: "sharing with friends" } },
       { icon: "share", title: "p2p by default", badge: "recommended",
-        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage.",
+        body: "peer-to-peer (iroh) connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage; but you can use http if you want.",
         link: { href: "/concepts/transports/", text: "how transports work" } },
-      { icon: "web", title: "http if you must",
-        body: "same-network or reverse-proxy setups can use http, but https certs + single-origin auth make it fiddly. p2p sidesteps all of it.",
-        link: { href: "/concepts/transports/", text: "http vs p2p" } },
     ];
     cards.forEach((cd) => {
       const el = document.createElement("div");
@@ -755,7 +756,7 @@
     });
     c.appendChild(steps);
 
-    label(c, "your network at a glance");
+    label(c, "an example freqhole network with you and yr frenz");
     drawDeviceGraph(c);
   }
 
@@ -790,6 +791,8 @@
     const nodes: GNode[] = [
       // your stuff
       { id: "srv-you", label: "your raspi", icon: "server", group: "you", person: "you", server: true },
+      { id: "you-phone", label: "your iphone", icon: "mobile", group: "you", person: "you" },
+      { id: "you-laptop", label: "your laptop (cli)", icon: "desktop", group: "you", person: "you" },
       { id: "fritzi", label: "fritzi", icon: "friend", group: "family", person: "fritzi" },
       // nancy — a family member running her own server (two devices)
       { id: "srv-nancy", label: "nancy's pc", icon: "server", group: "family", person: "nancy", server: true },
@@ -834,27 +837,17 @@
       { source: "phil", target: "srv-you", kind: "relay" },
       { source: "oona", target: "srv-nancy", kind: "p2p" },
       { source: "butch", target: "srv-sluggo", kind: "p2p" },
-    ];
-
-    // add your own devices based on the hardware you picked earlier. phones go
-    // over the p2p http relay; laptops connect direct p2p.
-    if (state.picks.includes("mobile") || state.picks.includes("android")) {
-      nodes.push({ id: "you-phone", label: "your iphone", icon: "mobile", group: "you", person: "you" });
-      // your phone reaches every server you have an account on through the relay
-      links.push({ source: "you-phone", target: "srv-you", kind: "relay" });
-      links.push({ source: "you-phone", target: "srv-nancy", kind: "relay" });
-      links.push({ source: "you-phone", target: "srv-sluggo", kind: "relay" });
-    }
-    if (state.picks.includes("desktop")) {
-      nodes.push({ id: "you-laptop", label: "your laptop (cli)", icon: "desktop", group: "you", person: "you" });
-      links.push({ source: "you-laptop", target: "srv-you", kind: "p2p" });
+      // your own devices. your phone reaches every server you have an account
+      // on through the p2p http relay; your laptop connects direct p2p.
+      { source: "you-phone", target: "srv-you", kind: "relay" },
+      { source: "you-phone", target: "srv-nancy", kind: "relay" },
+      { source: "you-phone", target: "srv-sluggo", kind: "relay" },
+      { source: "you-laptop", target: "srv-you", kind: "p2p" },
       // nancy's android peers direct p2p with your laptop too
-      links.push({ source: "nancy-android", target: "you-laptop", kind: "p2p" });
-      // if you also have a phone, it reaches your laptop over the relay
-      if (state.picks.includes("mobile") || state.picks.includes("android")) {
-        links.push({ source: "you-phone", target: "you-laptop", kind: "relay" });
-      }
-    }
+      { source: "nancy-android", target: "you-laptop", kind: "p2p" },
+      // your phone reaches your laptop over the relay
+      { source: "you-phone", target: "you-laptop", kind: "relay" },
+    ];
 
     const wrap = document.createElement("div");
     wrap.className = "sw-graph-wrap";
@@ -999,44 +992,28 @@
   function renderLibrary(c: HTMLElement) {
     stageHeader(c, "manage + enrich your library", "grow your catalog, let trusted users add music, and clean up metadata with free enrichment sources.");
 
-    label(c, "what do you want to do? (multi-select)");
-    chipRow(c, state.library, [
-      { id: "dirs", label: "add / edit scan dirs", icon: "edit" },
-      { id: "enrich", label: "edit + enrich metadata", icon: "sparkle" },
-      { id: "addmusic", label: "share with friends", icon: "share" },
-    ], () => { save(); renderLibCards(); });
-
     const holder = document.createElement("div");
     holder.style.marginTop = "1rem";
     c.appendChild(holder);
 
-    function renderLibCards() {
-      holder.innerHTML = "";
-      const cards: Card[] = [];
-      if (state.library.includes("dirs")) {
-        cards.push({ icon: "edit", title: "scan directories",
-          body: "add more folders any time and rescan. the desktop app has library → add folder; the cli takes --path.",
-          link: { href: "/guides/scanning/", text: "scanning your library" } });
-      }
-      if (state.library.includes("addmusic")) {
-        cards.push({ icon: "share", title: "users add music", badge: "member / admin",
-          body: "client users with the member or admin role can upload + add music to the server; viewer roles can browse it.",
-          link: { href: "/concepts/user-roles/", text: "user roles" } });
-      }
-      if (state.library.includes("enrich")) {
-        cards.push({ icon: "edit", title: "edit album modal", badge: "one-off",
-          body: "open an album → edit album to fix a single release: titles, dates, art, and a manual musicbrainz lookup.",
-          link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } });
-        cards.push({ icon: "table", title: "albums table bulk edit", badge: "whole library",
-          body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
-          link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } });
-        cards.push({ icon: "sparkle", title: "enrichment sources",
-          body: "musicbrainz (canonical metadata + cover art), last.fm (bios + tags, needs an api key in node config), and theaudiodb (artist imagery).",
-          link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } });
-      }
-      cardGrid(holder, cards);
-    }
-    renderLibCards();
+    const cards: Card[] = [
+      { icon: "edit", title: "scan directories",
+        body: "add more folders of music at any time. rescan existing folders to catch new or deleted files.",
+        link: { href: "/guides/scanning/", text: "scanning your library" } },
+      { icon: "share", title: "users can add music",
+        body: "users with the member or admin role can upload + add new music, create playlists, and edit metadata; viewer roles can browse and add things to their favorite list.",
+        link: { href: "/concepts/user-roles/", text: "user roles" } },
+      { icon: "sparkle", title: "enrichment sources",
+        body: "musicbrainz (canonical metadata + cover art), last.fm (bios + tags, needs an api key in node config), and theaudiodb (artist imagery).",
+        link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } },
+      { icon: "sparkle", title: "edit metadata", badge: "one-off",
+        body: "open an album → edit album to fix a single release: titles, dates, art, and a manual musicbrainz lookup.",
+        link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } },
+      { icon: "sparkle", title: "albums table bulk edit", badge: "whole library",
+        body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
+        link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } },
+    ];
+    cardGrid(holder, cards);
   }
 
   // kick off once everything above is declared and initialized.
