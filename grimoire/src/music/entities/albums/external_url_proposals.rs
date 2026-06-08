@@ -8,11 +8,11 @@
 //!
 //! sources currently mined:
 //! - album: `metadata.musicbrainz.urls` (every relation_type)
-//!          `metadata.lastfm.album.url`
+//!   `metadata.lastfm.album.url`
 //! - artist: `metadata.musicbrainz.urls` (every relation_type — the
-//!           rich set: bandcamp, allmusic, songkick, streaming, etc.)
-//!           `metadata.lastfm.artist.url`
-//!           `metadata.audiodb.artist.{website, facebook, twitter}`
+//!   rich set: bandcamp, allmusic, songkick, streaming, etc.)
+//!   `metadata.lastfm.artist.url`
+//!   `metadata.audiodb.artist.{website, facebook, twitter}`
 //!
 //! the propose half is read-only against `entity_urlz` (used to filter
 //! out URLs we already have on file, case-insensitive). the apply half

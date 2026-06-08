@@ -77,6 +77,7 @@ impl ParsedFilename {
 ///    - 1 part: track only (or album+track if "full album")
 ///    - 2 parts: artist, track
 ///    - 3+ parts: artist, album, track (remaining parts joined)
+///
 /// parse metadata from a filename string directly
 /// same as parse_filename but takes a string instead of a path.
 /// useful when the original filename is available but stored separately

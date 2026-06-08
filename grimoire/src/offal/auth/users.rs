@@ -124,10 +124,7 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
         );
     }
 
-    let params: UserQueryParams = match serde_json::from_value(body) {
-        Ok(p) => p,
-        Err(_) => UserQueryParams::default(),
-    };
+    let params: UserQueryParams = serde_json::from_value(body).unwrap_or_default();
 
     let service = UserService::new();
     // get caller user for the admin check in list_users

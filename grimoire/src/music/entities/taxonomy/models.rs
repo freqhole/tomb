@@ -26,6 +26,7 @@ impl ScalarValueType {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<ScalarValueType> {
         match s {
             "categorical" => Some(ScalarValueType::Categorical),

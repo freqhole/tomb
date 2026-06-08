@@ -32,8 +32,8 @@ use crate::response::GrimoireResponse;
 /// 0. purge_missing_scan_dirs (opt-out): drop scanned_directories rows for paths
 ///    that no longer exist on disk
 /// 1. scan all tracked directories (deduplicated)
-/// 2a. restore pass (opt-out): undelete blobs whose local_path now exists, cascade to songs
-/// 2b. orphan detection: check all live blobs, soft delete if file missing
+/// 2. restore pass (opt-out): undelete blobs whose local_path now exists, cascade to songs
+/// 3. orphan detection: check all live blobs, soft delete if file missing
 pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing RescanDirectories job: {}", job.id);
 

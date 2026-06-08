@@ -895,6 +895,7 @@ pub struct SetFavoriteResponse {
 }
 
 /// favorite item that can be a song, album, artist, or playlist
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum FavoriteItem {

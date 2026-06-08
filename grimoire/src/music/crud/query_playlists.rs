@@ -105,6 +105,7 @@ pub struct PlaylistViewRow {
 }
 
 impl PlaylistViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_playlist_query_result(self, user_id: Option<&str>) -> PlaylistQueryResult {
         // parse images JSON array
         let images = self
@@ -236,6 +237,7 @@ pub struct PlaylistSongViewRow {
 }
 
 impl PlaylistSongViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_playlist_song_result(self, user_id: Option<&str>) -> PlaylistSongResult {
         let position = self.position;
         let added_at = self.added_at;

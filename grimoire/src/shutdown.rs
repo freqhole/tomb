@@ -21,6 +21,7 @@ static SHUTDOWN_HOOK: OnceLock<ShutdownHook> = OnceLock::new();
 /// returns `Err(())` if a hook is already registered. the hook is invoked
 /// from `request_shutdown` and should be cheap and non-blocking — it
 /// typically just sends on a oneshot.
+#[allow(clippy::result_unit_err)]
 pub fn register_shutdown_hook<F>(hook: F) -> Result<(), ()>
 where
     F: Fn(String) + Send + Sync + 'static,

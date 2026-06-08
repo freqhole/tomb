@@ -8,8 +8,7 @@
 //!    cheap title/artist token-overlap heuristic on top of MB's lucene score.
 //! 5. merge candidates + last_query into the album metadata blob.
 //! 6. choose final status:
-//!      - `Confirmed`  if exactly one strong candidate >= auto_confirm_threshold
-//!                     AND a threshold was provided.
+//!      - `Confirmed`  if exactly one strong candidate >= auto_confirm_threshold AND a threshold was provided.
 //!      - `NeedsReview` if multiple strong candidates.
 //!      - `Candidates`  if at least one candidate but nothing strong.
 //!      - `NoMatch`     if zero results.
@@ -80,6 +79,7 @@ fn collect_cross_api_ids(meta: &AlbumMetadata) -> CrossApiIds {
 }
 
 /// holds the output of a single mb release-search stage (query, score, sort).
+#[allow(clippy::type_complexity)]
 struct StageResult {
     sorted: Vec<MbCandidate>,
     last_query: MbLastQuery,
@@ -943,6 +943,8 @@ fn pick_adopted(stage1: StageResult, stage2: Option<StageResult>) -> StageResult
     stage1
 }
 
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 async fn run_release_search(
     client: &MusicBrainzClient,
     title: &str,
@@ -1264,6 +1266,7 @@ fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_local_confidence(
     query_title: &str,
     query_artist: Option<&str>,

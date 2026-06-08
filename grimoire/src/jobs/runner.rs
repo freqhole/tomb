@@ -626,7 +626,7 @@ async fn run_job_processor_loop(cancellation_token: CancellationToken) -> Grimoi
                     workers.len()
                 );
                 workers.abort_all();
-                while let Some(_) = workers.join_next().await {}
+                while workers.join_next().await.is_some() {}
                 break;
             }
         }

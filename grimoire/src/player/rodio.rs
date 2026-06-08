@@ -546,6 +546,7 @@ fn advance(
 /// streams during initialization rather than returning an Err. we
 /// convert any such panic into an `ErrorDetail` so the supervisor
 /// loop survives and can advance to the next queued track.
+#[allow(clippy::type_complexity)]
 fn load_source(
     path: &str,
 ) -> Result<

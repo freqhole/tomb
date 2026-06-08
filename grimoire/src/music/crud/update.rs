@@ -394,16 +394,14 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         // collect old artist ids for orphan cleanup
         let mut old_artist_ids = Vec::new();
         for song_id in &req.song_ids {
-            if let Ok(old_artist_id) = sqlx::query_scalar!(
+            if let Ok(Some(id)) = sqlx::query_scalar!(
                 "SELECT artist_id FROM artist_songz WHERE song_id = ?",
                 song_id
             )
             .fetch_optional(&pool)
             .await
             {
-                if let Some(id) = old_artist_id {
-                    old_artist_ids.push(id);
-                }
+                old_artist_ids.push(id);
             }
         }
 
@@ -459,16 +457,14 @@ pub async fn update_songs(req: UpdateSongsRequest) -> GrimoireResponse<UpdateSon
         // collect old album ids for orphan cleanup
         let mut old_album_ids = Vec::new();
         for song_id in &req.song_ids {
-            if let Ok(old_album_id) = sqlx::query_scalar!(
+            if let Ok(Some(id)) = sqlx::query_scalar!(
                 "SELECT album_id FROM album_songz WHERE song_id = ?",
                 song_id
             )
             .fetch_optional(&pool)
             .await
             {
-                if let Some(id) = old_album_id {
-                    old_album_ids.push(id);
-                }
+                old_album_ids.push(id);
             }
         }
 

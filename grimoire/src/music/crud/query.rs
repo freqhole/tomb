@@ -191,6 +191,7 @@ pub struct SongViewRow {
 }
 
 impl SongViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_song_query_result(self, user_id: Option<&str>) -> SongQueryResult {
         // parse images JSON array
         let images = self
@@ -421,6 +422,7 @@ pub struct ArtistViewRow {
 }
 
 impl ArtistViewRow {
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_artist_query_result(self, user_id: Option<&str>) -> ArtistQueryResult {
         // parse images JSON array
         let images = self

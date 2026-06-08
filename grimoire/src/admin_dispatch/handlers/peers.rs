@@ -112,6 +112,7 @@ pub(in crate::admin_dispatch) async fn reassign_user(
 /// - if `user_id` is set, links to that existing user
 /// - else if `username` matches an existing user, links to it
 /// - else creates a new user (`username` defaults to `peer_<first8>`)
+///
 /// returns `{ user_id, username, node_id, created_user }` to mirror the
 /// legacy `allow_peer` tauri command shape.
 pub(in crate::admin_dispatch) async fn allow(args: JsonValue) -> GrimoireResponse<JsonValue> {

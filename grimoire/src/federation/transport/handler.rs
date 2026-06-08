@@ -197,13 +197,9 @@ async fn handle_stream(
                 // map error types to status codes
                 let status = if response.errors.iter().any(|e| e.error_type == "forbidden") {
                     403
-                } else if response.errors.iter().any(|e| e.error_type == "not_found") {
-                    404
-                } else if response
-                    .errors
-                    .iter()
-                    .any(|e| e.error_type == "route_not_found")
-                {
+                } else if response.errors.iter().any(|e| {
+                    e.error_type == "not_found" || e.error_type == "route_not_found"
+                }) {
                     404
                 } else if response
                     .errors

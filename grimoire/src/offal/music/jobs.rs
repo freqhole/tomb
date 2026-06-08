@@ -160,10 +160,7 @@ struct ListJobsRequest {
 }
 
 pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    let req: ListJobsRequest = match serde_json::from_value(body) {
-        Ok(r) => r,
-        Err(_) => ListJobsRequest::default(), // allow empty body
-    };
+    let req: ListJobsRequest = serde_json::from_value(body).unwrap_or_default();
 
     let response = list_jobs(req.job_type.as_deref(), req.status, req.limit, req.offset).await;
     response.map(|data| serde_json::to_value(data).unwrap())

@@ -10,11 +10,11 @@
 //! emit points (today):
 //!   - `update_session_progress` -> `Progress`
 //!   - runner success path        -> `StatusChanged { to: Completed }` then
-//!                                   `Progress` and `Completed` if the
-//!                                   session is settled
+//!     `Progress` and `Completed` if the
+//!     session is settled
 //!   - runner failure path        -> `StatusChanged { to: Failed|Pending }`,
-//!                                   `Failed`, `Progress`, and possibly
-//!                                   `Completed` if the session is settled
+//!     `Failed`, `Progress`, and possibly
+//!     `Completed` if the session is settled
 //!   - per-job processors (p2)    -> `Stage` for in-flight sub-step ticks
 //!
 //! every variant carries:

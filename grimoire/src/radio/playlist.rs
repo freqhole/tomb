@@ -394,6 +394,7 @@ async fn load_candidate_meta(candidates: &[String]) -> GrimoireResult<Vec<Candid
         .map_err(GrimoireError::from)
 }
 
+#[allow(clippy::type_complexity)]
 fn build_album_index(
     rows: Vec<CandidateMeta>,
 ) -> (

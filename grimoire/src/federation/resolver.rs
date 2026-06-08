@@ -212,14 +212,14 @@ pub async fn resolve_peer(node_id: &str) -> ResolvedPeer {
 /// peer_node record for this node_id.
 pub async fn is_known_peer(node_id: &str) -> bool {
     let user_service = UserService::new();
-    match user_service.get_user_by_peer_node_id(node_id).await {
+    matches!(
+        user_service.get_user_by_peer_node_id(node_id).await,
         GrimoireResponse {
             success: true,
             data: Some(_),
             ..
-        } => true,
-        _ => false,
-    }
+        }
+    )
 }
 
 /// get local user by peer node_id (no haruspex lookup)

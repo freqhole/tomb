@@ -558,6 +558,7 @@ pub enum SessionCookieMode {
 }
 
 impl SessionCookieMode {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "auto" => Some(Self::Auto),
@@ -1062,6 +1063,7 @@ pub fn create_config_with_server_info(
 /// * `remote_admin_enabled` - Optional federation.remote_admin enabled flag (default: false)
 /// * `radio_enabled` - Optional radio enabled flag (default: false)
 /// * `fetch_music_enabled` - Optional server.fetch_music enabled flag (default: false)
+#[allow(clippy::too_many_arguments)]
 pub fn create_config_full(
     output_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
@@ -1141,6 +1143,7 @@ const CONFIG_TEMPLATE: &str = include_str!("../../assets/config/freqhole-config.
 
 /// Generate config file content with given parameters
 /// uses toml_edit to modify the template while preserving comments
+#[allow(clippy::too_many_arguments)]
 fn generate_config_template(
     data_dir: &Path,
     server_name: &str,
