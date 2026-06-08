@@ -647,6 +647,8 @@ pub fn run() {
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
 
                 let window = win_builder.build()?;
+                // suppress unused variable warning on non-macOS
+                let _ = &window;
 
                 // set background color only when building for macOS
                 #[cfg(target_os = "macos")]

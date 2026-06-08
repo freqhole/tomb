@@ -492,6 +492,7 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
+        use std::process::Command;
         app_handle
             .opener()
             .open_path(path.to_string_lossy().to_string(), None::<&str>)
