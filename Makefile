@@ -288,10 +288,10 @@ build-tauri-mac-arm:
 	@echo "building Tauri app for macOS arm64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
-		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" npm run tauri build -- --target aarch64-apple-darwin; \
 	else \
-		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
-		cd $(TAURI_DIR) && npm run tauri build -- --target aarch64-apple-darwin; \
+		echo "  no signing identity - ad-hoc signing (runs locally; not distributable or notarizable)"; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- npm run tauri build -- --target aarch64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/aarch64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_aarch64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_aarch64.dmg
@@ -311,10 +311,10 @@ build-tauri-mac-intel:
 	@echo "building Tauri app for macOS x86_64..."
 	@if [ -n "$(APPLE_SIGNING_IDENTITY)" ]; then \
 		echo "  signing enabled (APPLE_SIGNING_IDENTITY set)"; \
-		APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY="$(APPLE_SIGNING_IDENTITY)" npm run tauri build -- --target x86_64-apple-darwin; \
 	else \
-		echo "  signing disabled (APPLE_SIGNING_IDENTITY not set)"; \
-		cd $(TAURI_DIR) && npm run tauri build -- --target x86_64-apple-darwin; \
+		echo "  no signing identity - ad-hoc signing (runs locally; not distributable or notarizable)"; \
+		cd $(TAURI_DIR) && APPLE_SIGNING_IDENTITY=- npm run tauri build -- --target x86_64-apple-darwin; \
 	fi
 	@mkdir -p $(BUILD_DIR)/$(VERSION)
 	cp target/x86_64-apple-darwin/release/bundle/dmg/freqhole_$(VERSION)_x64.dmg $(BUILD_DIR)/$(VERSION)/freqhole_charnel_$(VERSION)_x86_64.dmg
