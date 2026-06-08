@@ -270,6 +270,11 @@ ANDROID_APKSIGNER := $(ANDROID_SDK_ROOT)/build-tools/$(ANDROID_BUILD_TOOLS_VERSI
 JAVA_HOME ?= /Applications/Android Studio.app/Contents/jbr/Contents/Home
 export JAVA_HOME
 
+.PHONY: android-key-info
+android-key-info:
+	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore"
+	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore" 2>/dev/null | grep -i 'keystore type'
+
 # build the spume web client into client/spume/dist. grimoire embeds that dir
 # via include_dir! at compile time, so it MUST exist before any cargo build of
 # the cli/server/grimoire crates (otherwise the macro panics). installs node
