@@ -529,7 +529,14 @@ db-migrate:
 
 db-prepare: db-migrate
 	@echo "preparing sqlx query cache..."
-	cd grimoire && DATABASE_URL=$(DATABASE_URL) cargo sqlx prepare
+	# cargo sqlx prepare writes grimoire/.sqlx, so it must run from grimoire/.
+	# a relative DATABASE_URL (sqlite:data/grimoire.db, as in ci) would resolve
+	# against grimoire/ after the cd and fail to open the db. resolve it to an
+	# absolute path here; an already-absolute url (sqlite:///... from .env) is
+	# left as-is.
+	@DB_PATH=$$(echo $(DATABASE_URL) | sed 's|^sqlite://||; s|^sqlite:||'); \
+		case "$$DB_PATH" in /*) ;; *) DB_PATH=$(CURDIR)/$$DB_PATH ;; esac; \
+		cd grimoire && DATABASE_URL=sqlite://$$DB_PATH cargo sqlx prepare
 
 # CLI testing commands (from grimoire)
 .PHONY: test-cli test-cli-list test-cli-coverage
