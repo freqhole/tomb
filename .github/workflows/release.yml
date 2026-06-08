@@ -90,6 +90,14 @@ jobs:
             gh release create "$TAG" --draft --target main --generate-notes --title "$TAG"
           fi
 
+      # set the draft body to the changeset changelog + generated notes so the
+      # "what changed" text is visible in the draft (not just after publish).
+      # idempotent: re-runs on each push to the version PR replace the body.
+      - name: set draft release notes from changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-notes.mjs "${{ steps.meta.outputs.tag }}"
+
   # ---- macOS arm64: rathole cli + charnel .dmg ------------------------------
   mac-arm64:
     name: macOS arm64 (cli + dmg)

@@ -15,6 +15,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { applyReleaseNotes } from "./release-notes.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const tag = `v${pkg.version}`;
@@ -45,6 +47,10 @@ if (view.isDraft === false) {
   console.log(`release ${tag} is already published; nothing to do`);
   process.exit(0);
 }
+
+// refresh the body (changeset changelog + generated notes) in case the version
+// PR changed after the draft was first built, then flip draft -> published.
+applyReleaseNotes(tag);
 
 console.log(`publishing draft release ${tag}`);
 gh(["release", "edit", tag, "--draft=false", "--latest"]);
