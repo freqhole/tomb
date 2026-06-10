@@ -170,8 +170,8 @@ export function EnrichmentReviewPanel(props: EnrichmentReviewPanelProps) {
       const client = await getClientForRemote(props.remote);
       const resp =
         props.source === "lastfm"
-          ? await client.music.enqueueLastFmAlbumDetail({ album_ids: [props.albumId] })
-          : await client.music.enqueueAudioDbAlbumDetail({ album_ids: [props.albumId] });
+          ? await client.music.enqueueLastfmAlbumDetail({ album_ids: [props.albumId] })
+          : await client.music.enqueueAudiodbAlbumDetail({ album_ids: [props.albumId] });
       if (!resp.success) {
         setState({ kind: "error", message: resp.error.message });
         return;
