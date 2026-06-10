@@ -2,6 +2,9 @@
 import { validateWrapperCoverage } from "./test/coverage.js";
 import { runIntegrationTests } from "./test/integration.js";
 import { runStatefulTests } from "./test/stateful.js";
+import { runPlaylistzTests } from "./test/playlistz.js";
+import { runAutomergeTests } from "./test/automerge.js";
+import { runStorageTests } from "./test/storage.js";
 
 async function main() {
   console.log("freqhole api client test suite\n");
@@ -15,6 +18,30 @@ async function main() {
   const coverageResults = await validateWrapperCoverage();
   totalPassed += coverageResults.passed;
   totalFailed += coverageResults.failed;
+
+  console.log("=".repeat(50));
+  console.log("");
+
+  // always run playlistz domain tests (pure - no server needed)
+  const playlistzResults = await runPlaylistzTests();
+  totalPassed += playlistzResults.passed;
+  totalFailed += playlistzResults.failed;
+
+  console.log("=".repeat(50));
+  console.log("");
+
+  // automerge adapter unit tests (no server required)
+  const automergeResults = await runAutomergeTests();
+  totalPassed += automergeResults.passed;
+  totalFailed += automergeResults.failed;
+
+  console.log("=".repeat(50));
+  console.log("");
+
+  // run storage unit tests (no server required)
+  const storageResults = await runStorageTests();
+  totalPassed += storageResults.passed;
+  totalFailed += storageResults.failed;
 
   console.log("=".repeat(50));
   console.log("");
