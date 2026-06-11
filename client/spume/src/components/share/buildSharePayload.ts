@@ -63,5 +63,7 @@ export function buildSharePayload(
     i: target.id,
     p: target.parentId || undefined,
     t: target.displayTitle || undefined,
+    a: target.artistName || undefined,
+    al: target.albumName || undefined,
   };
 }

@@ -48,7 +48,6 @@ export const PermalinkSection: Component<PermalinkSectionProps> = (props) => {
           const u = () => (urls() as { ok: true; urls: ReturnType<typeof buildShareUrls> }).urls;
           return (
             <div class="space-y-2">
-              <PermalinkRow label="app" value={u().appUrl} />
               <PermalinkRow label="web" value={u().webUrl} />
             </div>
           );

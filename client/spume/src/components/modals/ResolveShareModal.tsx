@@ -91,7 +91,13 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
   const isOpen = () => props.token !== null && !navigated();
 
   return (
-    <Modal isOpen={isOpen()} onClose={props.onClose} title="something nice for you!" size="md">
+    <Modal
+      isOpen={isOpen()}
+      onClose={props.onClose}
+      disableBackdropClose
+      title="something nice for you!"
+      size="md"
+    >
       <div class="p-4 space-y-4">
         <Show when={state.loading || state()?.kind === "decoding"}>
           <p class="text-sm text-[var(--color-text-secondary)]">opening shared link…</p>
@@ -126,9 +132,12 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
           {(_) => {
             const s = state() as Extract<ResolveState, { kind: "matched" }>;
             return (
-              <p class="text-sm text-[var(--color-text-secondary)]">
-                one sec! opening {s.payload.k} on connected remote…
-              </p>
+              <>
+                <ShareEntityInfo payload={s.payload} />
+                <p class="text-sm text-[var(--color-text-secondary)]">
+                  one sec! opening {s.payload.k} on connected remote…
+                </p>
+              </>
             );
           }}
         </Show>
@@ -137,12 +146,9 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
           {(_) => {
             const s = state() as Extract<ResolveState, { kind: "unmatched" }>;
             const nodeId = s.payload.s.n;
-            const title = s.payload.t;
             return (
               <>
-                <Show when={title}>
-                  <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-8">{title}</h1>
-                </Show>
+                <ShareEntityInfo payload={s.payload} />
 
                 <Show when={s.payload.k === "radio_station" && !!nodeId}>
                   <p>
@@ -152,7 +158,7 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                         void startSharedRadioStation({
                           nodeId: nodeId!,
                           stationId: s.payload.i,
-                          stationName: title,
+                          stationName: s.payload.t,
                         });
                         props.onClose();
                       }}
@@ -164,14 +170,12 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                 </Show>
 
                 <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
-                  the shared {s.payload.k === "radio_station" ? "radio station" : s.payload.k}
-                  {title ? ` "${title}"` : ""} is on a remote you haven't connected to yet; no
-                  worry! you can send an access request.{" "}
+                  the shared {s.payload.k === "radio_station" ? "radio station" : s.payload.k} is on
+                  a remote you haven't connected to yet; no worry! you can send an access request.{" "}
                   {s.payload.k === "radio_station" &&
                     "otherwise if the radio station is public you can listen without an account."}
                 </p>
 
-                {/* <div class="flex flex-wrap gap-2 pt-2"> */}
                 <Show when={nodeId}>
                   <Button
                     variant="secondary"
@@ -186,7 +190,8 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                 </Show>
                 <Show when={!isCharnelMode()}>
                   <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
-                    or open this in the freqhole desktop app.
+                    or open this in the freqhole desktop app (note: you can paste the link into the
+                    search input).
                   </p>
 
                   <a
@@ -241,4 +246,23 @@ function entityRouteFor(payload: SharePayloadV1, remoteId: string): string {
     default:
       return getDefaultRoute(remoteId);
   }
+}
+
+// renders the title, artist, and album from a share payload.
+// fields are display-only (not trusted) and all optional.
+function ShareEntityInfo(props: { payload: SharePayloadV1 }) {
+  const p = () => props.payload;
+  return (
+    <div class="mb-4 space-y-0.5">
+      <Show when={p().t}>
+        <p class="text-lg font-semibold text-[var(--color-text-primary)]">{p().t}</p>
+      </Show>
+      <Show when={p().al}>
+        <p class="text-sm text-[var(--color-text-secondary)]">{p().al}</p>
+      </Show>
+      <Show when={p().a}>
+        <p class="text-sm text-[var(--color-text-tertiary)]">{p().a}</p>
+      </Show>
+    </div>
+  );
 }
