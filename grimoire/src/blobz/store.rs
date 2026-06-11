@@ -12,7 +12,11 @@ use iroh_blobs::api::blobs::AddPathOptions;
 use iroh_blobs::api::proto::ImportMode;
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{BlobFormat, Hash};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
 use tracing::info;
 
@@ -109,6 +113,174 @@ pub async fn add_bytes_to_store(data: &[u8]) -> GrimoireResult<Hash> {
     info!(
         "added {} bytes to blobs store, hash: {}",
         data.len(),
+        tag.hash.to_hex()
+    );
+
+    Ok(tag.hash)
+}
+
+// ============================================================================
+// chunked import (large uploads from clients that can only send bounded
+// payloads, e.g. android tauri IPC which is JSON-only and OOMs on big blobs)
+// ============================================================================
+
+/// in-flight chunked uploads: upload_id -> temp file path.
+///
+/// each upload streams to a temp file on disk so neither sender nor receiver
+/// has to hold the whole file in memory. the session map gates which ids are
+/// valid (the id is generated here, never trusted from the caller) which also
+/// prevents path traversal.
+static CHUNKED_UPLOADS: LazyLock<Mutex<HashMap<String, PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// monotonic counter for generating unique upload ids within this process.
+static CHUNKED_UPLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// directory where in-flight chunked uploads accumulate before import.
+fn chunked_upload_dir() -> PathBuf {
+    get_config().temp_dir().join("uploads")
+}
+
+/// begin a chunked upload. creates an empty temp file and returns an
+/// upload_id the caller passes to `append_chunk` / `finish_chunked_import`.
+pub async fn begin_chunked_import() -> GrimoireResult<String> {
+    let dir = chunked_upload_dir();
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to create chunked upload dir: {}", e),
+        })?;
+
+    let seq = CHUNKED_UPLOAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let upload_id = format!("upload-{}-{}", std::process::id(), seq);
+    let path = dir.join(format!("{}.part", upload_id));
+
+    // create (or truncate) the temp file so appends start clean.
+    tokio::fs::File::create(&path)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to create chunked upload temp file: {}", e),
+        })?;
+
+    CHUNKED_UPLOADS
+        .lock()
+        .unwrap()
+        .insert(upload_id.clone(), path);
+
+    info!("began chunked import: {}", upload_id);
+    Ok(upload_id)
+}
+
+/// append a chunk of bytes to an in-flight chunked upload.
+/// returns the total number of bytes written so far.
+pub async fn append_chunk(upload_id: &str, data: &[u8]) -> GrimoireResult<u64> {
+    let path = {
+        let guard = CHUNKED_UPLOADS.lock().unwrap();
+        guard.get(upload_id).cloned()
+    };
+    let path = path.ok_or_else(|| GrimoireError::ProcessingFailed {
+        message: format!("unknown chunked upload id: {}", upload_id),
+    })?;
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to open chunked upload temp file: {}", e),
+        })?;
+    file.write_all(data)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to write chunk: {}", e),
+        })?;
+    file.flush()
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to flush chunk: {}", e),
+        })?;
+
+    let total = tokio::fs::metadata(&path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    Ok(total)
+}
+
+/// finish a chunked upload: import the accumulated temp file into the blobs
+/// store (copy mode, so the temp file can be removed), then delete the temp
+/// file and clear the session. returns the blake3 hash of the imported blob.
+pub async fn finish_chunked_import(upload_id: &str) -> GrimoireResult<Hash> {
+    let path = CHUNKED_UPLOADS.lock().unwrap().remove(upload_id);
+    let path = path.ok_or_else(|| GrimoireError::ProcessingFailed {
+        message: format!("unknown chunked upload id: {}", upload_id),
+    })?;
+
+    // import a copy into the store. copy mode (not TryReference) so the blob
+    // owns its own data and we can safely delete the temp file afterwards.
+    let result = add_file_to_store_copy(&path).await;
+
+    // best-effort cleanup of the temp file regardless of import outcome.
+    if let Err(e) = tokio::fs::remove_file(&path).await {
+        tracing::warn!(
+            "failed to remove chunked upload temp file {:?}: {}",
+            path,
+            e
+        );
+    }
+
+    let hash = result?;
+    info!(
+        "finished chunked import {}: blake3 {}",
+        upload_id,
+        &hash.to_hex().to_string()[..16]
+    );
+    Ok(hash)
+}
+
+/// abort an in-flight chunked upload: delete the temp file and clear the
+/// session. safe to call with an unknown id (no-op).
+pub async fn abort_chunked_import(upload_id: &str) -> GrimoireResult<()> {
+    let path = CHUNKED_UPLOADS.lock().unwrap().remove(upload_id);
+    if let Some(path) = path {
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            tracing::warn!(
+                "failed to remove aborted chunked upload temp file {:?}: {}",
+                path,
+                e
+            );
+        }
+        info!("aborted chunked import: {}", upload_id);
+    }
+    Ok(())
+}
+
+/// add a file to the blobs store using copy mode.
+///
+/// unlike `add_file_to_store` (which uses TryReference and keeps the original
+/// file as the blob's backing store), this copies the bytes into the FsStore
+/// so the source file can be deleted afterwards. used for chunked uploads
+/// where the source is a throwaway temp file.
+pub async fn add_file_to_store_copy(path: &Path) -> GrimoireResult<Hash> {
+    let store = get_blobs_store().await?;
+
+    let options = AddPathOptions {
+        path: path.to_path_buf(),
+        format: BlobFormat::Raw,
+        mode: ImportMode::Copy,
+    };
+
+    let tag =
+        store
+            .add_path_with_opts(options)
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to add file to blobs store (copy): {}", e),
+            })?;
+
+    info!(
+        "added file {:?} to blobs store (copy mode), hash: {}",
+        path,
         tag.hash.to_hex()
     );
 
