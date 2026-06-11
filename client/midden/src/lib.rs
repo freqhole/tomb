@@ -289,6 +289,14 @@ impl BiStream {
     /// this matches grimoire's `send_response()` framing where the message
     /// is terminated by calling `finish()` on the send stream. the receiver
     /// uses `read_to_end()` to read all bytes.
+    ///
+    /// after `finish()` we await `stopped()` so the peer's ack is observed
+    /// before this method returns. without this, JS callers that drop /
+    /// `close()` the stream immediately after `write_raw_and_finish` can
+    /// race the QUIC flush -- the peer's `read_to_end` then errors with
+    /// "connection lost" mid-payload because the in-flight frames are
+    /// torn down with the connection. matters most for large payloads
+    /// (e.g. base64-encoded blob bodies in `proxy_response`).
     pub async fn write_raw_and_finish(&self, data: &[u8]) -> Result<(), JsError> {
         let mut send = self
             .send
@@ -299,6 +307,9 @@ impl BiStream {
         let result = async {
             send.write_all(data).await.map_err(to_js_err)?;
             send.finish().map_err(to_js_err)?;
+            // wait for the peer to ack / reset; ignore result, this is a
+            // best-effort flush barrier, not a correctness check.
+            let _ = send.stopped().await;
             Ok::<(), JsError>(())
         }
         .await;

@@ -1080,7 +1080,7 @@ export function createMusicMethods(call: CallFn) {
     // `LastFmAlbumDetail` job per album id, fetching album.getInfo and
     // artist.getInfo and storing the raw response under
     // `metadata.lastfm` for review.
-    enqueueLastFmAlbumDetail: (params: s.EnqueueLastFmAlbumDetailRequest) => {
+    enqueueLastfmAlbumDetail: (params: s.EnqueueLastFmAlbumDetailRequest) => {
       return call(
         "music",
         "enqueue_lastfm_album_detail",
@@ -1096,7 +1096,7 @@ export function createMusicMethods(call: CallFn) {
     // `AudioDbAlbumDetail` job per album id, fetching the album record
     // (by mbid or text-search) and the artist record (by mbid), and
     // storing the captured snapshot under `metadata.audiodb` for review.
-    enqueueAudioDbAlbumDetail: (params: s.EnqueueAudioDbAlbumDetailRequest) => {
+    enqueueAudiodbAlbumDetail: (params: s.EnqueueAudioDbAlbumDetailRequest) => {
       return call(
         "music",
         "enqueue_audiodb_album_detail",
@@ -1357,7 +1357,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    set_taxon_color: (params: s.SetTaxonColorRequest) => {
+    setTaxonColor: (params: s.SetTaxonColorRequest) => {
       return call(
         "music",
         "set_taxon_color",
@@ -1369,7 +1369,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    set_taxon_label: (params: s.SetTaxonLabelRequest) => {
+    setTaxonLabel: (params: s.SetTaxonLabelRequest) => {
       return call(
         "music",
         "set_taxon_label",
@@ -1381,7 +1381,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    set_taxon_kind_color: (params: s.SetTaxonKindColorRequest) => {
+    setTaxonKindColor: (params: s.SetTaxonKindColorRequest) => {
       return call(
         "music",
         "set_taxon_kind_color",
@@ -1393,7 +1393,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    set_taxon_kind_label: (params: s.SetTaxonKindLabelRequest) => {
+    setTaxonKindLabel: (params: s.SetTaxonKindLabelRequest) => {
       return call(
         "music",
         "set_taxon_kind_label",
@@ -1504,8 +1504,8 @@ export function createMusicMethods(call: CallFn) {
 
     // surface remote image candidates for an album from stored
     // metadata snapshots (audiodb thumbs + musicbrainz coverart).
-    // read-only — does not make any external http calls.
-    albumImageCandidates: (params: s.AlbumImageCandidatesRequest) => {
+    // read-only - does not make any external http calls.
+    imageCandidatesForAlbum: (params: s.AlbumImageCandidatesRequest) => {
       return call(
         "music",
         "image_candidates_for_album",
@@ -1520,7 +1520,7 @@ export function createMusicMethods(call: CallFn) {
     // surface remote image candidates for an artist from stored
     // metadata snapshots (audiodb artist_thumb / artist_fanart).
     // accepts artist_id directly OR album_id (resolved server-side).
-    artistImageCandidates: (params: s.ArtistImageCandidatesRequest) => {
+    imageCandidatesForArtist: (params: s.ArtistImageCandidatesRequest) => {
       return call(
         "music",
         "image_candidates_for_artist",
@@ -1699,6 +1699,136 @@ export function createMusicMethods(call: CallFn) {
         routes.music.unassigned_albums.req,
         routes.music.unassigned_albums.method,
         routes.music.unassigned_albums.path,
+        params,
+      );
+    },
+
+    // blob metadata lookup by blake3 hash
+    blobMetadataByBlake3: (params: s.GetBlobMetadataByBlake3Request) => {
+      return call(
+        "music",
+        "blob_metadata_by_blake3",
+        routes.music.blob_metadata_by_blake3.resp,
+        routes.music.blob_metadata_by_blake3.req,
+        routes.music.blob_metadata_by_blake3.method,
+        routes.music.blob_metadata_by_blake3.path,
+        params,
+      );
+    },
+
+    // build an atlas manifest for a set of blob ids
+    buildAtlas: (params: s.BuildAtlasRequest) => {
+      return call(
+        "music",
+        "build_atlas",
+        routes.music.build_atlas.resp,
+        routes.music.build_atlas.req,
+        routes.music.build_atlas.method,
+        routes.music.build_atlas.path,
+        params,
+      );
+    },
+
+    // get a snapshot of current job events matching a filter
+    eventsSnapshot: (params: s.EventFilter) => {
+      return call(
+        "music",
+        "events_snapshot",
+        routes.music.events_snapshot.resp,
+        routes.music.events_snapshot.req,
+        routes.music.events_snapshot.method,
+        routes.music.events_snapshot.path,
+        params,
+      );
+    },
+
+    // subscribe to job events matching a filter (sse stream)
+    eventsSubscribe: (params: s.EventFilter) => {
+      return call(
+        "music",
+        "events_subscribe",
+        routes.music.events_subscribe.resp,
+        routes.music.events_subscribe.req,
+        routes.music.events_subscribe.method,
+        routes.music.events_subscribe.path,
+        params,
+      );
+    },
+
+    // check which of a set of blob ids are present on this server
+    hasBlobs: (params: s.HasBlobsRequest) => {
+      return call(
+        "music",
+        "has_blobs",
+        routes.music.has_blobs.resp,
+        routes.music.has_blobs.req,
+        routes.music.has_blobs.method,
+        routes.music.has_blobs.path,
+        params,
+      );
+    },
+
+    // sync an album from a remote peer
+    syncAlbum: (params: s.SyncAlbumRequest) => {
+      return call(
+        "music",
+        "sync_album",
+        routes.music.sync_album.resp,
+        routes.music.sync_album.req,
+        routes.music.sync_album.method,
+        routes.music.sync_album.path,
+        params,
+      );
+    },
+
+    // sync a playlist from a remote peer
+    syncPlaylist: (params: s.SyncPlaylistRequest) => {
+      return call(
+        "music",
+        "sync_playlist",
+        routes.music.sync_playlist.resp,
+        routes.music.sync_playlist.req,
+        routes.music.sync_playlist.method,
+        routes.music.sync_playlist.path,
+        params,
+      );
+    },
+
+    // sync a song by blake3 hash from a remote peer
+    syncSongByBlake3: (params: s.SyncSongByBlake3Request) => {
+      return call(
+        "music",
+        "sync_song_by_blake3",
+        routes.music.sync_song_by_blake3.resp,
+        routes.music.sync_song_by_blake3.req,
+        routes.music.sync_song_by_blake3.method,
+        routes.music.sync_song_by_blake3.path,
+        params,
+      );
+    },
+
+    // get the list of sha256 hashes known to this server for sync checks
+    syncedSha256s: () => {
+      return call(
+        "music",
+        "synced_sha256s",
+        routes.music.synced_sha256s.resp,
+        routes.music.synced_sha256s.req,
+        routes.music.synced_sha256s.method,
+        routes.music.synced_sha256s.path,
+        undefined,
+      );
+    },
+
+    // upload music file identified by its blake3 hash
+    uploadMusicByBlake3: (params: s.UploadMusicByBlake3Request) => {
+      return call(
+        "music",
+        "upload_music_by_blake3",
+        routes.music.upload_music_by_blake3.resp,
+        routes.music.upload_music_by_blake3.req,
+        routes.music.upload_music_by_blake3.method,
+        routes.music.upload_music_by_blake3.path,
         params,
       );
     },

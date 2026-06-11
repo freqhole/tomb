@@ -44,6 +44,54 @@ export function createAppMethods(call: CallFn) {
         routes.app.radio_stations.path,
       );
     },
+
+    // get blob metadata for a station blob
+    radioPublicBlob: (params: { station_id: string; blob_id: string }) => {
+      return call(
+        "app", "radio_public_blob",
+        routes.app.radio_public_blob.resp,
+        routes.app.radio_public_blob.req,
+        routes.app.radio_public_blob.method,
+        routes.app.radio_public_blob.path,
+        params,
+      );
+    },
+
+    // stream the binary data for a station blob
+    radioPublicBlobData: (params: { station_id: string; blob_id: string }) => {
+      return call(
+        "app", "radio_public_blob_data",
+        routes.app.radio_public_blob_data.resp,
+        routes.app.radio_public_blob_data.req,
+        routes.app.radio_public_blob_data.method,
+        routes.app.radio_public_blob_data.path,
+        params,
+      );
+    },
+
+    // get a thumbnail for a station blob at a given size
+    radioPublicBlobThumbnail: (params: { station_id: string; blob_id: string; size: string }) => {
+      return call(
+        "app", "radio_public_blob_thumbnail",
+        routes.app.radio_public_blob_thumbnail.resp,
+        routes.app.radio_public_blob_thumbnail.req,
+        routes.app.radio_public_blob_thumbnail.method,
+        routes.app.radio_public_blob_thumbnail.path,
+        params,
+      );
+    },
+
+    // get the public timeline manifest for a station
+    radioPublicTimeline: (params: { station_id: string }) => {
+      return call(
+        "app", "radio_public_timeline",
+        routes.app.radio_public_timeline.resp,
+        routes.app.radio_public_timeline.req,
+        routes.app.radio_public_timeline.method,
+        routes.app.radio_public_timeline.path,
+        params,
+      );
+    },
   };
 }
 

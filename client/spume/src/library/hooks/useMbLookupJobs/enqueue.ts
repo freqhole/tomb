@@ -64,8 +64,8 @@ export async function enqueueAlbumEnrichment(
       album_ids: albumIds,
       auto_confirm_threshold: opts.autoConfirmThreshold ?? null,
     }),
-    client.music.enqueueLastFmAlbumDetail({ album_ids: albumIds }),
-    client.music.enqueueAudioDbAlbumDetail({ album_ids: albumIds }),
+    client.music.enqueueLastfmAlbumDetail({ album_ids: albumIds }),
+    client.music.enqueueAudiodbAlbumDetail({ album_ids: albumIds }),
   ]);
 
   const result: EnrichResult = {
