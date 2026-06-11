@@ -842,6 +842,15 @@ export async function preCacheNextP2PSongs(
         // the song won't be pre-cached but will be fetched on-demand when played
         console.warn(`failed to sync first P2P song ${firstEntry.sha256}:`, result.error);
       }
+    } else if (isCharnelManagedRemoteSync(firstEntry.remoteId)) {
+      // charnel-managed local remote: audio is already on disk. rodio
+      // resolves the fs path at play time and the html backend fetches
+      // via charnel ipc on demand, so there's nothing to ephemerally
+      // pre-fetch or cache for audio. waveform + thumbnail warm below.
+      debug(
+        "blobResolver",
+        `first song audio is local (charnel-managed): ${firstEntry.sha256.slice(0, 8)}...`
+      );
     } else if (useEphemeralPreFetch && fetchEphemeralForSong && firstEntry.song.blake3) {
       // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
       // so the next track is already on disk for `loadAndPlay`. the
@@ -929,6 +938,10 @@ export async function preCacheNextP2PSongs(
     if (shouldSync && canSyncSong(entry.song)) {
       // queue for sequential sync below (canSyncSong narrows entry.song)
       syncEntries.push({ sha256: entry.sha256, song: entry.song });
+    } else if (isCharnelManagedRemoteSync(entry.remoteId)) {
+      // charnel-managed local remote: audio already on disk, nothing
+      // to pre-fetch or pre-cache (waveform + thumbnail still cached
+      // below for instant display).
     } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
       // skip the queue entirely if the file is already on disk —
       // no need to re-await the rust round-trip (and no need to

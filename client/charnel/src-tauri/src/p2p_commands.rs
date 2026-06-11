@@ -411,3 +411,52 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
 
     Ok(blake3)
 }
+
+/// begin a chunked blob import for P2P serving
+///
+/// used on Android where the file picker returns File objects (no filesystem
+/// path) and tauri IPC is JSON-only, so a large file can't be sent in one
+/// payload. the client streams the file in bounded chunks; the receiver
+/// accumulates them in a temp file on disk so neither side holds the whole
+/// file in memory. returns an upload_id to pass to the chunk/finish commands.
+#[tauri::command]
+pub async fn p2p_import_begin() -> Result<String, String> {
+    grimoire::blobz::begin_chunked_import()
+        .await
+        .map_err(|e| format!("failed to begin chunked import: {}", e))
+}
+
+/// append a base64-encoded chunk to an in-flight chunked import.
+/// returns the total number of bytes received so far (for progress).
+#[tauri::command]
+pub async fn p2p_import_chunk(upload_id: String, data: String) -> Result<u64, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("failed to decode base64 chunk: {}", e))?;
+
+    grimoire::blobz::append_chunk(&upload_id, &bytes)
+        .await
+        .map_err(|e| format!("failed to append chunk: {}", e))
+}
+
+/// finish a chunked import: import the accumulated temp file into the blobs
+/// store and return its blake3 hash, then delete the temp file.
+#[tauri::command]
+pub async fn p2p_import_finish(upload_id: String) -> Result<String, String> {
+    let hash = grimoire::blobz::finish_chunked_import(&upload_id)
+        .await
+        .map_err(|e| format!("failed to finish chunked import: {}", e))?;
+
+    let blake3 = hash.to_hex().to_string();
+    tracing::info!("finished chunked import {} -> {}", upload_id, &blake3[..16]);
+    Ok(blake3)
+}
+
+/// abort an in-flight chunked import, deleting any accumulated temp file.
+#[tauri::command]
+pub async fn p2p_import_abort(upload_id: String) -> Result<(), String> {
+    grimoire::blobz::abort_chunked_import(&upload_id)
+        .await
+        .map_err(|e| format!("failed to abort chunked import: {}", e))
+}

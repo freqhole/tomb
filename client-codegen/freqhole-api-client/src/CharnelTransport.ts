@@ -260,23 +260,43 @@ export class CharnelTransport implements Transport {
   /**
    * upload music via in-memory bytes using iroh-blobs pull model
    *
-   * reads the File into bytes, imports into local blobs store via
-   * p2p_import_blob_bytes, then tells the remote peer to pull via blake3.
-   * used on Android where the file picker gives File objects, not paths.
+   * streams the File to the local blobs store in bounded chunks via
+   * p2p_import_begin / p2p_import_chunk / p2p_import_finish, then tells the
+   * remote peer to pull via blake3. chunking is required on Android, where
+   * tauri IPC is JSON-only and a single large base64 payload OOMs the
+   * webview; it also keeps memory bounded on both sides (the receiver
+   * accumulates chunks in a temp file on disk, not in memory).
    */
   private async uploadMusicViaBytes(
     file: File,
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    console.debug("[P2P] uploadMusicViaBytes: reading file bytes for", file.name);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const b64 = bytesToBase64(bytes);
+    console.debug("[P2P] uploadMusicViaBytes: streaming file", file.name, file.size, "bytes");
 
-    // import bytes into local iroh-blobs store -> get blake3 hash
-    const blake3 = (await inv("p2p_import_blob_bytes", {
-      data: b64,
-    })) as string;
+    // ~4MB raw per chunk -> ~5.5MB base64 per IPC call, well within limits.
+    const CHUNK_SIZE = 4 * 1024 * 1024;
+
+    const uploadId = (await inv("p2p_import_begin")) as string;
+    try {
+      for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+        const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+        const chunkBytes = new Uint8Array(await slice.arrayBuffer());
+        const b64 = bytesToBase64(chunkBytes);
+        await inv("p2p_import_chunk", { uploadId, data: b64 });
+      }
+    } catch (err) {
+      // best-effort cleanup of the partial temp file on the receiver side.
+      try {
+        await inv("p2p_import_abort", { uploadId });
+      } catch {
+        // ignore abort failures
+      }
+      throw err;
+    }
+
+    // finalize: import accumulated temp file into the blobs store -> blake3.
+    const blake3 = (await inv("p2p_import_finish", { uploadId })) as string;
     console.debug("[P2P] uploadMusicViaBytes: imported blob, blake3 =", blake3);
 
     // tell the remote peer to pull the blob from us

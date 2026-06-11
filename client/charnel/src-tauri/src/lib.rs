@@ -759,6 +759,10 @@ pub fn run() {
             p2p_commands::p2p_fetch_hello_image,
             p2p_commands::p2p_import_blob,
             p2p_commands::p2p_import_blob_bytes,
+            p2p_commands::p2p_import_begin,
+            p2p_commands::p2p_import_chunk,
+            p2p_commands::p2p_import_finish,
+            p2p_commands::p2p_import_abort,
             p2p_commands::p2p_close_connection,
             p2p_commands::p2p_close_all_connections,
             // radio listener (freqhole-radio/1)

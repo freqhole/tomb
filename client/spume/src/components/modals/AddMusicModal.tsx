@@ -91,8 +91,16 @@ export function AddMusicModal(props: AddMusicModalProps) {
   };
 
   // derived job counts
-  const activeJobs = createMemo(() =>
-    (props.uploadJobs ?? []).filter((j) => j.status === "uploading" || j.status === "polling")
+  // jobs still transferring bytes to the remote. during this phase the
+  // remote pulls the blob from this app (P2P) or the HTTP POST is in flight,
+  // so the app must stay open and reachable until it finishes.
+  const transferringJobs = createMemo(() =>
+    (props.uploadJobs ?? []).filter((j) => j.status === "uploading")
+  );
+  // jobs whose bytes have reached the remote and are now being processed
+  // server-side. the remote no longer needs this app, so it's safe to close.
+  const processingJobs = createMemo(() =>
+    (props.uploadJobs ?? []).filter((j) => j.status === "polling")
   );
   const failedJobs = createMemo(() =>
     (props.uploadJobs ?? []).filter((j) => j.status === "failed")
@@ -334,11 +342,21 @@ export function AddMusicModal(props: AddMusicModalProps) {
                 <div class="border-t border-[var(--color-border-default)] px-4 py-3">
                   {/* status summary */}
                   <div class="flex items-center gap-2 mb-2">
-                    <Show when={activeJobs().length > 0}>
+                    <Show when={transferringJobs().length > 0}>
                       <div class="flex items-center gap-1.5">
                         <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                         <span class="body-xs text-[var(--color-text-secondary)]">
-                          processing {activeJobs().length} job{activeJobs().length !== 1 ? "s" : ""}
+                          transferring {transferringJobs().length} file
+                          {transferringJobs().length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    </Show>
+                    <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
+                      <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                        <span class="body-xs text-[var(--color-text-secondary)]">
+                          processing {processingJobs().length} on{" "}
+                          {props.remoteName || getLocalLibraryName()}
                         </span>
                       </div>
                     </Show>
@@ -355,9 +373,19 @@ export function AddMusicModal(props: AddMusicModalProps) {
                     </Show>
                   </div>
 
-                  <Show when={activeJobs().length > 0}>
+                  {/* close-safety guidance: while bytes are still transferring the
+                      remote is pulling from this app, so it must stay open. once
+                      transfer completes the remote finishes on its own. */}
+                  <Show when={transferringJobs().length > 0}>
                     <p class="body-xs text-[var(--color-text-tertiary)] mb-2">
-                      processing uploads — you can close this modal or add more music
+                      transferring files - keep this app open until the transfer finishes. you can
+                      switch tabs or add more music.
+                    </p>
+                  </Show>
+                  <Show when={transferringJobs().length === 0 && processingJobs().length > 0}>
+                    <p class="body-xs text-[var(--color-text-tertiary)] mb-2">
+                      files transferred - {props.remoteName || getLocalLibraryName()} is finishing
+                      up on its own. safe to close.
                     </p>
                   </Show>
 
@@ -403,7 +431,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                             }
                           >
                             {job.status === "uploading"
-                              ? "uploading..."
+                              ? "transferring..."
                               : job.status === "polling"
                                 ? (job.stage ?? "processing...")
                                 : job.status === "completed"

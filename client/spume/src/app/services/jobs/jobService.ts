@@ -138,6 +138,7 @@ async function subscribeAndWait(
       settled = true;
       clearTimeout(timeoutId);
       if (idleTimerId !== undefined) clearTimeout(idleTimerId);
+      if (terminalGraceTimer !== undefined) clearTimeout(terminalGraceTimer);
       controller.abort();
       resolve(r);
     };
@@ -193,10 +194,15 @@ async function subscribeAndWait(
     armIdleTimer();
 
     // capture rich error details from a `failed` event if it arrives.
-    // `status_changed { to: failed }` lands first but lacks the detail, so
-    // we resolve on the status transition and synthesize details from any
-    // `failed` event we saw in the same stream tick.
+    // the runner emits `status_changed { to: failed }` FIRST, then a
+    // `failed` event carrying the real error_type + message (e.g.
+    // "duplicate_song"). if we resolve immediately on the status
+    // transition we lose that detail, so when the transition arrives
+    // without a detail in hand we wait a short grace period for the
+    // `failed` event to land before giving up on structured info.
     let lastFailedDetail: { error_type: string; message: string } | null = null;
+    let terminalGraceTimer: ReturnType<typeof setTimeout> | undefined;
+    const TERMINAL_GRACE_MS = 2000;
 
     (async () => {
       try {
@@ -248,17 +254,33 @@ async function subscribeAndWait(
           return;
         }
         if (evt.to === "failed" || evt.to === "cancelled") {
-          const detail = lastFailedDetail?.message;
-          const errType = lastFailedDetail?.error_type ?? "unknown";
-          finish({
-            status: "failed",
-            errorMessage: detail,
-            errors: detail
-              ? [{ error_type: errType, title: evt.to, detail }]
-              : undefined,
-          });
+          // if the `failed` event already arrived, resolve with its
+          // structured detail right away. otherwise wait a short grace
+          // period for it before resolving without an error_type.
+          if (lastFailedDetail) {
+            finishFailedFromDetail(evt.to);
+            return;
+          }
+          if (terminalGraceTimer === undefined) {
+            const toStatus = evt.to;
+            terminalGraceTimer = setTimeout(() => finishFailedFromDetail(toStatus), TERMINAL_GRACE_MS);
+          }
         }
       }
+    }
+
+    // resolve a failed/cancelled terminal state using whatever detail the
+    // `failed` event provided (if any).
+    function finishFailedFromDetail(toStatus: string) {
+      const detail = lastFailedDetail?.message;
+      const errType = lastFailedDetail?.error_type ?? "unknown";
+      finish({
+        status: "failed",
+        errorMessage: detail,
+        errors: detail
+          ? [{ error_type: errType, title: toStatus, detail }]
+          : undefined,
+      });
     }
   });
 }
