@@ -609,6 +609,14 @@ export async function runPlaylistzTests(): Promise<{
         status: "accepted",
         grantedDocIds: ["doc1"],
       },
+      { v: 1, type: "blob_request", sha256: "a".repeat(64) },
+      {
+        v: 1,
+        type: "blob_ready",
+        sha256: "a".repeat(64),
+        blake3: "b".repeat(64),
+        size: 12345,
+      },
       { v: 1, type: "error", code: "not_found", message: "not found" },
     ];
     for (const msg of messages) {
