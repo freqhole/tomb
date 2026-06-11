@@ -8,7 +8,7 @@
 // button alongside.
 
 import { type Component } from "solid-js";
-import { buildShareUrls } from "../../utils/permalink";
+import { encodeShareToken } from "../../utils/permalink";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { buildSharePayload } from "./buildSharePayload";
 import type { ShareTarget } from "./types";
@@ -23,7 +23,7 @@ export const OpenInAppButton: Component<OpenInAppButtonProps> = (props) => {
     let appUrl: string;
     try {
       const payload = buildSharePayload(props.target, props.source);
-      appUrl = buildShareUrls(payload).appUrl;
+      appUrl = `freqhole://o/${encodeShareToken(payload)}`;
     } catch {
       // can't build a link — silently bail; the permalink section already
       // surfaces the same error.

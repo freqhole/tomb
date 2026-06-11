@@ -334,6 +334,8 @@ export function useSongContextMenu(
         id: song.id,
         displayTitle: song.title,
         parentId: song.album_id || undefined,
+        artistName: song.artist_name ?? undefined,
+        albumName: song.album_title ?? undefined,
       },
       () => ({
         kind: "song",
@@ -702,6 +704,7 @@ export function useAlbumContextMenu(
         kind: "album",
         id: album.id,
         displayTitle: album.title,
+        artistName: album.artist_name ?? undefined,
       },
       async (): Promise<SendPayload> => {
         const dataSource = dataSourceFor();

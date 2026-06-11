@@ -18,4 +18,8 @@ export interface ShareTarget {
    * album view with the song row highlighted (no song-detail route exists).
    */
   parentId?: string;
+  /** artist name — embedded in share payload so recipient can show it without querying. */
+  artistName?: string;
+  /** album name — used for song shares so recipient sees the album context. */
+  albumName?: string;
 }

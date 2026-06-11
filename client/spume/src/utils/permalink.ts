@@ -44,11 +44,13 @@ export interface SharePayloadV1 {
   p?: string;
   /** optional human display title — for nicer toasts; not trusted. */
   t?: string;
+  /** optional artist name — not trusted, display only. */
+  a?: string;
+  /** optional album name — not trusted, display only. for song shares. */
+  al?: string;
 }
 
 export interface ShareUrls {
-  /** `freqhole://o/<token>` deep link. */
-  appUrl: string;
   /** `https://<webHost>/#?share=<token>` web mirror. */
   webUrl: string;
 }
@@ -58,6 +60,25 @@ export const SHARE_HASH_PARAM = "share";
 
 /** default web mirror host for share urls. overridable via `buildShareUrls(p, host)`. */
 export const DEFAULT_SHARE_WEB_HOST = "https://spume.freqhole.net";
+
+/**
+ * returns the best available web host for share urls.
+ * uses the current page origin when it's http(s) (i.e. the app is being
+ * served from a real web server or a self-hosted instance). falls back to
+ * the canonical spume.freqhole.net host when running inside tauri
+ * (origin is `tauri://localhost` or similar) or any other non-http(s) context.
+ */
+export function getShareWebHost(): string {
+  try {
+    const origin = window.location.origin;
+    if (origin && (origin.startsWith("https://") || origin.startsWith("http://"))) {
+      return origin;
+    }
+  } catch {
+    // window not available (ssr / test context)
+  }
+  return DEFAULT_SHARE_WEB_HOST;
+}
 
 // ---- encoder / decoder -----------------------------------------------------
 
@@ -152,20 +173,21 @@ export function decodeShareToken(token: string): SharePayloadV1 {
     i: typeof obj.i === "string" ? obj.i : "",
     p: typeof obj.p === "string" ? obj.p : undefined,
     t: typeof obj.t === "string" ? obj.t : undefined,
+    a: typeof obj.a === "string" ? obj.a : undefined,
+    al: typeof obj.al === "string" ? obj.al : undefined,
   };
   validatePayload(out);
   return out;
 }
 
-/** build both `freqhole://` and `https://` urls from a payload. */
+/** build share urls from a payload. */
 export function buildShareUrls(
   p: SharePayloadV1,
-  webHost: string = DEFAULT_SHARE_WEB_HOST,
+  webHost: string = getShareWebHost(),
 ): ShareUrls {
   const token = encodeShareToken(p);
   const host = webHost.replace(/\/+$/, "");
   return {
-    appUrl: `freqhole://o/${token}`,
     webUrl: `${host}/#?${SHARE_HASH_PARAM}=${token}`,
   };
 }
