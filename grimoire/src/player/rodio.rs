@@ -32,7 +32,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rodio::mixer::Mixer;
-use rodio::source::Buffered;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
@@ -549,13 +548,7 @@ fn advance(
 #[allow(clippy::type_complexity)]
 fn load_source(
     path: &str,
-) -> Result<
-    (
-        Buffered<Decoder<std::io::BufReader<std::fs::File>>>,
-        Duration,
-    ),
-    ErrorDetail,
-> {
+) -> Result<(Decoder<std::io::BufReader<std::fs::File>>, Duration), ErrorDetail> {
     let p = std::path::Path::new(path);
     if !p.exists() {
         return Err(ErrorDetail::new(
@@ -637,10 +630,12 @@ fn load_source(
         }
     };
     let dur = src.total_duration().unwrap_or(Duration::ZERO);
-    // wrap in Source::buffered() so disk-read stalls don't starve the
-    // cpal mixer. cheap insurance on top of the larger cpal period
-    // we set on linux; harmless elsewhere.
-    Ok((src.buffered(), dur))
+    // return the decoder directly (no Source::buffered() wrapper).
+    // Buffered reports try_seek as NotSupported, which breaks the
+    // Seek command; the raw symphonia-backed Decoder supports
+    // seeking. disk-read stall protection comes from the larger cpal
+    // period we set on linux plus the BufReader the decoder wraps.
+    Ok((src, dur))
 }
 
 /// open the default audio output device. on linux we explicitly
