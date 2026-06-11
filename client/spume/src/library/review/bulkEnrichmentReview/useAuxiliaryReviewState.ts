@@ -354,7 +354,7 @@ export function useAuxiliaryReviewState(opts: {
     if (!id) return null;
     try {
       const client = await getClientForRemote(remote);
-      const resp = await client.music.albumImageCandidates({ album_id: id });
+      const resp = await client.music.imageCandidatesForAlbum({ album_id: id });
       // eslint-disable-next-line no-console
       console.log("[BulkReview] albumImagesResp response", id, resp);
       if (!resp.success || !resp.data) return null;
@@ -402,7 +402,7 @@ export function useAuxiliaryReviewState(opts: {
     if (!id) return null;
     try {
       const client = await getClientForRemote(remote);
-      const resp = await client.music.artistImageCandidates({ album_id: id });
+      const resp = await client.music.imageCandidatesForArtist({ album_id: id });
       // eslint-disable-next-line no-console
       console.log("[BulkReview] artistImagesResp response", id, resp);
       if (!resp.success || !resp.data) return null;

@@ -3692,7 +3692,7 @@ function Inner(props: {
                 if (!isRemoteAdmin(info.remoteId)) return;
                 try {
                   const apiClient = await getClientForRemote(remote);
-                  await apiClient.music.set_taxon_label({
+                  await apiClient.music.setTaxonLabel({
                     taxon_id: info.taxonId,
                     label,
                   });
@@ -3759,7 +3759,7 @@ function Inner(props: {
                 void (async () => {
                   try {
                     const apiClient = await getClientForRemote(remote);
-                    await apiClient.music.set_taxon_color({
+                    await apiClient.music.setTaxonColor({
                       taxon_id: info.taxonId!,
                       color: color ?? null,
                     });
@@ -3778,7 +3778,7 @@ function Inner(props: {
                 const relHubId = info.relHubId;
                 try {
                   const apiClient = await getClientForRemote(remote);
-                  await apiClient.music.set_taxon_kind_label({
+                  await apiClient.music.setTaxonKindLabel({
                     kind_slug: kindSlug,
                     label,
                   });
@@ -3821,7 +3821,7 @@ function Inner(props: {
                 void (async () => {
                   try {
                     const apiClient = await getClientForRemote(remote);
-                    const result = await apiClient.music.set_taxon_kind_color({
+                    const result = await apiClient.music.setTaxonKindColor({
                       kind_slug: kindSlug,
                       color: color ?? null,
                     });

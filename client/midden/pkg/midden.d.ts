@@ -83,6 +83,14 @@ export class BiStream {
      * this matches grimoire's `send_response()` framing where the message
      * is terminated by calling `finish()` on the send stream. the receiver
      * uses `read_to_end()` to read all bytes.
+     *
+     * after `finish()` we await `stopped()` so the peer's ack is observed
+     * before this method returns. without this, JS callers that drop /
+     * `close()` the stream immediately after `write_raw_and_finish` can
+     * race the QUIC flush -- the peer's `read_to_end` then errors with
+     * "connection lost" mid-payload because the in-flight frames are
+     * torn down with the connection. matters most for large payloads
+     * (e.g. base64-encoded blob bodies in `proxy_response`).
      */
     write_raw_and_finish(data: Uint8Array): Promise<void>;
 }

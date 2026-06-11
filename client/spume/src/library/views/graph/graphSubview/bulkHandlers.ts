@@ -239,7 +239,7 @@ export function createBulkHandlers(deps: BulkHandlersDeps) {
     const client = await getClientForRemote(remote);
     const ops: Promise<unknown>[] = [];
     for (const taxonId of bulkSelectedTaxonIds()) {
-      ops.push(client.music.set_taxon_color({ taxon_id: taxonId, color }));
+      ops.push(client.music.setTaxonColor({ taxon_id: taxonId, color }));
     }
     const results = await Promise.allSettled(ops);
     summarizeMutation("bulk set color", results);
