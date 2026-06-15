@@ -117,6 +117,51 @@ impl WebAuthnRepository {
 
         Ok(())
     }
+
+    /// Look up the user_id that owns a credential by its raw credential_id bytes.
+    /// used in the discoverable authentication flow where only the credential_id
+    /// is known before the user has been identified.
+    pub async fn get_user_id_by_credential_id(
+        &self,
+        credential_id: &[u8],
+    ) -> AuthResult<Option<String>> {
+        let pool = database::connect().await?;
+
+        // temp: log all stored credential IDs to compare with the presented one
+        let all = sqlx::query!(
+            r#"SELECT credential_id as "credential_id!" FROM user_credentialz WHERE deleted_at IS NULL"#
+        )
+        .fetch_all(&pool)
+        .await?;
+        tracing::info!(
+            "get_user_id_by_credential_id: looking for len={} hex={}, {} stored credential(s): [{}]",
+            credential_id.len(),
+            credential_id.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>(),
+            all.len(),
+            all.iter()
+                .map(|r| format!(
+                    "len={} hex={}",
+                    r.credential_id.len(),
+                    r.credential_id.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>()
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let row = sqlx::query!(
+            r#"
+            SELECT user_id as "user_id!"
+            FROM user_credentialz
+            WHERE credential_id = ?1 AND deleted_at IS NULL
+            LIMIT 1
+            "#,
+            credential_id,
+        )
+        .fetch_optional(&pool)
+        .await?;
+
+        Ok(row.map(|r| r.user_id))
+    }
 }
 
 impl Default for WebAuthnRepository {
@@ -157,6 +202,16 @@ impl WebAuthnService {
         };
 
         let credential_id = passkey.cred_id().as_ref().to_vec();
+        tracing::info!(
+            "save_credential: user={} cred_id len={} hex={}",
+            user_id,
+            credential_id.len(),
+            credential_id
+                .iter()
+                .take(8)
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
 
         match self
             .repository
@@ -233,6 +288,23 @@ impl WebAuthnService {
         {
             Ok(()) => GrimoireResponse::success("credential deleted", ()),
             Err(err) => GrimoireResponse::failure("failed to delete credential", vec![err.into()]),
+        }
+    }
+
+    /// Look up which user owns a credential by its raw credential_id bytes.
+    /// used in the discoverable authentication flow.
+    #[cfg(feature = "webauthn")]
+    pub async fn get_user_id_by_credential_id(
+        &self,
+        credential_id: &[u8],
+    ) -> GrimoireResponse<Option<String>> {
+        match self
+            .repository
+            .get_user_id_by_credential_id(credential_id)
+            .await
+        {
+            Ok(user_id) => GrimoireResponse::success("ok", user_id),
+            Err(err) => GrimoireResponse::failure("failed to look up credential", vec![err.into()]),
         }
     }
 }
@@ -341,5 +413,59 @@ impl GrimoireWebAuthn {
         webauthn
             .finish_passkey_authentication(auth, state)
             .map_err(|e| format!("finish_authentication failed: {}", e))
+    }
+
+    /// start a discoverable-credential authentication challenge (no username required).
+    /// the client sends an empty allowCredentials list; the platform authenticator
+    /// presents whatever passkeys it has for this RP. use with finish_discoverable_authentication.
+    pub fn start_discoverable_authentication(
+        &self,
+        origin: &str,
+    ) -> Result<
+        (
+            webauthn_rs::prelude::RequestChallengeResponse,
+            webauthn_rs::prelude::DiscoverableAuthentication,
+        ),
+        String,
+    > {
+        let webauthn = self.build(origin)?;
+        webauthn
+            .start_discoverable_authentication()
+            .map_err(|e| format!("start_discoverable_authentication failed: {}", e))
+    }
+
+    /// extract the user UUID and credential ID from a discoverable credential response.
+    /// call this before finish_discoverable_authentication to look up which user
+    /// and which stored credential to verify against.
+    /// security: this extracts the user_id the authenticator claims - it is NOT yet
+    /// verified; verification happens in finish_discoverable_authentication.
+    pub fn identify_discoverable_authentication<'a>(
+        &self,
+        origin: &str,
+        reg: &'a webauthn_rs::prelude::PublicKeyCredential,
+    ) -> Result<(uuid::Uuid, &'a [u8]), String> {
+        let webauthn = self.build(origin)?;
+        webauthn
+            .identify_discoverable_authentication(reg)
+            .map_err(|e| format!("identify_discoverable_authentication failed: {}", e))
+    }
+
+    /// complete a discoverable-credential authentication given the stored challenge
+    /// and the specific credentials belonging to the identified user.
+    pub fn finish_discoverable_authentication(
+        &self,
+        origin: &str,
+        reg: &webauthn_rs::prelude::PublicKeyCredential,
+        state: webauthn_rs::prelude::DiscoverableAuthentication,
+        creds: &[webauthn_rs::prelude::Passkey],
+    ) -> Result<webauthn_rs::prelude::AuthenticationResult, String> {
+        let webauthn = self.build(origin)?;
+        let discoverable_keys: Vec<webauthn_rs::prelude::DiscoverableKey> = creds
+            .iter()
+            .map(webauthn_rs::prelude::DiscoverableKey::from)
+            .collect();
+        webauthn
+            .finish_discoverable_authentication(reg, state, &discoverable_keys)
+            .map_err(|e| format!("finish_discoverable_authentication failed: {}", e))
     }
 }

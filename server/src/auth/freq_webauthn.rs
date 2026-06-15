@@ -178,6 +178,79 @@ impl FreqWebauthn {
                 ApiError::Internal(format!("webauthn authentication validation failed: {}", e))
             })
     }
+
+    /// start discoverable (username-optional) authentication
+    ///
+    /// issues a challenge with empty allowCredentials so the platform authenticator
+    /// can pick the passkey without the user typing a username.
+    pub fn start_discoverable_authentication(
+        &self,
+        origin: &str,
+    ) -> Result<(RequestChallengeResponse, DiscoverableAuthentication), ApiError> {
+        let rp_origin = Url::parse(origin)
+            .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
+
+        let webauthn = WebauthnBuilder::new(&self.rp_id, &rp_origin)
+            .map_err(|e| ApiError::Internal(format!("failed to create webauthn builder: {}", e)))?
+            .rp_name(&self.rp_name)
+            .build()
+            .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
+
+        webauthn
+            .start_discoverable_authentication()
+            .map_err(|e| ApiError::Internal(format!("discoverable authentication failed: {}", e)))
+    }
+
+    /// identify the user from a discoverable credential response
+    ///
+    /// returns the `(uuid, credential_id_bytes)` pair; use credential_id_bytes to
+    /// look up the user in the database.
+    pub fn identify_discoverable_authentication<'a>(
+        &self,
+        origin: &str,
+        auth: &'a PublicKeyCredential,
+    ) -> Result<(uuid::Uuid, &'a [u8]), ApiError> {
+        let rp_origin = Url::parse(origin)
+            .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
+
+        let webauthn = WebauthnBuilder::new(&self.rp_id, &rp_origin)
+            .map_err(|e| ApiError::Internal(format!("failed to create webauthn builder: {}", e)))?
+            .rp_name(&self.rp_name)
+            .build()
+            .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
+
+        webauthn
+            .identify_discoverable_authentication(auth)
+            .map_err(|e| ApiError::Internal(format!("identify discoverable auth failed: {}", e)))
+    }
+
+    /// finish discoverable authentication
+    pub fn finish_discoverable_authentication(
+        &self,
+        origin: &str,
+        auth: &PublicKeyCredential,
+        state: DiscoverableAuthentication,
+        creds: &[Passkey],
+    ) -> Result<AuthenticationResult, ApiError> {
+        let rp_origin = Url::parse(origin)
+            .map_err(|e| ApiError::Internal(format!("invalid origin url: {}", e)))?;
+
+        let webauthn = WebauthnBuilder::new(&self.rp_id, &rp_origin)
+            .map_err(|e| ApiError::Internal(format!("failed to create webauthn builder: {}", e)))?
+            .rp_name(&self.rp_name)
+            .build()
+            .map_err(|e| ApiError::Internal(format!("failed to build webauthn: {}", e)))?;
+
+        let disc_keys: Vec<DiscoverableKey> = creds.iter().map(DiscoverableKey::from).collect();
+        webauthn
+            .finish_discoverable_authentication(auth, state, &disc_keys)
+            .map_err(|e| {
+                ApiError::Internal(format!(
+                    "discoverable authentication validation failed: {}",
+                    e
+                ))
+            })
+    }
 }
 
 // non-feature-gated stub for when webauthn is disabled
@@ -421,6 +494,9 @@ pub async fn register_finish(
 }
 
 /// start webauthn authentication - create challenge
+///
+/// if `username` is omitted, issues a discoverable-credential challenge
+/// (empty allowCredentials); the user is identified during finish.
 #[cfg(feature = "webauthn")]
 pub async fn login_start(
     Extension(_state): Extension<AppState>,
@@ -428,54 +504,55 @@ pub async fn login_start(
     session: Session,
     Json(request): Json<StartLoginRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let username = &request.username;
-
-    // look up user
-    let user_service = grimoire::users::UserService::new();
-    let user_response = user_service.get_user_by_username(username).await;
-
-    if !user_response.is_success() {
-        return Err(ApiError::BadRequest("user not found".to_string()));
-    }
-
-    let user = user_response
-        .data
-        .ok_or_else(|| ApiError::Internal("failed to get user data".to_string()))?;
-
-    // get user's credentials
-    let webauthn_service = grimoire::users::WebAuthnService::new();
-    let creds_response = webauthn_service.get_credentials(&user.id).await;
-
-    if !creds_response.is_success() {
-        return Err(ApiError::Internal("failed to get credentials".to_string()));
-    }
-
-    let credentials = creds_response
-        .data
-        .ok_or_else(|| ApiError::Internal("no credentials data".to_string()))?;
-
-    if credentials.is_empty() {
-        return Err(ApiError::BadRequest("user has no credentials".to_string()));
-    }
-
-    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
-    let rp_name = "freqhole";
+    let freq_webauthn = FreqWebauthn::new(rp_id, "freqhole".to_string());
 
-    // create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
+    match request.username.as_deref().filter(|s| !s.is_empty()) {
+        Some(username) => {
+            // targeted flow: look up user and issue challenge scoped to their credentials
+            let user_service = grimoire::users::UserService::new();
+            let user_response = user_service.get_user_by_username(username).await;
 
-    // start authentication
-    let (rcr, auth_state) = freq_webauthn.start_authentication(&origin.0, &credentials)?;
+            // return a generic error to avoid username enumeration
+            let user = user_response
+                .data
+                .ok_or_else(|| ApiError::BadRequest("passkey authentication failed".to_string()))?;
 
-    // store auth state in session
-    session
-        .insert("auth_state", (user.id, auth_state))
-        .await
-        .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
+            let webauthn_service = grimoire::users::WebAuthnService::new();
+            let credentials = webauthn_service
+                .get_credentials(&user.id)
+                .await
+                .data
+                .ok_or_else(|| ApiError::BadRequest("passkey authentication failed".to_string()))?;
 
-    Ok(Json(rcr))
+            if credentials.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "passkey authentication failed".to_string(),
+                ));
+            }
+
+            let (rcr, auth_state) = freq_webauthn.start_authentication(&origin.0, &credentials)?;
+
+            session
+                .insert("auth_state", (user.id, auth_state))
+                .await
+                .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
+
+            Ok(Json(rcr))
+        }
+        None => {
+            // discoverable flow: empty allowCredentials; user identified in finish
+            let (rcr, disc_state) = freq_webauthn.start_discoverable_authentication(&origin.0)?;
+
+            session
+                .insert("disc_auth_state", disc_state)
+                .await
+                .map_err(|e| ApiError::Internal(format!("failed to save session: {}", e)))?;
+
+            Ok(Json(rcr))
+        }
+    }
 }
 
 /// finish webauthn authentication - validate and create session
@@ -486,43 +563,58 @@ pub async fn login_finish(
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // get auth state from session
-    let (user_id, auth_state): (String, PasskeyAuthentication) = session
-        .get("auth_state")
-        .await
-        .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
-        .ok_or_else(|| ApiError::BadRequest("no authentication in progress".to_string()))?;
-
-    // remove auth state from session
-    let _ = session.remove_value("auth_state").await;
-
-    // extract rp_id (hostname) from the validated origin
     let rp_id = grimoire::config::extract_rp_id(&origin.0)
         .ok_or_else(|| ApiError::Internal("invalid origin url".to_string()))?;
-    let rp_name = "freqhole";
-
-    // create FreqWebauthn instance
-    let freq_webauthn = FreqWebauthn::new(rp_id, rp_name.to_string());
-
-    // finish authentication
-    let _auth_result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
-
-    // update credential counter (optional, for now we'll skip this)
-    // in production, you'd want to update the credential's counter to prevent replay attacks
-
-    // get user info
+    let freq_webauthn = FreqWebauthn::new(rp_id, "freqhole".to_string());
     let user_service = grimoire::users::UserService::new();
+
+    // determine which flow was started by checking which session key is present
+    let targeted: Option<(String, PasskeyAuthentication)> = session
+        .get("auth_state")
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?;
+
+    let user_id = if let Some((uid, auth_state)) = targeted {
+        let _ = session.remove_value("auth_state").await;
+        let _result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
+        uid
+    } else {
+        // discoverable flow
+        let disc_state: DiscoverableAuthentication = session
+            .get("disc_auth_state")
+            .await
+            .map_err(|e| ApiError::Internal(format!("failed to get session: {}", e)))?
+            .ok_or_else(|| ApiError::BadRequest("no authentication in progress".to_string()))?;
+        let _ = session.remove_value("disc_auth_state").await;
+
+        // extract credential_id directly from the assertion (does not require a user handle)
+        let cred_id = auth.get_credential_id();
+
+        let webauthn_service = grimoire::users::WebAuthnService::new();
+        let uid = webauthn_service
+            .get_user_id_by_credential_id(cred_id)
+            .await
+            .data
+            .flatten()
+            .ok_or_else(|| ApiError::BadRequest("passkey authentication failed".to_string()))?;
+
+        let creds = webauthn_service
+            .get_credentials(&uid)
+            .await
+            .data
+            .unwrap_or_default();
+
+        let _result = freq_webauthn
+            .finish_discoverable_authentication(&origin.0, &auth, disc_state, &creds)?;
+
+        uid
+    };
+
     let user_response = user_service.get_user(&user_id).await;
-
-    if !user_response.is_success() {
-        return Err(ApiError::Internal("failed to get user".to_string()));
-    }
-
     let user = user_response
         .data
         .ok_or_else(|| ApiError::Internal("no user data".to_string()))?;
 
-    // create session
     session::save_session(&session, &user.id, &user.username, &user.role.to_string()).await?;
 
     Ok(Json(serde_json::json!({

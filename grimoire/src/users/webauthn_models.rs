@@ -22,8 +22,11 @@ pub struct RegisterStartRequest {
 /// Request to start webauthn login
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct StartLoginRequest {
-    /// Username to authenticate
-    pub username: String,
+    /// username to authenticate - optional.
+    /// if omitted, the server issues a discoverable-credential challenge
+    /// (empty allowCredentials) so the platform authenticator can select
+    /// the passkey itself without the user typing a username.
+    pub username: Option<String>,
     /// Browser origin (window.location.origin) - required for p2p transport.
     /// ignored by http handlers.
     pub origin: Option<String>,

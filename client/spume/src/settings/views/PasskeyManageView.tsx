@@ -109,11 +109,11 @@ export function PasskeyManageView() {
     const remote = data()?.remote;
     if (!remote || !isP2PRemote(remote)) return;
 
-    const username = addUsername().trim();
+    const username = addUsername().trim() || undefined;
     const inviteCode = addInviteCode().trim();
 
-    if (!username) {
-      setAddError("username is required");
+    if (mode === "register" && !username) {
+      setAddError("username is required for registration");
       return;
     }
     if (mode === "register" && !inviteCode) {
@@ -126,7 +126,7 @@ export function PasskeyManageView() {
     try {
       const result =
         mode === "register"
-          ? await registerWithWebauthnP2P(remote.peer_addr!, username, inviteCode)
+          ? await registerWithWebauthnP2P(remote.peer_addr!, username!, inviteCode)
           : await loginWithWebauthnP2P(remote.peer_addr!, username);
 
       if (!result.success) {
@@ -266,12 +266,21 @@ export function PasskeyManageView() {
                   <div>
                     <label class="block text-xs font-medium text-[var(--color-text-primary)] mb-1">
                       username
+                      {addMode() === "login" && (
+                        <span class="text-[var(--color-text-muted)] font-normal ml-1">
+                          (optional)
+                        </span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={addUsername()}
                       onInput={(e) => setAddUsername(e.currentTarget.value)}
-                      placeholder="your username on this server"
+                      placeholder={
+                        addMode() === "login"
+                          ? "username (optional)"
+                          : "your username on this server"
+                      }
                       class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
                       disabled={addBusy()}
                     />

@@ -55,7 +55,9 @@ struct P2pRegisterFinishRequest {
 /// start login over p2p
 #[derive(Debug, Deserialize)]
 struct P2pLoginStartRequest {
-    username: String,
+    /// username is optional - if omitted the client uses discoverable credentials
+    /// (the platform authenticator presents whatever passkey it has for this RP)
+    username: Option<String>,
     /// browser origin (window.location.origin) - used to derive rp_id
     origin: String,
     /// injected by p2p handler
@@ -393,6 +395,11 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
 /// start passkey authentication over p2p
 ///
 /// path: POST /api/auth/webauthn/login/start
+///
+/// if username is omitted (or empty), uses the discoverable-credential flow:
+/// the challenge has an empty allowCredentials list so the platform authenticator
+/// presents whatever passkey it has for this RP without the user typing a username.
+/// the user is identified from the credential's embedded userHandle in login_finish.
 #[cfg(feature = "webauthn")]
 pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     use crate::users::{
@@ -411,64 +418,106 @@ pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Err(e) => return e,
     };
 
-    let user_service = UserService::new();
-    let user_resp = user_service.get_user_by_username(&req.username).await;
-    if !user_resp.is_success() {
-        return bad_request("user not found");
-    }
-    let user = user_resp.data.unwrap();
-
-    let webauthn_service = WebAuthnService::new();
-    let creds = webauthn_service
-        .get_credentials(&user.id)
-        .await
-        .data
-        .unwrap_or_default();
-
-    if creds.is_empty() {
-        return bad_request("user has no passkeys registered");
-    }
-
     let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
-    let (rcr, auth_state) = match freq_webauthn.start_authentication(&req.origin, &creds) {
-        Ok(r) => r,
-        Err(e) => return internal_error(&format!("webauthn start failed: {:?}", e)),
-    };
 
-    let challenge_json = match serde_json::to_string(&auth_state) {
-        Ok(j) => j,
-        Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
-    };
+    // if username is supplied and non-empty, use the targeted flow (specific credentials).
+    // otherwise use discoverable credentials so the authenticator picks the passkey.
+    let username = req.username.as_deref().filter(|s| !s.is_empty());
 
-    let store = ChallengeStore::new();
-    let nonce = match store
-        .save(SaveChallengeArgs {
-            kind: "authentication",
-            challenge_json: &challenge_json,
-            user_id: Some(&user.id),
-            username: Some(&user.username),
-            is_account_link: false,
-            invite_code: None,
-        })
-        .await
-    {
-        Ok(n) => n,
-        Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
-    };
+    if let Some(username) = username {
+        // targeted flow: look up user, build allowCredentials list
+        let user_service = UserService::new();
+        let user_resp = user_service.get_user_by_username(username).await;
+        if !user_resp.is_success() {
+            // return the same error as a non-existent user to avoid user enumeration
+            return bad_request("passkey authentication failed");
+        }
+        let user = user_resp.data.unwrap();
 
-    GrimoireResponse::success(
-        "authentication challenge created",
-        json!({
-            "nonce": nonce,
-            "challenge": rcr,
-        }),
-    )
+        let webauthn_service = WebAuthnService::new();
+        let creds = webauthn_service
+            .get_credentials(&user.id)
+            .await
+            .data
+            .unwrap_or_default();
+
+        if creds.is_empty() {
+            return bad_request("passkey authentication failed");
+        }
+
+        let (rcr, auth_state) = match freq_webauthn.start_authentication(&req.origin, &creds) {
+            Ok(r) => r,
+            Err(e) => return internal_error(&format!("webauthn start failed: {:?}", e)),
+        };
+
+        let challenge_json = match serde_json::to_string(&auth_state) {
+            Ok(j) => j,
+            Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
+        };
+
+        let store = ChallengeStore::new();
+        let nonce = match store
+            .save(SaveChallengeArgs {
+                kind: "authentication",
+                challenge_json: &challenge_json,
+                user_id: Some(&user.id),
+                username: Some(&user.username),
+                is_account_link: false,
+                invite_code: None,
+            })
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
+        };
+
+        GrimoireResponse::success(
+            "authentication challenge created",
+            json!({ "nonce": nonce, "challenge": rcr }),
+        )
+    } else {
+        // discoverable flow: empty allowCredentials, user identified in login_finish
+        let (rcr, auth_state) = match freq_webauthn.start_discoverable_authentication(&req.origin) {
+            Ok(r) => r,
+            Err(e) => {
+                return internal_error(&format!("discoverable webauthn start failed: {:?}", e))
+            }
+        };
+
+        let challenge_json = match serde_json::to_string(&auth_state) {
+            Ok(j) => j,
+            Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
+        };
+
+        let store = ChallengeStore::new();
+        let nonce = match store
+            .save(SaveChallengeArgs {
+                kind: "discoverable_authentication",
+                challenge_json: &challenge_json,
+                user_id: None,
+                username: None,
+                is_account_link: false,
+                invite_code: None,
+            })
+            .await
+        {
+            Ok(n) => n,
+            Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
+        };
+
+        GrimoireResponse::success(
+            "authentication challenge created",
+            json!({ "nonce": nonce, "challenge": rcr }),
+        )
+    }
 }
 
 /// finish passkey authentication over p2p
 ///
 /// path: POST /api/auth/webauthn/login/finish
 ///
+/// handles both targeted (kind="authentication") and discoverable
+/// (kind="discoverable_authentication") challenge flows.
 /// on success, the connecting node_id is linked to the authenticated user so
 /// subsequent p2p requests from that node are auto-authenticated by node_id lookup.
 #[cfg(feature = "webauthn")]
@@ -486,20 +535,19 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
     };
 
     let store = ChallengeStore::new();
-    let row = match store.take(&req.nonce, "authentication").await {
-        Ok(Some(r)) => r,
-        Ok(None) => return bad_request("invalid or expired nonce"),
-        Err(e) => return internal_error(&format!("failed to retrieve challenge: {}", e)),
-    };
 
-    let user_id = match row.user_id {
-        Some(ref id) => id.clone(),
-        None => return internal_error("challenge missing user_id"),
-    };
-
-    let auth_state: PasskeyAuthentication = match serde_json::from_str(&row.challenge_json) {
-        Ok(s) => s,
-        Err(e) => return internal_error(&format!("failed to deserialize challenge: {}", e)),
+    // try to retrieve the challenge - check both kinds
+    let row = {
+        let targeted = store.take(&req.nonce, "authentication").await;
+        let discoverable = store.take(&req.nonce, "discoverable_authentication").await;
+        match (targeted, discoverable) {
+            (Ok(Some(r)), _) => r,
+            (_, Ok(Some(r))) => r,
+            (Ok(None), Ok(None)) => return bad_request("invalid or expired nonce"),
+            (Err(e), _) | (_, Err(e)) => {
+                return internal_error(&format!("failed to retrieve challenge: {}", e))
+            }
+        }
     };
 
     let auth_credential: PublicKeyCredential = match serde_json::from_value(req.credential) {
@@ -508,15 +556,92 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
     };
 
     let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
-    let _auth_result =
-        match freq_webauthn.finish_authentication(&req.origin, &auth_credential, &auth_state) {
+    let user_service = UserService::new();
+
+    let user_id = if row.kind == "discoverable_authentication" {
+        // discoverable flow: extract credential_id directly from the assertion
+        // (identify_discoverable_authentication is not used because it requires
+        //  the authenticator to have sent a user handle, which is not guaranteed)
+        use crate::users::WebAuthnService;
+
+        let cred_id = auth_credential.get_credential_id();
+        tracing::info!(
+            "discoverable login_finish: cred_id len={}, hex prefix={}",
+            cred_id.len(),
+            cred_id
+                .iter()
+                .take(8)
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
+
+        // look up which user owns this credential
+        let webauthn_service = WebAuthnService::new();
+        let lookup = webauthn_service.get_user_id_by_credential_id(cred_id).await;
+        tracing::info!(
+            "discoverable login_finish: db lookup success={}, data={:?}",
+            lookup.success,
+            lookup.data
+        );
+        let uid = match lookup.data {
+            Some(Some(id)) => id,
+            _ => return bad_request("passkey authentication failed"),
+        };
+
+        // get user's credentials and finish the discoverable authentication
+        let creds = webauthn_service
+            .get_credentials(&uid)
+            .await
+            .data
+            .unwrap_or_default();
+        tracing::info!(
+            "discoverable login_finish: uid={}, credential count={}",
+            uid,
+            creds.len()
+        );
+
+        let disc_state: webauthn_rs::prelude::DiscoverableAuthentication =
+            match serde_json::from_str(&row.challenge_json) {
+                Ok(s) => s,
+                Err(e) => {
+                    return internal_error(&format!("failed to deserialize challenge: {}", e))
+                }
+            };
+
+        let _auth_result = match freq_webauthn.finish_discoverable_authentication(
+            &req.origin,
+            &auth_credential,
+            disc_state,
+            &creds,
+        ) {
             Ok(r) => r,
             Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
         };
 
+        uid
+    } else {
+        // targeted flow: user_id is in the challenge row
+        let uid = match row.user_id {
+            Some(ref id) => id.clone(),
+            None => return internal_error("challenge missing user_id"),
+        };
+
+        let auth_state: PasskeyAuthentication = match serde_json::from_str(&row.challenge_json) {
+            Ok(s) => s,
+            Err(e) => return internal_error(&format!("failed to deserialize challenge: {}", e)),
+        };
+
+        let _auth_result =
+            match freq_webauthn.finish_authentication(&req.origin, &auth_credential, &auth_state) {
+                Ok(r) => r,
+                Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
+            };
+
+        uid
+    };
+
     // link node_id to user (this is the key p2p auth payoff: subsequent
     // requests from this node are auto-authenticated without a passkey)
-    let user_service = UserService::new();
     if let Some(ref node_id) = req.node_id {
         let _ = user_service
             .add_peer_node(&user_id, node_id, Some("passkey login"))

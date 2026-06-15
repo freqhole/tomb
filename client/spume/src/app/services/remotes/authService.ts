@@ -88,23 +88,25 @@ export async function registerWithWebauthnP2P(
 /**
  * authenticate with a passkey over p2p transport.
  *
+ * username is optional - if omitted the server issues a discoverable-credential
+ * challenge and the platform authenticator picks the right passkey.
  * on success the server links the node_id to the user account so subsequent
  * p2p requests from this iroh node are auto-authenticated.
  */
 export async function loginWithWebauthnP2P(
   peerAddr: string,
-  username: string,
+  username?: string,
 ): Promise<P2PAuthResult> {
   const origin = window.location.origin;
   const remote = { transport: "wasm" as const, peer_addr: peerAddr };
 
   try {
     const client = await getClientForRemote(remote);
-    debug("webauthn-p2p", "starting p2p login for:", username);
+    debug("webauthn-p2p", "starting p2p login, username:", username ?? "(discoverable)");
 
-    // step 1: start - include origin
+    // step 1: start - include origin; omit username for discoverable flow
     const startResult = await client.auth.loginStart({
-      username,
+      username: username || undefined,
       origin,
     });
 
@@ -120,10 +122,14 @@ export async function loginWithWebauthnP2P(
     if (!credential) {
       return { success: false, error: "browser did not return a credential" };
     }
+    debug("webauthn-p2p", "credential id (base64url):", credential.id);
+    debug("webauthn-p2p", "user handle present:", !!(credential.response as AuthenticatorAssertionResponse).userHandle);
 
     // step 3: finish
     const serialized = webauthn.serializeAuthenticationCredential(credential);
+    debug("webauthn-p2p", "sending finish, nonce:", nonce, "rawId (first 8 chars):", serialized.rawId?.slice(0, 8));
     const finishResult = await client.auth.loginFinish({ nonce, origin, credential: serialized });
+    debug("webauthn-p2p", "finish result:", finishResult.success, finishResult.success ? finishResult.data : finishResult.error);
 
     if (!finishResult.success) {
       return { success: false, error: parseErrorMsg(finishResult.error, "failed to finish login") };

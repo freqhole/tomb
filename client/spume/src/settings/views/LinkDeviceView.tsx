@@ -7,15 +7,17 @@
 //   https://spume.freqhole.net/?link=<base64(json)>
 //
 // the base64 payload contains:
-//   { peer_addr: string, name: string, description: string | null }
+//   { peer_addr: string, name: string, description: string | null, link_node_id?: string }
 //
 // flow:
-//   1. user opens url in a browser where they have (or can register) a passkey
-//   2. this view decodes the payload, shows remote context, prompts for passkey
-//   3. on success, calls link-node to add the charnel node_id as a trusted peer
-//   4. shows a success message; the charnel app polls whoami until it sees itself
+//   1. on mount: try whoami over p2p. if already authenticated, skip passkey and go straight
+//      to link_node (stage = "already-authed" then "linking" then "success").
+//   2. otherwise: show passkey login/register form. username is optional for login -
+//      omitting it triggers the discoverable-credential flow (no typing required).
+//   3. on success: if payload.link_node_id present, call link_node for the external device too.
+//   4. show success; the charnel app polls whoami until it sees itself.
 
-import { createSignal, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import {
   registerWithWebauthnP2P,
   loginWithWebauthnP2P,
@@ -27,8 +29,7 @@ interface LinkPayload {
   peer_addr: string;
   name: string;
   description: string | null;
-  // optional: the node_id of the device to link (the charnel app's node_id)
-  // if absent, only the browser's node_id is linked (standard passkey login)
+  // optional: the node_id of the device to link (the charnel/tauri app's node_id)
   link_node_id?: string;
 }
 
@@ -44,28 +45,76 @@ function decodeLinkPayload(raw: string): LinkPayload | null {
 }
 
 type Mode = "login" | "register";
-type Stage = "form" | "busy" | "success" | "error";
+type Stage = "checking" | "form" | "busy" | "linking" | "success" | "error";
 
 export function LinkDeviceView() {
-  // read ?link= from current URL
   const raw = new URLSearchParams(window.location.search).get("link") ?? "";
   const payload = decodeLinkPayload(raw);
 
   const [mode, setMode] = createSignal<Mode>("login");
   const [username, setUsername] = createSignal("");
   const [inviteCode, setInviteCode] = createSignal("");
-  const [stage, setStage] = createSignal<Stage>(payload ? "form" : "error");
+  const [stage, setStage] = createSignal<Stage>(payload ? "checking" : "error");
   const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
   const [linkedNodeId, setLinkedNodeId] = createSignal<string | null>(null);
+  const [busyLabel, setBusyLabel] = createSignal("checking authentication...");
+
+  // on mount: try whoami over p2p. if already authenticated, skip the form.
+  onMount(() => {
+    if (!payload) return;
+    void checkExistingAuth();
+  });
+
+  async function checkExistingAuth() {
+    if (!payload) return;
+    try {
+      const client = await getClientForRemote({
+        transport: "wasm" as const,
+        peer_addr: payload.peer_addr,
+      });
+      const result = await client.auth.whoami();
+      debug("link-device", "whoami result:", result);
+      if (result.success && (result.data as { logged_in?: boolean } | undefined)?.logged_in) {
+        // already authenticated - link the node directly
+        await doLinkNode(client);
+      } else {
+        setStage("form");
+      }
+    } catch (e) {
+      debug("link-device", "whoami check failed, showing form:", e);
+      setStage("form");
+    }
+  }
+
+  async function doLinkNode(client: Awaited<ReturnType<typeof getClientForRemote>>) {
+    if (!payload?.link_node_id) {
+      setStage("success");
+      return;
+    }
+    setStage("linking");
+    setBusyLabel("linking device...");
+    try {
+      const linkResult = await client.auth.linkNode({ node_id: payload.link_node_id });
+      if (!linkResult.success) {
+        debug("link-device", "link_node failed:", linkResult);
+      } else {
+        setLinkedNodeId(payload.link_node_id);
+        debug("link-device", "linked external node_id:", payload.link_node_id);
+      }
+    } catch (e) {
+      debug("link-device", "link_node error (non-fatal):", e);
+    }
+    setStage("success");
+  }
 
   async function handleSubmit() {
     if (!payload) return;
 
-    const user = username().trim();
+    const user = username().trim() || undefined;
     const code = inviteCode().trim();
 
-    if (!user) {
-      setErrorMsg("username is required");
+    if (mode() === "register" && !user) {
+      setErrorMsg("username is required for registration");
       return;
     }
     if (mode() === "register" && !code) {
@@ -74,13 +123,13 @@ export function LinkDeviceView() {
     }
 
     setStage("busy");
+    setBusyLabel(mode() === "register" ? "registering passkey..." : "authenticating...");
     setErrorMsg(null);
 
     try {
-      // step 1: authenticate this browser session via passkey
       const authResult =
         mode() === "register"
-          ? await registerWithWebauthnP2P(payload.peer_addr, user, code)
+          ? await registerWithWebauthnP2P(payload.peer_addr, user!, code)
           : await loginWithWebauthnP2P(payload.peer_addr, user);
 
       if (!authResult.success) {
@@ -91,24 +140,11 @@ export function LinkDeviceView() {
 
       debug("link-device", "passkey auth succeeded:", authResult);
 
-      // step 2: if the payload includes a link_node_id, link it to the authenticated user.
-      // this is the charnel/tauri app's own node_id.
-      if (payload.link_node_id) {
-        const client = await getClientForRemote({
-          transport: "wasm" as const,
-          peer_addr: payload.peer_addr,
-        });
-        const linkResult = await client.auth.linkNode({ node_id: payload.link_node_id });
-        if (!linkResult.success) {
-          // non-fatal: browser session is still linked. log and continue.
-          debug("link-device", "link_node_id step failed (non-fatal):", linkResult);
-        } else {
-          setLinkedNodeId(payload.link_node_id);
-          debug("link-device", "linked external node_id:", payload.link_node_id);
-        }
-      }
-
-      setStage("success");
+      const client = await getClientForRemote({
+        transport: "wasm" as const,
+        peer_addr: payload.peer_addr,
+      });
+      await doLinkNode(client);
     } catch (e) {
       debug("link-device", "error:", e);
       setStage("error");
@@ -158,6 +194,14 @@ export function LinkDeviceView() {
           </div>
         </Show>
 
+        {/* checking / busy / linking */}
+        <Show when={stage() === "checking" || stage() === "busy" || stage() === "linking"}>
+          <div class="flex flex-col items-center gap-3 py-8">
+            <div class="animate-spin rounded-full h-8 w-8 border-2 border-[var(--color-accent-500)] border-t-transparent" />
+            <p class="text-sm text-[var(--color-text-secondary)]">{busyLabel()}</p>
+          </div>
+        </Show>
+
         {/* form */}
         <Show when={payload && stage() === "form"}>
           <div class="space-y-4">
@@ -194,12 +238,19 @@ export function LinkDeviceView() {
             <div>
               <label class="block text-xs font-medium text-[var(--color-text-primary)] mb-1">
                 username
+                {mode() === "login" && (
+                  <span class="text-[var(--color-text-muted)] font-normal ml-1">
+                    (optional - leave blank to use device passkey)
+                  </span>
+                )}
               </label>
               <input
                 type="text"
                 value={username()}
                 onInput={(e) => setUsername(e.currentTarget.value)}
-                placeholder="your username on this server"
+                placeholder={
+                  mode() === "login" ? "username (optional)" : "your username on this server"
+                }
                 class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)]"
               />
             </div>
@@ -228,16 +279,6 @@ export function LinkDeviceView() {
           </div>
         </Show>
 
-        {/* busy */}
-        <Show when={stage() === "busy"}>
-          <div class="flex flex-col items-center gap-3 py-8">
-            <div class="animate-spin rounded-full h-8 w-8 border-2 border-[var(--color-accent-500)] border-t-transparent" />
-            <p class="text-sm text-[var(--color-text-secondary)]">
-              {mode() === "register" ? "registering passkey..." : "authenticating..."}
-            </p>
-          </div>
-        </Show>
-
         {/* success */}
         <Show when={stage() === "success"}>
           <div class="p-6 bg-[var(--color-status-success)]/10 border border-[var(--color-status-success)] rounded-lg text-center space-y-2">
@@ -249,7 +290,7 @@ export function LinkDeviceView() {
             <Show when={linkedNodeId()}>
               <p class="text-xs text-[var(--color-text-muted)]">
                 device <span class="font-mono">{linkedNodeId()!.slice(0, 16)}...</span> was also
-                linked. you can close this tab — your app should now have access.
+                linked. you can close this tab - your app should now have access.
               </p>
             </Show>
             <Show when={!linkedNodeId()}>

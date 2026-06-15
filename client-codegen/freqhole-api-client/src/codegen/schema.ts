@@ -5782,7 +5782,7 @@ export const SongsQueryResultSchema = z.object({
 export type SongsQueryResult = z.infer<typeof SongsQueryResultSchema>;
 
 export const StartLoginRequestSchema = z.object({
-  username: z.string(),
+  username: z.string().nullish(),
   origin: z.string().nullish()
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;

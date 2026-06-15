@@ -862,15 +862,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // handle passkey p2p authentication (login or register)
   const handlePasskeyP2P = async (mode: "login" | "register") => {
     const currentPeerAddr = peerAddr();
-    const username = passkeyUsername().trim();
+    const username = passkeyUsername().trim() || undefined;
     const inviteCode = passkeyInviteCode().trim();
 
     if (!currentPeerAddr) {
       setError("no peer address available");
       return;
     }
-    if (!username) {
-      setError("username is required");
+    if (mode === "register" && !username) {
+      setError("username is required for registration");
       return;
     }
     if (mode === "register" && !inviteCode) {
@@ -884,20 +884,36 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     try {
       let result;
       if (mode === "register") {
-        result = await registerWithWebauthnP2P(currentPeerAddr, username, inviteCode);
+        result = await registerWithWebauthnP2P(currentPeerAddr, username!, inviteCode);
       } else {
         result = await loginWithWebauthnP2P(currentPeerAddr, username);
       }
 
       if (!result.success) {
-        setError(result.error ?? `passkey ${mode} failed`);
+        const msg = result.error ?? `passkey ${mode} failed`;
+        // if this was a one-click discoverable attempt (no username), route to the
+        // username form so the user can retry with a specific account
+        if (mode === "login" && !username && step() !== "passkey-p2p") {
+          setPasskeyMode("login");
+          setError(msg + " — try entering your username below");
+          setStep("passkey-p2p");
+        } else {
+          setError(msg);
+        }
         return;
       }
 
-      debug("passkey-p2p", `${mode} successful for`, username);
+      debug("passkey-p2p", `${mode} successful for`, username ?? "(discoverable)");
       await completeSetup();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `passkey ${mode} failed`);
+      const msg = err instanceof Error ? err.message : `passkey ${mode} failed`;
+      if (mode === "login" && !username && step() !== "passkey-p2p") {
+        setPasskeyMode("login");
+        setError(msg + " — try entering your username below");
+        setStep("passkey-p2p");
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1502,22 +1518,18 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </button>
                       </p>
                       <Show when={serverInfo()?.passkey_p2p_enabled}>
-                        <p class="text-sm text-[var(--color-text-secondary)]">
-                          already have a passkey?{" "}
-                          <button
-                            type="button"
-                            class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                            onClick={() => {
-                              setShowKnockOption(false);
-                              setPasskeyMode("login");
-                              setError(null);
-                              setStep("passkey-p2p");
-                            }}
-                            disabled={isLoading()}
-                          >
-                            sign in with passkey
-                          </button>
-                        </p>
+                        <button
+                          type="button"
+                          class="w-full mt-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                          onClick={() => {
+                            setShowKnockOption(false);
+                            setError(null);
+                            void handlePasskeyP2P("login");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          {isLoading() ? "signing in..." : "sign in with passkey"}
+                        </button>
                       </Show>
                     </div>
                   </Show>
@@ -1762,21 +1774,17 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </button>
                       </Show>
                       <Show when={serverInfo()?.passkey_p2p_enabled}>
-                        <p class="text-sm text-[var(--color-text-secondary)] mt-2">
-                          have a passkey?{" "}
-                          <button
-                            type="button"
-                            class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                            onClick={() => {
-                              setPasskeyMode("login");
-                              setError(null);
-                              setStep("passkey-p2p");
-                            }}
-                            disabled={isLoading()}
-                          >
-                            sign in with passkey
-                          </button>
-                        </p>
+                        <button
+                          type="button"
+                          class="w-full mt-2 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                          onClick={() => {
+                            setError(null);
+                            void handlePasskeyP2P("login");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          {isLoading() ? "signing in..." : "sign in with passkey"}
+                        </button>
                       </Show>
                     </div>
                   </Show>
@@ -1836,25 +1844,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     </div>
                   </Show>
 
-                  <div>
-                    <label
-                      for="passkey-username"
-                      class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
-                    >
-                      username
-                    </label>
-                    <input
-                      id="passkey-username"
-                      type="text"
-                      value={passkeyUsername()}
-                      onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
-                      placeholder="your username on this server"
-                      class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
-                      disabled={isLoading()}
-                    />
-                  </div>
+                  <Show when={passkeyMode() === "login"}>
+                    <div>
+                      <label
+                        for="passkey-username"
+                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                      >
+                        username{" "}
+                        <span class="text-[var(--color-text-muted)] font-normal">(optional)</span>
+                      </label>
+                      <input
+                        id="passkey-username"
+                        type="text"
+                        value={passkeyUsername()}
+                        onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
+                        placeholder="enter username to target a specific passkey"
+                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                        disabled={isLoading()}
+                      />
+                    </div>
+                  </Show>
 
                   <Show when={passkeyMode() === "register"}>
+                    <div>
+                      <label
+                        for="passkey-username"
+                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                      >
+                        username
+                      </label>
+                      <input
+                        id="passkey-username"
+                        type="text"
+                        value={passkeyUsername()}
+                        onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
+                        placeholder="your username on this server"
+                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                        disabled={isLoading()}
+                      />
+                    </div>
                     <div>
                       <label
                         for="passkey-invite"
