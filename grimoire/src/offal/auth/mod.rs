@@ -51,6 +51,15 @@ pub async fn dispatch(
             Some(webauthn_p2p::login_finish(caller, body.clone()).await)
         }
 
+        // passkey management (authenticated)
+        "/api/auth/webauthn/passkeys" => {
+            Some(webauthn_p2p::list_passkeys(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/passkeys/delete" => {
+            Some(webauthn_p2p::delete_passkey(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/link-node" => Some(webauthn_p2p::link_node(caller, body.clone()).await),
+
         _ => None,
     }
 }

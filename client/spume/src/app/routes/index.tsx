@@ -37,7 +37,8 @@ import {
   RadioAdminView,
   LogzSettingsView,
   PendingKnocksView,
-  PasskeyP2PTestView,
+  PasskeyManageView,
+  LinkDeviceView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -96,17 +97,20 @@ function RootRedirect() {
 export function routes(props: RoutesProps) {
   return (
     <>
+      {/* device link route - outside AppLayout, no chrome */}
+      <Route path="/link" component={LinkDeviceView} />
+
       {/* settings routes - outside AppLayout */}
       <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>
         <Route path="/storage" component={StorageSettingsView} />
         <Route path="/remotes" component={RemotesSettingsView} />
         <Route path="/remotes/:remoteId/admin" component={RemoteAdminView} />
         <Route path="/remotes/:remoteId/radio" component={RadioAdminView} />
+        <Route path="/remotes/:remoteId/passkeys" component={PasskeyManageView} />
         <Route path="/admin-knocks" component={PendingKnocksView} />
         <Route path="/federation" component={FederationSettingsView} />
         <Route path="/radio" component={RadioSettingsView} />
         <Route path="/logz" component={LogzSettingsView} />
-        <Route path="/passkey-p2p" component={PasskeyP2PTestView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"

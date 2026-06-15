@@ -1488,6 +1488,11 @@ export const DeleteListenSessionRequestSchema = z.object({
 });
 export type DeleteListenSessionRequest = z.infer<typeof DeleteListenSessionRequestSchema>;
 
+export const DeletePasskeyRequestSchema = z.object({
+  credential_id: z.string()
+});
+export type DeletePasskeyRequest = z.infer<typeof DeletePasskeyRequestSchema>;
+
 export const DeletePlaylistRequestSchema = z.object({
   playlist_id: z.string()
 });
@@ -3009,6 +3014,11 @@ export const LastFmAlbumDetailResultSchema = z.object({
 });
 export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSchema>;
 
+export const LinkNodeRequestSchema = z.object({
+  node_id: z.string()
+});
+export type LinkNodeRequest = z.infer<typeof LinkNodeRequestSchema>;
+
 export const ListBelovedRequestSchema = z.object({
 
 });
@@ -3957,6 +3967,13 @@ export const OverviewStatsSchema = z.object({
   total_duration_seconds: z.number()
 });
 export type OverviewStats = z.infer<typeof OverviewStatsSchema>;
+
+export const PasskeyCredentialSummarySchema = z.object({
+  id: z.string(),
+  created_at: z.number(),
+  last_used_at: z.number().nullish()
+});
+export type PasskeyCredentialSummary = z.infer<typeof PasskeyCredentialSummarySchema>;
 
 export const PlayAnalyticsSchema = z.object({
   song_id: z.string(),

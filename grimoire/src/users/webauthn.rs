@@ -95,6 +95,28 @@ impl WebAuthnRepository {
 
         Ok(())
     }
+
+    /// Hard-delete a credential by row id. only the owning user's rows are affected.
+    pub async fn hard_delete_credential(
+        &self,
+        credential_row_id: &str,
+        user_id: &str,
+    ) -> AuthResult<()> {
+        let pool = database::connect().await?;
+
+        sqlx::query!(
+            r#"
+            DELETE FROM user_credentialz
+            WHERE id = ?1 AND user_id = ?2
+            "#,
+            credential_row_id,
+            user_id,
+        )
+        .execute(&pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 impl Default for WebAuthnRepository {
@@ -181,6 +203,36 @@ impl WebAuthnService {
         {
             Ok(_) => GrimoireResponse::success("Credential updated", ()),
             Err(err) => GrimoireResponse::failure("Failed to update credential", vec![err.into()]),
+        }
+    }
+
+    /// List credentials for a user as metadata rows (id, created_at, last_used_at).
+    /// does not deserialise the passkey blob - safe to call regardless of webauthn feature flag.
+    pub async fn list_credentials_meta(
+        &self,
+        user_id: &str,
+    ) -> GrimoireResponse<Vec<crate::users::models::WebAuthnCredential>> {
+        match self.repository.get_user_credentials(user_id).await {
+            Ok(creds) => {
+                GrimoireResponse::success(format!("found {} credential(s)", creds.len()), creds)
+            }
+            Err(err) => GrimoireResponse::failure("failed to list credentials", vec![err.into()]),
+        }
+    }
+
+    /// Hard-delete a credential by row id. only the owning user may remove their own credentials.
+    pub async fn delete_credential(
+        &self,
+        credential_row_id: &str,
+        user_id: &str,
+    ) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .hard_delete_credential(credential_row_id, user_id)
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("credential deleted", ()),
+            Err(err) => GrimoireResponse::failure("failed to delete credential", vec![err.into()]),
         }
     }
 }

@@ -6,12 +6,12 @@
 //! Music-specific user functionality (favorites, ratings) has been moved
 //! to `music::users` module to maintain clear domain boundaries.
 
+pub mod challenge_store;
 pub mod models;
 pub mod repository;
 pub mod service;
 pub mod webauthn;
 pub mod webauthn_models;
-pub mod challenge_store;
 
 // Re-export commonly used types
 pub use models::{
@@ -43,7 +43,10 @@ pub use models::{
 };
 pub use service::UserService;
 pub use webauthn::WebAuthnService;
-pub use webauthn_models::{RegisterStartRequest, StartLoginRequest};
+pub use webauthn_models::{
+    DeletePasskeyRequest, LinkNodeRequest, PasskeyCredentialSummary, RegisterStartRequest,
+    StartLoginRequest,
+};
 
 // Re-export music-specific user types from music::users for backwards compatibility
 pub use crate::music::users::{

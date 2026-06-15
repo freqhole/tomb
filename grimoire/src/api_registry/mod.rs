@@ -125,7 +125,8 @@ pub mod type_registry {
 
     // webauthn types
     use crate::users::{
-        RegisterStartRequest, SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
+        DeletePasskeyRequest, LinkNodeRequest, PasskeyCredentialSummary, RegisterStartRequest,
+        SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
     };
 
     // health types
@@ -391,6 +392,15 @@ pub mod type_registry {
 
         gen.add_schema::<StartLoginRequest>("StartLoginRequest");
         registered.insert("StartLoginRequest".to_string());
+
+        gen.add_schema::<PasskeyCredentialSummary>("PasskeyCredentialSummary");
+        registered.insert("PasskeyCredentialSummary".to_string());
+
+        gen.add_schema::<DeletePasskeyRequest>("DeletePasskeyRequest");
+        registered.insert("DeletePasskeyRequest".to_string());
+
+        gen.add_schema::<LinkNodeRequest>("LinkNodeRequest");
+        registered.insert("LinkNodeRequest".to_string());
 
         // music types
         gen.add_schema::<QueryParams>("QueryParams");

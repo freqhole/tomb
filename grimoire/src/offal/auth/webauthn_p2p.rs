@@ -145,7 +145,11 @@ fn internal_error(detail: &str) -> GrimoireResponse<JsonValue> {
 /// path: POST /api/auth/webauthn/register/start
 #[cfg(feature = "webauthn")]
 pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{challenge_store::{ChallengeStore, SaveChallengeArgs}, webauthn::GrimoireWebAuthn, UserService, WebAuthnService};
+    use crate::users::{
+        challenge_store::{ChallengeStore, SaveChallengeArgs},
+        webauthn::GrimoireWebAuthn,
+        UserService, WebAuthnService,
+    };
 
     let req: P2pRegisterStartRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -204,7 +208,9 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 }
                 (user.id, false)
             } else {
-                return bad_request("node_id is known but not linked to a user account - use an invite code");
+                return bad_request(
+                    "node_id is known but not linked to a user account - use an invite code",
+                );
             }
         } else {
             return bad_request("invite_code required to register a passkey for a new identity");
@@ -275,7 +281,10 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
 /// path: POST /api/auth/webauthn/register/finish
 #[cfg(feature = "webauthn")]
 pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, CreateUserRequest, UserService, WebAuthnService};
+    use crate::users::{
+        challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, CreateUserRequest,
+        UserService, WebAuthnService,
+    };
 
     let req: P2pRegisterFinishRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -311,14 +320,14 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     };
 
     // deserialize the credential from the client
-    let reg_credential: RegisterPublicKeyCredential =
-        match serde_json::from_value(req.credential) {
-            Ok(c) => c,
-            Err(e) => return bad_request(&format!("invalid credential: {}", e)),
-        };
+    let reg_credential: RegisterPublicKeyCredential = match serde_json::from_value(req.credential) {
+        Ok(c) => c,
+        Err(e) => return bad_request(&format!("invalid credential: {}", e)),
+    };
 
     let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
-    let passkey = match freq_webauthn.finish_registration(&req.origin, &reg_credential, &reg_state) {
+    let passkey = match freq_webauthn.finish_registration(&req.origin, &reg_credential, &reg_state)
+    {
         Ok(p) => p,
         Err(e) => return bad_request(&format!("registration verification failed: {:?}", e)),
     };
@@ -357,13 +366,19 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
 
     // save the credential
     let webauthn_service = WebAuthnService::new();
-    if !webauthn_service.save_credential(&user_id, &passkey).await.is_success() {
+    if !webauthn_service
+        .save_credential(&user_id, &passkey)
+        .await
+        .is_success()
+    {
         return internal_error("failed to save credential");
     }
 
     // link node_id to user if provided
     if let Some(ref node_id) = req.node_id {
-        let _ = user_service.add_peer_node(&user_id, node_id, None).await;
+        let _ = user_service
+            .add_peer_node(&user_id, node_id, Some("passkey registration"))
+            .await;
     }
 
     GrimoireResponse::success(
@@ -380,7 +395,11 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
 /// path: POST /api/auth/webauthn/login/start
 #[cfg(feature = "webauthn")]
 pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{challenge_store::{ChallengeStore, SaveChallengeArgs}, webauthn::GrimoireWebAuthn, UserService, WebAuthnService};
+    use crate::users::{
+        challenge_store::{ChallengeStore, SaveChallengeArgs},
+        webauthn::GrimoireWebAuthn,
+        UserService, WebAuthnService,
+    };
 
     let req: P2pLoginStartRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -499,7 +518,9 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
     // requests from this node are auto-authenticated without a passkey)
     let user_service = UserService::new();
     if let Some(ref node_id) = req.node_id {
-        let _ = user_service.add_peer_node(&user_id, node_id, None).await;
+        let _ = user_service
+            .add_peer_node(&user_id, node_id, Some("passkey login"))
+            .await;
     }
 
     // return basic user info; over p2p the node_id link is the "session"
@@ -564,5 +585,136 @@ pub async fn login_finish(_caller: &Caller, _body: JsonValue) -> GrimoireRespons
             title: "not enabled".to_string(),
             detail: "server was built without webauthn support".to_string(),
         }],
+    )
+}
+
+// ============================================================================
+// passkey management handlers (authenticated — caller must be a known peer)
+// ============================================================================
+
+fn unauthorized(detail: &str) -> GrimoireResponse<JsonValue> {
+    GrimoireResponse::failure(
+        detail,
+        vec![crate::error::ErrorDetail {
+            error_type: "unauthorized".to_string(),
+            title: "unauthorized".to_string(),
+            detail: detail.to_string(),
+        }],
+    )
+}
+
+/// list the caller's passkeys
+///
+/// path: GET /api/auth/webauthn/passkeys
+/// owner-only: returns credentials scoped to caller.user_id; no admin override.
+/// the db query itself is scoped to caller.user_id so a misconfigured caller
+/// can never read another user's credentials.
+pub async fn list_passkeys(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+    use crate::users::WebAuthnService;
+
+    if !caller.is_member() {
+        return unauthorized("must be authenticated to list passkeys");
+    }
+
+    let service = WebAuthnService::new();
+    let creds = service.list_credentials_meta(&caller.user_id).await;
+    if !creds.is_success() {
+        return GrimoireResponse::failure("failed to list passkeys", creds.errors);
+    }
+
+    let summaries: Vec<serde_json::Value> = creds
+        .data
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "created_at": c.created_at,
+                "last_used_at": c.last_used_at,
+            })
+        })
+        .collect();
+
+    GrimoireResponse::success("ok", json!(summaries))
+}
+
+/// delete one of the caller's passkeys by credential row id
+///
+/// path: POST /api/auth/webauthn/passkeys/delete
+/// owner-only: the delete query is scoped to (credential_id, caller.user_id)
+/// so it is impossible to delete another user's credential even with a valid row id.
+#[derive(Debug, Deserialize)]
+struct DeletePasskeyBody {
+    credential_id: String,
+}
+
+pub async fn delete_passkey(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    use crate::users::WebAuthnService;
+
+    if !caller.is_member() {
+        return unauthorized("must be authenticated to delete a passkey");
+    }
+
+    let req: DeletePasskeyBody = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_request(&format!("invalid request body: {}", e)),
+    };
+
+    let service = WebAuthnService::new();
+    let result = service
+        .delete_credential(&req.credential_id, &caller.user_id)
+        .await;
+
+    if !result.is_success() {
+        return GrimoireResponse::failure("failed to delete passkey", result.errors);
+    }
+
+    GrimoireResponse::success("passkey deleted", json!({}))
+}
+
+/// link an external node_id (e.g. a tauri/charnel app) to the caller's account.
+/// the calling browser node must already be authenticated (its node_id is a known peer).
+/// the target node_id will be added as an allowed peer for the same user.
+///
+/// path: POST /api/auth/webauthn/link-node
+/// owner-only: always links to caller.user_id; callers cannot link nodes to other users.
+#[derive(Debug, Deserialize)]
+struct LinkNodeBody {
+    /// node_id of the device to add as an allowed peer
+    node_id: String,
+}
+
+pub async fn link_node(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    use crate::users::UserService;
+
+    if !caller.is_member() {
+        return unauthorized("must be authenticated to link a device");
+    }
+
+    let req: LinkNodeBody = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => return bad_request(&format!("invalid request body: {}", e)),
+    };
+
+    // basic sanity: node_id should be 64 hex chars
+    if req.node_id.len() != 64 || !req.node_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return bad_request("node_id must be a 64-character hex string");
+    }
+
+    let user_service = UserService::new();
+    let result = user_service
+        .add_peer_node(&caller.user_id, &req.node_id, Some("passkey link"))
+        .await;
+
+    if !result.is_success() {
+        return GrimoireResponse::failure("failed to link node", result.errors);
+    }
+
+    GrimoireResponse::success(
+        "node linked",
+        json!({
+            "user_id": caller.user_id,
+            "node_id": req.node_id,
+        }),
     )
 }

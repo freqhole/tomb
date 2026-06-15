@@ -100,6 +100,38 @@ export function createAuthMethods(call: CallFn) {
         params,
       );
     },
+
+    listPasskeys: () => {
+      return call(
+        "auth", "list_passkeys",
+        routes.auth.list_passkeys.resp,
+        routes.auth.list_passkeys.req,
+        routes.auth.list_passkeys.method,
+        routes.auth.list_passkeys.path,
+      );
+    },
+
+    deletePasskey: (params: s.DeletePasskeyRequest) => {
+      return call(
+        "auth", "delete_passkey",
+        routes.auth.delete_passkey.resp,
+        routes.auth.delete_passkey.req,
+        routes.auth.delete_passkey.method,
+        routes.auth.delete_passkey.path,
+        params,
+      );
+    },
+
+    linkNode: (params: s.LinkNodeRequest) => {
+      return call(
+        "auth", "link_node",
+        routes.auth.link_node.resp,
+        routes.auth.link_node.req,
+        routes.auth.link_node.method,
+        routes.auth.link_node.path,
+        params,
+      );
+    },
   };
 }
 

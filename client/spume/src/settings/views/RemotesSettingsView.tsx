@@ -318,16 +318,43 @@ export function RemotesSettingsView() {
 
   const handleRecheckStatus = async (remote: Remote) => {
     setRechecking(remote.remote_id);
+    // use a fresh remote ref after health check - the captured `remote` may
+    // have is_offline:true, which causes resolveOne to bail immediately
+    let freshRemote = remote;
     try {
       const isOnline = await checkRemoteHealth(remote);
-      // refresh remotes to get updated status
+      // refresh remote list to pick up updated is_offline flag
       const updated = await getAllRemotes();
       setRemotes(updated);
+      freshRemote = updated.find((r) => r.remote_id === remote.remote_id) ?? remote;
+      debug(
+        "remotes-settings",
+        "check status: isOnline=%s is_offline=%s",
+        isOnline,
+        freshRemote.is_offline
+      );
       if (isOnline) {
         toast.success(`${remote.name} is online`);
       }
     } catch (err) {
+      debug("remotes-settings", "check status: health check threw", err);
       toast.error("failed to check server status");
+    }
+    // always refresh auth regardless of health check outcome, using
+    // the fresh remote so is_offline is current.
+    try {
+      debug(
+        "remotes-settings",
+        "check status: refreshing auth for %s (is_offline=%s)",
+        freshRemote.remote_id,
+        freshRemote.is_offline
+      );
+      await refreshOneAuthStatus(freshRemote);
+      debug(
+        "remotes-settings",
+        "check status: auth refreshed → %o",
+        authStatus().get(remote.remote_id)
+      );
     } finally {
       setRechecking(null);
     }
@@ -500,12 +527,27 @@ export function RemotesSettingsView() {
                           const info = authStatus().get(remote.remote_id);
                           if (info?.loggedIn && info.username) {
                             return (
-                              <p class="text-xs text-[var(--color-text-secondary)] mb-2">
-                                signed in as <span class="font-medium">{info.username}</span>
-                                <Show when={info.role}>
-                                  <span class="text-[var(--color-text-muted)]"> ({info.role})</span>
+                              <>
+                                <p class="text-xs text-[var(--color-text-secondary)] mb-2">
+                                  signed in as <span class="font-medium">{info.username}</span>
+                                  <Show when={info.role}>
+                                    <span class="text-[var(--color-text-muted)]">
+                                      {" "}
+                                      ({info.role})
+                                    </span>
+                                  </Show>
+                                </p>
+                                <Show when={isP2P()}>
+                                  <button
+                                    class="text-xs text-[var(--color-accent-500)] hover:underline mb-2"
+                                    onClick={() =>
+                                      navigate(`/settings/remotes/${remote.remote_id}/passkeys`)
+                                    }
+                                  >
+                                    manage passkeys
+                                  </button>
                                 </Show>
-                              </p>
+                              </>
                             );
                           }
                           return null;

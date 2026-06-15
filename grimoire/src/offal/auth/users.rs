@@ -95,6 +95,34 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "serde_json::Value",
         auth: RouteAuth::Public,
     },
+    // passkey management - owner-only: users can only manage their own credentials
+    RouteInfo {
+        name: "list_passkeys",
+        path: "/api/auth/webauthn/passkeys",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "Vec<PasskeyCredentialSummary>",
+        auth: RouteAuth::Owner,
+    },
+    RouteInfo {
+        name: "delete_passkey",
+        path: "/api/auth/webauthn/passkeys/delete",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "DeletePasskeyRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Owner,
+    },
+    RouteInfo {
+        name: "link_node",
+        path: "/api/auth/webauthn/link-node",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "LinkNodeRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Owner,
+    },
 ];
 
 /// get current user info

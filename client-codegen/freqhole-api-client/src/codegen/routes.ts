@@ -42,6 +42,9 @@ export const routes = {
   },
   auth: {
     api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
+    delete_passkey: { method: 'POST', path: '/api/auth/webauthn/passkeys/delete', req: s.DeletePasskeyRequestSchema, resp: z.any(), auth: { type: 'owner' } as const },
+    link_node: { method: 'POST', path: '/api/auth/webauthn/link-node', req: s.LinkNodeRequestSchema, resp: z.any(), auth: { type: 'owner' } as const },
+    list_passkeys: { method: 'GET', path: '/api/auth/webauthn/passkeys', req: null, resp: s.PasskeyCredentialSummarySchema.array(), auth: { type: 'owner' } as const },
     login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
     login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
     logout: { method: 'POST', path: '/api/auth/logout', req: null, resp: z.any(), auth: { type: 'authenticated' } as const },

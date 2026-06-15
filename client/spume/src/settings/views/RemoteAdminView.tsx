@@ -465,7 +465,7 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                               title="copy user id"
                             />
                           </span>
-                          <span>created {formatDate(user.created_at)}</span>
+                          <span>created {formatDate(user.created_at * 1000)}</span>
                         </div>
                       </div>
                       <div class="flex items-center gap-2 shrink-0">
@@ -551,11 +551,11 @@ function UsersSection(props: { client: AdminClient; remote: Remote }) {
                                   </span>
                                 </Show>
                                 <span class="text-[var(--color-text-muted)]">
-                                  added {formatDate(peer.created_at)}
+                                  added {formatDate(peer.created_at * 1000)}
                                 </span>
                                 <Show when={peer.last_seen_at}>
                                   <span class="text-[var(--color-text-muted)]">
-                                    seen {formatDate(peer.last_seen_at!)}
+                                    seen {formatDate(peer.last_seen_at! * 1000)}
                                   </span>
                                 </Show>
                                 <CopyButton
@@ -907,9 +907,9 @@ function InvitesSection(props: { client: AdminClient }) {
                         </Show>
                       </div>
                       <div class="text-xs text-[var(--color-text-muted)] mt-1 flex flex-wrap gap-3">
-                        <span>created {formatDate(invite.created_at)}</span>
+                        <span>created {formatDate(invite.created_at * 1000)}</span>
                         <Show when={invite.expires_at}>
-                          <span>expires {formatDate(invite.expires_at!)}</span>
+                          <span>expires {formatDate(invite.expires_at! * 1000)}</span>
                         </Show>
                         <Show when={invite.used_by_username}>
                           <span>used by {invite.used_by_username}</span>
