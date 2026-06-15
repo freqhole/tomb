@@ -4955,7 +4955,8 @@ export type RedeemInviteRequest = z.infer<typeof RedeemInviteRequestSchema>;
 
 export const RegisterStartRequestSchema = z.object({
   username: z.string(),
-  invite_code: z.string().nullish()
+  invite_code: z.string().nullish(),
+  origin: z.string().nullish()
 });
 export type RegisterStartRequest = z.infer<typeof RegisterStartRequestSchema>;
 
@@ -5284,7 +5285,8 @@ export const ServerInfoResponseSchema = z.object({
   knocking_enabled: z.boolean().nullish(),
   musicbrainz_enabled: z.boolean().nullish(),
   lastfm_enabled: z.boolean().nullish(),
-  audiodb_enabled: z.boolean().nullish()
+  audiodb_enabled: z.boolean().nullish(),
+  passkey_p2p_enabled: z.boolean().nullish()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
 
@@ -5763,7 +5765,8 @@ export const SongsQueryResultSchema = z.object({
 export type SongsQueryResult = z.infer<typeof SongsQueryResultSchema>;
 
 export const StartLoginRequestSchema = z.object({
-  username: z.string()
+  username: z.string(),
+  origin: z.string().nullish()
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
 

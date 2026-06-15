@@ -13,6 +13,10 @@ pub struct RegisterStartRequest {
     pub username: String,
     /// Optional invite code for registration
     pub invite_code: Option<String>,
+    /// Browser origin (window.location.origin) - required for p2p transport
+    /// so the server can derive rp_id without a validated http header.
+    /// ignored by http handlers (they read origin from the request header).
+    pub origin: Option<String>,
 }
 
 /// Request to start webauthn login
@@ -20,4 +24,7 @@ pub struct RegisterStartRequest {
 pub struct StartLoginRequest {
     /// Username to authenticate
     pub username: String,
+    /// Browser origin (window.location.origin) - required for p2p transport.
+    /// ignored by http handlers.
+    pub origin: Option<String>,
 }

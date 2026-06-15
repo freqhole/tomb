@@ -37,6 +37,7 @@ import {
   RadioAdminView,
   LogzSettingsView,
   PendingKnocksView,
+  PasskeyP2PTestView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -105,6 +106,7 @@ export function routes(props: RoutesProps) {
         <Route path="/federation" component={FederationSettingsView} />
         <Route path="/radio" component={RadioSettingsView} />
         <Route path="/logz" component={LogzSettingsView} />
+        <Route path="/passkey-p2p" component={PasskeyP2PTestView} />
         {/* redirect /settings to /settings/storage */}
         <Route
           path="/"

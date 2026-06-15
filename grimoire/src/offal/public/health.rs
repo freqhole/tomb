@@ -76,6 +76,12 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
     let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
     let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
 
+    // webauthn over p2p is available when the feature is compiled in and federation is enabled
+    #[cfg(feature = "webauthn")]
+    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
+    #[cfg(not(feature = "webauthn"))]
+    let passkey_p2p_enabled: Option<bool> = None;
+
     let response = ServerInfoResponse {
         name,
         description,
@@ -86,6 +92,7 @@ pub async fn server_info() -> GrimoireResponse<JsonValue> {
         musicbrainz_enabled,
         lastfm_enabled,
         audiodb_enabled,
+        passkey_p2p_enabled,
     };
 
     GrimoireResponse::success("ok", serde_json::to_value(response).unwrap())

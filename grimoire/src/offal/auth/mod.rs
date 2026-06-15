@@ -3,6 +3,7 @@
 //! webauthn registration/authentication, user management, sessions
 
 pub mod users;
+pub mod webauthn_p2p;
 
 use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
@@ -35,6 +36,20 @@ pub async fn dispatch(
         "/api/auth/users/create" => Some(users::create(caller, body.clone()).await),
         "/api/auth/users/update" => Some(users::update(caller, body.clone()).await),
         "/api/auth/users/delete" => Some(users::delete(caller, body.clone()).await),
+
+        // webauthn over p2p transport (sqlite challenge store, no session cookie needed)
+        "/api/auth/webauthn/register/start" => {
+            Some(webauthn_p2p::register_start(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/register/finish" => {
+            Some(webauthn_p2p::register_finish(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/login/start" => {
+            Some(webauthn_p2p::login_start(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/login/finish" => {
+            Some(webauthn_p2p::login_finish(caller, body.clone()).await)
+        }
 
         _ => None,
     }

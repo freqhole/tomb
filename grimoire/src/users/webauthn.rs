@@ -190,3 +190,104 @@ impl Default for WebAuthnService {
         Self::new()
     }
 }
+
+// ============================================================================
+// webauthn builder helper (used by p2p offal handlers)
+// ============================================================================
+
+/// lightweight webauthn wrapper for use in grimoire offal handlers.
+///
+/// mirrors the FreqWebauthn struct in server/src/auth/freq_webauthn.rs but
+/// lives in grimoire so p2p handlers (which run inside grimoire) can call it
+/// without depending on the server crate.
+#[cfg(feature = "webauthn")]
+pub struct GrimoireWebAuthn {
+    rp_id: String,
+    rp_name: String,
+}
+
+#[cfg(feature = "webauthn")]
+impl GrimoireWebAuthn {
+    pub fn new(rp_id: String, rp_name: String) -> Self {
+        Self { rp_id, rp_name }
+    }
+
+    fn build(&self, origin: &str) -> Result<webauthn_rs::Webauthn, String> {
+        let rp_origin = webauthn_rs::prelude::Url::parse(origin)
+            .map_err(|e| format!("invalid origin url: {}", e))?;
+        webauthn_rs::WebauthnBuilder::new(&self.rp_id, &rp_origin)
+            .map_err(|e| format!("failed to create webauthn builder: {}", e))?
+            .rp_name(&self.rp_name)
+            .build()
+            .map_err(|e| format!("failed to build webauthn: {}", e))
+    }
+
+    pub fn start_registration(
+        &self,
+        origin: &str,
+        user_id: &str,
+        username: &str,
+        exclude_credentials: Vec<webauthn_rs::prelude::CredentialID>,
+    ) -> Result<
+        (
+            webauthn_rs::prelude::CreationChallengeResponse,
+            webauthn_rs::prelude::PasskeyRegistration,
+        ),
+        String,
+    > {
+        let webauthn = self.build(origin)?;
+        let user_unique_id = webauthn_rs::prelude::Uuid::new_v5(
+            &webauthn_rs::prelude::Uuid::NAMESPACE_URL,
+            user_id.as_bytes(),
+        );
+        webauthn
+            .start_passkey_registration(
+                user_unique_id,
+                username,
+                username,
+                Some(exclude_credentials),
+            )
+            .map_err(|e| format!("start_registration failed: {}", e))
+    }
+
+    pub fn finish_registration(
+        &self,
+        origin: &str,
+        reg: &webauthn_rs::prelude::RegisterPublicKeyCredential,
+        state: &webauthn_rs::prelude::PasskeyRegistration,
+    ) -> Result<Passkey, String> {
+        let webauthn = self.build(origin)?;
+        webauthn
+            .finish_passkey_registration(reg, state)
+            .map_err(|e| format!("finish_registration failed: {}", e))
+    }
+
+    pub fn start_authentication(
+        &self,
+        origin: &str,
+        credentials: &[Passkey],
+    ) -> Result<
+        (
+            webauthn_rs::prelude::RequestChallengeResponse,
+            webauthn_rs::prelude::PasskeyAuthentication,
+        ),
+        String,
+    > {
+        let webauthn = self.build(origin)?;
+        webauthn
+            .start_passkey_authentication(credentials)
+            .map_err(|e| format!("start_authentication failed: {}", e))
+    }
+
+    pub fn finish_authentication(
+        &self,
+        origin: &str,
+        auth: &webauthn_rs::prelude::PublicKeyCredential,
+        state: &webauthn_rs::prelude::PasskeyAuthentication,
+    ) -> Result<webauthn_rs::prelude::AuthenticationResult, String> {
+        let webauthn = self.build(origin)?;
+        webauthn
+            .finish_passkey_authentication(auth, state)
+            .map_err(|e| format!("finish_authentication failed: {}", e))
+    }
+}

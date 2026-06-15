@@ -11,6 +11,7 @@ pub mod repository;
 pub mod service;
 pub mod webauthn;
 pub mod webauthn_models;
+pub mod challenge_store;
 
 // Re-export commonly used types
 pub use models::{

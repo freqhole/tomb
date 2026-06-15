@@ -2,7 +2,13 @@
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
 import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
-import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
+import {
+  authenticate,
+  getServerInfo,
+  loginWithWebauthnP2P,
+  registerWithWebauthnP2P,
+  whoami,
+} from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import {
   createPendingRemote,
@@ -99,7 +105,7 @@ export interface AddRemoteModalProps {
   initialValue?: string;
 }
 
-type Step = "url" | "testing" | "auth" | "complete" | "knock-sent";
+type Step = "url" | "testing" | "auth" | "complete" | "knock-sent" | "passkey-p2p";
 
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const [step, setStep] = createSignal<Step>("url");
@@ -119,6 +125,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     image_blob_id?: string | null;
     requiresAuth: boolean;
     knocking_enabled?: boolean | null;
+    passkey_p2p_enabled?: boolean | null;
   } | null>(null);
 
   // pre-fetched P2P server image URL (stored as object URL during connection test)
@@ -135,6 +142,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // pending remotes state (tracks in-progress remote additions, including knocks)
   const [pendingRemotes, setPendingRemotes] = createSignal<PendingRemote[]>([]);
   const [showKnockOption, setShowKnockOption] = createSignal(false); // show request access after failed P2P connection
+
+  // passkey p2p step state
+  const [passkeyUsername, setPasskeyUsername] = createSignal("");
+  const [passkeyInviteCode, setPasskeyInviteCode] = createSignal("");
+  const [passkeyMode, setPasskeyMode] = createSignal<"login" | "register">("login");
 
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
@@ -326,6 +338,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           image_url: info.image_url,
           image_blob_id: info.image_blob_id,
           knocking_enabled: info.knocking_enabled,
+          passkey_p2p_enabled: info.passkey_p2p_enabled,
         });
 
         // save server info first
@@ -337,6 +350,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           image_blob_id: info.image_blob_id,
           requiresAuth: false, // P2P registration uses invite code only - no passkey needed
           knocking_enabled: info.knocking_enabled,
+          passkey_p2p_enabled: info.passkey_p2p_enabled,
         });
 
         // check if user already has access via whoami BEFORE fetching image
@@ -467,6 +481,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                 name: info.name,
                 image_blob_id: info.image_blob_id,
                 knocking_enabled: info.knocking_enabled,
+                passkey_p2p_enabled: info.passkey_p2p_enabled,
               });
 
               // try to fetch server image via dedicated HelloImageRequest (public, no auth required)
@@ -511,6 +526,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                 image_blob_id: info.image_blob_id,
                 requiresAuth: true,
                 knocking_enabled: info.knocking_enabled,
+                passkey_p2p_enabled: info.passkey_p2p_enabled,
               });
 
               // create or update pending remote even on 401/403 - we got server info
@@ -843,6 +859,50 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
+  // handle passkey p2p authentication (login or register)
+  const handlePasskeyP2P = async (mode: "login" | "register") => {
+    const currentPeerAddr = peerAddr();
+    const username = passkeyUsername().trim();
+    const inviteCode = passkeyInviteCode().trim();
+
+    if (!currentPeerAddr) {
+      setError("no peer address available");
+      return;
+    }
+    if (!username) {
+      setError("username is required");
+      return;
+    }
+    if (mode === "register" && !inviteCode) {
+      setError("invite code is required to register a new passkey");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      let result;
+      if (mode === "register") {
+        result = await registerWithWebauthnP2P(currentPeerAddr, username, inviteCode);
+      } else {
+        result = await loginWithWebauthnP2P(currentPeerAddr, username);
+      }
+
+      if (!result.success) {
+        setError(result.error ?? `passkey ${mode} failed`);
+        return;
+      }
+
+      debug("passkey-p2p", `${mode} successful for`, username);
+      await completeSetup();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `passkey ${mode} failed`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // final step: save remote config
   const completeSetup = async () => {
     try {
@@ -1018,6 +1078,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               image_blob_id: info.image_blob_id,
               requiresAuth: false,
               knocking_enabled: info.knocking_enabled,
+              passkey_p2p_enabled: info.passkey_p2p_enabled,
             });
           }
 
@@ -1071,6 +1132,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             image_blob_id: info.image_blob_id,
             requiresAuth: false,
             knocking_enabled: info.knocking_enabled,
+            passkey_p2p_enabled: info.passkey_p2p_enabled,
           });
 
           await deletePendingRemote(pending.id);
@@ -1156,7 +1218,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const handleBack = () => {
-    if (step() === "auth" || step() === "knock-sent") {
+    if (step() === "auth" || step() === "knock-sent" || step() === "passkey-p2p") {
       setStep("url");
       setError(null);
     } else if (step() === "testing") {
@@ -1439,6 +1501,24 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           use it to register
                         </button>
                       </p>
+                      <Show when={serverInfo()?.passkey_p2p_enabled}>
+                        <p class="text-sm text-[var(--color-text-secondary)]">
+                          already have a passkey?{" "}
+                          <button
+                            type="button"
+                            class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                            onClick={() => {
+                              setShowKnockOption(false);
+                              setPasskeyMode("login");
+                              setError(null);
+                              setStep("passkey-p2p");
+                            }}
+                            disabled={isLoading()}
+                          >
+                            sign in with passkey
+                          </button>
+                        </p>
+                      </Show>
                     </div>
                   </Show>
                   {/* hint: use current origin if it's a valid server */}
@@ -1658,22 +1738,46 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   />
 
                   {/* request access option for P2P when knocking is enabled */}
-                  <Show when={peerAddr() && serverInfo()?.knocking_enabled}>
+                  <Show
+                    when={
+                      peerAddr() &&
+                      (serverInfo()?.knocking_enabled || serverInfo()?.passkey_p2p_enabled)
+                    }
+                  >
                     <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                      <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                        don't have an invite code?
-                      </p>
-                      <button
-                        type="button"
-                        class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                        onClick={() => {
-                          setShowKnockOption(true);
-                          setStep("url");
-                        }}
-                        disabled={isLoading()}
-                      >
-                        request access from the admin
-                      </button>
+                      <Show when={serverInfo()?.knocking_enabled}>
+                        <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                          don't have an invite code?
+                        </p>
+                        <button
+                          type="button"
+                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                          onClick={() => {
+                            setShowKnockOption(true);
+                            setStep("url");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          request access from the admin
+                        </button>
+                      </Show>
+                      <Show when={serverInfo()?.passkey_p2p_enabled}>
+                        <p class="text-sm text-[var(--color-text-secondary)] mt-2">
+                          have a passkey?{" "}
+                          <button
+                            type="button"
+                            class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                            onClick={() => {
+                              setPasskeyMode("login");
+                              setError(null);
+                              setStep("passkey-p2p");
+                            }}
+                            disabled={isLoading()}
+                          >
+                            sign in with passkey
+                          </button>
+                        </p>
+                      </Show>
                     </div>
                   </Show>
                 </div>
@@ -1709,6 +1813,121 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     <Button variant="secondary" onClick={handleBack}>
                       done
                     </Button>
+                  </div>
+                </div>
+              </Match>
+
+              {/* passkey p2p step */}
+              <Match when={step() === "passkey-p2p"}>
+                <div class="space-y-4">
+                  <div>
+                    <h3 class="text-base font-semibold text-[var(--color-text-primary)] mb-1">
+                      sign in with passkey
+                    </h3>
+                    <p class="text-sm text-[var(--color-text-secondary)]">
+                      use a passkey to connect this browser directly to the p2p peer. your node id
+                      will be registered as an allowed device.
+                    </p>
+                  </div>
+
+                  <Show when={error()}>
+                    <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                      <p class="text-sm text-[var(--color-status-error)]">{error()}</p>
+                    </div>
+                  </Show>
+
+                  <div>
+                    <label
+                      for="passkey-username"
+                      class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                    >
+                      username
+                    </label>
+                    <input
+                      id="passkey-username"
+                      type="text"
+                      value={passkeyUsername()}
+                      onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
+                      placeholder="your username on this server"
+                      class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                      disabled={isLoading()}
+                    />
+                  </div>
+
+                  <Show when={passkeyMode() === "register"}>
+                    <div>
+                      <label
+                        for="passkey-invite"
+                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
+                      >
+                        invite code
+                      </label>
+                      <input
+                        id="passkey-invite"
+                        type="text"
+                        value={passkeyInviteCode()}
+                        onInput={(e) => setPasskeyInviteCode(e.currentTarget.value)}
+                        placeholder="account link code from the server admin"
+                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                        disabled={isLoading()}
+                      />
+                    </div>
+                  </Show>
+
+                  <div class="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleBack}
+                      disabled={isLoading()}
+                      class="flex-1"
+                    >
+                      back
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={() => void handlePasskeyP2P(passkeyMode())}
+                      disabled={isLoading()}
+                      class="flex-1"
+                    >
+                      {isLoading()
+                        ? passkeyMode() === "register"
+                          ? "registering..."
+                          : "signing in..."
+                        : passkeyMode() === "register"
+                          ? "register passkey"
+                          : "sign in with passkey"}
+                    </Button>
+                  </div>
+
+                  <div class="text-center pt-2 border-t border-[var(--color-border-default)]">
+                    <Show when={passkeyMode() === "login"}>
+                      <p class="text-sm text-[var(--color-text-secondary)] mb-1">
+                        no passkey yet?{" "}
+                        <button
+                          type="button"
+                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                          onClick={() => setPasskeyMode("register")}
+                          disabled={isLoading()}
+                        >
+                          register a new one
+                        </button>
+                      </p>
+                    </Show>
+                    <Show when={passkeyMode() === "register"}>
+                      <p class="text-sm text-[var(--color-text-secondary)] mb-1">
+                        already have a passkey?{" "}
+                        <button
+                          type="button"
+                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                          onClick={() => setPasskeyMode("login")}
+                          disabled={isLoading()}
+                        >
+                          sign in instead
+                        </button>
+                      </p>
+                    </Show>
                   </div>
                 </div>
               </Match>

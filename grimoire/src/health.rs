@@ -43,4 +43,6 @@ pub struct ServerInfoResponse {
     pub lastfm_enabled: Option<bool>,
     /// whether theaudiodb enrichment is enabled on the server
     pub audiodb_enabled: Option<bool>,
+    /// whether passkey (webauthn) authentication over p2p is available
+    pub passkey_p2p_enabled: Option<bool>,
 }

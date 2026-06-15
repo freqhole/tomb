@@ -4,6 +4,141 @@
 import { getClientForRemote, httpRemote, webauthn } from "../../api/client";
 import { debug } from "../../../utils/logger";
 
+// ============================================================================
+// p2p webauthn flows
+//
+// the p2p handlers differ from http in two ways:
+//   1. start calls require `origin: window.location.origin` in the body
+//      (http handlers get origin from the validated request header)
+//   2. finish calls wrap the credential as { nonce, origin, credential }
+//      (http handlers use session cookies to carry the nonce)
+// ============================================================================
+
+export interface P2PAuthResult {
+  success: boolean;
+  userId?: string;
+  username?: string;
+  error?: string;
+}
+
+// extract a human-readable message from a failed SafeParseResult.
+// the client wraps all server errors as ZodError with the message in issues[0].
+function parseErrorMsg(err: import("zod").ZodError, fallback: string): string {
+  return err.issues?.[0]?.message ?? fallback;
+}
+
+/**
+ * register a new passkey over p2p transport.
+ *
+ * peerAddr - the freqhole server's iroh node address (node_id string).
+ * username - the username to register.
+ * inviteCode - an AccountLink invite code (required for first passkey on a new identity).
+ */
+export async function registerWithWebauthnP2P(
+  peerAddr: string,
+  username: string,
+  inviteCode: string,
+): Promise<P2PAuthResult> {
+  const origin = window.location.origin;
+  const remote = { transport: "wasm" as const, peer_addr: peerAddr };
+
+  try {
+    const client = await getClientForRemote(remote);
+    debug("webauthn-p2p", "starting p2p registration for:", username);
+
+    // step 1: start - include origin so server can derive rp_id
+    const startResult = await client.auth.registerStart({
+      username,
+      invite_code: inviteCode,
+      origin,
+    });
+
+    if (!startResult.success) {
+      return { success: false, error: parseErrorMsg(startResult.error, "failed to start registration") };
+    }
+
+    // startResult.data is { nonce, challenge } for p2p; { publicKey, ... } for http
+    const { nonce, challenge } = startResult.data as { nonce: string; challenge: unknown };
+
+    // step 2: browser creates credential from the challenge
+    const credentialOptions = webauthn.prepareRegistrationOptions(challenge);
+    const credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
+    if (!credential) {
+      return { success: false, error: "browser did not return a credential" };
+    }
+
+    // step 3: finish - wrap with nonce + origin
+    const serialized = webauthn.serializeRegistrationCredential(credential);
+    const finishResult = await client.auth.registerFinish({ nonce, origin, credential: serialized });
+
+    if (!finishResult.success) {
+      return { success: false, error: parseErrorMsg(finishResult.error, "failed to finish registration") };
+    }
+
+    const data = finishResult.data as { user_id?: string; username?: string } | undefined;
+    debug("webauthn-p2p", "p2p registration complete:", data);
+    return { success: true, userId: data?.user_id, username: data?.username };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "registration failed";
+    debug("webauthn-p2p", "p2p registration error:", err);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * authenticate with a passkey over p2p transport.
+ *
+ * on success the server links the node_id to the user account so subsequent
+ * p2p requests from this iroh node are auto-authenticated.
+ */
+export async function loginWithWebauthnP2P(
+  peerAddr: string,
+  username: string,
+): Promise<P2PAuthResult> {
+  const origin = window.location.origin;
+  const remote = { transport: "wasm" as const, peer_addr: peerAddr };
+
+  try {
+    const client = await getClientForRemote(remote);
+    debug("webauthn-p2p", "starting p2p login for:", username);
+
+    // step 1: start - include origin
+    const startResult = await client.auth.loginStart({
+      username,
+      origin,
+    });
+
+    if (!startResult.success) {
+      return { success: false, error: parseErrorMsg(startResult.error, "failed to start login") };
+    }
+
+    const { nonce, challenge } = startResult.data as { nonce: string; challenge: unknown };
+
+    // step 2: browser asserts credential
+    const credentialOptions = webauthn.prepareAuthenticationOptions(challenge);
+    const credential = (await navigator.credentials.get(credentialOptions)) as PublicKeyCredential;
+    if (!credential) {
+      return { success: false, error: "browser did not return a credential" };
+    }
+
+    // step 3: finish
+    const serialized = webauthn.serializeAuthenticationCredential(credential);
+    const finishResult = await client.auth.loginFinish({ nonce, origin, credential: serialized });
+
+    if (!finishResult.success) {
+      return { success: false, error: parseErrorMsg(finishResult.error, "failed to finish login") };
+    }
+
+    const data = finishResult.data as { user_id?: string; username?: string } | undefined;
+    debug("webauthn-p2p", "p2p login complete:", data);
+    return { success: true, userId: data?.user_id, username: data?.username };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "login failed";
+    debug("webauthn-p2p", "p2p login error:", err);
+    return { success: false, error: msg };
+  }
+}
+
 export interface AuthResult {
   success: boolean;
   error?: string;
