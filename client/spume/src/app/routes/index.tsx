@@ -47,6 +47,7 @@ import { debug } from "../../utils/logger";
 interface RoutesProps {
   onAddMusic: () => void;
   onSongDoubleClick: (song: any) => void;
+  onImportReview?: (sessionId: string) => void;
 }
 
 function LibraryRedirect() {
@@ -95,10 +96,25 @@ function RootRedirect() {
 }
 
 export function routes(props: RoutesProps) {
+  function ImportReviewRedirect() {
+    const params = useParams();
+    const navigate = useNavigate();
+    onMount(() => {
+      if (params.sessionId && props.onImportReview) {
+        props.onImportReview(params.sessionId);
+      }
+      navigate("/", { replace: true });
+    });
+    return null;
+  }
+
   return (
     <>
       {/* device link route - outside AppLayout, no chrome */}
       <Route path="/link" component={LinkDeviceView} />
+
+      {/* import review deep-link: charnel opens this after a scan with new songs */}
+      <Route path="/import-review/:sessionId" component={ImportReviewRedirect} />
 
       {/* settings routes - outside AppLayout */}
       <Route path="/settings" component={(p) => <SettingsLayout>{p.children}</SettingsLayout>}>

@@ -43,6 +43,9 @@ export interface ModalProps {
   size?: ModalSize;
   /** when true, raises z-index so this modal sits above a parent modal */
   elevated?: boolean;
+  /** explicit z-index override - use when the modal must appear above a
+   *  non-standard-z container (e.g. a custom overlay with z-index > 1060) */
+  zIndex?: number;
   /** disable backdrop click-to-close (for in-progress forms) */
   disableBackdropClose?: boolean;
   /** when true, the body region scrolls (`overflow-y-auto`) instead of
@@ -91,7 +94,7 @@ export function Modal(props: ModalProps) {
             left: 0,
             right: 0,
             bottom: 0,
-            "z-index": props.elevated ? 1060 : 1050,
+            "z-index": props.zIndex ?? (props.elevated ? 1060 : 1050),
           }}
           onClick={handleBackdrop}
         >

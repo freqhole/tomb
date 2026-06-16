@@ -62,6 +62,7 @@ export const routes = {
     add_albums_tags: { method: 'POST', path: '/api/tags/albums/add', req: s.AddAlbumsTagsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     add_songs_to_playlist: { method: 'POST', path: '/api/playlists/add-songs', req: s.AddSongsToPlaylistRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     add_taxon_parent: { method: 'POST', path: '/api/taxonomy/parents/add', req: s.AddTaxonParentRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    album_pending: { method: 'POST', path: '/api/music/import/album-pending', req: s.AlbumPendingRequestSchema, resp: s.AlbumPendingResponseSchema, auth: { type: 'authenticated' } as const },
     albums_by_value: { method: 'POST', path: '/api/music/relations/albums-by-value', req: s.AlbumsByValueRequestSchema, resp: s.AlbumsByValueResponseSchema, auth: { type: 'authenticated' } as const },
     apply_artist_bio: { method: 'POST', path: '/api/artists/apply-bio', req: s.ApplyArtistBioRequestSchema, resp: s.ApplyArtistBioResultSchema, auth: { type: 'role', role: 'admin' } as const },
     apply_external_urls: { method: 'POST', path: '/api/albums/apply-external-urls', req: s.ApplyExternalUrlsRequestSchema, resp: s.ApplyExternalUrlsResultSchema, auth: { type: 'role', role: 'admin' } as const },

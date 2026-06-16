@@ -227,6 +227,7 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
     };
 
     params.user_id = Some(target_user_id);
+    params.caller_is_admin = Some(caller.is_admin());
 
     let response = query_albums(params).await;
     response.map(|data| serde_json::to_value(data).unwrap())

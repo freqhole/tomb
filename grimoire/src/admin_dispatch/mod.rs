@@ -107,7 +107,7 @@ pub async fn handle(
 
         // -- library --
         "library_validate_path" => handlers::library::validate_path(args).await,
-        "library_scan" => handlers::library::scan(args).await,
+        "library_scan" => handlers::library::scan(args, caller).await,
         "library_scan_status" => handlers::library::scan_status(args).await,
         "library_image_upload" => handlers::library::image_upload(args, caller).await,
         "library_list_directories" => handlers::library::list_directories().await,

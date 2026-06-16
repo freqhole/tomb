@@ -1119,6 +1119,35 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
             count_q.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
         }
     }
+    // pending_review: only albums with unreviewed import blobs.
+    // members (user_id set, caller_is_admin=false) see only their own uploads.
+    // admins see all.
+    if params.pending_review == Some(true) {
+        let subq = if params.caller_is_admin.unwrap_or(false) {
+            "EXISTS (SELECT 1 FROM import_blobz ib \
+             JOIN songz s ON s.media_blob_id = ib.media_blob_id \
+             JOIN album_songz asj ON asj.song_id = s.id \
+             WHERE asj.album_id = album_query_view.album_id \
+               AND ib.reviewed_at IS NULL)"
+                .to_string()
+        } else {
+            let uid = params
+                .user_id
+                .as_deref()
+                .unwrap_or("")
+                .replace('\'', "''");
+            format!(
+                "EXISTS (SELECT 1 FROM import_blobz ib \
+                 JOIN media_blobz mb ON mb.id = ib.media_blob_id \
+                 JOIN songz s ON s.media_blob_id = ib.media_blob_id \
+                 JOIN album_songz asj ON asj.song_id = s.id \
+                 WHERE asj.album_id = album_query_view.album_id \
+                   AND ib.reviewed_at IS NULL \
+                   AND mb.created_by = '{uid}')"
+            )
+        };
+        count_q.and_where(Expr::cust(subq));
+    }
     let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
     let mut count_sqlx = sqlx::query_scalar::<_, i64>(&count_sql);
     for v in count_values.0 {
@@ -1154,6 +1183,33 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         if !statuses.is_empty() {
             query.and_where(Expr::col(AlbumView::AlbumMbLookupStatus).is_in(statuses.clone()));
         }
+    }
+    // pending_review filter (same logic as count query above)
+    if params.pending_review == Some(true) {
+        let subq = if params.caller_is_admin.unwrap_or(false) {
+            "EXISTS (SELECT 1 FROM import_blobz ib \
+             JOIN songz s ON s.media_blob_id = ib.media_blob_id \
+             JOIN album_songz asj ON asj.song_id = s.id \
+             WHERE asj.album_id = album_query_view.album_id \
+               AND ib.reviewed_at IS NULL)"
+                .to_string()
+        } else {
+            let uid = params
+                .user_id
+                .as_deref()
+                .unwrap_or("")
+                .replace('\'', "''");
+            format!(
+                "EXISTS (SELECT 1 FROM import_blobz ib \
+                 JOIN media_blobz mb ON mb.id = ib.media_blob_id \
+                 JOIN songz s ON s.media_blob_id = ib.media_blob_id \
+                 JOIN album_songz asj ON asj.song_id = s.id \
+                 WHERE asj.album_id = album_query_view.album_id \
+                   AND ib.reviewed_at IS NULL \
+                   AND mb.created_by = '{uid}')"
+            )
+        };
+        query.and_where(Expr::cust(subq));
     }
 
     let sort_direction = match params.sort_direction.as_deref() {
@@ -1504,6 +1560,8 @@ pub async fn list_recent_songs(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_songs(params).await
 }
@@ -1525,6 +1583,8 @@ pub async fn search_songs(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_songs(params).await
 }
@@ -1552,6 +1612,8 @@ pub async fn list_songs_by_artist(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_songs(params).await
 }
@@ -1579,6 +1641,8 @@ pub async fn list_songs_by_album(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_songs(params).await
 }
@@ -1606,6 +1670,8 @@ pub async fn list_songs_by_genre(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_songs(params).await
 }
@@ -1633,6 +1699,8 @@ pub async fn list_albums_by_artist(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_albums(params).await
 }

@@ -391,6 +391,24 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         import_result.metadata_extracted
     );
 
+    // record blob in import review queue if this job belongs to a session
+    if let Some(ref session_id) = job.session_id {
+        if let Ok(pool) = crate::database::connect().await {
+            if let Err(e) = sqlx::query!(
+                "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
+                blob_id,
+                session_id
+            )
+            .execute(&pool)
+            .await
+            {
+                warn!("failed to record import blob for review: {}", e);
+            } else {
+                info!(blob_id = %blob_id, %session_id, "recorded blob in import review queue");
+            }
+        }
+    }
+
     // create/update feed event for album (so uploaded music shows in feed)
     if let Some(album_id) = &import_result.album_id {
         let aid = album_id.clone();

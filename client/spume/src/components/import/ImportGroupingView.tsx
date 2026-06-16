@@ -2,6 +2,7 @@
 // no api calls here - all actions are passed as props.
 import { For, Show, createSignal, createMemo } from "solid-js";
 import { Button } from "../buttons/Button";
+import { MediaImage } from "../media/MediaImage";
 
 // -------------------------------------------------------------------------
 // types
@@ -19,7 +20,14 @@ export interface ImportReviewAlbum {
   id: string;
   title: string;
   artist?: string | null;
+  artistId?: string | null;
   artworkUrl?: string | null;
+  /** local or remote blob id for the primary artwork - used by MediaImage */
+  artworkBlobId?: string | null;
+  /** remote server id (peer_addr for P2P, remote_id for HTTP) - used by MediaImage */
+  remoteServerId?: string | null;
+  /** entity URLs fetched from the album record */
+  entityUrls?: { id?: string; name?: string | null; url: string }[];
   songs: ImportReviewSong[];
 }
 
@@ -61,18 +69,16 @@ function SingleAlbumCollapsed(props: { album: ImportReviewAlbum; onConfirm: () =
   return (
     <div class="flex flex-col gap-4">
       <div class="flex items-center gap-3 p-4 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)]">
-        <Show when={props.album.artworkUrl}>
-          <img
-            src={props.album.artworkUrl!}
-            alt=""
-            class="w-12 h-12 rounded object-cover flex-shrink-0"
-          />
-        </Show>
-        <Show when={!props.album.artworkUrl}>
-          <div class="w-12 h-12 rounded bg-[var(--color-bg-tertiary)] flex-shrink-0 flex items-center justify-center text-[var(--color-text-muted)] text-xs">
-            art
-          </div>
-        </Show>
+        <MediaImage
+          remoteBlobId={props.album.artworkBlobId}
+          remoteServerId={props.album.remoteServerId}
+          imageUrl={props.album.artworkUrl}
+          alt=""
+          size="sm"
+          class="w-12 h-12 rounded object-cover flex-shrink-0"
+          showFallback
+          domainType="album"
+        />
 
         <div class="flex-1 min-w-0">
           <p class="body-base font-medium text-[var(--color-text-primary)] truncate">
@@ -161,18 +167,16 @@ function AlbumGroupCard(props: {
     >
       {/* card header */}
       <div class="flex items-start gap-3 p-3">
-        <Show when={props.album.artworkUrl}>
-          <img
-            src={props.album.artworkUrl!}
-            alt=""
-            class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5"
-          />
-        </Show>
-        <Show when={!props.album.artworkUrl}>
-          <div class="w-10 h-10 rounded bg-[var(--color-bg-tertiary)] flex-shrink-0 mt-0.5 flex items-center justify-center text-[var(--color-text-muted)] text-xs">
-            art
-          </div>
-        </Show>
+        <MediaImage
+          remoteBlobId={props.album.artworkBlobId}
+          remoteServerId={props.album.remoteServerId}
+          imageUrl={props.album.artworkUrl}
+          alt=""
+          size="sm"
+          class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5"
+          showFallback
+          domainType="album"
+        />
 
         <div class="flex-1 min-w-0">
           <p class="body-base font-medium text-[var(--color-text-primary)] truncate leading-tight">

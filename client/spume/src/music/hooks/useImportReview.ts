@@ -85,19 +85,23 @@ export function useImportReview(
     const results = await Promise.all(
       pendingAlbums.map(async (pa: PendingReviewAlbum): Promise<ImportReviewAlbum> => {
         let songs: ImportReviewSong[] = [];
+        let entityUrls: { id?: string; name?: string | null; url: string }[] = [];
         try {
-          const songsResp = await client.music.querySongs({
-            q: null,
-            search_fields: null,
-            filters: { album_id: pa.album_id },
-            sort_by: "track_number",
-            sort_direction: "asc",
-            limit: 1000,
-            offset: 0,
-            user_id: null,
-            favorites_only: null,
-            min_rating: null,
-          });
+          const [songsResp, albumResp] = await Promise.all([
+            client.music.querySongs({
+              q: null,
+              search_fields: null,
+              filters: { album_id: pa.album_id },
+              sort_by: "track_number",
+              sort_direction: "asc",
+              limit: 1000,
+              offset: 0,
+              user_id: null,
+              favorites_only: null,
+              min_rating: null,
+            }),
+            client.music.getAlbum({ id: pa.album_id }),
+          ]);
           if (songsResp.success && songsResp.data) {
             songs = songsResp.data.items.map((it): ImportReviewSong => ({
               id: it.song.id,
@@ -107,15 +111,36 @@ export function useImportReview(
               durationSeconds: it.song.duration ?? undefined,
             }));
           }
+          if (albumResp.success && albumResp.data?.urls) {
+            entityUrls = albumResp.data.urls.map((u) => ({
+              id: u.id ?? undefined,
+              name: u.name ?? null,
+              url: u.url,
+            }));
+          }
+          // use album_imagez primary image from getAlbum if the pending review
+          // query didn't return one (timing window before ProcessFile completes)
+          if (!pa.artwork_blob_id && albumResp.success && albumResp.data?.images) {
+            const primary = albumResp.data.images.find((img) => img.is_primary === 1);
+            if (primary) {
+              pa = { ...pa, artwork_blob_id: primary.blob_id };
+            }
+          }
         } catch {
-          // leave songs empty if fetch fails - album is still reviewable
+          // leave empty if fetch fails - album is still reviewable
         }
 
+        // for P2P remotes base_url is empty - use remoteBlobId + remoteServerId
+        const isP2P = !r.base_url;
         return {
           id: pa.album_id,
           title: pa.title,
           artist: pa.artist_name ?? null,
+          artistId: pa.artist_id ?? null,
           artworkUrl: artworkUrlFromBlob(pa.artwork_blob_id, r),
+          artworkBlobId: isP2P ? (pa.artwork_blob_id ?? null) : null,
+          remoteServerId: isP2P ? (r.peer_addr ?? null) : null,
+          entityUrls,
           songs,
         };
       })
@@ -224,7 +249,9 @@ export function useImportReview(
 
   return {
     albums: () => data() ?? [],
-    loading: () => data.loading,
+    // treat "unresolved" (key just became non-null, fetch hasn't started) as
+    // loading so the auto-close effect in App.tsx doesn't fire on the first tick
+    loading: () => data.loading || data.state === "unresolved",
     patchAlbum,
     mergeAlbums,
     moveSong,

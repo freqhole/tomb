@@ -8,6 +8,7 @@ import {
   Show,
 } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
@@ -430,7 +431,11 @@ export default function LibraryView() {
       await loadDirectories();
       closeMoveModal();
       setLastResult(
-        `moved directory: ${result.relocated_exact_path + result.relocated_parent + result.relocated_filename} files relocated`,
+        `moved directory: ${
+          result.relocated_exact_path +
+          result.relocated_parent +
+          result.relocated_filename
+        } files relocated`,
       );
     } catch (e) {
       setMoveError(`move failed: ${e}`);
@@ -460,8 +465,8 @@ export default function LibraryView() {
             !v.exists
               ? `path does not exist: ${path}`
               : !v.is_dir
-                ? `path is not a directory: ${path}`
-                : `path is not readable: ${path}`,
+              ? `path is not a directory: ${path}`
+              : `path is not readable: ${path}`,
           );
           setScanning(null);
           return;
@@ -675,6 +680,24 @@ export default function LibraryView() {
                     {" "}
                     · {s().artists_added} artists
                   </Show>
+                  <Show when={s().songs_added > 0 && s().session_id}>
+                    <span style="margin-left: 0.75rem">
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          void openUrl(
+                            `https://spume.freqhole.net/#/import-review/${
+                              s().session_id
+                            }`,
+                          );
+                        }}
+                        style="color: var(--color-accent, #a78bfa); text-decoration: underline; font-size: 0.8em;"
+                      >
+                        review imported music
+                      </a>
+                    </span>
+                  </Show>
                 </Show>
               </div>
             );
@@ -750,10 +773,10 @@ export default function LibraryView() {
                       {ok()
                         ? `✓ readable directory (${v().path})`
                         : !v().exists
-                          ? `path does not exist: ${v().path}`
-                          : !v().is_dir
-                            ? "path is not a directory"
-                            : "path is not readable"}
+                        ? `path does not exist: ${v().path}`
+                        : !v().is_dir
+                        ? "path is not a directory"
+                        : "path is not readable"}
                     </p>
                   );
                 }}
@@ -847,10 +870,10 @@ export default function LibraryView() {
                       {ok()
                         ? `✓ readable directory (${v().path})`
                         : !v().exists
-                          ? `path does not exist: ${v().path}`
-                          : !v().is_dir
-                            ? "path is not a directory"
-                            : "path is not readable"}
+                        ? `path does not exist: ${v().path}`
+                        : !v().is_dir
+                        ? "path is not a directory"
+                        : "path is not readable"}
                     </p>
                   );
                 }}

@@ -237,9 +237,31 @@ pub async fn create_fetch(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         }
     };
 
+    // create a session so downloaded files land in the import review queue.
+    // each fetch url gets its own session so the review card in the ui maps 1:1
+    // to the url that was submitted.
+    let sess_resp = crate::jobs::create_job_session(CreateJobSessionRequest {
+        job_type: JobType::FetchMedia,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let session_id = match sess_resp.data {
+        Some(s) => {
+            tracing::info!(session_id = %s.id, "created fetch session for import review tracking");
+            Some(s.id)
+        }
+        None => {
+            tracing::warn!(
+                "failed to create fetch session; import review will be unavailable for this fetch"
+            );
+            None
+        }
+    };
+
     let job_request = CreateJobRequest {
         job_type: JobType::FetchMedia,
-        session_id: None,
+        session_id,
         parameters: match serde_json::to_value(&params) {
             Ok(v) => v,
             Err(e) => {

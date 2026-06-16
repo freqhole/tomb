@@ -279,6 +279,16 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
   const isCompilation = createMemo(() => props.value.albumType === "compilation");
   const [activeTab, setActiveTab] = createSignal("metadata");
 
+  const handleTabChange = (tab: string) => {
+    const prev = activeTab();
+    setActiveTab(tab);
+    // switching from musicbrainz back to metadata: refetch so any MB-applied
+    // changes (title, artist, genres) are reflected in the form fields
+    if (prev === "musicbrainz" && tab === "metadata") {
+      props.onAlbumUpdated?.();
+    }
+  };
+
   const updateAlbum = (patch: Partial<ImportAlbumEdit>) =>
     props.onChange({ ...props.value, ...patch });
 
@@ -439,7 +449,7 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
   }
 
   return (
-    <Tabs activeTab={activeTab()} onTabChange={setActiveTab}>
+    <Tabs activeTab={activeTab()} onTabChange={handleTabChange}>
       <TabList>
         <Tab id="metadata" label="metadata" />
         <Tab id="musicbrainz" label="musicbrainz" />

@@ -1,4 +1,4 @@
-import { For, Show, createSignal, createMemo } from "solid-js";
+import { For, Show, createSignal, createMemo, createResource, createEffect } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Button } from "../buttons/Button";
 import { IconButton } from "../buttons/IconButton";
@@ -12,7 +12,7 @@ import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
-import type { PreCheckFetchResponse } from "freqhole-api-client";
+import type { PreCheckFetchResponse, PendingReviewSession } from "freqhole-api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 
 // ---------------------------------------------------------------------------
@@ -58,12 +58,40 @@ export interface AddMusicModalProps {
   class?: string;
   /** called when user wants to review a completed import session */
   onReviewSession?: (sessionId: string) => void;
+  /** increment to trigger a refetch of pending review sessions */
+  refetchReviewKey?: number;
+  /** whether the current user is an admin (shows uploader usernames in review tab) */
+  isAdmin?: boolean;
+  /** session id that has just been reviewed - auto-dismisses its upload card */
+  dismissedReviewSessionId?: string | null;
 }
 
 export function AddMusicModal(props: AddMusicModalProps) {
   const [uploadMode, setUploadMode] = createSignal("files");
   const [urlText, setUrlText] = createSignal("");
   const [showFullItemList, setShowFullItemList] = createSignal(false);
+
+  // pending review sessions - fetched whenever the modal is open.
+  // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
+  const [pendingSessions, { refetch: refetchPendingSessions }] = createResource<
+    PendingReviewSession[],
+    number | null
+  >(
+    () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
+    async (_key: number | null) => {
+      const remote = getCurrentRemote();
+      if (!remote) return [];
+      try {
+        const client = await getClientForRemote(remote);
+        const resp = await client.music.listPendingImportReview({ session_id: null });
+        if (!resp.success) return [];
+        return resp.data ?? [];
+      } catch {
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
 
   // aliases to module-level signals so the rest of the component reads normally
   const urlPrecheckState = _urlPrecheckState;
@@ -327,6 +355,12 @@ export function AddMusicModal(props: AddMusicModalProps) {
   // track which sessions the user has dismissed from this modal session
   const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
 
+  // auto-dismiss the upload card when a review completes
+  createEffect(() => {
+    const sid = props.dismissedReviewSessionId;
+    if (sid) setDismissedSessions((prev) => new Set([...prev, sid]));
+  });
+
   // local import progress helpers
   const localProgress = () => props.localImportProgress;
   const isLocalImporting = () => {
@@ -396,10 +430,20 @@ export function AddMusicModal(props: AddMusicModalProps) {
 
             {/* tabs - scrollable area */}
             <div class="px-4 pt-4 overflow-y-auto flex-1 min-h-0">
-              <Tabs activeTab={uploadMode()} onTabChange={setUploadMode}>
+              <Tabs
+                activeTab={uploadMode()}
+                onTabChange={(tab) => {
+                  setUploadMode(tab);
+                }}
+              >
                 <TabList class="justify-center">
                   <Tab id="files" label="upload files" />
                   <Tab id="urls" label="download urls" />
+                  <Tab
+                    id="review"
+                    label="review"
+                    badge={pendingSessions()?.reduce((n, s) => n + s.albums.length, 0) || undefined}
+                  />
                 </TabList>
 
                 <div class="py-6">
@@ -633,6 +677,93 @@ export function AddMusicModal(props: AddMusicModalProps) {
                             </Button>
                           </Show>
                         </div>
+                      </div>
+                    </Show>
+                  </TabPanel>
+
+                  <TabPanel id="review">
+                    {/* toolbar: refetch button */}
+                    <div class="flex justify-center mb-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void refetchPendingSessions()}
+                        disabled={pendingSessions.loading}
+                      >
+                        <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
+                          <Icon name="loader" size={14} color="currentColor" />
+                          <span class="ml-1">loading...</span>
+                        </Show>
+                      </Button>
+                    </div>
+                    <Show when={!pendingSessions.loading && (pendingSessions() ?? []).length === 0}>
+                      <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
+                        <Icon name="check" size={32} color="currentColor" />
+                        <p class="body-small">no pending reviews</p>
+                      </div>
+                    </Show>
+                    <Show when={(pendingSessions() ?? []).length > 0}>
+                      <div class="flex flex-col gap-3">
+                        <For each={pendingSessions() ?? []}>
+                          {(session) => (
+                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                              <div class="flex items-start justify-between gap-3">
+                                <div class="flex flex-col gap-1 min-w-0">
+                                  <div class="flex items-center gap-2 flex-wrap">
+                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                      {session.albums.length} album
+                                      {session.albums.length !== 1 ? "s" : ""}
+                                      {" · "}
+                                      {session.albums.reduce(
+                                        (n, a) => n + a.pending_blob_count,
+                                        0
+                                      )}{" "}
+                                      unreviewed
+                                    </p>
+                                    <Show when={props.isAdmin && session.uploader_username}>
+                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                        {session.uploader_username}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <p class="body-xs text-[var(--color-text-muted)]">
+                                    {new Date(session.created_at * 1000).toLocaleString()}
+                                  </p>
+                                  <div class="flex flex-wrap gap-1 mt-1">
+                                    <For each={session.albums.slice(0, 3)}>
+                                      {(album) => {
+                                        const remoteId = getCurrentRemote()?.remote_id;
+                                        const href = remoteId
+                                          ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
+                                          : undefined;
+                                        return (
+                                          <a
+                                            href={href}
+                                            class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+                                          >
+                                            {album.title}
+                                          </a>
+                                        );
+                                      }}
+                                    </For>
+                                    <Show when={session.albums.length > 3}>
+                                      <span class="body-xs text-[var(--color-text-muted)]">
+                                        +{session.albums.length - 3} more
+                                      </span>
+                                    </Show>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => props.onReviewSession?.(session.session_id)}
+                                >
+                                  review
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
                       </div>
                     </Show>
                   </TabPanel>

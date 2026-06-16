@@ -6,9 +6,9 @@ use crate::music::crud::{update_songs, UpdateSongsRequest};
 use crate::music::entities::albums::{update_album as grimoire_update_album, UpdateAlbumRequest};
 use crate::music::entities::import_review::{
     models::{
-        ImportReviewOk, ListPendingReviewRequest, MarkAlbumReviewedRequest,
-        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
-        PendingReviewSession,
+        AlbumPendingRequest, AlbumPendingResponse, ImportReviewOk, ListPendingReviewRequest,
+        MarkAlbumReviewedRequest, MergeAlbumsReviewRequest, MoveSongReviewRequest,
+        PatchAlbumReviewRequest, PendingReviewSession,
     },
     repository,
 };
@@ -62,6 +62,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "ImportReviewOk",
         auth: RouteAuth::Authenticated,
     },
+    RouteInfo {
+        name: "album_pending",
+        path: "/api/music/import/album-pending",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "AlbumPendingRequest",
+        response_type: "AlbumPendingResponse",
+        auth: RouteAuth::Authenticated,
+    },
 ];
 
 /// list sessions with pending (unreviewed) albums.
@@ -70,7 +79,11 @@ pub async fn list_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     if !caller.is_member() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "Forbidden", "authentication required")],
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
         );
     }
 
@@ -79,7 +92,11 @@ pub async fn list_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Err(e) => {
             return GrimoireResponse::failure(
                 "invalid request body",
-                vec![ErrorDetail::new("invalid_request", "Invalid Request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -95,13 +112,14 @@ pub async fn list_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             Ok(v) => GrimoireResponse::success("ok", v),
             Err(e) => GrimoireResponse::failure(
                 "serialization error",
-                vec![ErrorDetail::new("serialization_error", "Serialization Error", e.to_string())],
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
             ),
         },
-        Err(e) => GrimoireResponse::failure(
-            "failed to list pending sessions",
-            vec![e.into()],
-        ),
+        Err(e) => GrimoireResponse::failure("failed to list pending sessions", vec![e.into()]),
     }
 }
 
@@ -110,7 +128,11 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
     if !caller.is_member() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "Forbidden", "authentication required")],
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
         );
     }
 
@@ -119,7 +141,11 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
         Err(e) => {
             return GrimoireResponse::failure(
                 "invalid request body",
-                vec![ErrorDetail::new("invalid_request", "Invalid Request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -130,7 +156,11 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
             Ok(false) => {
                 return GrimoireResponse::failure(
                     "forbidden",
-                    vec![ErrorDetail::new("forbidden", "Forbidden", "you did not upload this album")],
+                    vec![ErrorDetail::new(
+                        "forbidden",
+                        "Forbidden",
+                        "you did not upload this album",
+                    )],
                 )
             }
             Err(e) => return GrimoireResponse::failure("db error", vec![e.into()]),
@@ -142,7 +172,11 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
             Ok(v) => GrimoireResponse::success("ok", v),
             Err(e) => GrimoireResponse::failure(
                 "serialization error",
-                vec![ErrorDetail::new("serialization_error", "Serialization Error", e.to_string())],
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
             ),
         },
         Err(e) => GrimoireResponse::failure("failed to mark reviewed", vec![e.into()]),
@@ -154,7 +188,11 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
     if !caller.is_member() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "Forbidden", "authentication required")],
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
         );
     }
 
@@ -163,7 +201,11 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         Err(e) => {
             return GrimoireResponse::failure(
                 "invalid request body",
-                vec![ErrorDetail::new("invalid_request", "Invalid Request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -174,7 +216,11 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
             Ok(false) => {
                 return GrimoireResponse::failure(
                     "forbidden",
-                    vec![ErrorDetail::new("forbidden", "Forbidden", "you did not upload this album")],
+                    vec![ErrorDetail::new(
+                        "forbidden",
+                        "Forbidden",
+                        "you did not upload this album",
+                    )],
                 )
             }
             Err(e) => return GrimoireResponse::failure("db error", vec![e.into()]),
@@ -221,17 +267,20 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 "track_artist": patch.track_artist,
             })) {
                 Ok(r) => r,
-                Err(e) => return GrimoireResponse::failure(
-                    "failed to build song update request",
-                    vec![ErrorDetail::new("internal_error", "Internal Error", e.to_string())],
-                ),
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to build song update request",
+                        vec![ErrorDetail::new(
+                            "internal_error",
+                            "Internal Error",
+                            e.to_string(),
+                        )],
+                    )
+                }
             };
             let result = update_songs(update_req).await;
             if !result.success {
-                return GrimoireResponse::failure(
-                    "failed to update song",
-                    result.errors,
-                );
+                return GrimoireResponse::failure("failed to update song", result.errors);
             }
         }
     }
@@ -242,7 +291,11 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
             Ok(v) => GrimoireResponse::success("ok", v),
             Err(e) => GrimoireResponse::failure(
                 "serialization error",
-                vec![ErrorDetail::new("serialization_error", "Serialization Error", e.to_string())],
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
             ),
         },
         Err(e) => GrimoireResponse::failure("failed to mark reviewed", vec![e.into()]),
@@ -254,7 +307,11 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     if !caller.is_member() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "Forbidden", "authentication required")],
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
         );
     }
 
@@ -263,7 +320,11 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Err(e) => {
             return GrimoireResponse::failure(
                 "invalid request body",
-                vec![ErrorDetail::new("invalid_request", "Invalid Request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -275,7 +336,11 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             Ok(false) => {
                 return GrimoireResponse::failure(
                     "forbidden",
-                    vec![ErrorDetail::new("forbidden", "Forbidden", "you did not upload this album")],
+                    vec![ErrorDetail::new(
+                        "forbidden",
+                        "Forbidden",
+                        "you did not upload this album",
+                    )],
                 )
             }
             Err(e) => return GrimoireResponse::failure("db error", vec![e.into()]),
@@ -314,7 +379,11 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             Ok(v) => GrimoireResponse::success("ok", v),
             Err(e) => GrimoireResponse::failure(
                 "serialization error",
-                vec![ErrorDetail::new("serialization_error", "Serialization Error", e.to_string())],
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
             ),
         },
         Err(e) => GrimoireResponse::failure("failed to mark target reviewed", vec![e.into()]),
@@ -326,7 +395,11 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
     if !caller.is_member() {
         return GrimoireResponse::failure(
             "forbidden",
-            vec![ErrorDetail::new("forbidden", "Forbidden", "authentication required")],
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
         );
     }
 
@@ -335,7 +408,11 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         Err(e) => {
             return GrimoireResponse::failure(
                 "invalid request body",
-                vec![ErrorDetail::new("invalid_request", "Invalid Request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
             )
         }
     };
@@ -347,7 +424,11 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
             Ok(false) => {
                 return GrimoireResponse::failure(
                     "forbidden",
-                    vec![ErrorDetail::new("forbidden", "Forbidden", "you did not upload this album")],
+                    vec![ErrorDetail::new(
+                        "forbidden",
+                        "Forbidden",
+                        "you did not upload this album",
+                    )],
                 )
             }
             Err(e) => return GrimoireResponse::failure("db error", vec![e.into()]),
@@ -361,10 +442,16 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         "album_id": req.to_album_id,
     })) {
         Ok(r) => r,
-        Err(e) => return GrimoireResponse::failure(
-            "failed to build song update request",
-            vec![ErrorDetail::new("internal_error", "Internal Error", e.to_string())],
-        ),
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to build song update request",
+                vec![ErrorDetail::new(
+                    "internal_error",
+                    "Internal Error",
+                    e.to_string(),
+                )],
+            )
+        }
     };
     let result = update_songs(update_req).await;
     if !result.success {
@@ -375,7 +462,54 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         Ok(v) => GrimoireResponse::success("ok", v),
         Err(e) => GrimoireResponse::failure(
             "serialization error",
-            vec![ErrorDetail::new("serialization_error", "Serialization Error", e.to_string())],
+            vec![ErrorDetail::new(
+                "serialization_error",
+                "Serialization Error",
+                e.to_string(),
+            )],
         ),
+    }
+}
+
+/// check if an album has pending (unreviewed) import blobs.
+pub async fn album_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if !caller.is_member() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "Forbidden",
+                "authentication required",
+            )],
+        );
+    }
+
+    let req: AlbumPendingRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "invalid request body",
+                vec![ErrorDetail::new(
+                    "invalid_request",
+                    "Invalid Request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match repository::album_pending(&req.album_id, &caller.user_id, caller.is_admin()).await {
+        Ok(resp) => match serde_json::to_value(resp) {
+            Ok(v) => GrimoireResponse::success("ok", v),
+            Err(e) => GrimoireResponse::failure(
+                "serialization error",
+                vec![ErrorDetail::new(
+                    "serialization_error",
+                    "Serialization Error",
+                    e.to_string(),
+                )],
+            ),
+        },
+        Err(e) => GrimoireResponse::failure("failed to check album pending", vec![e.into()]),
     }
 }

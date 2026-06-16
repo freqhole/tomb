@@ -180,9 +180,9 @@ pub mod type_registry {
         UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
     use crate::music::entities::import_review::models::{
-        ImportReviewOk, ListPendingReviewRequest, MarkAlbumReviewedRequest,
-        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
-        PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
+        AlbumPendingRequest, AlbumPendingResponse, ImportReviewOk, ListPendingReviewRequest,
+        MarkAlbumReviewedRequest, MergeAlbumsReviewRequest, MoveSongReviewRequest,
+        PatchAlbumReviewRequest, PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
     };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
@@ -1473,5 +1473,9 @@ pub mod type_registry {
         registered.insert("MoveSongReviewRequest".to_string());
         gen.add_schema::<ImportReviewOk>("ImportReviewOk");
         registered.insert("ImportReviewOk".to_string());
+        gen.add_schema::<AlbumPendingRequest>("AlbumPendingRequest");
+        registered.insert("AlbumPendingRequest".to_string());
+        gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
+        registered.insert("AlbumPendingResponse".to_string());
     }
 }

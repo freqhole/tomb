@@ -1917,6 +1917,18 @@ export function createMusicMethods(call: CallFn) {
         params,
       );
     },
+
+    albumPending: (params: s.AlbumPendingRequest) => {
+      return call(
+        "music",
+        "album_pending",
+        routes.music.album_pending.resp,
+        routes.music.album_pending.req,
+        routes.music.album_pending.method,
+        routes.music.album_pending.path,
+        params,
+      );
+    },
   };
 }
 

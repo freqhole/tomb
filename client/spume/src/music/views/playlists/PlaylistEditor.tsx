@@ -254,10 +254,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       }
 
-      toast.success(`deleted "${playlistTitle}"`, {
-        title: "playlist deleted",
-      });
-
       props.onDeleted?.();
     } catch (error) {
       console.error("failed to delete playlist:", error);

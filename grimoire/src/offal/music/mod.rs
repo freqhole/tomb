@@ -306,6 +306,9 @@ pub async fn dispatch(
             Some(import_review::merge_albums(caller, body.clone()).await)
         }
         "/api/music/import/move-song" => Some(import_review::move_song(caller, body.clone()).await),
+        "/api/music/import/album-pending" => {
+            Some(import_review::album_pending(caller, body.clone()).await)
+        }
 
         // musicbrainz
         "/api/musicbrainz/search/releases" => {

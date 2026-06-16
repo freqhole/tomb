@@ -210,6 +210,18 @@ pub struct QueryParams {
     #[arg(long, value_delimiter = ',')]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mb_lookup_status: Option<Vec<String>>,
+
+    /// filter to only albums with pending (unreviewed) import blobs.
+    /// members see only their own uploads; admins see all.
+    #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_review: Option<bool>,
+
+    /// set server-side by the route handler - never comes from the client.
+    /// when true, pending_review shows all albums regardless of uploader.
+    #[arg(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_is_admin: Option<bool>,
 }
 
 impl Default for QueryParams {
@@ -226,6 +238,8 @@ impl Default for QueryParams {
             favorites_only: None,
             min_rating: None,
             mb_lookup_status: None,
+            pending_review: None,
+            caller_is_admin: None,
         }
     }
 }

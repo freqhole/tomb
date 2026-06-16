@@ -3,9 +3,10 @@
 // stage 2: per-album metadata (placeholder for BulkEnrichmentReviewModal integration)
 //
 // all data fetching is the caller's responsibility - this component is presentational.
-import { For, Show, createSignal, createMemo, type JSX } from "solid-js";
+import { For, Show, createSignal, createMemo, createEffect, type JSX } from "solid-js";
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
+import { MediaImage } from "../media/MediaImage";
 import { ImportGroupingView, type ImportReviewAlbum } from "../import/ImportGroupingView";
 
 // -------------------------------------------------------------------------
@@ -116,18 +117,16 @@ function DefaultAlbumEditorStub(props: AlbumEditorRenderProps) {
   return (
     <div class="flex flex-col gap-4">
       <div class="flex items-center gap-3 p-4 rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)]">
-        <Show when={props.album.artworkUrl}>
-          <img
-            src={props.album.artworkUrl!}
-            alt=""
-            class="w-14 h-14 rounded object-cover flex-shrink-0"
-          />
-        </Show>
-        <Show when={!props.album.artworkUrl}>
-          <div class="w-14 h-14 rounded bg-[var(--color-bg-tertiary)] flex-shrink-0 flex items-center justify-center text-[var(--color-text-muted)] text-xs">
-            art
-          </div>
-        </Show>
+        <MediaImage
+          remoteBlobId={props.album.artworkBlobId}
+          remoteServerId={props.album.remoteServerId}
+          imageUrl={props.album.artworkUrl}
+          alt=""
+          size="sm"
+          class="w-14 h-14 rounded object-cover flex-shrink-0"
+          showFallback
+          domainType="album"
+        />
         <div>
           <p class="body-base font-medium text-[var(--color-text-primary)]">{props.album.title}</p>
           <p class="body-small text-[var(--color-text-secondary)]">
@@ -263,6 +262,15 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
   const [albumIndex, setAlbumIndex] = createSignal(0);
   const [reviewedIds, setReviewedIds] = createSignal<Set<string>>(new Set());
 
+  // reset to grouping stage whenever the modal opens
+  createEffect(() => {
+    if (props.isOpen) {
+      setStage("grouping");
+      setAlbumIndex(0);
+      setReviewedIds(new Set<string>());
+    }
+  });
+
   const currentAlbum = createMemo(() => props.albums[albumIndex()] ?? props.albums[0]);
 
   const allReviewed = createMemo(
@@ -289,6 +297,7 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
       title="review import"
       size="xl"
       scrollBody
+      zIndex={1200}
       footer={
         <Show when={stage() === "metadata"}>
           <MetadataFooter

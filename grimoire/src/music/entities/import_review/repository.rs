@@ -4,7 +4,7 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::error::GrimoireResult;
 
-use super::models::{PendingReviewAlbum, PendingReviewSession};
+use super::models::{AlbumPendingResponse, PendingReviewAlbum, PendingReviewSession};
 
 /// record that a media blob is part of an import job session.
 /// uses INSERT OR IGNORE so re-processing is idempotent and dedup hits are silent.
@@ -35,18 +35,22 @@ pub async fn list_pending_sessions(
 
     // single query handles both admin (all sessions) and member (own uploads only)
     // and optional session_id filter. using (is_admin OR created_by = user) pattern.
+    // uploader_username is only populated when the caller is admin.
     let sessions = sqlx::query!(
         r#"
         SELECT DISTINCT ib.session_id,
-               COALESCE(js.created_at, 0) AS "created_at!: i64"
+               COALESCE(js.created_at, 0) AS "created_at!: i64",
+               CASE WHEN ? = 1 THEN ua.username ELSE NULL END AS "uploader_username?: String"
         FROM import_blobz ib
         LEFT JOIN job_sessionz js ON js.id = ib.session_id
         LEFT JOIN media_blobz mb ON mb.id = ib.media_blob_id
+        LEFT JOIN user_accountz ua ON ua.id = js.created_by
         WHERE ib.reviewed_at IS NULL
           AND (? = 1 OR mb.created_by = ?)
           AND (? IS NULL OR ib.session_id = ?)
         ORDER BY js.created_at DESC
         "#,
+        is_admin_flag,
         is_admin_flag,
         user_id,
         sid_filter,
@@ -59,10 +63,12 @@ pub async fn list_pending_sessions(
     // for each session, fetch pending albums
     let mut result = Vec::with_capacity(sessions.len());
     for s in sessions {
-        let albums = list_pending_albums_for_session(&pool, &s.session_id, user_id, is_admin).await?;
+        let albums =
+            list_pending_albums_for_session(&pool, &s.session_id, user_id, is_admin).await?;
         result.push(PendingReviewSession {
             session_id: s.session_id,
             created_at: s.created_at,
+            uploader_username: s.uploader_username,
             albums,
         });
     }
@@ -178,4 +184,53 @@ pub async fn mark_album_reviewed(
     .await
     .map_err(GrimoireError::from)?;
     Ok(())
+}
+
+/// check whether an album has any pending (unreviewed) import blobs.
+/// returns the most recent session that has pending blobs for the album.
+/// members only see their own uploads; admins see all.
+pub async fn album_pending(
+    album_id: &str,
+    user_id: &str,
+    is_admin: bool,
+) -> GrimoireResult<AlbumPendingResponse> {
+    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let is_admin_flag = is_admin as i64;
+
+    let row = sqlx::query!(
+        r#"
+        SELECT ib.session_id                            AS "session_id?: String",
+               COUNT(DISTINCT ib.media_blob_id)         AS "pending_count!: i64",
+               MAX(js.created_at)                       AS "created_at?: i64"
+        FROM import_blobz ib
+        LEFT JOIN media_blobz mb   ON mb.id = ib.media_blob_id
+        LEFT JOIN job_sessionz js  ON js.id = ib.session_id
+        JOIN songz s               ON s.media_blob_id = ib.media_blob_id
+        JOIN album_songz asj       ON asj.song_id = s.id
+        WHERE asj.album_id = ?
+          AND ib.reviewed_at IS NULL
+          AND (? = 1 OR mb.created_by = ?)
+        ORDER BY js.created_at DESC
+        LIMIT 1
+        "#,
+        album_id,
+        is_admin_flag,
+        user_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(GrimoireError::from)?;
+
+    match row {
+        None => Ok(AlbumPendingResponse {
+            session_id: None,
+            pending_count: 0,
+            created_at: None,
+        }),
+        Some(r) => Ok(AlbumPendingResponse {
+            session_id: r.session_id,
+            pending_count: r.pending_count,
+            created_at: r.created_at,
+        }),
+    }
 }

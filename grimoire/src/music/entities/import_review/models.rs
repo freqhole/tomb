@@ -8,6 +8,8 @@ use zod_gen_derive::ZodSchema;
 pub struct PendingReviewSession {
     pub session_id: String,
     pub created_at: i64,
+    /// username of the user who uploaded (only populated for admin callers)
+    pub uploader_username: Option<String>,
     /// albums in this session that have at least one unreviewed blob
     pub albums: Vec<PendingReviewAlbum>,
 }
@@ -87,6 +89,23 @@ pub struct MoveSongReviewRequest {
     pub session_id: String,
     pub song_id: String,
     pub to_album_id: String,
+}
+
+/// request to check if a specific album has pending (unreviewed) import blobs
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumPendingRequest {
+    pub album_id: String,
+}
+
+/// response indicating whether an album has pending review blobs
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AlbumPendingResponse {
+    /// the session_id of the most recent pending session for this album, if any
+    pub session_id: Option<String>,
+    /// total count of unreviewed blobs for this album across all sessions
+    pub pending_count: i64,
+    /// created_at of the most recent pending session, if any
+    pub created_at: Option<i64>,
 }
 
 /// generic success response

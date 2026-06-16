@@ -523,6 +523,18 @@ export const AlbumMetadataSchema = z.object({
 });
 export type AlbumMetadata = z.infer<typeof AlbumMetadataSchema>;
 
+export const AlbumPendingRequestSchema = z.object({
+  album_id: z.string()
+});
+export type AlbumPendingRequest = z.infer<typeof AlbumPendingRequestSchema>;
+
+export const AlbumPendingResponseSchema = z.object({
+  session_id: z.string().nullish(),
+  pending_count: z.number(),
+  created_at: z.number().nullish()
+});
+export type AlbumPendingResponse = z.infer<typeof AlbumPendingResponseSchema>;
+
 export const AlbumQueryResultSchema = z.object({
   album: z.object({
   id: z.string(),
@@ -4069,6 +4081,7 @@ export type PendingReviewAlbum = z.infer<typeof PendingReviewAlbumSchema>;
 export const PendingReviewSessionSchema = z.object({
   session_id: z.string(),
   created_at: z.number(),
+  uploader_username: z.string().nullish(),
   albums: z.array(z.object({
   album_id: z.string(),
   title: z.string(),
@@ -4762,7 +4775,9 @@ export const QueryParamsSchema = z.object({
   user_id: z.string().nullish(),
   favorites_only: z.boolean().nullish(),
   min_rating: z.number().nullish(),
-  mb_lookup_status: z.array(z.string()).nullish()
+  mb_lookup_status: z.array(z.string()).nullish(),
+  pending_review: z.boolean().nullish(),
+  caller_is_admin: z.boolean().nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 

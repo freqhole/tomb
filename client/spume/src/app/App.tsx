@@ -26,6 +26,7 @@ import {
   useLocalSource,
   useRemoteSource,
 } from "../music/data";
+import { isAdmin } from "../music/data/permissions";
 import {
   closeAddMusic,
   hideAlbumEditor,
@@ -106,6 +107,7 @@ import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotic
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
 import { ImportReviewModal } from "../components/modals/ImportReviewModal";
+import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -114,6 +116,10 @@ export function App() {
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   // session id for the import review modal - set when user clicks "review now"
   const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
+  // incremented when the review modal closes - triggers AddMusicModal to refetch pending sessions
+  const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
+  // last session id that completed review - triggers AddMusicModal to auto-dismiss its card
+  const [completedReviewSessionId, setCompletedReviewSessionId] = createSignal<string | null>(null);
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
@@ -139,6 +145,14 @@ export function App() {
     () => reviewSessionId(),
     () => getCurrentRemote() ?? null
   );
+  // map of albumId -> save fn registered by ImportReviewEditor instances
+  const editorSaveFns = new Map<string, () => Promise<void>>();
+  // auto-close review modal when all albums have been reviewed
+  createEffect(() => {
+    if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
+      setReviewSessionId(null);
+    }
+  });
   // radio works with zero remotes (anyone with a node id can listen)
   const isRadioRoute = () => currentHash().startsWith("#/radio");
   const isSharedRoute = () => currentHash().startsWith("#/shared");
@@ -984,6 +998,7 @@ export function App() {
             {routes({
               onAddMusic: () => openAddMusic(),
               onSongDoubleClick: handleSongDoubleClick,
+              onImportReview: (sid) => setReviewSessionId(sid),
             })}
           </HashRouter>
         </Show>
@@ -1000,21 +1015,62 @@ export function App() {
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
-        onReviewSession={(sid) => setReviewSessionId(sid)}
+        onReviewSession={(sid) => {
+          setReviewSessionId(sid);
+          handleCloseAddMusic();
+        }}
+        refetchReviewKey={reviewRefetchKey()}
+        isAdmin={isAdmin()}
+        dismissedReviewSessionId={completedReviewSessionId()}
       />
 
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}
-        onClose={() => setReviewSessionId(null)}
+        onClose={() => {
+          setReviewSessionId(null);
+          setReviewRefetchKey((k) => k + 1);
+        }}
         albums={importReview.albums()}
-        onComplete={() => setReviewSessionId(null)}
+        onComplete={() => {
+          const sid = reviewSessionId();
+          if (sid) setCompletedReviewSessionId(sid);
+          setReviewSessionId(null);
+          setReviewRefetchKey((k) => k + 1);
+        }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
           void importReview.mergeAlbums(sourceIds, targetId)
         }
         onMoveSong={(songId: string, toAlbumId: string) =>
           void importReview.moveSong(songId, toAlbumId)
         }
-        onMarkReviewed={(albumId: string) => void importReview.markReviewed(albumId)}
+        onMarkReviewed={async (albumId: string) => {
+          // flush any pending edits from the editor before marking reviewed
+          const saveFn = editorSaveFns.get(albumId);
+          if (saveFn) {
+            try {
+              await saveFn();
+            } catch {
+              /* saveFn shows its own toast */
+            }
+          } else {
+            // no editor registered (e.g. grouping stage) - just mark reviewed
+            void importReview.markReviewed(albumId);
+          }
+        }}
+        renderAlbumEditor={(editorProps) => {
+          const remote = getCurrentRemote();
+          if (!remote || !reviewSessionId()) return <></>;
+          return (
+            <ImportReviewEditor
+              {...editorProps}
+              remote={remote}
+              reviewHandle={importReview}
+              sessionId={reviewSessionId()!}
+              onRegisterSave={(id, fn) => editorSaveFns.set(id, fn)}
+              onUnregisterSave={(id) => editorSaveFns.delete(id)}
+            />
+          );
+        }}
       />
 
       <AddRemoteModal

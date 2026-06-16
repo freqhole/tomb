@@ -73,6 +73,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
     return v?.trim() || undefined;
   };
   const [statusFilters, setStatusFilters] = createSignal<StatusFilter[]>([]);
+  const [pendingReview, setPendingReview] = createSignal(false);
   const [sortField, setSortField] = createSignal<SortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
 
@@ -107,6 +108,7 @@ export function AlbumsTable(props: AlbumsTableProps) {
     search: debouncedSearch,
     sortBy: sortByAccessor,
     sortDirection: sortDirection,
+    pendingReview: pendingReview,
   });
 
   const statusCountsQuery = useAlbumStatusCounts({
@@ -397,6 +399,21 @@ export function AlbumsTable(props: AlbumsTableProps) {
             </span>
           </Show>
         </div>
+
+        {/* pending review filter chip */}
+        <button
+          type="button"
+          aria-pressed={pendingReview()}
+          onClick={() => setPendingReview((v) => !v)}
+          class={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+            pendingReview()
+              ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40"
+              : "border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent-400)] bg-transparent"
+          }`}
+          title="show only albums with pending import review"
+        >
+          pending review
+        </button>
 
         {/* lookup N control (header level; works without selection).
          *  fans out to mb + last.fm + theaudiodb for eligible rows only.

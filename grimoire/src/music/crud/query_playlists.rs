@@ -738,6 +738,8 @@ pub async fn list_user_playlists(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_playlists(params).await
 }
@@ -759,6 +761,8 @@ pub async fn search_playlists(
         favorites_only: None,
         min_rating: None,
         mb_lookup_status: None,
+        pending_review: None,
+        caller_is_admin: None,
     };
     query_playlists(params).await
 }

@@ -29,6 +29,7 @@ import { getClientForRemote } from "../../app/api/client";
 import { EnrichmentReviewPanel } from "../../library/components/EnrichmentReviewPanel";
 import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
 import { useEnrichmentEnabledQuery } from "../../music/hooks/useEnrichmentEnabled";
+import { useAlbumPending } from "../../music/hooks/useAlbumPending";
 import { showArtistEditor } from "../../music/hooks/modals";
 import { Modal } from "./Modal";
 import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
@@ -527,6 +528,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   const reviewRemote = () => (currentRemote() ?? undefined) as Remote | undefined;
   const isRemoteAdmin = useRemoteIsAdmin(reviewRemote);
 
+  // check if this album has pending (unreviewed) import blobs
+  const albumPending = useAlbumPending(
+    () => props.albumId,
+    () => currentRemote() ?? null
+  );
+
   // which external enrichment sources the operator has enabled in
   // freqhole-config.toml on this remote. tabs for disabled sources are
   // hidden entirely (also gates auto-switching the active tab when the
@@ -947,6 +954,28 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           </TabList>
 
           <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* pending import review badge */}
+            <Show when={albumPending.hasPending()}>
+              <div class="flex items-center justify-between gap-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <span class="text-sm font-medium text-yellow-400">pending import review</span>
+                  <Show when={albumPending.createdAt()}>
+                    {(ts) => (
+                      <span class="text-xs text-[var(--color-text-tertiary)]">
+                        imported {formatDateTime(ts() * 1000)}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+                <button
+                  onClick={() => void albumPending.markReviewed()}
+                  class="shrink-0 px-3 py-1.5 text-xs rounded-md bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors"
+                >
+                  mark reviewed
+                </button>
+              </div>
+            </Show>
+
             {/* album title */}
             <div class="space-y-2">
               <div class="flex items-center justify-between">
