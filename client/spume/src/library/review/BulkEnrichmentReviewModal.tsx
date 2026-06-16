@@ -144,7 +144,7 @@ export function BulkEnrichmentReviewModal(props: BulkEnrichmentReviewModalProps)
         title: it.song.title,
         disc_number: it.song.disc_number ?? 1,
         track_number: it.song.track_number ?? 0,
-        duration_seconds: it.song.duration ?? 0,
+        duration_seconds: it.song.duration ? Math.floor(it.song.duration / 1000) : 0,
         track_artist: it.song.track_artist ?? null,
       })) satisfies ComparisonSong[];
     } catch {

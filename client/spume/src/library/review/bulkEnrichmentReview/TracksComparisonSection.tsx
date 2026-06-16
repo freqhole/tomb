@@ -6,6 +6,7 @@ import {
 import type { MbReleaseDetail } from "../../../music/data/types";
 import { parseAlbumMetadata, type MbCandidate } from "../../data/albumMetadata";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
+import { formatDuration } from "../../../utils/formatDuration";
 
 export type MergedCandidate = MbCandidate & {
   via: "mb" | "lastfm" | "audiodb";
@@ -127,8 +128,7 @@ export function TracksComparisonSection(props: {
                     </span>
                     <Show when={s.duration_seconds > 0}>
                       <span class="text-[var(--color-text-muted)] tabular-nums flex-shrink-0">
-                        {Math.floor(s.duration_seconds / 60)}:
-                        {String(Math.floor(s.duration_seconds % 60)).padStart(2, "0")}
+                        {formatDuration(s.duration_seconds)}
                       </span>
                     </Show>
                   </li>
