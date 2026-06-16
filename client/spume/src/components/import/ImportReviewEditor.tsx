@@ -10,7 +10,7 @@
 // in one shot server-side). edit state here is kept live so patchAlbum always
 // sends the current user-visible state.
 
-import { createSignal, createEffect, createResource, onCleanup } from "solid-js";
+import { createSignal, createEffect, createMemo, createResource, onCleanup } from "solid-js";
 import {
   ImportAlbumEditorPanel,
   type ImportAlbumEdit,
@@ -32,7 +32,10 @@ function albumToEdit(album: ImportReviewAlbum): ImportAlbumEdit {
   return {
     title: album.title,
     artistName: album.artist ?? "",
-    albumType: "album" as AlbumType,
+    albumType: (album.albumType as AlbumType) ?? "album",
+    releaseDate: album.releaseDate ?? null,
+    label: album.label ?? null,
+    genres: album.genres ?? [],
     artworkBlobId: null,
     // artworkPreview is for newly-uploaded local data-URLs only;
     // existing remote artwork is shown via the existingArtwork* props below
@@ -192,12 +195,21 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
     }
   }
 
+  // canonical title/artist derived directly from props.album (synchronous
+  // memo, always matches currentAlbum()). used by MusicBrainzPanel to reset
+  // its search inputs on album navigation - bypasses the edit() signal which
+  // is updated by a separate createEffect and may lag behind by one tick.
+  const canonicalAlbumTitle = createMemo(() => props.album.title);
+  const canonicalArtistName = createMemo(() => props.album.artist ?? "");
+
   return (
     <ImportAlbumEditorPanel
       value={edit()}
       onChange={setEdit}
       albumId={props.album.id}
       artistId={props.album.artistId ?? ""}
+      canonicalAlbumTitle={canonicalAlbumTitle()}
+      canonicalArtistName={canonicalArtistName()}
       existingArtworkUrl={props.album.artworkUrl ?? null}
       existingArtworkBlobId={props.album.artworkBlobId ?? null}
       existingArtworkServerId={props.album.remoteServerId ?? null}

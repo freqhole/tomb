@@ -221,27 +221,44 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
     return map;
   });
 
-  // 5. local mutations — never touch the server
-  const queueAdd = (kindSlug: string, taxon: TaxonRef) => {
-    // un-undo: if this taxon was in pendingRemoves, just drop it from there
+  // 5. local mutations — save immediately to the server with optimistic UI
+  const queueAdd = async (kindSlug: string, taxon: TaxonRef) => {
+    // un-undo: if this taxon was in pendingRemoves, clear that and proceed to add
     const removes = pendingRemoves();
     if (removes.has(taxon.id)) {
       const next = new Map(removes);
       next.delete(taxon.id);
       setPendingRemoves(next);
-      return;
     }
-    // dedupe pending adds + skip if already linked on the server
+    // dedupe: skip if already linked on the server or already pending
     if (pendingAdds().some((p) => p.id === taxon.id)) return;
     if ((linksResource() || []).some((l) => l.taxon_id === taxon.id)) return;
+    // optimistic add for instant feedback
     setPendingAdds((prev) => [...prev, { ...taxon, kind_slug: kindSlug }]);
+    try {
+      const client = props.apiClient ?? (await getTaxonomyClient());
+      await client.music.addAlbumTaxon({
+        album_id: props.albumId,
+        taxon_id: taxon.id,
+        origin: "user",
+        confidence: null,
+      });
+      setPendingAdds((prev) => prev.filter((p) => p.id !== taxon.id));
+      setLinksVersion((v) => v + 1);
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
+    } catch (err) {
+      console.error("failed to add taxon:", err);
+      toast.error(`failed to add ${taxon.label}`);
+      // rollback optimistic add
+      setPendingAdds((prev) => prev.filter((p) => p.id !== taxon.id));
+    }
   };
 
-  const queueRemove = (chip: DisplayChip) => {
+  const queueRemove = async (chip: DisplayChip) => {
     if (chip.pending === "add") {
-      // chip is a not-yet-saved add — just drop it
+      // chip is a pending add that was never saved — just discard it
       setPendingAdds((prev) => prev.filter((p) => p.id !== chip.taxon_id));
-      // also drop any proposal-source bookkeeping for it (phase 14.8)
       setProposalSources((prev) => {
         if (!prev.has(chip.taxon_id)) return prev;
         const next = new Map(prev);
@@ -250,14 +267,39 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
       });
       return;
     }
-    // chip is a real server link — find it and stage a remove
+    // chip is a real server link — remove immediately
     const link = (linksResource() || []).find(
       (l) => l.taxon_id === chip.taxon_id && l.origin === chip.origin
     );
     if (!link) return;
+    // optimistic remove for instant feedback
     const next = new Map(pendingRemoves());
     next.set(link.taxon_id, link);
     setPendingRemoves(next);
+    try {
+      const client = props.apiClient ?? (await getTaxonomyClient());
+      await client.music.removeAlbumTaxon({
+        album_id: props.albumId,
+        taxon_id: link.taxon_id,
+        origin: link.origin,
+      });
+      setPendingRemoves((prev) => {
+        const m = new Map(prev);
+        m.delete(link.taxon_id);
+        return m;
+      });
+      setLinksVersion((v) => v + 1);
+      queryClient.invalidateQueries({ queryKey: queryKeys.albums.detail(props.albumId) });
+    } catch (err) {
+      console.error("failed to remove taxon:", err);
+      toast.error(`failed to remove ${chip.label}`);
+      // rollback optimistic remove
+      setPendingRemoves((prev) => {
+        const m = new Map(prev);
+        m.delete(link.taxon_id);
+        return m;
+      });
+    }
   };
 
   // 6. taxon + kind creation — these touch the server immediately because
@@ -275,7 +317,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
         toast.error(`failed to create ${kindSlug} "${label}"`);
         return;
       }
-      queueAdd(kindSlug, {
+      await queueAdd(kindSlug, {
         id: resp.data.id,
         kind_slug: kindSlug,
         label: resp.data.label,
@@ -390,11 +432,6 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
       <div class="flex items-center justify-between">
         <label class="block text-sm font-medium text-[var(--color-text-primary)]">taxons</label>
         <div class="flex items-center gap-2">
-          <Show when={isDirty()}>
-            <span class="text-[10px] uppercase tracking-wide text-[var(--color-accent-500)]">
-              unsaved
-            </span>
-          </Show>
           <Show when={linksResource.loading || kindsResource.loading}>
             <div class="animate-spin w-3 h-3 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />
           </Show>
@@ -413,9 +450,9 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
           kinds={kindsResource() ?? []}
           chipsByKind={chipsByKind()}
           apiClient={clientResource() ?? null}
-          onAdd={(kindSlug, t) => queueAdd(kindSlug, t)}
-          onCreate={(kindSlug, label) => handleCreate(kindSlug, label)}
-          onRemoveChip={(chip) => queueRemove(chip)}
+          onAdd={(kindSlug, t) => void queueAdd(kindSlug, t)}
+          onCreate={(kindSlug, label) => void handleCreate(kindSlug, label)}
+          onRemoveChip={(chip) => void queueRemove(chip)}
         />
       </Show>
 

@@ -12,7 +12,7 @@
 
 import { createResource, createSignal, For, Show } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
-import { getClientForRemote, getLocalNodeId, isCharnelAvailable } from "../../app/api/client";
+import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
 import { isP2PRemote } from "../../app/services/storage/types";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import {

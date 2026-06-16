@@ -19,13 +19,7 @@ import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
 import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
-import {
-  getCurrentRemote,
-  getDataSource,
-  getRemoteClient,
-  useLocalSource,
-  useRemoteSource,
-} from "../music/data";
+import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
 import {
@@ -53,6 +47,7 @@ import {
   getLocalImportProgress,
   getUploadJobs,
   importMusicFiles,
+  importPathsToLocal,
   uploadFilesToRemote,
   uploadPathsToRemote,
 } from "../music/import";
@@ -157,10 +152,18 @@ export function App() {
   );
   // map of albumId -> save fn registered by ImportReviewEditor instances
   const editorSaveFns = new Map<string, () => Promise<void>>();
-  // auto-close review modal when all albums have been reviewed
+
+  // when albums drain to zero while the modal is open (e.g. after a merge
+  // marks everything reviewed server-side), treat it as a completion so the
+  // add-music modal re-opens for the next pending session.
   createEffect(() => {
     if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
+      const sid = reviewSessionId();
+      if (sid) setCompletedReviewSessionId(sid);
       setReviewSessionId(null);
+      setReviewRemote(null);
+      setReviewRefetchKey((k) => k + 1);
+      openAddMusic();
     }
   });
   // radio works with zero remotes (anyone with a node id can listen)
@@ -804,12 +807,14 @@ export function App() {
   // callback for when any remote job completes — invalidate queries for new music
   const onRemoteJobComplete = () => {
     setHasSongs(true);
+    setReviewRefetchKey((k) => k + 1);
     queryClient.invalidateQueries({
       predicate: (query) => {
         const key = query.queryKey[0];
         return (
           key === "songs" ||
           key === "albums" ||
+          key === "library-albums" ||
           key === "artists" ||
           key === "genres" ||
           key === "feed" ||
@@ -843,7 +848,14 @@ export function App() {
           queryClient.invalidateQueries({
             predicate: (query) => {
               const key = query.queryKey[0];
-              return key === "songs" || key === "albums" || key === "artists";
+              return (
+                key === "songs" ||
+                key === "albums" ||
+                key === "library-albums" ||
+                key === "artists" ||
+                key === "genres" ||
+                key === "feed"
+              );
             },
           });
         }
@@ -932,33 +944,11 @@ export function App() {
       return;
     }
 
+    // use importPathsToLocal which tracks each job with progress.
+    // the add music modal shows a review card when the session finishes;
+    // the user clicks it to open the review modal rather than auto-opening.
     try {
-      const client = await getRemoteClient();
-      if (!client) {
-        toast.error("no remote client available", { title: "import error" });
-        return;
-      }
-
-      // use musicByPaths to import files/directories
-      const result = await client.upload.musicByPaths(paths, { waitForCompletion: false });
-      if (result.success && result.data) {
-        const data = result.data;
-        if (data.jobs_created > 0) {
-          toast.success(data.message, { title: "import started" });
-          // invalidate queries after import starts
-          onRemoteJobComplete();
-        } else if (data.files_skipped > 0) {
-          toast.info(`skipped ${data.files_skipped} files (no supported audio found)`, {
-            title: "nothing to import",
-          });
-        } else {
-          toast.info("no audio files found", { title: "nothing to import" });
-        }
-      } else {
-        const errMsg =
-          (!result.success && result.error?.issues?.[0]?.message) || "failed to start import";
-        toast.error(errMsg, { title: "import error" });
-      }
+      await importPathsToLocal(paths, onRemoteJobComplete);
     } catch (error) {
       console.error("failed to import paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -1055,6 +1045,8 @@ export function App() {
           setReviewSessionId(null);
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
+          // re-open to let the user pick the next pending review
+          openAddMusic();
         }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
           void importReview.mergeAlbums(sourceIds, targetId)
@@ -1170,6 +1162,7 @@ export function App() {
             disableNestedModals={state().disableNestedModals}
             onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
             onMergeNavigate={state().onMergeNavigate}
+            onDeleted={state().onDeleted}
             review={state().review}
           />
         )}

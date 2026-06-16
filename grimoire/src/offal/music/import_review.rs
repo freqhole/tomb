@@ -374,19 +374,20 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     }
 
     // mark target reviewed
-    match repository::mark_album_reviewed(&req.target_id, &req.session_id, &caller.user_id).await {
-        Ok(()) => match serde_json::to_value(ImportReviewOk { ok: true }) {
-            Ok(v) => GrimoireResponse::success("ok", v),
-            Err(e) => GrimoireResponse::failure(
-                "serialization error",
-                vec![ErrorDetail::new(
-                    "serialization_error",
-                    "Serialization Error",
-                    e.to_string(),
-                )],
-            ),
-        },
-        Err(e) => GrimoireResponse::failure("failed to mark target reviewed", vec![e.into()]),
+    // NOTE: intentionally NOT marking the target album reviewed here.
+    // the merge leaves the target album's import blobs pending so the user
+    // can still review its metadata (title, artist, artwork, track list) before
+    // finishing. the review modal will show the merged album as the next item.
+    match serde_json::to_value(ImportReviewOk { ok: true }) {
+        Ok(v) => GrimoireResponse::success("ok", v),
+        Err(e) => GrimoireResponse::failure(
+            "serialization error",
+            vec![ErrorDetail::new(
+                "serialization_error",
+                "Serialization Error",
+                e.to_string(),
+            )],
+        ),
     }
 }
 

@@ -52,6 +52,8 @@ interface AlbumEditorModalProps {
   onOpenSongEditor?: (songId: string) => void;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /** called after a successful delete so callers (e.g. album detail view) can navigate away */
+  onDeleted?: () => void;
   /**
    * bulk-enrichment review mode (phase 14.7).
    *
@@ -360,7 +362,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(mergeTarget) }),
           queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
           queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
         ]);
 
         props.onSave?.();
@@ -416,7 +417,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(props.albumId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
       ]);
 
       props.onSave?.();
@@ -659,10 +659,16 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         const dataSource = getDataSource();
         if (dataSource.deleteAlbum) {
           await dataSource.deleteAlbum(props.albumId);
-          toast.success(`deleted "${album.title}"`);
-          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          // reset clears data + immediately refetches for any active observer
+          // (e.g. albums grid still mounted behind this modal). inactive
+          // queries are just cleared; they refetch on next mount.
+          await Promise.all([
+            queryClient.resetQueries({ queryKey: queryKeys.albums.all() }),
+            queryClient.resetQueries({ queryKey: ["library-albums"] }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
+          ]);
+          props.onDeleted?.();
           props.onClose();
         } else {
           toast.error("delete not supported for this data source");
@@ -1250,7 +1256,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
                   queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
                   queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
                   queryClient.invalidateQueries({
                     queryKey: queryKeys.albums.songs(props.albumId),
                   });

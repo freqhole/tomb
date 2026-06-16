@@ -393,7 +393,6 @@ export function useSongContextMenu(
             const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
             if (dataSource.deleteSong) {
               await dataSource.deleteSong(song.id);
-              toast.success(`deleted "${song.title}"`);
               // invalidate queries to refresh views
               queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
               queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
@@ -536,7 +535,6 @@ export function useMultipleSongsContextMenu(
               await dataSource.deleteSong(song.id);
               deleted++;
             }
-            toast.success(`deleted ${deleted} songs`);
             // invalidate queries to refresh views
             queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
             queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
@@ -903,7 +901,6 @@ export function usePlaylistContextMenu(
             const dataSource = getDataSource();
             if (dataSource.deletePlaylist) {
               await dataSource.deletePlaylist(playlist.id);
-              toast.success(`deleted "${playlist.title}"`);
               queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
             } else {
               toast.error("delete not supported for this data source");

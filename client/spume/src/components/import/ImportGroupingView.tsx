@@ -32,6 +32,10 @@ export interface ImportReviewAlbum {
   entityUrls?: { id?: string; name?: string | null; url: string }[];
   /** all images from the album record - used for image management in the editor */
   images?: ImageMetadata[];
+  releaseDate?: string | null;
+  label?: string | null;
+  genres?: string[];
+  albumType?: string | null;
   songs: ImportReviewSong[];
 }
 

@@ -1,4 +1,12 @@
-import { For, Show, createSignal, createMemo, createResource, createEffect } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createMemo,
+  createResource,
+  createEffect,
+  onCleanup,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { Button } from "../buttons/Button";
 import { IconButton } from "../buttons/IconButton";
@@ -7,6 +15,7 @@ import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
@@ -70,6 +79,14 @@ export function AddMusicModal(props: AddMusicModalProps) {
   const [uploadMode, setUploadMode] = createSignal("files");
   const [urlText, setUrlText] = createSignal("");
   const [showFullItemList, setShowFullItemList] = createSignal(false);
+
+  // register with the global modal stack so escape closes this modal
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const id = "add-music-modal";
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
+  });
 
   // pending review sessions - fetched whenever the modal is open.
   // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
@@ -340,17 +357,21 @@ export function AddMusicModal(props: AddMusicModalProps) {
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
 
-  // completed sessions that have a sessionId - one review card per unique session
+  // completed sessions that have a sessionId - one review card per unique session,
+  // jobCount = number of completed jobs for that session
   const reviewableSessions = createMemo(() => {
-    const seen = new Set<string>();
-    const sessions: { sessionId: string; jobCount: number; label?: string }[] = [];
+    const sessionMap = new Map<string, { jobCount: number; label?: string }>();
     for (const j of props.uploadJobs ?? []) {
-      if (j.status === "completed" && j.sessionId && !seen.has(j.sessionId)) {
-        seen.add(j.sessionId);
-        sessions.push({ sessionId: j.sessionId, jobCount: 1, label: j.label });
+      if (j.status === "completed" && j.sessionId) {
+        const entry = sessionMap.get(j.sessionId);
+        if (entry) {
+          entry.jobCount++;
+        } else {
+          sessionMap.set(j.sessionId, { jobCount: 1, label: j.label });
+        }
       }
     }
-    return sessions;
+    return [...sessionMap.entries()].map(([sessionId, data]) => ({ sessionId, ...data }));
   });
   // track which sessions the user has dismissed from this modal session
   const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
@@ -951,8 +972,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
                           </span>
-                          {/* album link (once import finishes) */}
-                          <Show when={job.status === "completed" && job.albumId}>
+                          {/* album link - shown whenever albumId is known, even for
+                              failed/duplicate jobs (the track is already in that album) */}
+                          <Show when={job.albumId}>
                             <a
                               class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
                               href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}

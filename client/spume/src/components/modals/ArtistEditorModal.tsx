@@ -184,7 +184,6 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
         const dataSource = getDataSource();
         if (dataSource.deleteArtist) {
           await dataSource.deleteArtist(props.artistId);
-          toast.success(`deleted "${artist.name}"`);
           queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
           queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
           queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });

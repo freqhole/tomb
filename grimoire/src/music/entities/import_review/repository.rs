@@ -45,6 +45,10 @@ pub async fn list_pending_sessions(
         LEFT JOIN job_sessionz js ON js.id = ib.session_id
         LEFT JOIN media_blobz mb ON mb.id = ib.media_blob_id
         LEFT JOIN user_accountz ua ON ua.id = js.created_by
+        -- only surface sessions that still have at least one live (non-deleted) song
+        JOIN songz s               ON s.media_blob_id = ib.media_blob_id AND s.deleted_at IS NULL
+        JOIN album_songz asj       ON asj.song_id = s.id
+        JOIN albumz a              ON a.id = asj.album_id AND a.deleted_at IS NULL
         WHERE ib.reviewed_at IS NULL
           AND (? = 1 OR mb.created_by = ?)
           AND (? IS NULL OR ib.session_id = ?)
@@ -99,9 +103,9 @@ async fn list_pending_albums_for_session(
             COUNT(DISTINCT ib.media_blob_id)                        AS "pending_blob_count!: i64"
         FROM import_blobz ib
         LEFT JOIN media_blobz mb   ON mb.id = ib.media_blob_id
-        JOIN songz s               ON s.media_blob_id = ib.media_blob_id
+        JOIN songz s               ON s.media_blob_id = ib.media_blob_id AND s.deleted_at IS NULL
         JOIN album_songz asj       ON asj.song_id = s.id
-        JOIN albumz a              ON a.id = asj.album_id
+        JOIN albumz a              ON a.id = asj.album_id AND a.deleted_at IS NULL
         LEFT JOIN artist_albumz aa ON aa.album_id = a.id
         LEFT JOIN artistz ar       ON ar.id = aa.artist_id AND ar.deleted_at IS NULL
         WHERE ib.session_id = ?

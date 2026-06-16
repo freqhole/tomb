@@ -11,7 +11,6 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   RawArtistCreditSchema,
   RawTrackSchema,
-  RawMediumSchema,
   RawReleaseSchema,
   RawSearchResponseSchema,
   RawCoverArtResponseSchema,

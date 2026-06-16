@@ -88,6 +88,11 @@ export function useImportReview(
         let songs: ImportReviewSong[] = [];
         let entityUrls: { id?: string; name?: string | null; url: string }[] = [];
         let albumImages: import("../../music/services/storage/types").ImageMetadata[] | undefined;
+        let liveTitle: string | undefined;
+        let liveReleaseDate: string | null = null;
+        let liveLabel: string | null = null;
+        let liveGenres: string[] = [];
+        let liveAlbumType: string | null = null;
         try {
           const [songsResp, albumResp] = await Promise.all([
             client.music.querySongs({
@@ -113,6 +118,17 @@ export function useImportReview(
               // song.duration from API is milliseconds (raw DB value)
               durationSeconds: it.song.duration != null ? it.song.duration / 1000 : undefined,
             }));
+          }
+          // capture the live album entity title - separate from the session
+          // blob which is written at import time and never updated
+          if (albumResp.success && albumResp.data?.title) {
+            liveTitle = albumResp.data.title;
+          }
+          if (albumResp.success && albumResp.data) {
+            if (albumResp.data.release_date) liveReleaseDate = albumResp.data.release_date;
+            if (albumResp.data.label) liveLabel = albumResp.data.label;
+            if (albumResp.data.genres) liveGenres = albumResp.data.genres.map((g) => g.name);
+            if (albumResp.data.album_type) liveAlbumType = albumResp.data.album_type;
           }
           if (albumResp.success && albumResp.data?.urls) {
             entityUrls = albumResp.data.urls.map((u) => ({
@@ -149,9 +165,16 @@ export function useImportReview(
         // album art display (handles HTTP, charnel-managed, and P2P remotes).
         return {
           id: pa.album_id,
-          title: pa.title,
+          // use the live album entity title instead of the session blob value
+          // - the blob title is written at import time and never updated when
+          //   the user edits metadata via MB panel or the metadata form.
+          title: liveTitle ?? pa.title,
           artist: pa.artist_name ?? null,
           artistId: pa.artist_id ?? null,
+          releaseDate: liveReleaseDate,
+          label: liveLabel,
+          genres: liveGenres,
+          albumType: liveAlbumType,
           artworkUrl: artworkUrlFromBlob(artworkBlobId, r),
           artworkBlobId,
           remoteServerId: r.remote_id,
@@ -264,10 +287,15 @@ export function useImportReview(
   }
 
   return {
-    albums: () => data() ?? [],
+    // use data.latest so albums() keeps the previous value during a source-change
+    // refetch - without this, data() briefly returns undefined, currentAlbum()
+    // becomes falsy, and the editor unmounts, resetting the active tab.
+    albums: () => data.latest ?? data() ?? [],
     // treat "unresolved" (key just became non-null, fetch hasn't started) as
-    // loading so the auto-close effect in App.tsx doesn't fire on the first tick
-    loading: () => data.loading || data.state === "unresolved",
+    // loading is only true on the initial fetch (no previous data).
+    // during a source-change refetch, data.latest keeps the previous value
+    // so we can keep showing the editor without a loading spinner.
+    loading: () => (data.loading && !data.latest) || data.state === "unresolved",
     patchAlbum,
     mergeAlbums,
     moveSong,

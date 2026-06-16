@@ -236,7 +236,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const handleDelete = async () => {
     const remote = getCurrentRemote();
     const playlistId = props.playlist?.playlist_id;
-    const playlistTitle = props.playlist?.title;
     if (!playlistId) return;
 
     setIsDeleting(true);

@@ -454,8 +454,6 @@ export function useBulkDeleteSongsMutation() {
       const { deleted_count, failed_ids } = result;
       if (failed_ids.length > 0) {
         toast.warning(`deleted ${deleted_count} songs, ${failed_ids.length} failed`);
-      } else {
-        toast.success(`deleted ${deleted_count} songs`);
       }
     },
     onError: (error) => {

@@ -493,6 +493,7 @@ export function AlbumDetailView() {
                           showAlbumEditor({
                             albumId: info().album_id || params.id,
                             onMergeNavigate: (newAlbumId) => navigate(`/albums/${newAlbumId}`),
+                            onDeleted: () => navigate(-1),
                           })
                         }
                         class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"

@@ -813,15 +813,15 @@ export class LocalMusicDataSource implements MusicDataSource {
       genreId = genre.genre_id;
     }
     
-    // build updates object, filtering out undefined values
+    // build updates object, skipping null/undefined values
     const updates: Record<string, any> = {};
-    if (params.title !== undefined) updates.title = params.title;
-    if (params.artist_id !== undefined) updates.artist_id = params.artist_id;
-    if (params.album_type !== undefined) updates.album_type = params.album_type;
-    if (params.release_date !== undefined) updates.release_date = params.release_date;
-    if (params.label !== undefined) updates.label = params.label;
-    if (genreId !== undefined) updates.genre_id = genreId;
-    if (params.year !== undefined) updates.year = params.year;
+    if (params.title != null) updates.title = params.title;
+    if (params.artist_id != null) updates.artist_id = params.artist_id;
+    if (params.album_type != null) updates.album_type = params.album_type;
+    if (params.release_date != null) updates.release_date = params.release_date;
+    if (params.label != null) updates.label = params.label;
+    if (genreId != null) updates.genre_id = genreId;
+    if (params.year != null) updates.year = params.year;
     
     await updateAlbum(params.album_id, updates);
     // local store keys by stable uuid; id never changes on edit.

@@ -18,6 +18,7 @@ export {
   clearCompletedJobs,
   fetchUrlsOnRemote,
   getUploadJobs,
+  importPathsToLocal,
   uploadFilesToRemote,
   uploadPathsToRemote,
   type RemoteUploadResult,

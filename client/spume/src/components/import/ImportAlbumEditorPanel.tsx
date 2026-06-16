@@ -5,7 +5,7 @@
 // purely presentational - no api calls. the caller (ImportReviewModal) owns state
 // and passes onChange callbacks. designed to be plugged into the renderAlbumEditor
 // render prop.
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, type JSX } from "solid-js";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -13,7 +13,7 @@ import { EntityImages } from "../layout/EntityImages";
 import { MediaImage } from "../media/MediaImage";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
-import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "../modals/AlbumTaxonsEditor";
+import { AlbumTaxonsEditor } from "../modals/AlbumTaxonsEditor";
 import type { MbSearchReleasesResponse, MbReleaseDetail } from "../../music/data/types";
 
 // -------------------------------------------------------------------------
@@ -37,6 +37,9 @@ export interface ImportAlbumEdit {
   title: string;
   artistName: string;
   albumType: AlbumType;
+  releaseDate?: string | null;
+  label?: string | null;
+  genres?: string[];
   /** blob id of a newly uploaded artwork file, or null if unchanged */
   artworkBlobId: string | null;
   /** data-url preview of a pending artwork upload, or null */
@@ -81,6 +84,11 @@ export interface ImportAlbumEditorPanelProps {
   /** called after MusicBrainzPanel syncs metadata or imports artwork, or after
    *  taxon apply - triggers a refetch of the album in the parent */
   onAlbumUpdated?: () => void;
+  /** canonical album title from the source album object, bypassing the edit()
+   *  signal layer. used for search input pre-fill on album navigation so the
+   *  reset effect gets the new album's title synchronously. */
+  canonicalAlbumTitle?: string;
+  canonicalArtistName?: string;
   /** optional existing artwork for display (url + blob id + server id) */
   existingArtworkUrl?: string | null;
   existingArtworkBlobId?: string | null;
@@ -293,7 +301,14 @@ function SongRowEditor(props: {
 export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
   const isCompilation = createMemo(() => props.value.albumType === "compilation");
   const [activeTab, setActiveTab] = createSignal("metadata");
-  let taxonsHandle: AlbumTaxonsEditorHandle | undefined;
+  // reset to metadata tab when navigating to a different album.
+  // albumIdMemo has equality semantics (===) so the effect only fires when the
+  // id string actually changes - NOT on every refetch that invalidates currentAlbum().
+  // without the memo, on(() => props.albumId, ...) re-runs on every resource
+  // refresh because props.albumId reads currentAlbum() which invalidates on
+  // every new array reference, even when the album id is unchanged.
+  const albumIdMemo = createMemo(() => props.albumId);
+  createEffect(on(albumIdMemo, () => setActiveTab("metadata"), { defer: true }));
 
   const handleTabChange = (tab: string) => {
     const prev = activeTab();
@@ -494,7 +509,6 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
         <div class="py-2">
           <AlbumTaxonsEditor
             albumId={props.albumId}
-            ref={(h) => (taxonsHandle = h)}
             apiClient={props.apiClient}
           />
         </div>
@@ -506,10 +520,15 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
           artistId={props.artistId ?? ""}
           artistName={props.value.artistName}
           albumType={props.value.albumType}
+          releaseDate={props.value.releaseDate ?? undefined}
+          label={props.value.label ?? undefined}
+          genres={props.value.genres}
           songs={mbSongs()}
           onAlbumUpdated={props.onAlbumUpdated ?? (() => {})}
           mbSearchFn={props.mbSearchFn}
           mbGetReleaseFn={props.mbGetReleaseFn}
+          canonicalAlbumTitle={props.canonicalAlbumTitle}
+          canonicalArtistName={props.canonicalArtistName}
         />
       </TabPanel>
     </Tabs>

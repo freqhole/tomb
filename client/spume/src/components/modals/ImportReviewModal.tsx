@@ -3,7 +3,7 @@
 // stage 2: per-album metadata (placeholder for BulkEnrichmentReviewModal integration)
 //
 // all data fetching is the caller's responsibility - this component is presentational.
-import { For, Show, createSignal, createMemo, createEffect, type JSX } from "solid-js";
+import { For, Show, createSignal, createMemo, createEffect, on, type JSX } from "solid-js";
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
@@ -195,10 +195,8 @@ function MetadataFooter(props: {
   albums: ImportReviewAlbum[];
   albumIndex: number;
   reviewedIds: Set<string>;
-  allReviewed: boolean;
   onSelect: (i: number) => void;
   onLooksGood: () => void;
-  onFinish: () => void;
 }) {
   const hasNext = () => props.albumIndex < props.albums.length - 1;
 
@@ -214,9 +212,8 @@ function MetadataFooter(props: {
         />
       </Show>
 
-      {/* per-album action */}
       <div class="flex items-center gap-2 justify-center">
-        <Button variant="secondary" onClick={props.onLooksGood}>
+        <Button variant="primary" onClick={props.onLooksGood}>
           looks good
           <Show when={hasNext()}>
             <svg
@@ -238,21 +235,6 @@ function MetadataFooter(props: {
           </Show>
         </Button>
       </div>
-
-      {/* finish row - primary button lives here and only here */}
-      <div class="flex justify-end items-center gap-3 pt-1 border-t border-[var(--color-border-subtle)]">
-        <Show when={!props.allReviewed}>
-          <button
-            class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] underline transition-colors"
-            onClick={props.onFinish}
-          >
-            finish anyway
-          </button>
-        </Show>
-        <Button variant="primary" disabled={!props.allReviewed} onClick={props.onFinish}>
-          finish review
-        </Button>
-      </div>
     </div>
   );
 }
@@ -266,15 +248,24 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
   const [albumIndex, setAlbumIndex] = createSignal(0);
   const [reviewedIds, setReviewedIds] = createSignal<Set<string>>(new Set());
 
-  // reset to grouping stage whenever the modal opens
-  createEffect(() => {
-    if (props.isOpen) {
-      setAlbumIndex(0);
-      setReviewedIds(new Set<string>());
-      // skip grouping when there's only one album - jump straight to metadata
-      setStage(props.albums.length === 1 ? "metadata" : "grouping");
-    }
-  });
+  // reset only when the modal opens (isOpen: false → true), NOT on every
+  // albums change. reading props.albums.length without on() would make this
+  // effect re-run on every refetch, calling setStage("grouping") while the
+  // user is on the metadata tab, which unmounts the editor and resets all
+  // tab state inside it (activeTab, MusicBrainzPanel search state, etc.).
+  // inside the on() callback, reactive reads are untracked.
+  createEffect(
+    on(
+      () => props.isOpen,
+      (isOpen) => {
+        if (isOpen) {
+          setAlbumIndex(0);
+          setReviewedIds(new Set<string>());
+          setStage(props.albums.length === 1 ? "metadata" : "grouping");
+        }
+      }
+    )
+  );
 
   // also skip grouping when albums load for the first time with exactly one
   createEffect(() => {
@@ -285,9 +276,9 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
 
   const currentAlbum = createMemo(() => props.albums[albumIndex()] ?? props.albums[0]);
 
-  const allReviewed = createMemo(
-    () => props.albums.length > 0 && props.albums.every((a) => reviewedIds().has(a.id))
-  );
+  //   const allReviewed = createMemo(
+  //     () => props.albums.length > 0 && props.albums.every((a) => reviewedIds().has(a.id))
+  //   );
 
   const markReviewed = (id: string) => {
     setReviewedIds((prev) => new Set([...prev, id]));
@@ -297,7 +288,12 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
   const handleLooksGood = () => {
     const album = currentAlbum();
     if (album) markReviewed(album.id);
-    if (albumIndex() < props.albums.length - 1) setAlbumIndex((i) => i + 1);
+    if (albumIndex() < props.albums.length - 1) {
+      setAlbumIndex((i) => i + 1);
+    } else {
+      // last album - auto-complete the review
+      props.onComplete();
+    }
   };
 
   const renderEditor = props.renderAlbumEditor ?? DefaultAlbumEditorStub;
@@ -310,16 +306,15 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
       size="xl"
       scrollBody
       zIndex={1200}
+      disableBackdropClose
       footer={
-        <Show when={!props.loading && stage() === "metadata"}>
+        <Show when={stage() === "metadata"}>
           <MetadataFooter
             albums={props.albums}
             albumIndex={albumIndex()}
             reviewedIds={reviewedIds()}
-            allReviewed={allReviewed()}
             onSelect={setAlbumIndex}
             onLooksGood={handleLooksGood}
-            onFinish={() => props.onComplete()}
           />
         </Show>
       }
@@ -350,16 +345,33 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
           />
         </Show>
 
-        <Show when={!props.loading && stage() === "metadata" && currentAlbum()}>
-          {renderEditor({
-            album: currentAlbum()!,
-            albumIndex: albumIndex(),
-            albumTotal: props.albums.length,
-            isReviewed: reviewedIds().has(currentAlbum()!.id),
-            onPrev: () => setAlbumIndex((i) => Math.max(0, i - 1)),
-            onNext: () => setAlbumIndex((i) => Math.min(props.albums.length - 1, i + 1)),
-            onLooksGood: handleLooksGood,
-          })}
+        {/* the function-children pattern (_) => ... is critical here.
+            when the children is a function with length > 0, SolidJS Show
+            calls it inside untrack(). this means the reactive reads for
+            album, albumIndex, etc. happen inside the component (via getter
+            props), NOT in Show's outer createMemo. without this, every
+            change to currentAlbum() (e.g. after a refetch) causes Show to
+            re-evaluate and remount the entire editor, resetting activeTab. */}
+        <Show when={stage() === "metadata" && currentAlbum()}>
+          {(_) =>
+            renderEditor({
+              get album() {
+                return currentAlbum()!;
+              },
+              get albumIndex() {
+                return albumIndex();
+              },
+              get albumTotal() {
+                return props.albums.length;
+              },
+              get isReviewed() {
+                return reviewedIds().has(currentAlbum()!.id);
+              },
+              onPrev: () => setAlbumIndex((i) => Math.max(0, i - 1)),
+              onNext: () => setAlbumIndex((i) => Math.min(props.albums.length - 1, i + 1)),
+              onLooksGood: handleLooksGood,
+            })
+          }
         </Show>
       </div>
     </Modal>
