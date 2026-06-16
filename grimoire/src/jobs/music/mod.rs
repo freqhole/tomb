@@ -21,6 +21,7 @@ mod lastfm_detail_processor;
 mod mb_album_search_processor;
 mod mb_detail_processor;
 mod models;
+mod precheck_processor;
 mod rescan_processor;
 mod scan_processor;
 mod scanned_directories;
@@ -38,6 +39,7 @@ pub use lastfm_artist_detail_processor::process_lastfm_artist_detail_job;
 pub use lastfm_detail_processor::process_lastfm_album_detail_job;
 pub use mb_album_search_processor::process_mb_album_search_job;
 pub use mb_detail_processor::process_mb_album_detail_job;
+pub use precheck_processor::process_precheck_fetch_job;
 pub use rescan_processor::process_rescan_directories_job;
 pub use rescan_processor::{
     purge_missing_scanned_directories, repair_library_orphans, restore_reappeared_blobs_and_songs,

@@ -1004,6 +1004,30 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    createPrecheckFetchJob: (params: s.PreCheckFetchParams) => {
+      return call(
+        "music",
+        "create_precheck_fetch_job",
+        routes.music.create_precheck_fetch_job.resp,
+        routes.music.create_precheck_fetch_job.req,
+        routes.music.create_precheck_fetch_job.method,
+        routes.music.create_precheck_fetch_job.path,
+        params,
+      );
+    },
+
+    cancelJob: (params: s.CancelJobRequest) => {
+      return call(
+        "music",
+        "cancel_job",
+        routes.music.cancel_job.resp,
+        routes.music.cancel_job.req,
+        routes.music.cancel_job.method,
+        routes.music.cancel_job.path,
+        params,
+      );
+    },
+
     getFetchJob: (params: s.GetJobRequest) => {
       return call(
         "music",

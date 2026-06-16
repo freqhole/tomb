@@ -12,7 +12,10 @@
 pub mod models;
 mod service;
 
-pub use models::{ContentMetadata, DownloadedFile, FetchMediaParams, FetchMediaResult};
+pub use models::{
+    ContentMetadata, DownloadedFile, FetchMediaParams, FetchMediaResult, PreCheckFetchParams,
+    PreCheckFetchResponse,
+};
 pub use service::{
     check_existing_content, download_media, extract_metadata, fetch_media, FetchProgress,
     NoopFetchProgress,

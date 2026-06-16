@@ -44,72 +44,95 @@ pub async fn extract_metadata(
     url: &str,
     config: &GrimoireConfig,
 ) -> Result<Vec<ContentMetadata>, String> {
-    let fetch_config = config
-        .server
-        .as_ref()
-        .and_then(|s| s.fetch_music.as_ref())
-        .ok_or("fetch_music not configured")?;
+    run_precheck_command(url, config, false).await
+}
 
-    if !fetch_config.enabled {
-        return Err("fetch_music is not enabled".to_string());
-    }
+/// extract metadata using flat-playlist mode (fast, no per-video page loads).
+/// used by the precheck job so the confirm screen appears quickly.
+pub async fn extract_metadata_flat(
+    url: &str,
+    config: &GrimoireConfig,
+) -> Result<Vec<ContentMetadata>, String> {
+    run_precheck_command(url, config, true).await
+}
 
-    let precheck_cmd = fetch_config
-        .precheck_command
-        .as_ref()
-        .ok_or("precheck_command not configured")?;
+fn run_precheck_command<'a>(
+    url: &'a str,
+    config: &'a GrimoireConfig,
+    flat_playlist: bool,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<ContentMetadata>, String>> + Send + 'a>> {
+    Box::pin(async move {
+        let fetch_config = config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_music.as_ref())
+            .ok_or("fetch_music not configured")?;
 
-    info!("extracting metadata for URL: {}", url);
-
-    // parse command and args
-    let parts: Vec<&str> = precheck_cmd.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("precheck_command is empty".to_string());
-    }
-
-    let (cmd, args) = parts.split_first().unwrap();
-
-    // execute precheck command
-    let output = Command::new(cmd)
-        .args(args)
-        .arg("--") // separator before URL
-        .arg(url)
-        .output()
-        .await
-        .map_err(|e| format!("failed to execute precheck command: {}", e))?;
-
-    if !output.status.success() {
-        let error_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("precheck command failed: {}", error_msg));
-    }
-
-    // parse output - one JSON object per line
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut metadata_list = Vec::new();
-
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+        if !fetch_config.enabled {
+            return Err("fetch_music is not enabled".to_string());
         }
 
-        match ContentMetadata::from_json(line) {
-            Ok(metadata) => metadata_list.push(metadata),
-            Err(e) => warn!("failed to parse metadata line: {}", e),
+        let precheck_cmd = fetch_config
+            .precheck_command
+            .as_ref()
+            .ok_or("precheck_command not configured")?;
+
+        info!("extracting metadata for URL: {}", url);
+
+        // parse command and args
+        let parts: Vec<&str> = precheck_cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err("precheck_command is empty".to_string());
         }
-    }
 
-    if metadata_list.is_empty() {
-        return Err("no metadata extracted from URL".to_string());
-    }
+        let (cmd, args) = parts.split_first().unwrap();
 
-    info!(
-        "extracted metadata for {} item(s) from URL: {}",
-        metadata_list.len(),
-        url
-    );
+        // build command, optionally injecting --flat-playlist for fast precheck
+        let mut command = Command::new(cmd);
+        command.args(args);
+        if flat_playlist && !precheck_cmd.contains("--flat-playlist") {
+            command.arg("--flat-playlist");
+        }
+        command.arg("--").arg(url);
 
-    Ok(metadata_list)
+        let output = command
+            .output()
+            .await
+            .map_err(|e| format!("failed to execute precheck command: {}", e))?;
+
+        if !output.status.success() {
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("precheck command failed: {}", error_msg));
+        }
+
+        // parse output - one JSON object per line
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut metadata_list = Vec::new();
+
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            match ContentMetadata::from_json(line) {
+                Ok(metadata) => metadata_list.push(metadata),
+                Err(e) => warn!("failed to parse metadata line: {}", e),
+            }
+        }
+
+        if metadata_list.is_empty() {
+            return Err("no metadata extracted from URL".to_string());
+        }
+
+        info!(
+            "extracted metadata for {} item(s) from URL: {}",
+            metadata_list.len(),
+            url
+        );
+
+        Ok(metadata_list)
+    })
 }
 
 /// check which content IDs already exist in database
@@ -341,6 +364,7 @@ pub async fn download_media(
                     playlist_title: None,
                     playlist_index: None,
                     raw_metadata: serde_json::Value::Null,
+                    is_duplicate: None,
                 },
             }
         })

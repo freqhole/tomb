@@ -101,6 +101,20 @@ pub struct KnockRequest {
     pub deleted_user_username: Option<String>,
 }
 
+/// payload sent by a remote peer when a device link completes
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeviceLinkedCallbackRequest {
+    pub peer_addr: String,
+    pub server_name: String,
+}
+
+/// payload sent by a remote peer when a knock request is accepted
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct KnockAcceptedCallbackRequest {
+    pub peer_addr: String,
+    pub server_name: String,
+}
+
 /// request to create a knock
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct CreateKnockRequest {

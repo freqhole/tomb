@@ -645,6 +645,7 @@ pub fn entity_ref_for(job_type: &JobType, params_json: &str) -> Option<EntityRef
         | JobType::ProcessFile
         | JobType::ProcessDirectory
         | JobType::FetchMedia
+        | JobType::PreCheckFetch
         | JobType::ConvertWebp
         | JobType::ImportMusic => None,
     }

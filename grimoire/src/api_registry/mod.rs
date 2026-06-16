@@ -132,6 +132,9 @@ pub mod type_registry {
     // health types
     use crate::health::{EmptyResponse, HealthResponse, ServerInfoResponse};
 
+    // federation types
+    use crate::federation::knock::{DeviceLinkedCallbackRequest, KnockAcceptedCallbackRequest};
+
     // music types
     use crate::media_blobz::{
         AtlasEntry, AtlasManifest, BlobMetadataResponse, BuildAtlasRequest, MediaBlob,
@@ -196,7 +199,10 @@ pub mod type_registry {
         SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind, TaxonParentEdge,
         TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
-    use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
+    use crate::music::fetch::{
+        ContentMetadata, FetchMediaParams, FetchMediaResult, PreCheckFetchParams,
+        PreCheckFetchResponse,
+    };
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
         MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
@@ -223,8 +229,8 @@ pub mod type_registry {
 
     // jobs types
     use crate::jobs::{
-        CreateJobRequest, GetJobRequest, GetJobsStatusRequest, GetJobsStatusResponse, JobResponse,
-        ListJobsRequest,
+        CancelJobRequest, CreateJobRequest, GetJobRequest, GetJobsStatusRequest,
+        GetJobsStatusResponse, JobResponse, ListJobsRequest,
     };
 
     // error types
@@ -356,6 +362,12 @@ pub mod type_registry {
 
         gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
         registered.insert("ServerInfoResponse".to_string());
+
+        // p2p callback request types
+        gen.add_schema::<DeviceLinkedCallbackRequest>("DeviceLinkedCallbackRequest");
+        registered.insert("DeviceLinkedCallbackRequest".to_string());
+        gen.add_schema::<KnockAcceptedCallbackRequest>("KnockAcceptedCallbackRequest");
+        registered.insert("KnockAcceptedCallbackRequest".to_string());
 
         // radio discovery types
         gen.add_schema::<PublicNowPlaying>("PublicNowPlaying");
@@ -540,6 +552,9 @@ pub mod type_registry {
         gen.add_schema::<GetJobsStatusRequest>("GetJobsStatusRequest");
         registered.insert("GetJobsStatusRequest".to_string());
 
+        gen.add_schema::<CancelJobRequest>("CancelJobRequest");
+        registered.insert("CancelJobRequest".to_string());
+
         gen.add_schema::<GetJobsStatusResponse>("GetJobsStatusResponse");
         registered.insert("GetJobsStatusResponse".to_string());
 
@@ -705,6 +720,15 @@ pub mod type_registry {
 
         gen.add_schema::<FetchMediaResult>("FetchMediaResult");
         registered.insert("FetchMediaResult".to_string());
+
+        gen.add_schema::<ContentMetadata>("ContentMetadata");
+        registered.insert("ContentMetadata".to_string());
+
+        gen.add_schema::<PreCheckFetchParams>("PreCheckFetchParams");
+        registered.insert("PreCheckFetchParams".to_string());
+
+        gen.add_schema::<PreCheckFetchResponse>("PreCheckFetchResponse");
+        registered.insert("PreCheckFetchResponse".to_string());
 
         // jobs types
         gen.add_schema::<CreateJobRequest>("CreateJobRequest");

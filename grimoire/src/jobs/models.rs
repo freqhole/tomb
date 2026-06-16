@@ -22,6 +22,9 @@ pub enum JobType {
 
     // media operations
     FetchMedia,
+    /// pre-check a url without downloading - runs yt-dlp metadata
+    /// extraction only and returns the item list for user confirmation.
+    PreCheckFetch,
 
     // upload processing
     ConvertWebp,
@@ -284,6 +287,12 @@ pub struct CreateJobRequest {
 /// request for getting a job by id
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct GetJobRequest {
+    pub job_id: String,
+}
+
+/// request to cancel a single job by id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct CancelJobRequest {
     pub job_id: String,
 }
 

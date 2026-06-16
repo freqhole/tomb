@@ -8,8 +8,8 @@ use super::music::{
     process_audiodb_artist_detail_job, process_auto_apply_album_enrichment_job,
     process_convert_webp_job, process_directory_job, process_fetch_media_job, process_file_job,
     process_import_music_job, process_lastfm_album_detail_job, process_lastfm_artist_detail_job,
-    process_mb_album_detail_job, process_mb_album_search_job, process_rescan_directories_job,
-    process_scan_directory_job,
+    process_mb_album_detail_job, process_mb_album_search_job, process_precheck_fetch_job,
+    process_rescan_directories_job, process_scan_directory_job,
 };
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
@@ -65,6 +65,7 @@ fn is_badge_progress_job(job_type: &JobType) -> bool {
             | JobType::ProcessFile
             | JobType::ProcessDirectory
             | JobType::FetchMedia
+            | JobType::PreCheckFetch
             | JobType::AlbumEnrichmentPipeline
             | JobType::AutoApplyAlbumEnrichment
             | JobType::MbAlbumSearch
@@ -125,6 +126,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::ProcessFile => process_file_job(&job).await,
         JobType::ProcessDirectory => process_directory_job(&job).await,
         JobType::FetchMedia => process_fetch_media_job(&job).await,
+        JobType::PreCheckFetch => process_precheck_fetch_job(&job).await,
         JobType::ConvertWebp => process_convert_webp_job(&job).await,
         JobType::ImportMusic => process_import_music_job(&job).await,
         JobType::MbAlbumSearch => process_mb_album_search_job(&job).await,

@@ -219,8 +219,10 @@ pub async fn dispatch(
         // jobs
         "/api/jobs/status" => Some(jobs::status(caller, body.clone()).await),
         "/api/jobs/list" => Some(jobs::list(caller, body.clone()).await),
+        "/api/jobs/cancel" => Some(jobs::cancel_single_job(caller, body.clone()).await),
         "/api/jobs/events/snapshot" => Some(job_events::snapshot(caller, body.clone()).await),
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
+        "/api/music/fetch/precheck" => Some(jobs::create_precheck_fetch(caller, body.clone()).await),
         "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
         "/api/music/albums/mb-search/enqueue" => {
             Some(jobs::enqueue_mb_album_search(caller, body.clone()).await)

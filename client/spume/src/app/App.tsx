@@ -103,6 +103,7 @@ import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
+import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -123,6 +124,11 @@ export function App() {
   // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+
+  // query whether the current remote has url precheck (yt-dlp) configured
+  const fetchPrecheckEnabledQuery = useFetchPrecheckEnabledQuery(
+    () => getCurrentRemote() ?? undefined
+  );
   // radio works with zero remotes (anyone with a node id can listen)
   const isRadioRoute = () => currentHash().startsWith("#/radio");
   const isSharedRoute = () => currentHash().startsWith("#/shared");
@@ -983,6 +989,7 @@ export function App() {
         useCharnelDialog={isCharnelMode()}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
+        fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
       />
 
       <AddRemoteModal

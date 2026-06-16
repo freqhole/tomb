@@ -77,6 +77,14 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
     #[cfg(not(feature = "webauthn"))]
     let passkey_p2p_enabled: Option<bool> = None;
 
+    let fetch_precheck_enabled = Some(
+        config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_music.as_ref())
+            .is_some_and(|f| f.enabled && f.precheck_command.is_some()),
+    );
+
     Ok(Json(ServerInfoResponse {
         name,
         description,
@@ -88,5 +96,6 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         lastfm_enabled,
         audiodb_enabled,
         passkey_p2p_enabled,
+        fetch_precheck_enabled,
     }))
 }

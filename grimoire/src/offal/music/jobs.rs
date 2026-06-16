@@ -3,14 +3,14 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::jobs::{
-    create_job, get_job, get_jobs_status, list_jobs, AlbumEnrichmentPipelineParams,
+    cancel_job, create_job, get_job, get_jobs_status, list_jobs, AlbumEnrichmentPipelineParams,
     AudioDbAlbumDetailParams, BulkEnrichmentRequest, BulkEnrichmentResponse,
-    CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse, CreateJobRequest,
+    CancelBulkEnrichmentRequest, CancelBulkEnrichmentResponse, CancelJobRequest, CreateJobRequest,
     CreateJobSessionRequest, EnrichmentSource, GetEnrichmentProgressRequest,
     GetEnrichmentProgressResponse, GetJobRequest, JobStatus, JobType, LastFmAlbumDetailParams,
     MbAlbumDetailParams, MbAlbumSearchParams, RequeryEnrichmentRequest, RequeryEnrichmentResponse,
 };
-use crate::music::fetch::FetchMediaParams;
+use crate::music::fetch::{FetchMediaParams, PreCheckFetchParams};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
@@ -29,6 +29,15 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
+        name: "cancel_job",
+        path: "/api/jobs/cancel",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "CancelJobRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
         name: "list_jobs",
         path: "/api/jobs/list",
         method: Method::POST,
@@ -43,6 +52,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Music,
         request_type: "FetchMediaParams",
+        response_type: "JobResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "create_precheck_fetch_job",
+        path: "/api/music/fetch/precheck",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "PreCheckFetchParams",
         response_type: "JobResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
@@ -166,6 +184,34 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
+/// cancel a single job by id.
+/// marks the job as Cancelled in the db; if the job processor checks
+/// for cancellation during execution (e.g. precheck), it will abort.
+///
+/// path: POST /api/jobs/cancel
+pub async fn cancel_single_job(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: CancelJobRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = cancel_job(&req.job_id).await;
+    if response.success {
+        GrimoireResponse::success("job cancelled", serde_json::json!({ "success": true }))
+    } else {
+        GrimoireResponse::failure(response.message, response.errors)
+    }
+}
+
 /// create a fetch job
 ///
 /// path: POST /api/music/fetch
@@ -236,6 +282,60 @@ pub async fn get_fetch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     };
 
     let response = get_job(&req.job_id).await;
+    response.map(|job| serde_json::to_value(crate::jobs::JobResponse::from(job)).unwrap())
+}
+
+/// create a precheck fetch job (metadata only, no download)
+///
+/// path: POST /api/music/fetch/precheck
+pub async fn create_precheck_fetch(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !caller.is_member() {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
+        );
+    }
+
+    let params: PreCheckFetchParams = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let job_request = CreateJobRequest {
+        job_type: JobType::PreCheckFetch,
+        session_id: None,
+        parameters: match serde_json::to_value(&params) {
+            Ok(v) => v,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "bad request",
+                    vec![ErrorDetail::new(
+                        "serialization_error",
+                        "failed to serialize parameters",
+                        e.to_string(),
+                    )],
+                )
+            }
+        },
+        max_retries: Some(1),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+        priority: None,
+    };
+
+    let response = create_job(job_request).await;
     response.map(|job| serde_json::to_value(crate::jobs::JobResponse::from(job)).unwrap())
 }
 
