@@ -115,7 +115,6 @@ import {
 } from "../music/hooks/modals";
 import {
   appState,
-  setCurrentSong,
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
@@ -621,24 +620,29 @@ export function AppLayout(props: AppLayoutProps) {
   createEffect(() => {
     const state = appState();
     if (state?.current_sha256) {
+      const sha256 = state.current_sha256;
       // first check if song is in queue (avoids fetching from wrong remote)
-      const songInQueue = state.queue.find((s) => s.sha256 === state.current_sha256);
+      const songInQueue = state.queue.find((s) => s.sha256 === sha256);
       if (songInQueue) {
         setCurrentSongData(songInQueue);
       } else if (state.queue.length > 0) {
-        // if queue exists but song not in it, it's stale - clear it
+        // queue exists but song not in it - hide the player bar visually.
+        // do NOT write setCurrentSong(null) here: that async IDB write races
+        // with playSong() when the queue is being rebuilt for a new track
+        // (setQueue fires first, then playSong sets current_sha256), and the
+        // null write can land after playSong's write, wiping out the new song.
         setCurrentSongData(null);
-        void setCurrentSong(null);
       } else {
-        // queue hasn't loaded yet, try fetching
+        // queue is empty - try fetching the song directly (page-reload case
+        // where the queue hasn't been rehydrated yet).
         const dataSource = getDataSource();
-        void dataSource.getSongById(state.current_sha256).then((song) => {
+        void dataSource.getSongById(sha256).then((song) => {
+          // guard against stale response: only apply if sha256 is still current
+          if (appState()?.current_sha256 !== sha256) return;
           if (song) {
             setCurrentSongData(song);
           } else {
-            // song not found - clear stale current_sha256
             setCurrentSongData(null);
-            void setCurrentSong(null);
           }
         });
       }
