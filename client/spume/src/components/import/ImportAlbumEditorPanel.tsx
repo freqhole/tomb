@@ -7,10 +7,13 @@
 // render prop.
 import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
+import { formatDuration } from "../../utils/formatDuration";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { EntityImages } from "../layout/EntityImages";
+import { MediaImage } from "../media/MediaImage";
 import { Tabs, TabList, Tab, TabPanel } from "../navigation/Tabs";
 import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
+import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "../modals/AlbumTaxonsEditor";
 import type { MbSearchReleasesResponse, MbReleaseDetail } from "../../music/data/types";
 
 // -------------------------------------------------------------------------
@@ -64,7 +67,7 @@ export interface ImportAlbumEditorPanelProps {
     value: string;
     onChange: (v: string) => void;
   }) => JSX.Element;
-  /** when provided, a musicbrainz tab is added alongside the metadata tab */
+  /** when provided, a taxons tab is added alongside metadata + musicbrainz */
   albumId?: string;
   artistId?: string;
   /** override fns for MusicBrainzPanel - use MusicBrainzBrowserClient for storybook / local-library use */
@@ -75,8 +78,19 @@ export interface ImportAlbumEditorPanelProps {
     offset: number | null;
   }) => Promise<MbSearchReleasesResponse | null>;
   mbGetReleaseFn?: (mbid: string) => Promise<MbReleaseDetail | null>;
-  /** called after MusicBrainzPanel syncs metadata or imports artwork */
+  /** called after MusicBrainzPanel syncs metadata or imports artwork, or after
+   *  taxon apply - triggers a refetch of the album in the parent */
   onAlbumUpdated?: () => void;
+  /** optional existing artwork for display (url + blob id + server id) */
+  existingArtworkUrl?: string | null;
+  existingArtworkBlobId?: string | null;
+  existingArtworkServerId?: string | null;
+  /** explicit api client to use for sub-components (taxons, etc.) instead of
+   *  falling back to getTaxonomyClient() / getCurrentRemote().
+   *  pass this when the review is for a remote that may not be the current
+   *  active one (e.g. opened via deep-link while on a different route). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  apiClient?: any;
 }
 
 // -------------------------------------------------------------------------
@@ -88,13 +102,6 @@ const ALBUM_TYPES: { value: AlbumType; label: string }[] = [
   { value: "single", label: "single" },
   { value: "compilation", label: "compilation" },
 ];
-
-function fmtDuration(secs: number | null | undefined): string {
-  if (secs == null) return "";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 function labelInput(label: string, children: JSX.Element) {
   return (
@@ -179,45 +186,8 @@ function SongRowEditor(props: {
 
   return (
     <div class="border-b border-[var(--color-border-subtle)] last:border-b-0">
-      {/* main row */}
-      <div class="flex items-center gap-2 px-3 py-2 bg-[var(--color-bg-primary)]">
-        {/* disc / track */}
-        <div class="flex items-center gap-1 flex-shrink-0">
-          <Show when={props.song.discNumber != null}>
-            <input
-              type="number"
-              min={1}
-              value={props.song.discNumber ?? ""}
-              onInput={(e) => update({ discNumber: parseInt(e.currentTarget.value) || null })}
-              class="w-8 text-center body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-primary)]"
-              title="disc number"
-              aria-label="disc number"
-            />
-            <span class="body-xs text-[var(--color-text-muted)]">-</span>
-          </Show>
-          <input
-            type="number"
-            min={1}
-            value={props.song.trackNumber ?? ""}
-            onInput={(e) => update({ trackNumber: parseInt(e.currentTarget.value) || null })}
-            class="w-8 text-center body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-primary)]"
-            title="track number"
-            aria-label="track number"
-          />
-        </div>
-
-        {/* disc toggle button - only shown until a disc number is added */}
-        <Show when={props.song.discNumber == null}>
-          <button
-            class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] flex-shrink-0 transition-colors"
-            title="add disc number"
-            onClick={() => update({ discNumber: 1 })}
-          >
-            +disc
-          </button>
-        </Show>
-
-        {/* title */}
+      {/* main row: title + duration */}
+      <div class="flex items-center gap-2 px-3 pt-2 pb-1 bg-[var(--color-bg-primary)]">
         <input
           class={`${inputClass} flex-1 min-w-0`}
           value={props.song.title}
@@ -225,20 +195,65 @@ function SongRowEditor(props: {
           placeholder="track title"
           aria-label="track title"
         />
-
-        {/* duration (read-only display) */}
-        <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0 w-10 text-right">
-          {fmtDuration(props.song.durationSeconds)}
+        <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0 w-10 text-right tabular-nums">
+          {formatDuration(props.song.durationSeconds)}
         </span>
+      </div>
 
-        {/* lyrics toggle */}
+      {/* sub-row: track / disc numbers + lyrics toggle */}
+      <div class="flex items-center gap-3 px-3 pb-2 bg-[var(--color-bg-primary)]">
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <label class="body-xs text-[var(--color-text-muted)]">track</label>
+          <input
+            type="number"
+            min={1}
+            value={props.song.trackNumber ?? ""}
+            onInput={(e) => update({ trackNumber: parseInt(e.currentTarget.value) || null })}
+            class="w-10 text-center body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-primary)]"
+            aria-label="track number"
+          />
+        </div>
+
+        <Show when={props.song.discNumber != null}>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <label class="body-xs text-[var(--color-text-muted)]">disc</label>
+            <input
+              type="number"
+              min={1}
+              value={props.song.discNumber ?? ""}
+              onInput={(e) => update({ discNumber: parseInt(e.currentTarget.value) || null })}
+              class="w-10 text-center body-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border-default)] rounded px-1 py-0.5 text-[var(--color-text-primary)]"
+              aria-label="disc number"
+            />
+            <button
+              class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+              title="remove disc number"
+              onClick={() => update({ discNumber: null })}
+              aria-label="remove disc number"
+            >
+              x
+            </button>
+          </div>
+        </Show>
+
+        <Show when={props.song.discNumber == null}>
+          <button
+            class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] flex-shrink-0 transition-colors"
+            onClick={() => update({ discNumber: 1 })}
+          >
+            +disc
+          </button>
+        </Show>
+
+        <span class="flex-1" />
+
         <button
-          class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] flex-shrink-0 transition-colors px-1"
+          class="body-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] flex-shrink-0 transition-colors"
           onClick={() => setLyricsOpen((o) => !o)}
           aria-expanded={lyricsOpen()}
           title={lyricsOpen() ? "hide lyrics" : "edit lyrics"}
         >
-          lyrics
+          {lyricsOpen() ? "hide lyrics" : "lyrics"}
         </button>
       </div>
 
@@ -278,12 +293,13 @@ function SongRowEditor(props: {
 export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
   const isCompilation = createMemo(() => props.value.albumType === "compilation");
   const [activeTab, setActiveTab] = createSignal("metadata");
+  let taxonsHandle: AlbumTaxonsEditorHandle | undefined;
 
   const handleTabChange = (tab: string) => {
     const prev = activeTab();
     setActiveTab(tab);
-    // switching from musicbrainz back to metadata: refetch so any MB-applied
-    // changes (title, artist, genres) are reflected in the form fields
+    // only refetch when leaving musicbrainz - MB may have updated title/artist/artwork
+    // taxons don't change the metadata form fields, so no refetch needed there
     if (prev === "musicbrainz" && tab === "metadata") {
       props.onAlbumUpdated?.();
     }
@@ -321,10 +337,28 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
   );
 
   const metadataContent = (
-    <div class="flex flex-col gap-5">
-      {/* artwork + album fields side by side */}
-      <div class="flex gap-4 items-start">
-        <ArtworkPicker preview={props.value.artworkPreview} onFile={handleArtworkFile} />
+    <div class="flex flex-col gap-5 pt-2">
+      {/* artwork row: on mobile stack art above fields; on sm+ show side by side */}
+      <div class="flex flex-col sm:flex-row gap-4 items-start">
+        {/* upload picker for new artwork - only shown when no managed images or no albumId */}
+        <Show when={!props.value.images || props.value.images.length === 0}>
+          <div class="flex gap-3 items-start flex-shrink-0">
+            <Show when={props.existingArtworkBlobId ?? props.existingArtworkUrl}>
+              <MediaImage
+                remoteBlobId={props.existingArtworkBlobId ?? undefined}
+                remoteServerId={props.existingArtworkServerId ?? undefined}
+                imageUrl={props.existingArtworkUrl ?? undefined}
+                alt="current artwork"
+                size="sm"
+                thumbnailSize={200}
+                class="w-20 h-20 sm:w-24 sm:h-24 rounded-lg object-cover flex-shrink-0"
+                showFallback
+                domainType="album"
+              />
+            </Show>
+            <ArtworkPicker preview={props.value.artworkPreview} onFile={handleArtworkFile} />
+          </div>
+        </Show>
 
         <div class="flex-1 flex flex-col gap-3 min-w-0">
           {labelInput(
@@ -430,11 +464,11 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
         onChange={(urls) => updateAlbum({ entityUrls: urls })}
       />
 
-      {/* album images - rendered when caller opts in via images prop */}
+      {/* album images - when available, replaces the standalone picker above */}
       <Show when={props.value.images !== undefined}>
         <EntityImages
           images={props.value.images ?? []}
-          onUpload={props.onImageUpload}
+          onUpload={props.onImageUpload ?? props.onArtworkFilePicked}
           onDelete={props.onImageDelete}
           onSetPrimary={props.onImageSetPrimary}
           compact
@@ -443,7 +477,7 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
     </div>
   );
 
-  // when albumId is present, wrap in tabs so mb lookup is accessible alongside metadata editing
+  // when albumId is present, wrap in tabs so mb lookup + taxons are accessible
   if (!props.albumId) {
     return metadataContent;
   }
@@ -452,9 +486,19 @@ export function ImportAlbumEditorPanel(props: ImportAlbumEditorPanelProps) {
     <Tabs activeTab={activeTab()} onTabChange={handleTabChange}>
       <TabList>
         <Tab id="metadata" label="metadata" />
+        <Tab id="taxons" label="taxons" />
         <Tab id="musicbrainz" label="musicbrainz" />
       </TabList>
       <TabPanel id="metadata">{metadataContent}</TabPanel>
+      <TabPanel id="taxons">
+        <div class="py-2">
+          <AlbumTaxonsEditor
+            albumId={props.albumId}
+            ref={(h) => (taxonsHandle = h)}
+            apiClient={props.apiClient}
+          />
+        </div>
+      </TabPanel>
       <TabPanel id="musicbrainz">
         <MusicBrainzPanel
           albumId={props.albumId}

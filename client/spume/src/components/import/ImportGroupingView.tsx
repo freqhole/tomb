@@ -3,6 +3,8 @@
 import { For, Show, createSignal, createMemo } from "solid-js";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
+import { formatDuration } from "../../utils/formatDuration";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 // -------------------------------------------------------------------------
 // types
@@ -28,6 +30,8 @@ export interface ImportReviewAlbum {
   remoteServerId?: string | null;
   /** entity URLs fetched from the album record */
   entityUrls?: { id?: string; name?: string | null; url: string }[];
+  /** all images from the album record - used for image management in the editor */
+  images?: ImageMetadata[];
   songs: ImportReviewSong[];
 }
 
@@ -44,13 +48,6 @@ export interface ImportGroupingViewProps {
 // -------------------------------------------------------------------------
 // helpers
 // -------------------------------------------------------------------------
-
-function fmtDuration(secs: number | null | undefined): string {
-  if (secs == null) return "";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 function fmtTrack(song: ImportReviewSong): string {
   if (song.discNumber != null && song.discNumber > 1) {
@@ -75,6 +72,7 @@ function SingleAlbumCollapsed(props: { album: ImportReviewAlbum; onConfirm: () =
           imageUrl={props.album.artworkUrl}
           alt=""
           size="sm"
+          thumbnailSize={200}
           class="w-12 h-12 rounded object-cover flex-shrink-0"
           showFallback
           domainType="album"
@@ -110,7 +108,7 @@ function SingleAlbumCollapsed(props: { album: ImportReviewAlbum; onConfirm: () =
                   {song.title}
                 </span>
                 <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0">
-                  {fmtDuration(song.durationSeconds)}
+                  {formatDuration(song.durationSeconds)}
                 </span>
               </div>
             )}
@@ -173,6 +171,7 @@ function AlbumGroupCard(props: {
           imageUrl={props.album.artworkUrl}
           alt=""
           size="sm"
+          thumbnailSize={200}
           class="w-10 h-10 rounded object-cover flex-shrink-0 mt-0.5"
           showFallback
           domainType="album"
@@ -220,7 +219,7 @@ function AlbumGroupCard(props: {
                   {song.title}
                 </span>
                 <span class="body-xs text-[var(--color-text-muted)] flex-shrink-0">
-                  {fmtDuration(song.durationSeconds)}
+                  {formatDuration(song.durationSeconds)}
                 </span>
 
                 {/* move-to dropdown - only relevant when there are other albums */}

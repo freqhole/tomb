@@ -26,6 +26,7 @@ import {
   useLocalSource,
   useRemoteSource,
 } from "../music/data";
+import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
 import {
   closeAddMusic,
@@ -116,6 +117,15 @@ export function App() {
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   // session id for the import review modal - set when user clicks "review now"
   const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
+  // the remote that owns the review session - captured at start time so it stays
+  // stable even if the user navigates to a different remote while reviewing
+  const [reviewRemote, setReviewRemote] = createSignal<CurrentRemoteInfo | null>(null);
+
+  // open a review session, capturing the active remote at this moment
+  function openReviewSession(sid: string) {
+    setReviewRemote(getCurrentRemote() ?? null);
+    setReviewSessionId(sid);
+  }
   // incremented when the review modal closes - triggers AddMusicModal to refetch pending sessions
   const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
   // last session id that completed review - triggers AddMusicModal to auto-dismiss its card
@@ -140,10 +150,10 @@ export function App() {
     () => getCurrentRemote() ?? undefined
   );
 
-  // import review - reactive remote: hook handles null gracefully
+  // import review - keyed to the captured remote for the session, not getCurrentRemote()
   const importReview = useImportReview(
     () => reviewSessionId(),
-    () => getCurrentRemote() ?? null
+    () => reviewRemote()
   );
   // map of albumId -> save fn registered by ImportReviewEditor instances
   const editorSaveFns = new Map<string, () => Promise<void>>();
@@ -998,7 +1008,10 @@ export function App() {
             {routes({
               onAddMusic: () => openAddMusic(),
               onSongDoubleClick: handleSongDoubleClick,
-              onImportReview: (sid) => setReviewSessionId(sid),
+              onImportReview: (sid) => {
+                openReviewSession(sid);
+                handleCloseAddMusic();
+              },
             })}
           </HashRouter>
         </Show>
@@ -1016,7 +1029,7 @@ export function App() {
         localImportProgress={getLocalImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
         onReviewSession={(sid) => {
-          setReviewSessionId(sid);
+          openReviewSession(sid);
           handleCloseAddMusic();
         }}
         refetchReviewKey={reviewRefetchKey()}
@@ -1026,15 +1039,21 @@ export function App() {
 
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}
+        loading={importReview.loading()}
         onClose={() => {
           setReviewSessionId(null);
+          setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
+          // re-open the add music modal so the user can pick the next
+          // pending review without having to open it manually
+          openAddMusic();
         }}
         albums={importReview.albums()}
         onComplete={() => {
           const sid = reviewSessionId();
           if (sid) setCompletedReviewSessionId(sid);
           setReviewSessionId(null);
+          setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
         }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
@@ -1058,7 +1077,7 @@ export function App() {
           }
         }}
         renderAlbumEditor={(editorProps) => {
-          const remote = getCurrentRemote();
+          const remote = reviewRemote();
           if (!remote || !reviewSessionId()) return <></>;
           return (
             <ImportReviewEditor

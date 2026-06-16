@@ -10,7 +10,7 @@
 // in one shot server-side). edit state here is kept live so patchAlbum always
 // sends the current user-visible state.
 
-import { createSignal, createEffect, onCleanup } from "solid-js";
+import { createSignal, createEffect, createResource, onCleanup } from "solid-js";
 import {
   ImportAlbumEditorPanel,
   type ImportAlbumEdit,
@@ -34,7 +34,9 @@ function albumToEdit(album: ImportReviewAlbum): ImportAlbumEdit {
     artistName: album.artist ?? "",
     albumType: "album" as AlbumType,
     artworkBlobId: null,
-    artworkPreview: album.artworkUrl ?? null,
+    // artworkPreview is for newly-uploaded local data-URLs only;
+    // existing remote artwork is shown via the existingArtwork* props below
+    artworkPreview: null,
     entityUrls: (album.entityUrls ?? []).map((u) => ({
       id: u.id,
       name: u.name ?? "",
@@ -42,7 +44,7 @@ function albumToEdit(album: ImportReviewAlbum): ImportAlbumEdit {
       isNew: false,
       isDeleted: false,
     })),
-    images: undefined, // populated if albumId is known
+    images: album.images, // pass through so EntityImages can manage them
     songs: album.songs.map((s) => ({
       id: s.id,
       title: s.title,
@@ -72,6 +74,13 @@ export interface ImportReviewEditorProps extends AlbumEditorRenderProps {
 
 export function ImportReviewEditor(props: ImportReviewEditorProps) {
   const [edit, setEdit] = createSignal<ImportAlbumEdit>(albumToEdit(props.album));
+
+  // build the api client for the review's remote once - used by taxons editor
+  // and other sub-components so they don't fall back to getCurrentRemote()
+  const [reviewClient] = createResource(
+    () => props.remote,
+    (remote) => getClientForRemote(remote)
+  );
 
   // reset edit state when the album changes
   createEffect(() => {
@@ -120,8 +129,66 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
         ...prev,
         artworkBlobId: result.data.blob_id,
       }));
+      // refetch to get updated images list
+      props.reviewHandle.refetch();
     } catch (err) {
       toast.error(`artwork upload failed: ${(err as Error).message}`);
+    }
+  }
+
+  async function handleImageUpload(file: File) {
+    try {
+      const client = await getClientForRemote(props.remote);
+      const result = await client.upload.image(file, {
+        associate: {
+          entity_type: "album",
+          entity_id: props.album.id,
+          is_primary: (edit().images ?? []).length === 0,
+        },
+      });
+      if (!result.success) {
+        toast.error("image upload failed");
+        return;
+      }
+      props.reviewHandle.refetch();
+    } catch (err) {
+      toast.error(`image upload failed: ${(err as Error).message}`);
+    }
+  }
+
+  async function handleImageDelete(index: number) {
+    const images = edit().images ?? [];
+    const img = images[index];
+    const blobId = img?.remote_blob_id ?? img?.local_blob_id;
+    if (!blobId) return;
+    try {
+      const client = await getClientForRemote(props.remote);
+      await client.music.deleteImage({
+        entity_type: "album",
+        entity_id: props.album.id,
+        blob_id: blobId,
+      });
+      props.reviewHandle.refetch();
+    } catch (err) {
+      toast.error(`failed to remove image: ${(err as Error).message}`);
+    }
+  }
+
+  async function handleImageSetPrimary(index: number) {
+    const images = edit().images ?? [];
+    const img = images[index];
+    const blobId = img?.remote_blob_id ?? img?.local_blob_id;
+    if (!blobId) return;
+    try {
+      const client = await getClientForRemote(props.remote);
+      await client.music.setPrimaryImage({
+        entity_type: "album",
+        entity_id: props.album.id,
+        blob_id: blobId,
+      });
+      props.reviewHandle.refetch();
+    } catch (err) {
+      toast.error(`failed to set primary image: ${(err as Error).message}`);
     }
   }
 
@@ -131,7 +198,14 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
       onChange={setEdit}
       albumId={props.album.id}
       artistId={props.album.artistId ?? ""}
+      existingArtworkUrl={props.album.artworkUrl ?? null}
+      existingArtworkBlobId={props.album.artworkBlobId ?? null}
+      existingArtworkServerId={props.album.remoteServerId ?? null}
+      apiClient={reviewClient()}
       onArtworkFilePicked={(file) => void handleArtworkFilePicked(file)}
+      onImageUpload={(file) => void handleImageUpload(file)}
+      onImageDelete={(index) => void handleImageDelete(index)}
+      onImageSetPrimary={(index) => void handleImageSetPrimary(index)}
       mbSearchFn={async (params) => {
         try {
           return await mbBrowserClient.searchReleases({

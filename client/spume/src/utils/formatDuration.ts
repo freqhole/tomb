@@ -1,20 +1,39 @@
-// format seconds to MM:SS (for song durations)
+// format seconds to MM:SS or H:MM:SS (drops hours component when zero).
+// for values >= 24h, falls back to human-readable (e.g. "1d 2h", "3w").
+// suitable for individual song/track durations, including full-album files.
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || !isFinite(seconds) || seconds < 0) return "0:00";
   const totalSeconds = Math.round(seconds);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
 
-// format seconds to HH:MM:SS or MM:SS (for album/playlist durations)
-export function formatLongDuration(seconds: number | null | undefined): string {
-  if (seconds == null || !isFinite(seconds) || seconds < 0) return "0:00";
-  const totalSeconds = Math.round(seconds);
+  // beyond 24 hours: use human format (days/weeks/etc) - these are huge files
+  if (totalSeconds >= 86400) {
+    return formatHumanDuration(totalSeconds);
+  }
+
   const hours = Math.floor(totalSeconds / 3600);
   const mins = Math.floor((totalSeconds % 3600) / 60);
   const secs = totalSeconds % 60;
-  
+
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+// format seconds to HH:MM:SS or MM:SS (for album/playlist totals).
+// same as formatDuration but keeps hours always visible when >= 1h.
+export function formatLongDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !isFinite(seconds) || seconds < 0) return "0:00";
+  const totalSeconds = Math.round(seconds);
+
+  if (totalSeconds >= 86400) {
+    return formatHumanDuration(totalSeconds);
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
   if (hours > 0) {
     return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }

@@ -16,6 +16,7 @@
 
 import { createSignal, createResource, createMemo } from "solid-js";
 import { getClientForRemote } from "../../app/api/client";
+import { getRemoteMediaUrl } from "../../utils/urls";
 import { toast } from "../../components/feedback/Toast";
 import type { CurrentRemoteInfo } from "../data/currentState";
 import type { ImportReviewAlbum, ImportReviewSong } from "../../components/import/ImportGroupingView";
@@ -25,12 +26,12 @@ import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "freqhole-api-c
 // helpers
 // ----------------------------------------------------------------------------
 
-// build a thumbnail url from a blob id and the remote's base url.
+// build an http artwork url from a blob id and the remote's base url.
+// used for plain-http remotes; charnel-managed and P2P remotes resolve via
+// transport so artworkUrl may be null - MediaImage handles both paths.
 function artworkUrlFromBlob(blobId: string | null | undefined, remote: CurrentRemoteInfo | null | undefined): string | null {
-  if (!blobId || !remote) return null;
-  const base = remote.base_url ?? "";
-  if (!base) return null;
-  return `${base}/api/blobs/${encodeURIComponent(blobId)}/thumb/512`;
+  if (!blobId || !remote?.base_url) return null;
+  return getRemoteMediaUrl(remote.base_url, blobId);
 }
 
 // ----------------------------------------------------------------------------
@@ -86,6 +87,7 @@ export function useImportReview(
       pendingAlbums.map(async (pa: PendingReviewAlbum): Promise<ImportReviewAlbum> => {
         let songs: ImportReviewSong[] = [];
         let entityUrls: { id?: string; name?: string | null; url: string }[] = [];
+        let albumImages: import("../../music/services/storage/types").ImageMetadata[] | undefined;
         try {
           const [songsResp, albumResp] = await Promise.all([
             client.music.querySongs({
@@ -108,7 +110,8 @@ export function useImportReview(
               title: it.song.title,
               trackNumber: it.song.track_number ?? undefined,
               discNumber: it.song.disc_number ?? undefined,
-              durationSeconds: it.song.duration ?? undefined,
+              // song.duration from API is milliseconds (raw DB value)
+              durationSeconds: it.song.duration != null ? it.song.duration / 1000 : undefined,
             }));
           }
           if (albumResp.success && albumResp.data?.urls) {
@@ -118,8 +121,17 @@ export function useImportReview(
               url: u.url,
             }));
           }
-          // use album_imagez primary image from getAlbum if the pending review
-          // query didn't return one (timing window before ProcessFile completes)
+          if (albumResp.success && albumResp.data?.images) {
+            albumImages = albumResp.data.images.map((img) => ({
+              remote_blob_id: img.blob_id,
+              remote_url: artworkUrlFromBlob(img.blob_id, r) ?? undefined,
+              remote_server_id: r.remote_id,
+              is_primary: img.is_primary === 1,
+              blob_type: img.blob_type as "original" | "thumbnail" | "waveform" | "preview",
+            }));
+          }
+          // fall back to getAlbum primary image if pending-review query
+          // didn't return artwork (timing window before ProcessFile completes)
           if (!pa.artwork_blob_id && albumResp.success && albumResp.data?.images) {
             const primary = albumResp.data.images.find((img) => img.is_primary === 1);
             if (primary) {
@@ -130,17 +142,21 @@ export function useImportReview(
           // leave empty if fetch fails - album is still reviewable
         }
 
-        // for P2P remotes base_url is empty - use remoteBlobId + remoteServerId
-        const isP2P = !r.base_url;
+        const artworkBlobId = pa.artwork_blob_id ?? null;
+
+        // mirror adaptApiImage: pass remote_blob_id + remote_url + remote_server_id
+        // so MediaImage's transport-aware resolution works identically to normal
+        // album art display (handles HTTP, charnel-managed, and P2P remotes).
         return {
           id: pa.album_id,
           title: pa.title,
           artist: pa.artist_name ?? null,
           artistId: pa.artist_id ?? null,
-          artworkUrl: artworkUrlFromBlob(pa.artwork_blob_id, r),
-          artworkBlobId: isP2P ? (pa.artwork_blob_id ?? null) : null,
-          remoteServerId: isP2P ? (r.peer_addr ?? null) : null,
+          artworkUrl: artworkUrlFromBlob(artworkBlobId, r),
+          artworkBlobId,
+          remoteServerId: r.remote_id,
           entityUrls,
+          images: albumImages,
           songs,
         };
       })

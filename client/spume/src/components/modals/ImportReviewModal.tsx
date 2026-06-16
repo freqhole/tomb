@@ -7,6 +7,7 @@ import { For, Show, createSignal, createMemo, createEffect, type JSX } from "sol
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
 import { MediaImage } from "../media/MediaImage";
+import { Icon } from "../icons/registry";
 import { ImportGroupingView, type ImportReviewAlbum } from "../import/ImportGroupingView";
 
 // -------------------------------------------------------------------------
@@ -19,6 +20,8 @@ export interface ImportReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   albums: ImportReviewAlbum[];
+  /** true while albums are being fetched - shows a spinner instead of empty state */
+  loading?: boolean;
   onComplete: () => void;
   onMergeAlbums: (sourceIds: string[], targetId: string) => void;
   onMoveSong: (songId: string, toAlbumId: string) => void;
@@ -123,6 +126,7 @@ function DefaultAlbumEditorStub(props: AlbumEditorRenderProps) {
           imageUrl={props.album.artworkUrl}
           alt=""
           size="sm"
+          thumbnailSize={200}
           class="w-14 h-14 rounded object-cover flex-shrink-0"
           showFallback
           domainType="album"
@@ -265,9 +269,17 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
   // reset to grouping stage whenever the modal opens
   createEffect(() => {
     if (props.isOpen) {
-      setStage("grouping");
       setAlbumIndex(0);
       setReviewedIds(new Set<string>());
+      // skip grouping when there's only one album - jump straight to metadata
+      setStage(props.albums.length === 1 ? "metadata" : "grouping");
+    }
+  });
+
+  // also skip grouping when albums load for the first time with exactly one
+  createEffect(() => {
+    if (props.albums.length === 1 && stage() === "grouping") {
+      setStage("metadata");
     }
   });
 
@@ -299,7 +311,7 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
       scrollBody
       zIndex={1200}
       footer={
-        <Show when={stage() === "metadata"}>
+        <Show when={!props.loading && stage() === "metadata"}>
           <MetadataFooter
             albums={props.albums}
             albumIndex={albumIndex()}
@@ -314,9 +326,19 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
     >
       <div class="flex flex-col p-4">
         {/* step indicator - visible throughout both stages */}
-        <StepIndicator current={stage()} />
+        <Show when={!props.loading}>
+          <StepIndicator current={stage()} />
+        </Show>
 
-        <Show when={stage() === "grouping"}>
+        {/* loading state */}
+        <Show when={props.loading}>
+          <div class="flex flex-col items-center justify-center py-16 gap-3 text-[var(--color-text-muted)]">
+            <Icon name="loader" size={28} color="currentColor" />
+            <p class="body-small">loading albums...</p>
+          </div>
+        </Show>
+
+        <Show when={!props.loading && stage() === "grouping"}>
           <ImportGroupingView
             albums={props.albums}
             onMerge={props.onMergeAlbums}
@@ -328,7 +350,7 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
           />
         </Show>
 
-        <Show when={stage() === "metadata" && currentAlbum()}>
+        <Show when={!props.loading && stage() === "metadata" && currentAlbum()}>
           {renderEditor({
             album: currentAlbum()!,
             albumIndex: albumIndex(),

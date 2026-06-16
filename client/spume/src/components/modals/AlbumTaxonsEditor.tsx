@@ -90,6 +90,10 @@ export interface AlbumTaxonsEditorProps {
    *  chips with a small source badge. the user can drop them like any
    *  other pending add, or keep them so they flow through `apply()`. */
   seedProposals?: TaxonProposal[];
+  /** explicit api client to use instead of getTaxonomyClient().
+   *  pass this when the global active remote may differ from the remote
+   *  owning the album (e.g. import review opened via deep-link). */
+  apiClient?: Awaited<ReturnType<typeof getTaxonomyClient>>;
 }
 
 export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
@@ -99,7 +103,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   // resolve the active source's client once so we can pass it down to
   // the autocomplete. covers both the local idb shim and peer remotes.
   const [clientResource] = createResource(async () => {
-    return await getTaxonomyClient();
+    return props.apiClient ?? (await getTaxonomyClient());
   });
 
   // 1. resolve the kinds we want to render — explicit prop wins,
@@ -111,7 +115,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
     () => ({ override: props.kinds, v: kindsVersion() }),
     async ({ override }) => {
       if (override) return override;
-      const client = await getTaxonomyClient();
+      const client = props.apiClient ?? (await getTaxonomyClient());
       const resp = await client.music.listTaxonKinds();
       if (!resp.success) return [];
       return (resp.data || [])
@@ -126,7 +130,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   const [linksResource, { refetch: refetchLinks }] = createResource(
     () => ({ id: props.albumId, v: linksVersion() }),
     async ({ id }) => {
-      const client = await getTaxonomyClient();
+      const client = props.apiClient ?? (await getTaxonomyClient());
       const resp = await client.music.getAlbumTaxonLinks({ album_id: id });
       if (!resp.success) return [] as AlbumTaxonLink[];
       return resp.data as AlbumTaxonLink[];
@@ -259,7 +263,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   // 6. taxon + kind creation — these touch the server immediately because
   //    they're global resources. linking the new taxon is still deferred.
   const handleCreate = async (kindSlug: string, label: string) => {
-    const client = await getTaxonomyClient();
+    const client = props.apiClient ?? (await getTaxonomyClient());
     try {
       const resp = await client.music.createTaxon({
         kind_slug: kindSlug,
@@ -311,7 +315,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
       toast.error("label and slug are required");
       return;
     }
-    const client = await getTaxonomyClient();
+    const client = props.apiClient ?? (await getTaxonomyClient());
     setCreatingKind(true);
     try {
       const resp = await client.music.createTaxonKind({
@@ -340,7 +344,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   // 7. imperative handle exposed to the parent modal
   const apply = async () => {
     if (!isDirty()) return;
-    const client = await getTaxonomyClient();
+    const client = props.apiClient ?? (await getTaxonomyClient());
     const removes = Array.from(pendingRemoves().values());
     const adds = pendingAdds();
     // removes first so a user can remove (origin=user) and re-add the
