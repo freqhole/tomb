@@ -1,7 +1,12 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
-import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
-import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
+import { Accessor, createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import {
+  getClientForRemote,
+  getLocalNodeId,
+  getLocalNodeIdAsync,
+  isCharnelAvailable,
+} from "../../app/api/client";
 import {
   authenticate,
   getServerInfo,
@@ -103,6 +108,12 @@ export interface AddRemoteModalProps {
   }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
+  /**
+   * when set to a peer_addr, the modal will auto-complete the setup for that
+   * peer. used by App.tsx to drive completion from device-linked / knock-accepted
+   * events without the user having to click "continue setup".
+   */
+  completePeerAddr?: Accessor<string | null>;
 }
 
 type Step = "url" | "testing" | "auth" | "complete" | "knock-sent" | "passkey-p2p";
@@ -151,6 +162,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
 
+  // charnel mode: link to complete passkey auth in the system browser.
+  // generates a ?link= url for spume's /link route.
+  // payload: { peer_addr (server node_id), name, description, link_node_id (charnel's node_id) }
+  const [showCharnelLink, setShowCharnelLink] = createSignal(false);
+  const [charnelLinkCopied, setCharnelLinkCopied] = createSignal(false);
+  // pre-fetched charnel node_id (async, since getLocalNodeId() returns null in tauri mode)
+  const [localNodeId, setLocalNodeId] = createSignal<string | null>(null);
+  createEffect(() => {
+    if (props.isOpen && isCharnelAvailable()) {
+      void getLocalNodeIdAsync().then(setLocalNodeId);
+    }
+  });
+  const charnelSpumeLink = () => {
+    const peer = peerAddr();
+    if (!peer) return null;
+    const info = serverInfo();
+    // prefer the async-resolved id (works in tauri); fall back to sync for browser
+    const clientNodeId = localNodeId() ?? getLocalNodeId();
+    const payload: Record<string, unknown> = {
+      peer_addr: peer,
+      name: info?.name ?? "freqhole",
+      description: info?.description ?? null,
+    };
+    if (clientNodeId) payload.link_node_id = clientNodeId;
+    return `https://spume.freqhole.net/?link=${btoa(JSON.stringify(payload))}`;
+  };
+  const handleCharnelLinkCopy = () => {
+    const link = charnelSpumeLink();
+    if (!link) return;
+    void navigator.clipboard.writeText(link).then(() => {
+      setCharnelLinkCopied(true);
+      setTimeout(() => setCharnelLinkCopied(false), 2000);
+    });
+  };
+  const handleCharnelLinkOpen = () => {
+    const link = charnelSpumeLink();
+    if (link) window.open(link, "_blank");
+  };
+
   // QR scanner state (browser-only, not in tauri)
   const [showScanner, setShowScanner] = createSignal(false);
   const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
@@ -163,6 +213,29 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         if (isOpen && props.initialValue) {
           setInputValue(props.initialValue);
           debug("AddRemoteModal", `set initial value: ${props.initialValue.slice(0, 16)}...`);
+        }
+      }
+    )
+  );
+
+  // auto-complete setup when a device-linked / knock-accepted event arrives
+  // for the peer the modal is currently working with
+  createEffect(
+    on(
+      () => props.completePeerAddr?.(),
+      async (triggerAddr) => {
+        if (!triggerAddr || !props.isOpen) return;
+        // if the modal already has this peer staged, drive it through completeSetup
+        if (peerAddr() === triggerAddr) {
+          await completeSetup();
+          return;
+        }
+        // check pending remotes list for a match and stage it
+        const allPending = await getAllPendingRemotes();
+        const match = allPending.find((p) => p.peer_addr === triggerAddr);
+        if (match) {
+          setPeerAddr(triggerAddr);
+          await completeSetup();
         }
       }
     )
@@ -1219,7 +1292,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setServerInfo(null);
     setOriginHint(null);
     setShowKnockOption(false);
-    setIsLoading(false);
+    setShowCharnelLink(false);
     // revoke and clear P2P image URL
     const imgUrl = p2pImageUrl();
     if (imgUrl) {
@@ -1524,12 +1597,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           onClick={() => {
                             setShowKnockOption(false);
                             setError(null);
-                            void handlePasskeyP2P("login");
+                            if (isCharnelAvailable()) {
+                              setShowCharnelLink(true);
+                            } else {
+                              void handlePasskeyP2P("login");
+                            }
                           }}
                           disabled={isLoading()}
                         >
                           {isLoading() ? "signing in..." : "sign in with passkey"}
                         </button>
+                        <Show when={isCharnelAvailable() && showCharnelLink()}>
+                          <div class="space-y-2 mt-2">
+                            <div class="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={charnelSpumeLink() ?? ""}
+                                class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                onClick={(e) => (e.target as HTMLInputElement).select()}
+                              />
+                            </div>
+                            <div class="flex gap-2">
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                onClick={handleCharnelLinkCopy}
+                              >
+                                {charnelLinkCopied() ? "copied!" : "copy link"}
+                              </button>
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                onClick={handleCharnelLinkOpen}
+                              >
+                                open in browser
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
                       </Show>
                     </div>
                   </Show>
@@ -1779,12 +1885,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           class="w-full mt-2 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
                           onClick={() => {
                             setError(null);
-                            void handlePasskeyP2P("login");
+                            if (isCharnelAvailable()) {
+                              setShowCharnelLink(true);
+                            } else {
+                              void handlePasskeyP2P("login");
+                            }
                           }}
                           disabled={isLoading()}
                         >
                           {isLoading() ? "signing in..." : "sign in with passkey"}
                         </button>
+                        <Show when={isCharnelAvailable() && showCharnelLink()}>
+                          <div class="space-y-2 mt-2">
+                            <div class="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={charnelSpumeLink() ?? ""}
+                                class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                onClick={(e) => (e.target as HTMLInputElement).select()}
+                              />
+                            </div>
+                            <div class="flex gap-2">
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                onClick={handleCharnelLinkCopy}
+                              >
+                                {charnelLinkCopied() ? "copied!" : "copy link"}
+                              </button>
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                onClick={handleCharnelLinkOpen}
+                              >
+                                open in browser
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
                       </Show>
                     </div>
                   </Show>

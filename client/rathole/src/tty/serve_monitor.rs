@@ -127,9 +127,10 @@ impl ServeMonitor {
         }
 
         let mut cmd = Command::new(&self.binary);
-        cmd.arg(kind.arg());
+        // the server binary uses `--config <path>` (not a positional subcommand).
+        // kind is recorded for ui labels; the server itself determines which
+        // modes are active from the config (server.enabled + federation.enabled).
         if let Some(cfg) = &self.config_path {
-            // top-level --config flag is global on the freqhole cli
             cmd.arg("--config").arg(cfg);
         }
         // detach stdio so the child's logs don't smear the tui.
@@ -184,6 +185,13 @@ impl ServeMonitor {
                 let kind = self.status().kind().unwrap_or(ServeKind::Auto);
                 let code = status.code();
                 self.child = None;
+                tracing::warn!(
+                    "serve subprocess ({:?}) exited with code {:?}; \
+                     if this happened immediately, check that the freqhole binary \
+                     is built and supports the serve/p2p/http subcommands",
+                    kind,
+                    code
+                );
                 self.set_status(ServeStatus::Exited { kind, code });
             }
             Ok(None) => { /* still running */ }

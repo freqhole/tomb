@@ -1779,6 +1779,10 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         // child `freqhole serve`). the web shell has no subprocess
         // model; arms exist solely for exhaustiveness.
         AppAction::ServeStart { .. } | AppAction::ServeStop => {}
+        // device-linked is handled by the tty shell (grimoire event loop).
+        // web shell has no grimoire event loop, so this is unreachable.
+        AppAction::DeviceLinked { .. } => {}
+        AppAction::KnockAccepted { .. } => {}
     }
 }
 

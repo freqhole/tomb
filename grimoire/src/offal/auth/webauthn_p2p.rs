@@ -835,6 +835,29 @@ pub async fn link_node(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         return GrimoireResponse::failure("failed to link node", result.errors);
     }
 
+    // fire-and-forget P2P notification to charnel so it can show a "browse remote" toast
+    let linked_node_id = req.node_id.clone();
+    let server_name = crate::config::get_config()
+        .server
+        .as_ref()
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "freqhole".to_string());
+    let peer_addr = crate::federation::get_node_id().unwrap_or_default();
+    tokio::spawn(async move {
+        let payload = serde_json::json!({ "peer_addr": peer_addr, "server_name": server_name });
+        let body_str = serde_json::to_string(&payload).unwrap_or_default();
+        if let Err(e) = crate::federation::p2p_client::proxy_request(
+            &linked_node_id,
+            "POST",
+            "/api/internal/device-linked",
+            Some(body_str),
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "failed to notify charnel of device link");
+        }
+    });
+
     GrimoireResponse::success(
         "node linked",
         json!({

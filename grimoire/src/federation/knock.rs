@@ -543,6 +543,29 @@ pub async fn accept_knock(
     .fetch_one(&pool)
     .await?;
 
+    // fire-and-forget P2P notification to the requester
+    let requester_node_id = updated.node_id.clone();
+    let server_name = crate::config::get_config()
+        .server
+        .as_ref()
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "freqhole".to_string());
+    let peer_addr = crate::federation::get_node_id().unwrap_or_default();
+    tokio::spawn(async move {
+        let payload = serde_json::json!({ "peer_addr": peer_addr, "server_name": server_name });
+        let body_str = serde_json::to_string(&payload).unwrap_or_default();
+        if let Err(e) = crate::federation::p2p_client::proxy_request(
+            &requester_node_id,
+            "POST",
+            "/api/internal/knock-accepted",
+            Some(body_str),
+        )
+        .await
+        {
+            tracing::debug!(error = %e, "could not notify requester of knock acceptance (peer may be offline)");
+        }
+    });
+
     Ok(KnockRequest::from(updated))
 }
 

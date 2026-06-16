@@ -83,6 +83,7 @@ import {
 } from "./services/charnel";
 import {
   checkRemoteHealth,
+  createRemote,
   getAllRemotes,
   getRemoteByPeerAddr,
   markRemoteOffline,
@@ -108,6 +109,8 @@ export function App() {
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
+  const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
@@ -141,6 +144,14 @@ export function App() {
       debug("App", `found ?r= param: ${remoteParam.slice(0, 16)}...`);
       setAddRemoteInitialValue(remoteParam);
       setIsAddRemoteOpen(true);
+    }
+
+    // check for ?link= param (device link flow from charnel app)
+    // navigate to the #/link route which reads the param from window.location.search
+    const linkParam = params.get("link");
+    if (linkParam) {
+      debug("App", "found ?link= param, navigating to /link");
+      window.location.hash = "/link";
     }
   });
 
@@ -332,6 +343,114 @@ export function App() {
         // show toast for federation knock request with federation view button
         showKnockCreatedToast(event.data.username, event.data.message);
         break;
+
+      case "device-linked": {
+        // remote server confirmed charnel's node_id is registered.
+        // if the modal is open, signal it to auto-complete; otherwise do it here.
+        const { peer_addr, server_name } = event.data;
+        if (isAddRemoteOpen()) {
+          // modal is open - let it drive the completion and show its own success step
+          setAutoCompletePeerAddr(peer_addr);
+          // reset after a tick so the effect fires again if the same addr comes twice
+          setTimeout(() => setAutoCompletePeerAddr(null), 100);
+        } else {
+          void (async () => {
+            const existing = await getRemoteByPeerAddr(peer_addr);
+            if (existing) {
+              toast.success(`already connected to ${existing.name}`, {
+                title: "device linked",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${existing.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+              return;
+            }
+            try {
+              const remote = await createRemote({ peer_addr });
+              toast.success(`${remote.name} added`, {
+                title: "remote linked",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${remote.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+            } catch (err) {
+              debug("App", `device-linked: createRemote failed for ${server_name}:`, err);
+              toast.info(`passkey linked to ${server_name} - add the remote to browse`, {
+                title: "device linked",
+                action: {
+                  label: "add remote",
+                  onClick: () => {
+                    setIsAddRemoteOpen(true);
+                  },
+                },
+                persistent: true,
+              });
+            }
+          })();
+        }
+        break;
+      }
+
+      case "knock-accepted": {
+        // remote server accepted the knock request.
+        // same as device-linked: drive modal completion if open, else toast+create.
+        const { peer_addr, server_name } = event.data;
+        if (isAddRemoteOpen()) {
+          setAutoCompletePeerAddr(peer_addr);
+          setTimeout(() => setAutoCompletePeerAddr(null), 100);
+        } else {
+          void (async () => {
+            const existing = await getRemoteByPeerAddr(peer_addr);
+            if (existing) {
+              toast.success(`access granted to ${existing.name}`, {
+                title: "knock accepted",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${existing.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+              return;
+            }
+            try {
+              const remote = await createRemote({ peer_addr });
+              toast.success(`${remote.name} added`, {
+                title: "knock accepted",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${remote.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+            } catch (err) {
+              debug("App", `knock-accepted: createRemote failed for ${server_name}:`, err);
+              toast.info(`access granted to ${server_name} - add the remote to browse`, {
+                title: "knock accepted",
+                action: {
+                  label: "add remote",
+                  onClick: () => {
+                    setIsAddRemoteOpen(true);
+                  },
+                },
+                persistent: true,
+              });
+            }
+          })();
+        }
+        break;
+      }
 
       case "peer-offline":
         // P2P connection failure - mark remote offline immediately
@@ -872,6 +991,7 @@ export function App() {
           setIsAddRemoteOpen(false);
           setAddRemoteInitialValue(undefined);
         }}
+        completePeerAddr={autoCompletePeerAddr}
         onSuccess={(remote) => {
           debug("App", "remote added successfully:", remote.name);
           // show success toast

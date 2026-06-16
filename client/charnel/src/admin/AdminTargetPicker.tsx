@@ -13,6 +13,7 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   useAdminTransport,
   LOCAL_TARGET,
@@ -51,6 +52,12 @@ export function AdminTargetPicker() {
   const [adding, setAdding] = createSignal(false);
   const [addError, setAddError] = createSignal<string | null>(null);
   const [addNotice, setAddNotice] = createSignal<string | null>(null);
+
+  // spume link generation
+  const [linkUrl, setLinkUrl] = createSignal<string | null>(null);
+  const [linkCopied, setLinkCopied] = createSignal(false);
+  const [linkError, setLinkError] = createSignal<string | null>(null);
+  const [linkGenerating, setLinkGenerating] = createSignal(false);
 
   async function load() {
     setLoading(true);
@@ -117,7 +124,9 @@ export function AdminTargetPicker() {
     const match = remotes().find((r) => r.peer_addr === c.peerAddr);
     if (!match) return;
     const ok = confirm(
-      `remove remote "${match.name || shortPeerAddr(c.peerAddr ?? "")}" from this device?\n\n` +
+      `remove remote "${
+        match.name || shortPeerAddr(c.peerAddr ?? "")
+      }" from this device?\n\n` +
         `the remote freqhole instance is unaffected. you can re-add it later with the same node id.`,
     );
     if (!ok) return;
@@ -128,6 +137,41 @@ export function AdminTargetPicker() {
     } catch (e) {
       setError(`failed to remove remote: ${e}`);
     }
+  }
+
+  // generate a spume link URL that a remote user can open to connect to this server
+  async function generateSpumeLink() {
+    setLinkGenerating(true);
+    setLinkError(null);
+    setLinkUrl(null);
+    setLinkCopied(false);
+    try {
+      const [nodeId, config] = await Promise.all([
+        invoke<string>("p2p_get_node_id"),
+        invoke<{ server_name: string } | null>("get_freqhole_config"),
+      ]);
+      const payload = {
+        peer_addr: nodeId,
+        name: config?.server_name ?? "freqhole",
+        description: null as null,
+      };
+      const url = `https://spume.freqhole.net/?link=${btoa(
+        JSON.stringify(payload),
+      )}`;
+      setLinkUrl(url);
+    } catch (e) {
+      setLinkError(String(e));
+    } finally {
+      setLinkGenerating(false);
+    }
+  }
+
+  async function copyLink() {
+    const url = linkUrl();
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   function resetAddForm() {
@@ -255,13 +299,63 @@ export function AdminTargetPicker() {
       <Show
         when={showAdd()}
         fallback={
-          <button
-            type="button"
-            class="admin-target-add-toggle"
-            onClick={() => setShowAdd(true)}
-          >
-            + add remote
-          </button>
+          <div class="admin-target-add-buttons">
+            <button
+              type="button"
+              class="admin-target-add-toggle"
+              onClick={() => setShowAdd(true)}
+            >
+              + add remote
+            </button>
+            <button
+              type="button"
+              class="admin-target-link-toggle"
+              onClick={() => void generateSpumeLink()}
+              disabled={linkGenerating()}
+            >
+              {linkGenerating() ? "generating…" : "share connect link"}
+            </button>
+            <Show when={linkUrl()}>
+              <div class="admin-target-link-box">
+                <input
+                  type="text"
+                  class="admin-target-link-url"
+                  readOnly
+                  value={linkUrl() ?? ""}
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <div class="admin-target-link-actions">
+                  <button
+                    type="button"
+                    class="admin-target-link-copy"
+                    onClick={() => void copyLink()}
+                  >
+                    {linkCopied() ? "copied" : "copy"}
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-target-link-open"
+                    onClick={() => void openUrl(linkUrl()!)}
+                  >
+                    open in browser
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-target-link-dismiss"
+                    onClick={() => {
+                      setLinkUrl(null);
+                      setLinkError(null);
+                    }}
+                  >
+                    dismiss
+                  </button>
+                </div>
+              </div>
+            </Show>
+            <Show when={linkError()}>
+              <div class="admin-target-error">{linkError()}</div>
+            </Show>
+          </div>
         }
       >
         <form class="admin-target-add-form" onSubmit={onAddSubmit}>

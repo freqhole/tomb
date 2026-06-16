@@ -630,6 +630,19 @@ pub enum AppAction {
     /// grimoire emitted a `KnockProcessed` event (accepted/rejected/
     /// deleted). the ui loop decrements the pending knocks counter.
     KnockProcessed { id: String },
+    /// grimoire (via P2P callback from the remote server) confirmed that
+    /// a passkey browser session registered our node_id as an allowed peer.
+    /// the ui loop saves the remote and shows a status message.
+    DeviceLinked {
+        peer_addr: String,
+        server_name: String,
+    },
+    /// grimoire (via P2P callback from the remote server) confirmed that
+    /// our knock request was accepted. the ui loop saves the remote.
+    KnockAccepted {
+        peer_addr: String,
+        server_name: String,
+    },
     /// snapshot refresh of pending knocks (usually from
     /// `knocks_list`), used to hydrate on startup and keep the
     /// header indicator correct across reconnects or missed events.

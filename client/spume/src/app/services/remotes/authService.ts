@@ -1,7 +1,7 @@
 // auth service — abstracts webauthn authentication flows
 // handles login and registration with the freqhole server
 
-import { getClientForRemote, httpRemote, webauthn } from "../../api/client";
+import { getClientForRemote, httpRemote, isCharnelAvailable, webauthn } from "../../api/client";
 import { debug } from "../../../utils/logger";
 
 // ============================================================================
@@ -40,7 +40,8 @@ export async function registerWithWebauthnP2P(
   inviteCode: string,
 ): Promise<P2PAuthResult> {
   const origin = window.location.origin;
-  const remote = { transport: "wasm" as const, peer_addr: peerAddr };
+  const transport = isCharnelAvailable() ? "app" as const : "wasm" as const;
+  const remote = { transport, peer_addr: peerAddr };
 
   try {
     const client = await getClientForRemote(remote);
@@ -98,7 +99,8 @@ export async function loginWithWebauthnP2P(
   username?: string,
 ): Promise<P2PAuthResult> {
   const origin = window.location.origin;
-  const remote = { transport: "wasm" as const, peer_addr: peerAddr };
+  const transport = isCharnelAvailable() ? "app" as const : "wasm" as const;
+  const remote = { transport, peer_addr: peerAddr };
 
   try {
     const client = await getClientForRemote(remote);

@@ -42,6 +42,7 @@ libc = "0.2"
 # (e.g. copy or open the spume invite link). both are tty-shell only.
 arboard = { version = "3", default-features = false }
 open = "5"
+base64 = { workspace = true }
 
 # ----------------------------------------------------------------------
 # web shell deps (wasm32 only). ratzilla brings its own ratatui

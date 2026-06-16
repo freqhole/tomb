@@ -2218,6 +2218,86 @@ button.danger:hover {
   color: #e4e4e7;
 }
 
+.admin-target-add-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.admin-target-link-toggle {
+  background: transparent;
+  border: 1px dashed #3f3f46;
+  color: #a1a1aa;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.admin-target-link-toggle:hover:not(:disabled) {
+  border-color: #a1a1aa;
+  border-style: solid;
+  color: #eeddee;
+}
+
+.admin-target-link-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+}
+
+.admin-target-link-url {
+  width: 100%;
+  background: #09090b;
+  color: #a1a1aa;
+  border: 1px solid #3f3f46;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-family: monospace;
+  box-sizing: border-box;
+  cursor: text;
+}
+
+.admin-target-link-actions {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.admin-target-link-copy,
+.admin-target-link-open,
+.admin-target-link-dismiss {
+  flex: 1;
+  border-radius: 4px;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #3f3f46;
+  background: transparent;
+  color: #a1a1aa;
+}
+
+.admin-target-link-copy:hover {
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.admin-target-link-open:hover {
+  border-color: #eeddee;
+  color: #ff1a9e;
+}
+
+.admin-target-link-dismiss:hover {
+  border-color: #52525b;
+  color: #e4e4e7;
+}
+
 .admin-target-notice {
   font-size: 0.6875rem;
   color: #4ade80;
