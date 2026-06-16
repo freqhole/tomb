@@ -179,6 +179,11 @@ pub mod type_registry {
         ProposeRelatedArtistsResponse, RelatedArtistProposal, UpdateArtistMetadataRequest,
         UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
+    use crate::music::entities::import_review::models::{
+        ImportReviewOk, ListPendingReviewRequest, MarkAlbumReviewedRequest,
+        MergeAlbumsReviewRequest, MoveSongReviewRequest, PatchAlbumReviewRequest,
+        PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
+    };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -1448,5 +1453,25 @@ pub mod type_registry {
         registered.insert("SyncAlbumRequest".to_string());
         gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
         registered.insert("SyncAlbumResponse".to_string());
+
+        // import review types
+        gen.add_schema::<ListPendingReviewRequest>("ListPendingReviewRequest");
+        registered.insert("ListPendingReviewRequest".to_string());
+        gen.add_schema::<PendingReviewAlbum>("PendingReviewAlbum");
+        registered.insert("PendingReviewAlbum".to_string());
+        gen.add_schema::<PendingReviewSession>("PendingReviewSession");
+        registered.insert("PendingReviewSession".to_string());
+        gen.add_schema::<MarkAlbumReviewedRequest>("MarkAlbumReviewedRequest");
+        registered.insert("MarkAlbumReviewedRequest".to_string());
+        gen.add_schema::<SongReviewPatch>("SongReviewPatch");
+        registered.insert("SongReviewPatch".to_string());
+        gen.add_schema::<PatchAlbumReviewRequest>("PatchAlbumReviewRequest");
+        registered.insert("PatchAlbumReviewRequest".to_string());
+        gen.add_schema::<MergeAlbumsReviewRequest>("MergeAlbumsReviewRequest");
+        registered.insert("MergeAlbumsReviewRequest".to_string());
+        gen.add_schema::<MoveSongReviewRequest>("MoveSongReviewRequest");
+        registered.insert("MoveSongReviewRequest".to_string());
+        gen.add_schema::<ImportReviewOk>("ImportReviewOk");
+        registered.insert("ImportReviewOk".to_string());
     }
 }

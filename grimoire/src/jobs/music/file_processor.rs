@@ -184,6 +184,19 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 time_metadata = step_start.elapsed();
                 debug!("metadata extracted successfully");
 
+                // register this blob in the import review queue if the job has a session
+                if let Some(ref session_id) = job.session_id {
+                    if let Ok(pool) = crate::database::connect().await {
+                        let _ = sqlx::query!(
+                            "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
+                            media_blob_id,
+                            session_id
+                        )
+                        .execute(&pool)
+                        .await;
+                    }
+                }
+
                 // if this file came from a fetch job, add the source URL to the album
                 if let (Some(source_url), Some(aid)) = (&params.source_url, &import_result.album_id)
                 {

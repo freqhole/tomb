@@ -7,6 +7,7 @@ pub mod albums;
 pub mod analytics;
 pub mod artists;
 pub mod favorites;
+pub mod import_review;
 pub mod job_events;
 pub mod jobs;
 pub mod playlists;
@@ -29,6 +30,7 @@ pub fn routes() -> Vec<RouteInfo> {
     let mut all = Vec::new();
     all.extend_from_slice(albums::ROUTES);
     all.extend_from_slice(analytics::ROUTES);
+    all.extend_from_slice(import_review::ROUTES);
     all.extend_from_slice(artists::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
     all.extend_from_slice(job_events::ROUTES);
@@ -222,7 +224,9 @@ pub async fn dispatch(
         "/api/jobs/cancel" => Some(jobs::cancel_single_job(caller, body.clone()).await),
         "/api/jobs/events/snapshot" => Some(job_events::snapshot(caller, body.clone()).await),
         "/api/music/fetch" => Some(jobs::create_fetch(caller, body.clone()).await),
-        "/api/music/fetch/precheck" => Some(jobs::create_precheck_fetch(caller, body.clone()).await),
+        "/api/music/fetch/precheck" => {
+            Some(jobs::create_precheck_fetch(caller, body.clone()).await)
+        }
         "/api/music/fetch/status" => Some(jobs::get_fetch(caller, body.clone()).await),
         "/api/music/albums/mb-search/enqueue" => {
             Some(jobs::enqueue_mb_album_search(caller, body.clone()).await)
@@ -287,6 +291,21 @@ pub async fn dispatch(
         "/api/analytics/sessions/status" => {
             Some(sessions::update_status(caller, body.clone()).await)
         }
+
+        // import review
+        "/api/music/import/pending" => {
+            Some(import_review::list_pending(caller, body.clone()).await)
+        }
+        "/api/music/import/mark-reviewed" => {
+            Some(import_review::mark_reviewed(caller, body.clone()).await)
+        }
+        "/api/music/import/patch-album" => {
+            Some(import_review::patch_album(caller, body.clone()).await)
+        }
+        "/api/music/import/merge-albums" => {
+            Some(import_review::merge_albums(caller, body.clone()).await)
+        }
+        "/api/music/import/move-song" => Some(import_review::move_song(caller, body.clone()).await),
 
         // musicbrainz
         "/api/musicbrainz/search/releases" => {

@@ -2832,6 +2832,11 @@ export const ImageUploadResponseSchema = z.object({
 });
 export type ImageUploadResponse = z.infer<typeof ImageUploadResponseSchema>;
 
+export const ImportReviewOkSchema = z.object({
+  ok: z.boolean()
+});
+export type ImportReviewOk = z.infer<typeof ImportReviewOkSchema>;
+
 export const IngestRemoteImageRequestSchema = z.object({
   remote_url: z.string(),
   target: z.union([z.object({
@@ -3413,6 +3418,11 @@ export const ListListenSessionsResponseSchema = z.object({
 });
 export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
 
+export const ListPendingReviewRequestSchema = z.object({
+  session_id: z.string().nullish()
+});
+export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
+
 export const ListRelatedArtistsBatchRequestSchema = z.object({
   artist_ids: z.array(z.string()),
   include_pending: z.boolean().nullish()
@@ -3578,6 +3588,12 @@ export const ListeningHistoryResponseSchema = z.object({
   total: z.number()
 });
 export type ListeningHistoryResponse = z.infer<typeof ListeningHistoryResponseSchema>;
+
+export const MarkAlbumReviewedRequestSchema = z.object({
+  album_id: z.string(),
+  session_id: z.string()
+});
+export type MarkAlbumReviewedRequest = z.infer<typeof MarkAlbumReviewedRequestSchema>;
 
 export const MbAlbumDetailParamsSchema = z.object({
   album_id: z.string(),
@@ -3890,6 +3906,13 @@ export const MediaBlobSchema = z.object({
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
+export const MergeAlbumsReviewRequestSchema = z.object({
+  session_id: z.string(),
+  source_ids: z.array(z.string()),
+  target_id: z.string()
+});
+export type MergeAlbumsReviewRequest = z.infer<typeof MergeAlbumsReviewRequestSchema>;
+
 export const MergedKeyMatchSchema = z.object({
   merged_key: z.string(),
   albums: z.array(z.object({
@@ -3956,6 +3979,13 @@ export const MergedKeyMatchSchema = z.object({
 });
 export type MergedKeyMatch = z.infer<typeof MergedKeyMatchSchema>;
 
+export const MoveSongReviewRequestSchema = z.object({
+  session_id: z.string(),
+  song_id: z.string(),
+  to_album_id: z.string()
+});
+export type MoveSongReviewRequest = z.infer<typeof MoveSongReviewRequestSchema>;
+
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
   jobs_created: z.number(),
@@ -4005,6 +4035,51 @@ export const PasskeyCredentialSummarySchema = z.object({
   last_used_at: z.number().nullish()
 });
 export type PasskeyCredentialSummary = z.infer<typeof PasskeyCredentialSummarySchema>;
+
+export const PatchAlbumReviewRequestSchema = z.object({
+  album_id: z.string(),
+  session_id: z.string(),
+  title: z.string().nullish(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  album_type: z.string().nullish(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  songs: z.array(z.object({
+  song_id: z.string(),
+  title: z.string().nullish(),
+  track_number: z.number().nullish(),
+  disc_number: z.number().nullish(),
+  track_artist: z.string().nullish()
+})).nullish()
+});
+export type PatchAlbumReviewRequest = z.infer<typeof PatchAlbumReviewRequestSchema>;
+
+export const PendingReviewAlbumSchema = z.object({
+  album_id: z.string(),
+  title: z.string(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  artwork_blob_id: z.string().nullish(),
+  song_count: z.number(),
+  pending_blob_count: z.number()
+});
+export type PendingReviewAlbum = z.infer<typeof PendingReviewAlbumSchema>;
+
+export const PendingReviewSessionSchema = z.object({
+  session_id: z.string(),
+  created_at: z.number(),
+  albums: z.array(z.object({
+  album_id: z.string(),
+  title: z.string(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  artwork_blob_id: z.string().nullish(),
+  song_count: z.number(),
+  pending_blob_count: z.number()
+}))
+});
+export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
 
 export const PlayAnalyticsSchema = z.object({
   song_id: z.string(),
@@ -5660,6 +5735,15 @@ export const SongQueryResultSchema = z.object({
   album_tags: z.array(z.string()).nullish()
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
+
+export const SongReviewPatchSchema = z.object({
+  song_id: z.string(),
+  title: z.string().nullish(),
+  track_number: z.number().nullish(),
+  disc_number: z.number().nullish(),
+  track_artist: z.string().nullish()
+});
+export type SongReviewPatch = z.infer<typeof SongReviewPatchSchema>;
 
 export const SongSearchResultSchema = z.object({
   id: z.string(),
