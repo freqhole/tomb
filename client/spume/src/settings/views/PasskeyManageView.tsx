@@ -147,9 +147,9 @@ export function PasskeyManageView() {
 
   return (
     <div class="p-4 wide:p-6">
-      <div class="mb-6 flex items-center gap-3">
+      <div class="mb-6">
         <button
-          class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          class="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors mb-3"
           onClick={() => navigate(`/settings/remotes`)}
         >
           ← back
@@ -176,10 +176,6 @@ export function PasskeyManageView() {
         <div class="space-y-6">
           {/* passkey list */}
           <section>
-            <h2 class="text-sm font-semibold text-[var(--color-text-primary)] mb-3 uppercase tracking-wide">
-              your passkeys
-            </h2>
-
             <Show
               when={data()!.passkeys.length > 0}
               fallback={
@@ -238,7 +234,7 @@ export function PasskeyManageView() {
                         setAddError(null);
                       }}
                     >
-                      sign in with existing passkey
+                      new passkey
                     </button>
                     <button
                       class="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
@@ -247,7 +243,7 @@ export function PasskeyManageView() {
                         setAddError(null);
                       }}
                     >
-                      register new passkey
+                      register with invite code
                     </button>
                   </div>
                 }
@@ -363,28 +359,6 @@ export function PasskeyManageView() {
               </div>
             </Show>
           </section>
-
-          {/* link this node */}
-          <Show when={!isCharnelAvailable()}>
-            <section>
-              <h2 class="text-sm font-semibold text-[var(--color-text-primary)] mb-3 uppercase tracking-wide">
-                your node id
-              </h2>
-              <Show when={getLocalNodeId()}>
-                {(nodeId) => (
-                  <div class="p-3 bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg">
-                    <p class="text-xs text-[var(--color-text-muted)] font-mono break-all">
-                      {nodeId()}
-                    </p>
-                    <p class="text-xs text-[var(--color-text-muted)] mt-1">
-                      this browser's iroh node id. a successful passkey login above automatically
-                      links it to your account.
-                    </p>
-                  </div>
-                )}
-              </Show>
-            </section>
-          </Show>
         </div>
       </Show>
     </div>
