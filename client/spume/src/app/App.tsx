@@ -104,12 +104,16 @@ import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
+import { useImportReview } from "../music/hooks/useImportReview";
+import { ImportReviewModal } from "../components/modals/ImportReviewModal";
 
 export function App() {
   const queryClient = useQueryClient();
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  // session id for the import review modal - set when user clicks "review now"
+  const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
@@ -128,6 +132,12 @@ export function App() {
   // query whether the current remote has url precheck (yt-dlp) configured
   const fetchPrecheckEnabledQuery = useFetchPrecheckEnabledQuery(
     () => getCurrentRemote() ?? undefined
+  );
+
+  // import review - reactive remote: hook handles null gracefully
+  const importReview = useImportReview(
+    () => reviewSessionId(),
+    () => getCurrentRemote() ?? null
   );
   // radio works with zero remotes (anyone with a node id can listen)
   const isRadioRoute = () => currentHash().startsWith("#/radio");
@@ -990,6 +1000,21 @@ export function App() {
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
+        onReviewSession={(sid) => setReviewSessionId(sid)}
+      />
+
+      <ImportReviewModal
+        isOpen={reviewSessionId() !== null}
+        onClose={() => setReviewSessionId(null)}
+        albums={importReview.albums()}
+        onComplete={() => setReviewSessionId(null)}
+        onMergeAlbums={(sourceIds: string[], targetId: string) =>
+          void importReview.mergeAlbums(sourceIds, targetId)
+        }
+        onMoveSong={(songId: string, toAlbumId: string) =>
+          void importReview.moveSong(songId, toAlbumId)
+        }
+        onMarkReviewed={(albumId: string) => void importReview.markReviewed(albumId)}
       />
 
       <AddRemoteModal

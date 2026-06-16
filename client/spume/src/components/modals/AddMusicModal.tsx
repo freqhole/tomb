@@ -13,6 +13,7 @@ import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type { PreCheckFetchResponse } from "freqhole-api-client";
+import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 
 // ---------------------------------------------------------------------------
 // module-level precheck state so it survives the modal being closed/reopened
@@ -55,6 +56,8 @@ export interface AddMusicModalProps {
   fetchPrecheckEnabled?: boolean;
   /** additional classes */
   class?: string;
+  /** called when user wants to review a completed import session */
+  onReviewSession?: (sessionId: string) => void;
 }
 
 export function AddMusicModal(props: AddMusicModalProps) {
@@ -308,6 +311,21 @@ export function AddMusicModal(props: AddMusicModalProps) {
     (props.uploadJobs ?? []).filter((j) => j.status === "timeout")
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
+
+  // completed sessions that have a sessionId - one review card per unique session
+  const reviewableSessions = createMemo(() => {
+    const seen = new Set<string>();
+    const sessions: { sessionId: string; jobCount: number; label?: string }[] = [];
+    for (const j of props.uploadJobs ?? []) {
+      if (j.status === "completed" && j.sessionId && !seen.has(j.sessionId)) {
+        seen.add(j.sessionId);
+        sessions.push({ sessionId: j.sessionId, jobCount: 1, label: j.label });
+      }
+    }
+    return sessions;
+  });
+  // track which sessions the user has dismissed from this modal session
+  const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
 
   // local import progress helpers
   const localProgress = () => props.localImportProgress;
@@ -818,6 +836,27 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   </div>
                 </div>
               </Show>
+              {/* review cards - one per completed import session that has pending review items */}
+              <For each={reviewableSessions().filter((s) => !dismissedSessions().has(s.sessionId))}>
+                {(session) => (
+                  <div class="px-4 pb-2">
+                    <ImportPendingReviewCard
+                      sessionLabel={session.label}
+                      pendingCount={session.jobCount}
+                      onReview={() => {
+                        props.onReviewSession?.(session.sessionId);
+                      }}
+                      onDismiss={() => {
+                        setDismissedSessions((prev) => {
+                          const next = new Set(prev);
+                          next.add(session.sessionId);
+                          return next;
+                        });
+                      }}
+                    />
+                  </div>
+                )}
+              </For>
             </div>
           </div>
         </div>

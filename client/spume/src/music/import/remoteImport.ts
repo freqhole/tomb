@@ -45,6 +45,8 @@ export interface UploadJob {
   albumId?: string;
   artistId?: string;
   songId?: string;
+  /** job session id - set after completion; used to open import review */
+  sessionId?: string;
 }
 
 // reactive store for all tracked upload jobs
@@ -113,7 +115,7 @@ function updateJobStage(id: string, stage: string | undefined) {
 // server-side job result.
 function updateJobEntities(
   id: string,
-  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string }
+  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string; sessionId?: string }
 ) {
   setUploadJobs(
     (j) => j.id === id,
@@ -122,6 +124,7 @@ function updateJobEntities(
       if (ids.artistId) j.artistId = ids.artistId;
       if (ids.songId) j.songId = ids.songId;
       if (ids.remoteId) j.remoteId = ids.remoteId;
+      if (ids.sessionId) j.sessionId = ids.sessionId;
     })
   );
 }
@@ -133,15 +136,16 @@ function updateJobEntities(
 async function resolveJobEntities(
   client: FreqholeClient,
   jobId: string
-): Promise<{ albumId?: string; artistId?: string; songId?: string } | null> {
+): Promise<{ albumId?: string; artistId?: string; songId?: string; sessionId?: string } | null> {
   try {
     const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
     if (!statusResp.success || !statusResp.data) return null;
     const row = statusResp.data.jobs[jobId];
     if (!row) return null;
     const fromResult = parseJobResult(row.result ?? null);
+    const sessionId = row.session_id ?? undefined;
     if (fromResult.albumId || fromResult.songId || fromResult.artistId) {
-      return fromResult;
+      return { ...fromResult, sessionId };
     }
     // FetchMedia parent path: walk children via session_id
     if (row.session_id) {
@@ -154,7 +158,7 @@ async function resolveJobEntities(
           for (const child of listResp.data) {
             if (child.id === jobId) continue;
             const childIds = parseJobResult(child.result ?? null);
-            if (childIds.albumId || childIds.songId) return childIds;
+            if (childIds.albumId || childIds.songId) return { ...childIds, sessionId };
           }
         }
       } catch (e) {
