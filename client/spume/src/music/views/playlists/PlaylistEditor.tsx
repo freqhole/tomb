@@ -17,7 +17,7 @@ import { EntityUrlz, type EntityUrlFormItem } from "../../../components/forms/En
 export interface PlaylistEditorProps {
   playlist: Playlist;
   onSaved?: () => void;
-  onDeleted?: () => void;
+  onDeleted?: (deletedPlaylistId: string) => void;
   onCancelled?: () => void;
 }
 
@@ -253,7 +253,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       }
 
-      props.onDeleted?.();
+      props.onDeleted?.(playlistId);
     } catch (error) {
       console.error("failed to delete playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to delete playlist", {
