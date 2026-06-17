@@ -37,7 +37,7 @@ import {
   RadioAdminView,
   LogzSettingsView,
   PendingKnocksView,
-  PasskeyManageView,
+  UserProfileView,
   LinkDeviceView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
@@ -122,7 +122,7 @@ export function routes(props: RoutesProps) {
         <Route path="/remotes" component={RemotesSettingsView} />
         <Route path="/remotes/:remoteId/admin" component={RemoteAdminView} />
         <Route path="/remotes/:remoteId/radio" component={RadioAdminView} />
-        <Route path="/remotes/:remoteId/passkeys" component={PasskeyManageView} />
+        <Route path="/remotes/:remoteId/profile" component={UserProfileView} />
         <Route path="/admin-knocks" component={PendingKnocksView} />
         <Route path="/federation" component={FederationSettingsView} />
         <Route path="/radio" component={RadioSettingsView} />

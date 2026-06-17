@@ -522,7 +522,9 @@ pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
 /// subsequent p2p requests from that node are auto-authenticated by node_id lookup.
 #[cfg(feature = "webauthn")]
 pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, UserService};
+    use crate::users::{
+        challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, UserService, WebAuthnService,
+    };
 
     let req: P2pLoginFinishRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -562,8 +564,6 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
         // discoverable flow: extract credential_id directly from the assertion
         // (identify_discoverable_authentication is not used because it requires
         //  the authenticator to have sent a user handle, which is not guaranteed)
-        use crate::users::WebAuthnService;
-
         let cred_id = auth_credential.get_credential_id();
         tracing::info!(
             "discoverable login_finish: cred_id len={}, hex prefix={}",
@@ -608,7 +608,7 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
                 }
             };
 
-        let _auth_result = match freq_webauthn.finish_discoverable_authentication(
+        let auth_result = match freq_webauthn.finish_discoverable_authentication(
             &req.origin,
             &auth_credential,
             disc_state,
@@ -617,6 +617,11 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
             Ok(r) => r,
             Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
         };
+
+        // update last_used_at for the credential that was used
+        let _ = WebAuthnService::new()
+            .update_credential_last_used(&*auth_result.cred_id())
+            .await;
 
         uid
     } else {
@@ -631,11 +636,16 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
             Err(e) => return internal_error(&format!("failed to deserialize challenge: {}", e)),
         };
 
-        let _auth_result =
+        let auth_result =
             match freq_webauthn.finish_authentication(&req.origin, &auth_credential, &auth_state) {
                 Ok(r) => r,
                 Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
             };
+
+        // update last_used_at for the credential that was used
+        let _ = WebAuthnService::new()
+            .update_credential_last_used(&*auth_result.cred_id())
+            .await;
 
         uid
     };
@@ -756,6 +766,7 @@ pub async fn list_passkeys(caller: &Caller, _body: JsonValue) -> GrimoireRespons
                 "id": c.id,
                 "created_at": c.created_at,
                 "last_used_at": c.last_used_at,
+                "name": c.name,
             })
         })
         .collect();

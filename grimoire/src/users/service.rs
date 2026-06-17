@@ -565,6 +565,140 @@ impl UserService {
         )
     }
 
+    /// update the current user's own username
+    ///
+    /// validates uniqueness and format. any authenticated user can call this for themselves.
+    pub async fn update_username(
+        &self,
+        user_id: &str,
+        new_username: &str,
+    ) -> GrimoireResponse<WhoAmIResponse> {
+        // validate format
+        if let Err(err) = self.validate_username(new_username) {
+            return GrimoireResponse::failure("invalid username", vec![err.into()]);
+        }
+
+        // check if taken by another user
+        match self.repository.find_user_by_username(new_username).await {
+            Ok(Some(existing)) if existing.id != user_id => {
+                return GrimoireResponse::failure(
+                    "username taken",
+                    vec![AuthError::UserAlreadyExists {
+                        username: new_username.to_string(),
+                    }
+                    .into()],
+                );
+            }
+            Err(err) => {
+                return GrimoireResponse::failure(
+                    "failed to check username availability",
+                    vec![err.into()],
+                );
+            }
+            _ => {}
+        }
+
+        match self.repository.update_username(user_id, new_username).await {
+            Ok(user) => GrimoireResponse::success(
+                "username updated",
+                WhoAmIResponse {
+                    user_id: user.id,
+                    username: user.username,
+                    role: user.role.to_string(),
+                },
+            ),
+            Err(err) => GrimoireResponse::failure("failed to update username", vec![err.into()]),
+        }
+    }
+
+    /// generate a short-lived account-link code for the caller's own account
+    ///
+    /// any authenticated user can generate these to link a new passkey/device.
+    /// expires in 1 hour.
+    pub async fn generate_self_account_link(
+        &self,
+        user_id: &str,
+    ) -> GrimoireResponse<SelfAccountLinkResponse> {
+        // verify user exists and is not root
+        let user_response = self.get_user(user_id).await;
+        let user = match user_response.data {
+            Some(u) => u,
+            None => {
+                return GrimoireResponse::failure("user not found", user_response.errors);
+            }
+        };
+        if matches!(user.role, UserRole::Root) {
+            return GrimoireResponse::failure(
+                "not available for root account",
+                vec![AuthError::InsufficientPermissions.into()],
+            );
+        }
+
+        if !is_initialized() {
+            let config = ManagementWordlistConfig::default();
+            let init = initialize_wordlist(&config);
+            if !init.success {
+                return GrimoireResponse::failure("failed to generate code", init.errors);
+            }
+        }
+
+        let code_response = generate_word_code(4);
+        let code = match code_response.data {
+            Some(c) => c,
+            None => {
+                return GrimoireResponse::failure("failed to generate code", code_response.errors);
+            }
+        };
+
+        let create_req = CreateInviteCodeRequest {
+            code_type: Some(InviteCodeType::AccountLink),
+            link_for_user_id: Some(user_id.to_string()),
+            expires_hours: Some(1),
+            grants_role: None,
+        };
+
+        match self.repository.create_invite_code(&code, &create_req).await {
+            Ok(invite) => {
+                let expires_at = invite.link_expires_at.unwrap_or(0);
+                GrimoireResponse::success(
+                    "account-link code generated",
+                    SelfAccountLinkResponse { code, expires_at },
+                )
+            }
+            Err(err) => {
+                GrimoireResponse::failure("failed to create invite code", vec![err.into()])
+            }
+        }
+    }
+
+    /// list the caller's own active account-link invite codes
+    pub async fn list_own_invite_codes(&self, user_id: &str) -> GrimoireResponse<Vec<InviteCode>> {
+        match self.repository.list_own_invite_codes(user_id).await {
+            Ok(codes) => GrimoireResponse::success("ok", codes),
+            Err(err) => GrimoireResponse::failure("failed to list invite codes", vec![err.into()]),
+        }
+    }
+
+    /// revoke one of the caller's own account-link invite codes
+    pub async fn revoke_own_invite_code(
+        &self,
+        code: &str,
+        user_id: &str,
+    ) -> GrimoireResponse<()> {
+        match self.repository.deactivate_own_invite_code(code, user_id).await {
+            Ok(true) => GrimoireResponse::success("invite code revoked", ()),
+            Ok(false) => GrimoireResponse::failure(
+                "not found",
+                vec![crate::error::ErrorDetail::new(
+                    "not_found",
+                    "not found",
+                    "invite code not found or does not belong to this user",
+                )],
+            ),
+            Err(err) => GrimoireResponse::failure("failed to revoke invite code", vec![err.into()]),
+        }
+    }
+
     /// Validate an invite code (private helper)
     async fn validate_invite_code(&self, code: &str) -> AuthResult<InviteCode> {
         let invite_code = self

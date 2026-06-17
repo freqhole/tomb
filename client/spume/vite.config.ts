@@ -96,6 +96,9 @@ function serviceWorkerPlugin(): Plugin {
 const isCharnelBuild = !!process.env.VITE_CHARNEL_MODE;
 
 export default defineConfig({
+  server: {
+    allowedHosts: ["a75fda8121f7.ngrok.app"],
+  },
   plugins: [
     // only include WASM plugins for non-Tauri builds
     ...(isCharnelBuild ? [] : [wasm(), topLevelAwait()]),

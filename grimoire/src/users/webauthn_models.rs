@@ -42,6 +42,17 @@ pub struct PasskeyCredentialSummary {
     pub created_at: i64,
     /// unix timestamp of last successful authentication, if any
     pub last_used_at: Option<i64>,
+    /// optional user-supplied label for this passkey
+    pub name: Option<String>,
+}
+
+/// Request to set or clear the name on a passkey
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdatePasskeyNameRequest {
+    /// row id of the passkey to update
+    pub credential_id: String,
+    /// new name, or null/empty to clear it
+    pub name: Option<String>,
 }
 
 /// Request to delete a passkey by row id

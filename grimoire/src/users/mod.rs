@@ -28,7 +28,10 @@ pub use models::{
     InviteCodesGeneratedResponse,
     PeerNodeWithUser,
     RedeemInviteRequest,
+    RevokeOwnInviteRequest,
+    SelfAccountLinkResponse,
     UpdateUserRequest,
+    UpdateUsernameRequest,
     User,
     UserCreatedResponse,
     UserInfoResponse,
@@ -45,7 +48,7 @@ pub use service::UserService;
 pub use webauthn::WebAuthnService;
 pub use webauthn_models::{
     DeletePasskeyRequest, LinkNodeRequest, PasskeyCredentialSummary, RegisterStartRequest,
-    StartLoginRequest,
+    StartLoginRequest, UpdatePasskeyNameRequest,
 };
 
 // Re-export music-specific user types from music::users for backwards compatibility

@@ -45,7 +45,9 @@ export const routes = {
   auth: {
     api_key_status: { method: 'GET', path: '/api/auth/api-key/status', req: null, resp: s.ApiKeyStatusResponseSchema, auth: { type: 'authenticated' } as const },
     delete_passkey: { method: 'POST', path: '/api/auth/webauthn/passkeys/delete', req: s.DeletePasskeyRequestSchema, resp: z.any(), auth: { type: 'owner' } as const },
+    generate_self_account_link: { method: 'POST', path: '/api/auth/profile/generate-invite', req: null, resp: s.SelfAccountLinkResponseSchema, auth: { type: 'authenticated' } as const },
     link_node: { method: 'POST', path: '/api/auth/webauthn/link-node', req: s.LinkNodeRequestSchema, resp: z.any(), auth: { type: 'owner' } as const },
+    list_own_invites: { method: 'GET', path: '/api/auth/profile/invites', req: null, resp: s.SelfAccountLinkResponseSchema.array(), auth: { type: 'authenticated' } as const },
     list_passkeys: { method: 'GET', path: '/api/auth/webauthn/passkeys', req: null, resp: s.PasskeyCredentialSummarySchema.array(), auth: { type: 'owner' } as const },
     login_finish: { method: 'POST', path: '/api/auth/webauthn/login/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
     login_start: { method: 'POST', path: '/api/auth/webauthn/login/start', req: s.StartLoginRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
@@ -54,6 +56,9 @@ export const routes = {
     regenerate_api_key: { method: 'POST', path: '/api/auth/api-key/regenerate', req: null, resp: s.ApiKeyRegenerateResponseSchema, auth: { type: 'authenticated' } as const },
     register_finish: { method: 'POST', path: '/api/auth/webauthn/register/finish', req: z.any(), resp: z.any(), auth: { type: 'public' } as const },
     register_start: { method: 'POST', path: '/api/auth/webauthn/register/start', req: s.RegisterStartRequestSchema, resp: z.any(), auth: { type: 'public' } as const },
+    revoke_own_invite: { method: 'POST', path: '/api/auth/profile/invites/revoke', req: s.RevokeOwnInviteRequestSchema, resp: z.any(), auth: { type: 'authenticated' } as const },
+    update_passkey_name: { method: 'POST', path: '/api/auth/profile/passkey-name', req: s.UpdatePasskeyNameRequestSchema, resp: z.any(), auth: { type: 'authenticated' } as const },
+    update_username: { method: 'POST', path: '/api/auth/profile/update-username', req: s.UpdateUsernameRequestSchema, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
     whoami: { method: 'GET', path: '/api/auth/whoami', req: null, resp: s.WhoAmIResponseSchema, auth: { type: 'authenticated' } as const },
   },
   music: {

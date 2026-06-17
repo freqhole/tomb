@@ -4044,7 +4044,8 @@ export type OverviewStats = z.infer<typeof OverviewStatsSchema>;
 export const PasskeyCredentialSummarySchema = z.object({
   id: z.string(),
   created_at: z.number(),
-  last_used_at: z.number().nullish()
+  last_used_at: z.number().nullish(),
+  name: z.string().nullish()
 });
 export type PasskeyCredentialSummary = z.infer<typeof PasskeyCredentialSummarySchema>;
 
@@ -5309,6 +5310,11 @@ export const RestartPolicySchema = z.object({
 });
 export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
 
+export const RevokeOwnInviteRequestSchema = z.object({
+  code: z.string()
+});
+export type RevokeOwnInviteRequest = z.infer<typeof RevokeOwnInviteRequestSchema>;
+
 export const ScalarAttributeSchema = z.object({
   album_id: z.string(),
   taxon_kind_id: z.string(),
@@ -5428,6 +5434,12 @@ export const SearchResponseSchema = z.object({
   sort_applied: z.string().nullish()
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+export const SelfAccountLinkResponseSchema = z.object({
+  code: z.string(),
+  expires_at: z.number()
+});
+export type SelfAccountLinkResponse = z.infer<typeof SelfAccountLinkResponseSchema>;
 
 export const ServerInfoResponseSchema = z.object({
   name: z.string(),
@@ -6500,6 +6512,12 @@ export const UpdateListenSessionStatusRequestSchema = z.object({
 });
 export type UpdateListenSessionStatusRequest = z.infer<typeof UpdateListenSessionStatusRequestSchema>;
 
+export const UpdatePasskeyNameRequestSchema = z.object({
+  credential_id: z.string(),
+  name: z.string().nullish()
+});
+export type UpdatePasskeyNameRequest = z.infer<typeof UpdatePasskeyNameRequestSchema>;
+
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   title: z.string().nullish(),
@@ -6659,6 +6677,11 @@ export const UpdateStationRequestSchema = z.object({
   timeline_only_mode: z.boolean().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
+
+export const UpdateUsernameRequestSchema = z.object({
+  username: z.string()
+});
+export type UpdateUsernameRequest = z.infer<typeof UpdateUsernameRequestSchema>;
 
 export const UploadMusicByBlake3RequestSchema = z.object({
   blake3: z.string(),

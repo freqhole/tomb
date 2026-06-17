@@ -282,6 +282,27 @@ impl UserRepository {
             .ok_or(AuthError::UserNotFound)
     }
 
+    /// update a user's username
+    pub async fn update_username(&self, user_id: &str, username: &str) -> AuthResult<User> {
+        let pool = database::connect().await?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        sqlx::query!(
+            r#"
+            UPDATE user_accountz
+            SET username = ?1, updated_at = ?2
+            WHERE id = ?3
+            "#,
+            username,
+            now,
+            user_id
+        )
+        .execute(&pool)
+        .await?;
+        self.find_user_by_id(user_id)
+            .await?
+            .ok_or(AuthError::UserNotFound)
+    }
+
     /// Set or update a user's API key
     pub async fn set_api_key(&self, user_id: &str, api_key: &str) -> AuthResult<User> {
         let pool = database::connect().await?;
@@ -507,6 +528,43 @@ impl UserRepository {
         .await?;
 
         Ok(())
+    }
+
+    /// Deactivate an account-link invite code that belongs to a specific user.
+    /// used for self-service revocation - only deactivates if link_for_user_id matches.
+    pub async fn deactivate_own_invite_code(&self, code: &str, user_id: &str) -> AuthResult<bool> {
+        let pool = database::connect().await?;
+        let rows = sqlx::query!(
+            r#"
+            UPDATE invite_codez
+            SET is_active = 0
+            WHERE code = ?1 AND link_for_user_id = ?2 AND is_active = 1
+            "#,
+            code,
+            user_id,
+        )
+        .execute(&pool)
+        .await?
+        .rows_affected();
+        Ok(rows > 0)
+    }
+
+    /// List active account-link codes belonging to a specific user.
+    pub async fn list_own_invite_codes(&self, user_id: &str) -> AuthResult<Vec<InviteCode>> {
+        let pool = database::connect().await?;
+        let rows = sqlx::query_as!(
+            InviteCodeRow,
+            r#"
+            SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
+            FROM invite_codez
+            WHERE link_for_user_id = ?1 AND is_active = 1 AND used_at IS NULL AND code_type = 'account_link'
+            ORDER BY created_at DESC
+            "#,
+            user_id,
+        )
+        .fetch_all(&pool)
+        .await?;
+        Ok(rows.into_iter().map(InviteCode::from).collect())
     }
 
     /// Deactivate all active invite codes that haven't been used

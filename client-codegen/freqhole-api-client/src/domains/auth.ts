@@ -132,6 +132,59 @@ export function createAuthMethods(call: CallFn) {
         params,
       );
     },
+
+    updateUsername: (params: s.UpdateUsernameRequest) => {
+      return call(
+        "auth", "update_username",
+        routes.auth.update_username.resp,
+        routes.auth.update_username.req,
+        routes.auth.update_username.method,
+        routes.auth.update_username.path,
+        params,
+      );
+    },
+
+    generateSelfAccountLink: () => {
+      return call(
+        "auth", "generate_self_account_link",
+        routes.auth.generate_self_account_link.resp,
+        routes.auth.generate_self_account_link.req,
+        routes.auth.generate_self_account_link.method,
+        routes.auth.generate_self_account_link.path,
+      );
+    },
+
+    listOwnInvites: () => {
+      return call(
+        "auth", "list_own_invites",
+        routes.auth.list_own_invites.resp,
+        routes.auth.list_own_invites.req,
+        routes.auth.list_own_invites.method,
+        routes.auth.list_own_invites.path,
+      );
+    },
+
+    revokeOwnInvite: (params: s.RevokeOwnInviteRequest) => {
+      return call(
+        "auth", "revoke_own_invite",
+        routes.auth.revoke_own_invite.resp,
+        routes.auth.revoke_own_invite.req,
+        routes.auth.revoke_own_invite.method,
+        routes.auth.revoke_own_invite.path,
+        params,
+      );
+    },
+
+    updatePasskeyName: (params: s.UpdatePasskeyNameRequest) => {
+      return call(
+        "auth", "update_passkey_name",
+        routes.auth.update_passkey_name.resp,
+        routes.auth.update_passkey_name.req,
+        routes.auth.update_passkey_name.method,
+        routes.auth.update_passkey_name.path,
+        params,
+      );
+    },
   };
 }
 

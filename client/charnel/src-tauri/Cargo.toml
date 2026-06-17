@@ -44,7 +44,9 @@ chrono = "0.4"
 base64 = "0.22"
 
 # internal dependencies
-grimoire = { path = "../../../grimoire", default-features = false }
+grimoire = { path = "../../../grimoire", default-features = false, features = [
+    "webauthn",
+] }
 server = { path = "../../../server", default-features = false }
 async-trait = "0.1"
 iroh = { workspace = true }
@@ -70,6 +72,7 @@ nix = { version = "0.29", features = ["signal"] }
 # this just adds `rodio-playback` to the base grimoire dep on desktop.
 [target."cfg(any(target_os = \"macos\", target_os = \"linux\", target_os = \"windows\"))".dependencies]
 grimoire = { path = "../../../grimoire", default-features = false, features = [
+    "webauthn",
     "rodio-playback",
 ] }
 

@@ -5,9 +5,11 @@ use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateUserRequest, InviteCodeType, RedeemInviteRequest, UpdateUserRequest, UserQueryParams,
+    CreateUserRequest, InviteCodeType, RedeemInviteRequest, RevokeOwnInviteRequest,
+    SelfAccountLinkResponse, UpdateUserRequest, UpdateUsernameRequest, UserQueryParams,
     UserService, WhoAmIResponse,
 };
+use crate::users::{UpdatePasskeyNameRequest, WebAuthnService};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
@@ -122,6 +124,52 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "LinkNodeRequest",
         response_type: "serde_json::Value",
         auth: RouteAuth::Owner,
+    },
+    // user profile - authenticated users managing their own account
+    RouteInfo {
+        name: "update_username",
+        path: "/api/auth/profile/update-username",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "UpdateUsernameRequest",
+        response_type: "WhoAmIResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "generate_self_account_link",
+        path: "/api/auth/profile/generate-invite",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "SelfAccountLinkResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "list_own_invites",
+        path: "/api/auth/profile/invites",
+        method: Method::GET,
+        domain: Domain::Auth,
+        request_type: "String",
+        response_type: "Vec<SelfAccountLinkResponse>",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "revoke_own_invite",
+        path: "/api/auth/profile/invites/revoke",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "RevokeOwnInviteRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "update_passkey_name",
+        path: "/api/auth/profile/passkey-name",
+        method: Method::POST,
+        domain: Domain::Auth,
+        request_type: "UpdatePasskeyNameRequest",
+        response_type: "serde_json::Value",
+        auth: RouteAuth::Authenticated,
     },
 ];
 
@@ -626,4 +674,98 @@ pub async fn redeem_invite(_caller: &Caller, body: JsonValue) -> GrimoireRespons
             }
         }),
     )
+}
+
+/// update the caller's own username
+///
+/// path: POST /api/auth/profile/update-username
+pub async fn update_username(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UpdateUsernameRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+            )
+        }
+    };
+
+    let service = UserService::new();
+    let response = service.update_username(&caller.user_id, &req.username).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// generate a short-lived account-link invite code for the caller's own account
+///
+/// path: POST /api/auth/profile/generate-invite
+pub async fn generate_self_account_link(
+    caller: &Caller,
+    _body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let service = UserService::new();
+    let response = service.generate_self_account_link(&caller.user_id).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// list the caller's own active account-link invite codes
+///
+/// path: GET /api/auth/profile/invites
+pub async fn list_own_invites(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let service = UserService::new();
+    let response = service.list_own_invite_codes(&caller.user_id).await;
+    response.map(|codes| {
+        serde_json::to_value(
+            codes
+                .into_iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "code": c.code,
+                        "expires_at": c.link_expires_at.unwrap_or(0),
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    })
+}
+
+/// revoke one of the caller's own account-link invite codes
+///
+/// path: POST /api/auth/profile/invites/revoke
+pub async fn revoke_own_invite(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RevokeOwnInviteRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+            )
+        }
+    };
+
+    let service = UserService::new();
+    let response = service.revoke_own_invite_code(&req.code, &caller.user_id).await;
+    response.map(|_| JsonValue::Null)
+}
+
+/// update the name on one of the caller's passkeys
+///
+/// path: POST /api/auth/profile/passkey-name
+pub async fn update_passkey_name(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: UpdatePasskeyNameRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+            )
+        }
+    };
+
+    let name_ref = req.name.as_deref().filter(|s| !s.is_empty());
+    let service = WebAuthnService::new();
+    let response = service
+        .update_passkey_name(&req.credential_id, &caller.user_id, name_ref)
+        .await;
+    response.map(|_| JsonValue::Null)
 }

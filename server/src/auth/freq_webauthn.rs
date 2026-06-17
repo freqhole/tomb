@@ -576,7 +576,9 @@ pub async fn login_finish(
 
     let user_id = if let Some((uid, auth_state)) = targeted {
         let _ = session.remove_value("auth_state").await;
-        let _result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
+        let result = freq_webauthn.finish_authentication(&origin.0, &auth, &auth_state)?;
+        let webauthn_service = grimoire::users::WebAuthnService::new();
+        let _ = webauthn_service.update_credential_last_used(&*result.cred_id()).await;
         uid
     } else {
         // discoverable flow
@@ -604,8 +606,9 @@ pub async fn login_finish(
             .data
             .unwrap_or_default();
 
-        let _result = freq_webauthn
+        let result = freq_webauthn
             .finish_discoverable_authentication(&origin.0, &auth, disc_state, &creds)?;
+        let _ = webauthn_service.update_credential_last_used(&*result.cred_id()).await;
 
         uid
     };

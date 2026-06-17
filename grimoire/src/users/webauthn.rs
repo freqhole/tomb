@@ -40,7 +40,7 @@ impl WebAuthnRepository {
             r#"
             INSERT INTO user_credentialz (user_id, credential_id, credential_data, created_at)
             VALUES (?1, ?2, ?3, ?4)
-            RETURNING id as "id!", user_id as "user_id!", credential_id as "credential_id!", credential_data as "credential_data!", created_at as "created_at!", last_used_at, deleted_at
+            RETURNING id as "id!", user_id as "user_id!", credential_id as "credential_id!", credential_data as "credential_data!", created_at as "created_at!", last_used_at, deleted_at, name
             "#,
             user_id,
             credential_id,
@@ -60,7 +60,7 @@ impl WebAuthnRepository {
         let credentials = sqlx::query_as!(
             WebAuthnCredential,
             r#"
-            SELECT id as "id!", user_id as "user_id!", credential_id as "credential_id!", credential_data as "credential_data!", created_at as "created_at!", last_used_at, deleted_at
+            SELECT id as "id!", user_id as "user_id!", credential_id as "credential_id!", credential_data as "credential_data!", created_at as "created_at!", last_used_at, deleted_at, name
             FROM user_credentialz
             WHERE user_id = ?1 AND deleted_at IS NULL
             ORDER BY created_at DESC
@@ -118,6 +118,29 @@ impl WebAuthnRepository {
         Ok(())
     }
 
+    /// Update the name on a passkey. scoped to the owning user.
+    pub async fn update_passkey_name(
+        &self,
+        credential_row_id: &str,
+        user_id: &str,
+        name: Option<&str>,
+    ) -> AuthResult<()> {
+        let pool = database::connect().await?;
+        sqlx::query!(
+            r#"
+            UPDATE user_credentialz
+            SET name = ?1
+            WHERE id = ?2 AND user_id = ?3
+            "#,
+            name,
+            credential_row_id,
+            user_id,
+        )
+        .execute(&pool)
+        .await?;
+        Ok(())
+    }
+
     /// Look up the user_id that owns a credential by its raw credential_id bytes.
     /// used in the discoverable authentication flow where only the credential_id
     /// is known before the user has been identified.
@@ -126,27 +149,6 @@ impl WebAuthnRepository {
         credential_id: &[u8],
     ) -> AuthResult<Option<String>> {
         let pool = database::connect().await?;
-
-        // temp: log all stored credential IDs to compare with the presented one
-        let all = sqlx::query!(
-            r#"SELECT credential_id as "credential_id!" FROM user_credentialz WHERE deleted_at IS NULL"#
-        )
-        .fetch_all(&pool)
-        .await?;
-        tracing::info!(
-            "get_user_id_by_credential_id: looking for len={} hex={}, {} stored credential(s): [{}]",
-            credential_id.len(),
-            credential_id.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>(),
-            all.len(),
-            all.iter()
-                .map(|r| format!(
-                    "len={} hex={}",
-                    r.credential_id.len(),
-                    r.credential_id.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>()
-                ))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
 
         let row = sqlx::query!(
             r#"
@@ -290,7 +292,24 @@ impl WebAuthnService {
             Err(err) => GrimoireResponse::failure("failed to delete credential", vec![err.into()]),
         }
     }
-
+    /// Update the user-supplied name on a passkey. scoped to the owning user.
+    pub async fn update_passkey_name(
+        &self,
+        credential_row_id: &str,
+        user_id: &str,
+        name: Option<&str>,
+    ) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .update_passkey_name(credential_row_id, user_id, name)
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("passkey name updated", ()),
+            Err(err) => {
+                GrimoireResponse::failure("failed to update passkey name", vec![err.into()])
+            }
+        }
+    }
     /// Look up which user owns a credential by its raw credential_id bytes.
     /// used in the discoverable authentication flow.
     #[cfg(feature = "webauthn")]

@@ -60,6 +60,21 @@ pub async fn dispatch(
         }
         "/api/auth/webauthn/link-node" => Some(webauthn_p2p::link_node(caller, body.clone()).await),
 
+        // user profile self-service
+        "/api/auth/profile/update-username" => {
+            Some(users::update_username(caller, body.clone()).await)
+        }
+        "/api/auth/profile/generate-invite" => {
+            Some(users::generate_self_account_link(caller, body.clone()).await)
+        }
+        "/api/auth/profile/invites" => Some(users::list_own_invites(caller, body.clone()).await),
+        "/api/auth/profile/invites/revoke" => {
+            Some(users::revoke_own_invite(caller, body.clone()).await)
+        }
+        "/api/auth/profile/passkey-name" => {
+            Some(users::update_passkey_name(caller, body.clone()).await)
+        }
+
         _ => None,
     }
 }

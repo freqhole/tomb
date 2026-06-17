@@ -1353,13 +1353,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           "margin-top": "var(--safe-area-top, 0px)",
           height: "calc(100% - var(--safe-area-top, 0px))",
         }}
-        onClick={handleClose}
       >
         {/* modal */}
-        <div
-          class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto">
           {/* header */}
           <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)] flex-shrink-0">
             <div class="flex items-center gap-3">
@@ -2095,6 +2091,19 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </button>
                       </p>
                     </Show>
+                    <p class="text-sm text-[var(--color-text-muted)]">
+                      <button
+                        type="button"
+                        class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:underline"
+                        onClick={() => {
+                          setStep("auth");
+                          setError(null);
+                        }}
+                        disabled={isLoading()}
+                      >
+                        other sign in options
+                      </button>
+                    </p>
                   </div>
                 </div>
               </Match>

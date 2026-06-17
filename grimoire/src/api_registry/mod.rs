@@ -120,13 +120,14 @@ pub mod type_registry {
 
     // auth types
     use crate::users::{
-        ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, WhoAmIResponse,
+        ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest,
+        RevokeOwnInviteRequest, SelfAccountLinkResponse, UpdateUsernameRequest, WhoAmIResponse,
     };
 
     // webauthn types
     use crate::users::{
         DeletePasskeyRequest, LinkNodeRequest, PasskeyCredentialSummary, RegisterStartRequest,
-        SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
+        SetFavoriteRequest, SetRatingRequest, StartLoginRequest, UpdatePasskeyNameRequest,
     };
 
     // health types
@@ -418,6 +419,18 @@ pub mod type_registry {
 
         gen.add_schema::<LinkNodeRequest>("LinkNodeRequest");
         registered.insert("LinkNodeRequest".to_string());
+
+        gen.add_schema::<UpdateUsernameRequest>("UpdateUsernameRequest");
+        registered.insert("UpdateUsernameRequest".to_string());
+
+        gen.add_schema::<RevokeOwnInviteRequest>("RevokeOwnInviteRequest");
+        registered.insert("RevokeOwnInviteRequest".to_string());
+
+        gen.add_schema::<SelfAccountLinkResponse>("SelfAccountLinkResponse");
+        registered.insert("SelfAccountLinkResponse".to_string());
+
+        gen.add_schema::<UpdatePasskeyNameRequest>("UpdatePasskeyNameRequest");
+        registered.insert("UpdatePasskeyNameRequest".to_string());
 
         // music types
         gen.add_schema::<QueryParams>("QueryParams");
