@@ -29,6 +29,7 @@ use serde_json::{json, Value as JsonValue};
 // ============================================================================
 
 /// start registration over p2p
+#[cfg(feature = "webauthn")]
 #[derive(Debug, Deserialize)]
 struct P2pRegisterStartRequest {
     username: String,
@@ -41,6 +42,7 @@ struct P2pRegisterStartRequest {
 }
 
 /// finish registration over p2p
+#[cfg(feature = "webauthn")]
 #[derive(Debug, Deserialize)]
 struct P2pRegisterFinishRequest {
     nonce: String,
@@ -53,6 +55,7 @@ struct P2pRegisterFinishRequest {
 }
 
 /// start login over p2p
+#[cfg(feature = "webauthn")]
 #[derive(Debug, Deserialize)]
 struct P2pLoginStartRequest {
     /// username is optional - if omitted the client uses discoverable credentials
@@ -66,6 +69,7 @@ struct P2pLoginStartRequest {
 }
 
 /// finish login over p2p
+#[cfg(feature = "webauthn")]
 #[derive(Debug, Deserialize)]
 struct P2pLoginFinishRequest {
     nonce: String,
@@ -128,6 +132,7 @@ fn bad_request(detail: &str) -> GrimoireResponse<JsonValue> {
     )
 }
 
+#[cfg(feature = "webauthn")]
 fn internal_error(detail: &str) -> GrimoireResponse<JsonValue> {
     GrimoireResponse::failure(
         detail,
