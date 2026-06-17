@@ -116,7 +116,7 @@ export interface AddRemoteModalProps {
   completePeerAddr?: Accessor<string | null>;
 }
 
-type Step = "url" | "testing" | "auth" | "complete" | "knock-sent" | "passkey-p2p";
+type Step = "url" | "testing" | "auth" | "complete" | "knock-sent";
 
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const [step, setStep] = createSignal<Step>("url");
@@ -153,11 +153,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // pending remotes state (tracks in-progress remote additions, including knocks)
   const [pendingRemotes, setPendingRemotes] = createSignal<PendingRemote[]>([]);
   const [showKnockOption, setShowKnockOption] = createSignal(false); // show request access after failed P2P connection
-
-  // passkey p2p step state
-  const [passkeyUsername, setPasskeyUsername] = createSignal("");
-  const [passkeyInviteCode, setPasskeyInviteCode] = createSignal("");
-  const [passkeyMode, setPasskeyMode] = createSignal<"login" | "register">("login");
 
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
@@ -933,20 +928,22 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   // handle passkey p2p authentication (login or register)
-  const handlePasskeyP2P = async (mode: "login" | "register") => {
+  const handlePasskeyAuth = async (data: {
+    username: string;
+    inviteCode?: string;
+    mode: "login" | "register";
+  }) => {
     const currentPeerAddr = peerAddr();
-    const username = passkeyUsername().trim() || undefined;
-    const inviteCode = passkeyInviteCode().trim();
+    const username = data.username.trim() || undefined;
+    const inviteCode = data.inviteCode?.trim();
 
     if (!currentPeerAddr) {
       setError("no peer address available");
       return;
     }
-    if (mode === "register" && !username) {
-      setError("username is required for registration");
-      return;
-    }
-    if (mode === "register" && !inviteCode) {
+
+    // P2P passkey auth always uses register mode with invite code
+    if (currentPeerAddr && data.mode === "register" && !inviteCode) {
       setError("invite code is required to register a new passkey");
       return;
     }
@@ -956,37 +953,26 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
     try {
       let result;
-      if (mode === "register") {
-        result = await registerWithWebauthnP2P(currentPeerAddr, username!, inviteCode);
+      if (currentPeerAddr && data.mode === "register") {
+        // P2P registration with invite code
+        result = await registerWithWebauthnP2P(currentPeerAddr, username!, inviteCode!);
+      } else if (!currentPeerAddr && data.mode === "login") {
+        // HTTP login mode
+        result = await loginWithWebauthnP2P(url(), username);
       } else {
-        result = await loginWithWebauthnP2P(currentPeerAddr, username);
+        throw new Error("unsupported auth combination");
       }
 
       if (!result.success) {
-        const msg = result.error ?? `passkey ${mode} failed`;
-        // if this was a one-click discoverable attempt (no username), route to the
-        // username form so the user can retry with a specific account
-        if (mode === "login" && !username && step() !== "passkey-p2p") {
-          setPasskeyMode("login");
-          setError(msg + " — try entering your username below");
-          setStep("passkey-p2p");
-        } else {
-          setError(msg);
-        }
+        setError(result.error ?? "passkey authentication failed");
         return;
       }
 
-      debug("passkey-p2p", `${mode} successful for`, username ?? "(discoverable)");
+      debug("passkey-auth", `${data.mode} successful for`, username ?? "(discoverable)");
       await completeSetup();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `passkey ${mode} failed`;
-      if (mode === "login" && !username && step() !== "passkey-p2p") {
-        setPasskeyMode("login");
-        setError(msg + " — try entering your username below");
-        setStep("passkey-p2p");
-      } else {
-        setError(msg);
-      }
+      const msg = err instanceof Error ? err.message : `passkey ${data.mode} failed`;
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -1307,7 +1293,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const handleBack = () => {
-    if (step() === "auth" || step() === "knock-sent" || step() === "passkey-p2p") {
+    if (step() === "auth" || step() === "knock-sent") {
       setStep("url");
       setError(null);
     } else if (step() === "testing") {
@@ -1593,45 +1579,41 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           onClick={() => {
                             setShowKnockOption(false);
                             setError(null);
-                            if (isCharnelAvailable()) {
-                              setShowCharnelLink(true);
-                            } else {
-                              void handlePasskeyP2P("login");
-                            }
+                            setStep("auth");
                           }}
                           disabled={isLoading()}
                         >
                           {isLoading() ? "signing in..." : "sign in with passkey"}
                         </button>
-                        <Show when={isCharnelAvailable() && showCharnelLink()}>
-                          <div class="space-y-2 mt-2">
-                            <div class="flex gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={charnelSpumeLink() ?? ""}
-                                class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
-                                onClick={(e) => (e.target as HTMLInputElement).select()}
-                              />
-                            </div>
-                            <div class="flex gap-2">
-                              <button
-                                type="button"
-                                class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                                onClick={handleCharnelLinkCopy}
-                              >
-                                {charnelLinkCopied() ? "copied!" : "copy link"}
-                              </button>
-                              <button
-                                type="button"
-                                class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                onClick={handleCharnelLinkOpen}
-                              >
-                                open in browser
-                              </button>
-                            </div>
+                      </Show>
+                      <Show when={isCharnelAvailable() && showCharnelLink()}>
+                        <div class="space-y-2 mt-2">
+                          <div class="flex gap-2">
+                            <input
+                              type="text"
+                              readOnly
+                              value={charnelSpumeLink() ?? ""}
+                              class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                              onClick={(e) => (e.target as HTMLInputElement).select()}
+                            />
                           </div>
-                        </Show>
+                          <div class="flex gap-2">
+                            <button
+                              type="button"
+                              class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                              onClick={handleCharnelLinkCopy}
+                            >
+                              {charnelLinkCopied() ? "copied!" : "copy link"}
+                            </button>
+                            <button
+                              type="button"
+                              class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                              onClick={handleCharnelLinkOpen}
+                            >
+                              open in browser
+                            </button>
+                          </div>
+                        </div>
                       </Show>
                     </div>
                   </Show>
@@ -1845,10 +1827,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <AuthForm
                     initialMode={peerAddr() ? "register" : "login"}
                     onSubmit={handleAuth}
+                    onPasskeyClick={handlePasskeyAuth}
                     loading={isLoading()}
                     error={error() || undefined}
                     showModeToggle={!peerAddr()} // hide mode toggle for P2P (login not supported)
                     hidePasskeyInfo={!!peerAddr() || isCharnelAvailable()} // hide for P2P and tauri
+                    hidePasskeyButton={!peerAddr() && isCharnelAvailable()} // hide passkey for HTTP+tauri
                   />
 
                   {/* request access option for P2P when knocking is enabled */}
@@ -1876,21 +1860,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                         </button>
                       </Show>
                       <Show when={serverInfo()?.passkey_p2p_enabled}>
-                        <button
-                          type="button"
-                          class="w-full mt-2 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-                          onClick={() => {
-                            setError(null);
-                            if (isCharnelAvailable()) {
-                              setShowCharnelLink(true);
-                            } else {
-                              void handlePasskeyP2P("login");
-                            }
-                          }}
-                          disabled={isLoading()}
-                        >
-                          {isLoading() ? "signing in..." : "sign in with passkey"}
-                        </button>
                         <Show when={isCharnelAvailable() && showCharnelLink()}>
                           <div class="space-y-2 mt-2">
                             <div class="flex gap-2">
@@ -1956,154 +1925,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                     <Button variant="secondary" onClick={handleBack}>
                       done
                     </Button>
-                  </div>
-                </div>
-              </Match>
-
-              {/* passkey p2p step */}
-              <Match when={step() === "passkey-p2p"}>
-                <div class="space-y-4">
-                  <div>
-                    <h3 class="text-base font-semibold text-[var(--color-text-primary)] mb-1">
-                      sign in with passkey
-                    </h3>
-                    <p class="text-sm text-[var(--color-text-secondary)]">
-                      use a passkey to connect this browser directly to the p2p peer. your node id
-                      will be registered as an allowed device.
-                    </p>
-                  </div>
-
-                  <Show when={error()}>
-                    <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
-                      <p class="text-sm text-[var(--color-status-error)]">{error()}</p>
-                    </div>
-                  </Show>
-
-                  <Show when={passkeyMode() === "login"}>
-                    <div>
-                      <label
-                        for="passkey-username"
-                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
-                      >
-                        username{" "}
-                        <span class="text-[var(--color-text-muted)] font-normal">(optional)</span>
-                      </label>
-                      <input
-                        id="passkey-username"
-                        type="text"
-                        value={passkeyUsername()}
-                        onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
-                        placeholder="enter username to target a specific passkey"
-                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
-                        disabled={isLoading()}
-                      />
-                    </div>
-                  </Show>
-
-                  <Show when={passkeyMode() === "register"}>
-                    <div>
-                      <label
-                        for="passkey-username"
-                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
-                      >
-                        username
-                      </label>
-                      <input
-                        id="passkey-username"
-                        type="text"
-                        value={passkeyUsername()}
-                        onInput={(e) => setPasskeyUsername(e.currentTarget.value)}
-                        placeholder="your username on this server"
-                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
-                        disabled={isLoading()}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        for="passkey-invite"
-                        class="block text-xs font-medium text-[var(--color-text-primary)] mb-1"
-                      >
-                        invite code
-                      </label>
-                      <input
-                        id="passkey-invite"
-                        type="text"
-                        value={passkeyInviteCode()}
-                        onInput={(e) => setPasskeyInviteCode(e.currentTarget.value)}
-                        placeholder="account link code from the server admin"
-                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
-                        disabled={isLoading()}
-                      />
-                    </div>
-                  </Show>
-
-                  <div class="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={handleBack}
-                      disabled={isLoading()}
-                      class="flex-1"
-                    >
-                      back
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      onClick={() => void handlePasskeyP2P(passkeyMode())}
-                      disabled={isLoading()}
-                      class="flex-1"
-                    >
-                      {isLoading()
-                        ? passkeyMode() === "register"
-                          ? "registering..."
-                          : "signing in..."
-                        : passkeyMode() === "register"
-                          ? "register passkey"
-                          : "sign in with passkey"}
-                    </Button>
-                  </div>
-
-                  <div class="text-center pt-2 border-t border-[var(--color-border-default)]">
-                    <Show when={passkeyMode() === "login"}>
-                      <p class="text-sm text-[var(--color-text-secondary)] mb-1">
-                        no passkey yet?{" "}
-                        <button
-                          type="button"
-                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                          onClick={() => setPasskeyMode("register")}
-                          disabled={isLoading()}
-                        >
-                          register a new one
-                        </button>
-                      </p>
-                    </Show>
-                    <Show when={passkeyMode() === "register"}>
-                      <p class="text-sm text-[var(--color-text-secondary)] mb-1">
-                        already have a passkey?{" "}
-                        <button
-                          type="button"
-                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                          onClick={() => setPasskeyMode("login")}
-                          disabled={isLoading()}
-                        >
-                          sign in instead
-                        </button>
-                      </p>
-                    </Show>
-                    <p class="text-sm text-[var(--color-text-muted)]">
-                      <button
-                        type="button"
-                        class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:underline"
-                        onClick={() => {
-                          setStep("auth");
-                          setError(null);
-                        }}
-                        disabled={isLoading()}
-                      >
-                        other sign in options
-                      </button>
-                    </p>
                   </div>
                 </div>
               </Match>

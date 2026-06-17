@@ -15,6 +15,12 @@ export interface AuthFormProps {
     inviteCode?: string;
     mode: "login" | "register";
   }) => void | Promise<void>;
+  /** callback when passkey button is clicked */
+  onPasskeyClick?: (data: {
+    username: string;
+    inviteCode?: string;
+    mode: "login" | "register";
+  }) => void | Promise<void>;
   /** whether the form is in a loading state */
   loading?: boolean;
   /** error message to display */
@@ -25,6 +31,8 @@ export interface AuthFormProps {
   showModeToggle?: boolean;
   /** hide the passkey info text (for P2P or tauri) */
   hidePasskeyInfo?: boolean;
+  /** hide the passkey button */
+  hidePasskeyButton?: boolean;
   /** additional classes for the container */
   class?: string;
 }
@@ -62,6 +70,20 @@ export function AuthForm(props: AuthFormProps) {
     if (!username().trim()) return true;
     if (mode() === "register" && !inviteCode().trim()) return true;
     return false;
+  };
+
+  const handlePasskeyClick = async (e: Event) => {
+    e.preventDefault();
+
+    if (props.loading) return;
+
+    const data = {
+      username: username(),
+      inviteCode: mode() === "register" ? inviteCode() : undefined,
+      mode: mode() as "login" | "register",
+    };
+
+    await props.onPasskeyClick?.(data);
   };
 
   return (
@@ -106,6 +128,21 @@ export function AuthForm(props: AuthFormProps) {
             {mode() === "login" ? "signing in..." : "creating account..."}
           </Show>
         </Button>
+
+        {/* passkey button (for P2P and HTTP login) */}
+        <Show when={!props.hidePasskeyButton && props.onPasskeyClick}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isSubmitDisabled()}
+            class="w-full"
+            onClick={handlePasskeyClick}
+          >
+            <Show when={props.loading} fallback="sign in with passkey">
+              signing in...
+            </Show>
+          </Button>
+        </Show>
       </form>
 
       {/* mode switch */}

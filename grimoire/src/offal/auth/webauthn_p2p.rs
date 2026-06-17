@@ -167,11 +167,16 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
 
     // determine user_id and whether this is an account-link flow
     let (user_id, is_account_link) = if let Some(ref code) = req.invite_code {
+        tracing::info!("[PASSKEY-REG-BE] checking invite code, len={}", code.len());
         let code_response = user_service.check_invite_code(code).await;
         if !code_response.is_success() {
             return bad_request("invalid invite code");
         }
         let invite = code_response.data.unwrap();
+        tracing::info!(
+            "[PASSKEY-REG-BE] invite code type: is_account_link={}",
+            invite.is_account_link_code()
+        );
         if invite.is_account_link_code() {
             let target_user_id = match invite.get_target_user_id() {
                 Some(id) => id.to_string(),
@@ -224,19 +229,27 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
     // exclude already-registered credentials for this user
     let exclude_credentials = if is_account_link {
         let webauthn_service = WebAuthnService::new();
-        webauthn_service
+        let creds = webauthn_service
             .get_credentials(&user_id)
             .await
             .data
-            .unwrap_or_default()
+            .unwrap_or_default();
+        tracing::info!(
+            "[PASSKEY-REG-BE] account-link mode: user_id={}, excluding {} credentials",
+            user_id,
+            creds.len()
+        );
+        creds
             .iter()
             .map(|p: &Passkey| p.cred_id().clone())
             .collect()
     } else {
+        tracing::info!("[PASSKEY-REG-BE] new-user mode: no exclusions, is_account_link=false");
         vec![]
     };
 
-    let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
+    let freq_webauthn = GrimoireWebAuthn::new(rp_id.clone(), "freqhole".to_string());
+    tracing::info!("[PASSKEY-REG-BE] calling start_registration: rp_id={}, user_id={}, username={}, exclude_count={}", rp_id, user_id, req.username, exclude_credentials.len());
     let (ccr, reg_state) = match freq_webauthn.start_registration(
         &req.origin,
         &user_id,
@@ -336,8 +349,8 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
 
     let user_service = UserService::new();
 
-    // create or confirm user
-    if row.is_account_link {
+    // create or confirm user and keep the authoritative user id for credential save
+    let credential_user_id = if row.is_account_link {
         // user already exists; optionally mark invite code as used
         if let Some(ref code) = row.invite_code {
             let _ = user_service
@@ -348,6 +361,7 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
                 })
                 .await;
         }
+        user_id.clone()
     } else {
         let user_resp = user_service
             .register_user(&CreateUserRequest {
@@ -364,29 +378,37 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
                 .unwrap_or_else(|| "failed to create user".to_string());
             return bad_request(&detail);
         }
-    }
+        match user_resp.data {
+            Some(user) => user.id,
+            None => return internal_error("failed to create user"),
+        }
+    };
 
     // save the credential
     let webauthn_service = WebAuthnService::new();
-    if !webauthn_service
-        .save_credential(&user_id, &passkey)
-        .await
-        .is_success()
-    {
-        return internal_error("failed to save credential");
+    let save_resp = webauthn_service
+        .save_credential(&credential_user_id, &passkey)
+        .await;
+    if !save_resp.is_success() {
+        let detail = save_resp
+            .errors
+            .first()
+            .map(|e| e.detail.clone())
+            .unwrap_or_else(|| "failed to save credential".to_string());
+        return internal_error(&detail);
     }
 
     // link node_id to user if provided
     if let Some(ref node_id) = req.node_id {
         let _ = user_service
-            .add_peer_node(&user_id, node_id, Some("passkey registration"))
+            .add_peer_node(&credential_user_id, node_id, Some("passkey registration"))
             .await;
     }
 
     GrimoireResponse::success(
         "registration successful",
         json!({
-            "user_id": user_id,
+            "user_id": credential_user_id,
             "username": username,
         }),
     )

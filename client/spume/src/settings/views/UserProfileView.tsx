@@ -11,10 +11,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
 import { isP2PRemote } from "../../app/services/storage/types";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
-import {
-  registerWithWebauthnP2P,
-  loginWithWebauthnP2P,
-} from "../../app/services/remotes/authService";
+import { registerWithWebauthnP2P } from "../../app/services/remotes/authService";
 import { debug } from "../../utils/logger";
 import { toast } from "../../components/feedback/Toast";
 import { formatDate } from "../../utils/dateTime";
@@ -259,41 +256,58 @@ export function UserProfileView() {
   }
 
   // ---- passkey add ----
-  async function handleAddPasskey(mode: "register" | "login") {
+  async function handleAddPasskey() {
     const remote = data()?.remote;
-    if (!remote || !isP2PRemote(remote)) return;
-
-    const username = addUsername().trim() || undefined;
-    const inviteCode = addInviteCode().trim();
-
-    if (mode === "register" && !username) {
-      setAddError("username is required for registration");
+    if (!remote) {
+      console.log("[handleAddPasskey] no remote in data");
+      setAddError("remote not loaded");
       return;
     }
-    if (mode === "register" && !inviteCode) {
-      setAddError("invite code is required to register a new passkey");
+
+    console.log("[handleAddPasskey] remote peer_addr:", remote.peer_addr?.slice(0, 16) + "...");
+    const username = addUsername().trim();
+    const inviteCode = addInviteCode().trim();
+
+    if (!username) {
+      setAddError("username is required");
+      return;
+    }
+    if (!inviteCode) {
+      setAddError("invite code is required");
       return;
     }
 
     setAddBusy(true);
     setAddError(null);
     try {
-      const result =
-        mode === "register"
-          ? await registerWithWebauthnP2P(remote.peer_addr!, username!, inviteCode)
-          : await loginWithWebauthnP2P(remote.peer_addr!, username);
+      console.log("[handleAddPasskey] registering passkey with username:", username);
+      debug(
+        "profile-passkey",
+        "registering new passkey with username:",
+        username,
+        "peer:",
+        remote.peer_addr!.slice(0, 16) + "..."
+      );
+      const result = await registerWithWebauthnP2P(remote.peer_addr!, username, inviteCode);
 
+      debug(
+        "profile-passkey",
+        "register result:",
+        result.success ? "success" : "error",
+        result.error ?? ""
+      );
       if (!result.success) {
-        setAddError(result.error ?? `passkey ${mode} failed`);
+        setAddError(result.error ?? "passkey registration failed");
         return;
       }
-      toast.success(`passkey ${mode === "register" ? "registered" : "added"}`);
+      toast.success("passkey registered");
       setAddMode(null);
       setAddUsername("");
       setAddInviteCode("");
       void refetch();
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : `passkey ${mode} failed`);
+      debug("profile-passkey", "register exception:", e);
+      setAddError(e instanceof Error ? e.message : "passkey registration failed");
     } finally {
       setAddBusy(false);
     }
@@ -561,35 +575,45 @@ export function UserProfileView() {
               <Show
                 when={addMode() !== null}
                 fallback={
-                  <div class="flex gap-2">
-                    <button
-                      class="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
-                      onClick={() => {
-                        setAddUsername(data()!.currentUser?.username ?? "");
-                        setAddMode("login");
+                  <button
+                    class="w-full px-3 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors disabled:opacity-50"
+                    onClick={async () => {
+                      const remote = data()?.remote;
+                      if (!remote || !isP2PRemote(remote)) return;
+
+                      try {
+                        setAddBusy(true);
                         setAddError(null);
-                      }}
-                    >
-                      new passkey
-                    </button>
-                    <button
-                      class="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] transition-colors"
-                      onClick={() => {
+
+                        // generate an account-link invite code
+                        const client = await getClientForRemote(remote);
+                        const result = await client.auth.generateSelfAccountLink();
+                        if (!result.success || !result.data) {
+                          setAddError("failed to generate invite code");
+                          return;
+                        }
+
+                        // pre-fill the form with username + generated code
                         setAddUsername(data()!.currentUser?.username ?? "");
+                        setAddInviteCode(result.data.code);
                         setAddMode("register");
-                        setAddError(null);
-                      }}
-                    >
-                      register with invite code
-                    </button>
-                  </div>
+                      } catch (e) {
+                        setAddError(
+                          e instanceof Error ? e.message : "failed to generate invite code"
+                        );
+                      } finally {
+                        setAddBusy(false);
+                      }
+                    }}
+                    disabled={addBusy()}
+                  >
+                    {addBusy() ? "generating..." : "add new passkey"}
+                  </button>
                 }
               >
                 <div class="p-4 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-lg space-y-3">
                   <p class="text-sm text-[var(--color-text-secondary)]">
-                    {addMode() === "register"
-                      ? "register a new passkey using an account-link invite code"
-                      : "sign in with an existing passkey to link this browser session"}
+                    create a new passkey to link this browser to your account
                   </p>
 
                   <Show when={addError()}>
@@ -599,41 +623,30 @@ export function UserProfileView() {
                   <div>
                     <label class="block text-xs font-medium text-[var(--color-text-primary)] mb-1">
                       username
-                      {addMode() === "login" && (
-                        <span class="text-[var(--color-text-muted)] font-normal ml-1">
-                          (optional)
-                        </span>
-                      )}
                     </label>
                     <input
                       type="text"
                       value={addUsername()}
                       onInput={(e) => setAddUsername(e.currentTarget.value)}
-                      placeholder={
-                        addMode() === "login"
-                          ? "username (optional)"
-                          : "your username on this server"
-                      }
+                      placeholder="your username on this server"
                       class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
                       disabled={addBusy()}
                     />
                   </div>
 
-                  <Show when={addMode() === "register"}>
-                    <div>
-                      <label class="block text-xs font-medium text-[var(--color-text-primary)] mb-1">
-                        invite code
-                      </label>
-                      <input
-                        type="text"
-                        value={addInviteCode()}
-                        onInput={(e) => setAddInviteCode(e.currentTarget.value)}
-                        placeholder="account-link code"
-                        class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
-                        disabled={addBusy()}
-                      />
-                    </div>
-                  </Show>
+                  <div>
+                    <label class="block text-xs font-medium text-[var(--color-text-primary)] mb-1">
+                      invite code
+                    </label>
+                    <input
+                      type="text"
+                      value={addInviteCode()}
+                      onInput={(e) => setAddInviteCode(e.currentTarget.value)}
+                      placeholder="auto-generated account-link code"
+                      class="w-full px-2 py-1.5 bg-[var(--color-bg-primary)] border border-[var(--color-border-default)] rounded text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-primary)]"
+                      disabled={addBusy()}
+                    />
+                  </div>
 
                   <div class="flex gap-2">
                     <button
@@ -648,16 +661,10 @@ export function UserProfileView() {
                     </button>
                     <button
                       class="flex-1 px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors disabled:opacity-50"
-                      onClick={() => void handleAddPasskey(addMode()!)}
+                      onClick={() => void handleAddPasskey()}
                       disabled={addBusy()}
                     >
-                      {addBusy()
-                        ? addMode() === "register"
-                          ? "registering..."
-                          : "signing in..."
-                        : addMode() === "register"
-                          ? "register passkey"
-                          : "sign in with passkey"}
+                      {addBusy() ? "registering..." : "register passkey"}
                     </button>
                   </div>
                 </div>

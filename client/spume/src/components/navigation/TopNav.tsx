@@ -553,6 +553,17 @@ export function TopNav(props: TopNavProps) {
       });
     }
 
+    // profile settings
+    if (auth?.loggedIn) {
+      actions.push({
+        label: "profile",
+        icon: "user",
+        onClick: () => {
+          props.onNavigate?.(`/settings/remotes/${remote.id}/profile`);
+        },
+      });
+    }
+
     // rename is only offered for "local library" remotes — the
     // charnel-managed (home-icon) row on android. user-added p2p/http
     // remotes keep their server-side name and are not renamed from here.
