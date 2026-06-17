@@ -21,7 +21,7 @@ use webauthn_rs::prelude::{
 
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 // ============================================================================
@@ -642,7 +642,7 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
 
         // update last_used_at for the credential that was used
         let _ = WebAuthnService::new()
-            .update_credential_last_used(&*auth_result.cred_id())
+            .update_credential_last_used(auth_result.cred_id())
             .await;
 
         uid
@@ -666,7 +666,7 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
 
         // update last_used_at for the credential that was used
         let _ = WebAuthnService::new()
-            .update_credential_last_used(&*auth_result.cred_id())
+            .update_credential_last_used(auth_result.cred_id())
             .await;
 
         uid

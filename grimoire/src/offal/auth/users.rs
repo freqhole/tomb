@@ -5,8 +5,7 @@ use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateUserRequest, InviteCodeType, RedeemInviteRequest, RevokeOwnInviteRequest,
-    SelfAccountLinkResponse, UpdateUserRequest, UpdateUsernameRequest, UserQueryParams,
+    CreateUserRequest, InviteCodeType, RedeemInviteRequest, RevokeOwnInviteRequest, UpdateUserRequest, UpdateUsernameRequest, UserQueryParams,
     UserService, WhoAmIResponse,
 };
 use crate::users::{UpdatePasskeyNameRequest, WebAuthnService};

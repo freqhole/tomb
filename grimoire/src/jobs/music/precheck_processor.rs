@@ -115,7 +115,7 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
                                 metadata_list.push(metadata);
                                 let n = metadata_list.len();
                                 // emit progress on the first item and every 5 after
-                                if n == 1 || n % 5 == 0 {
+                                if n == 1 || n.is_multiple_of(5) {
                                     job_events::emit_stage_from_job(
                                         job,
                                         "precheck_progress",

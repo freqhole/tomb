@@ -9,7 +9,7 @@ use super::models::{AlbumPendingResponse, PendingReviewAlbum, PendingReviewSessi
 /// record that a media blob is part of an import job session.
 /// uses INSERT OR IGNORE so re-processing is idempotent and dedup hits are silent.
 pub async fn insert_import_blob(media_blob_id: &str, session_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let pool = database::connect().await?;
     sqlx::query!(
         "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
         media_blob_id,
@@ -28,7 +28,7 @@ pub async fn list_pending_sessions(
     is_admin: bool,
     session_id_filter: Option<&str>,
 ) -> GrimoireResult<Vec<PendingReviewSession>> {
-    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let pool = database::connect().await?;
 
     let is_admin_flag = is_admin as i64;
     let sid_filter = session_id_filter;
@@ -139,7 +139,7 @@ async fn list_pending_albums_for_session(
 /// check if the given user uploaded at least one song in the album.
 /// used to authorise member-level edits.
 pub async fn is_uploader(album_id: &str, user_id: &str) -> GrimoireResult<bool> {
-    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let pool = database::connect().await?;
     let row = sqlx::query!(
         r#"
         SELECT COUNT(*) AS "count!: i64"
@@ -165,7 +165,7 @@ pub async fn mark_album_reviewed(
     session_id: &str,
     reviewed_by: &str,
 ) -> GrimoireResult<()> {
-    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let pool = database::connect().await?;
     sqlx::query!(
         r#"
         UPDATE import_blobz
@@ -198,7 +198,7 @@ pub async fn album_pending(
     user_id: &str,
     is_admin: bool,
 ) -> GrimoireResult<AlbumPendingResponse> {
-    let pool = database::connect().await.map_err(GrimoireError::from)?;
+    let pool = database::connect().await?;
     let is_admin_flag = is_admin as i64;
 
     let row = sqlx::query!(

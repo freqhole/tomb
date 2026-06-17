@@ -9,7 +9,6 @@
 
 use crate::config::get_config;
 use crate::database;
-use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -39,6 +38,12 @@ pub struct SaveChallengeArgs<'a> {
 /// repository for p2p webauthn challenge storage
 pub struct ChallengeStore;
 
+impl Default for ChallengeStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChallengeStore {
     pub fn new() -> Self {
         Self
@@ -56,8 +61,7 @@ impl ChallengeStore {
     /// save a challenge and return the generated nonce
     pub async fn save(&self, args: SaveChallengeArgs<'_>) -> Result<String, sqlx::Error> {
         let pool = database::connect().await.map_err(|e| {
-            sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            sqlx::Error::Io(std::io::Error::other(
                 e.to_string(),
             ))
         })?;
@@ -102,8 +106,7 @@ impl ChallengeStore {
         expected_kind: &str,
     ) -> Result<Option<ChallengeRow>, sqlx::Error> {
         let pool = database::connect().await.map_err(|e| {
-            sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            sqlx::Error::Io(std::io::Error::other(
                 e.to_string(),
             ))
         })?;
