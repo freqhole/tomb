@@ -2,12 +2,12 @@
 title: user roles
 description: permissions and access control in freqhole
 created: 2026-03-25T09:44:27-04:00
-updated: 2026-06-08T14:46:30-04:00
+updated: 2026-06-08T14:54:58-04:00
 author: "edward sharp"
 createdBy: "edwardsharp"
 createdSha: "2588f07"
 updatedBy: "edwardsharp"
-updatedSha: "d0a2360"
+updatedSha: "3f1c9aa"
 ---
 
 freqhole uses role-based access control to manage what users can do.
@@ -39,6 +39,7 @@ full control over the server.
 standard user with editing rights.
 
 - all viewer permissions, plus:
+- generate account-link codes for their own account
 - edit song/album/artist metadata
 - delete songs and albums
 - create and edit playlists
@@ -70,7 +71,7 @@ read-only access.
 | trigger scan                |  ✓   |   ✓   |   ✓    |   ✗    |
 | manage tags/genres          |  ✓   |   ✓   |   ✓    |   ✗    |
 | create users / invite codes |  ✓   |   ✓   |   ✗    |   ✗    |
-| generate account-link codes |  ✓   |   ✓   |   ✗    |   ✗    |
+| generate account-link codes |  ✓   |   ✓   |   ✓    |   ✓    |
 | approve knock requests      |  ✓   |   ✓   |   ✗    |   ✗    |
 | server maintenance          |  ✓   |   ✓   |   ✗    |   ✗    |
 

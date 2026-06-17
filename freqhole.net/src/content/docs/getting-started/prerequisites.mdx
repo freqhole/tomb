@@ -2,12 +2,12 @@
 title: prerequisites
 description: external tools freqhole needs — ffmpeg and yt-dlp
 created: 2026-03-25T09:44:27-04:00
-updated: 2026-06-08T14:46:30-04:00
+updated: 2026-06-08T14:54:58-04:00
 author: "edward sharp"
 createdBy: "edwardsharp"
 createdSha: "2588f07"
 updatedBy: "edwardsharp"
-updatedSha: "d0a2360"
+updatedSha: "3f1c9aa"
 ---
 
 freqhole can use [ffmpeg](https://ffmpeg.org/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp).
@@ -55,4 +55,7 @@ freqhole will find yt-dlp automatically if it's in your PATH or a common install
 ```toml
 [server.fetch_music]
 fetch_command = "/full/path/to/yt-dlp ..."
+precheck_command = "yt-dlp --print-json --no-download"
 ```
+
+`precheck_command` enables the add-music review step before the actual download starts. use a metadata-only yt-dlp command here so freqhole can show you what will be fetched first.
