@@ -12,7 +12,7 @@ import {
   AdminClient,
   type AdminTransport,
   type AdminResponse,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import type { Remote } from "../services/storage/schemas/remote";
 import { isP2PRemote } from "../services/storage/schemas/remote";
 import { isCharnelMode } from "../services/charnel";

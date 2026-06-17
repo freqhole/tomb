@@ -20,42 +20,42 @@ import {
   isNetworkError,
   type MiddenNodeLike,
   type Transport,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import { isCharnelMode } from "../services/charnel";
 // static import (not dynamic) so Rollup doesn't emit a live-binding chunk reference
 // that Safari JSC throws a TDZ error on before the chunk has evaluated
-import { MiddenNode } from "midden";
+import { MiddenNode } from "@freqhole/midden";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
 export { createHttpClient, isAuthError, isCharnelMode as isCharnelAvailable, isNetworkError };
 
 // client type (inferred from factory function)
-export type { FreqholeClient } from "freqhole-api-client";
+export type { FreqholeClient } from "@freqhole/api-client";
 
 // result type for api calls
-export type { SafeParseResult } from "freqhole-api-client";
+export type { SafeParseResult } from "@freqhole/api-client";
 
 // transport types (for future P2P transport)
-export type { BlobData, Transport, TransportResponse } from "freqhole-api-client";
+export type { BlobData, Transport, TransportResponse } from "@freqhole/api-client";
 
 // permission helpers
-export { permissions } from "freqhole-api-client";
+export { permissions } from "@freqhole/api-client";
 
 // webauthn helpers
-export { webauthn } from "freqhole-api-client";
+export { webauthn } from "@freqhole/api-client";
 
 // url/media helpers
-export { utils } from "freqhole-api-client";
+export { utils } from "@freqhole/api-client";
 
 // types re-exported for spume use
-export type { UserRoleName } from "freqhole-api-client";
+export type { UserRoleName } from "@freqhole/api-client";
 
 // API parameter type (used internally by data layer)
-export type { QueryParams as ApiQueryParams } from "freqhole-api-client";
+export type { QueryParams as ApiQueryParams } from "@freqhole/api-client";
 
 // type alias for client instance (convenience for typing)
-import type { createHttpClient as CreateHttpClientFn } from "freqhole-api-client";
+import type { createHttpClient as CreateHttpClientFn } from "@freqhole/api-client";
 export type ApiClient = ReturnType<typeof CreateHttpClientFn>;
 
 // re-export TransportType and Remote for consumers

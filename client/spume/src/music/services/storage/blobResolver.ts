@@ -8,7 +8,7 @@
 //   const url = await resolveBlobUrl(blobId, remoteId, "audio");
 //   <img src={url} /> or <audio src={url} />
 
-import { type BlobProgressCallback } from "freqhole-api-client";
+import { type BlobProgressCallback } from "@freqhole/api-client";
 import { createMemo, createSignal, type Accessor } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {

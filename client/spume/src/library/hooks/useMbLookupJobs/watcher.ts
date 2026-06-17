@@ -1,6 +1,6 @@
-import type { FreqholeClient } from "freqhole-api-client";
-import { JobEventsStreamClosed } from "freqhole-api-client";
-import type { EventFilter, JobEvent } from "freqhole-api-client";
+import type { FreqholeClient } from "@freqhole/api-client";
+import { JobEventsStreamClosed } from "@freqhole/api-client";
+import type { EventFilter, JobEvent } from "@freqhole/api-client";
 import { getClientForRemote } from "../../../app/api/client";
 import { queryClient } from "../../../queryClient";
 import { debug } from "../../../utils/logger";

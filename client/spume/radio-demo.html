@@ -173,7 +173,7 @@
 
     <script type="module">
       // dynamic import so vite handles wasm + bare specifier resolution
-      const { MiddenNode } = await import("midden");
+      const { MiddenNode } = await import("@freqhole/midden");
 
       const $ = (id) => document.getElementById(id);
       const logEl = $("log");

@@ -1,8 +1,16 @@
 # midden WASM build commands
 
-# LLVM paths (required for wasm32 target on macOS with Apple Silicon)
+# LLVM paths (homebrew on macOS; fall back to system toolchain elsewhere)
+LLVM_CC := clang
+LLVM_AR := llvm-ar
+
+ifneq (,$(wildcard /opt/homebrew/opt/llvm/bin/clang))
 LLVM_CC := /opt/homebrew/opt/llvm/bin/clang
+endif
+
+ifneq (,$(wildcard /opt/homebrew/opt/llvm/bin/llvm-ar))
 LLVM_AR := /opt/homebrew/opt/llvm/bin/llvm-ar
+endif
 
 # Build WASM (dev mode)
 .PHONY: build
@@ -14,6 +22,12 @@ build:
 .PHONY: build-release
 build-release:
 	CC=$(LLVM_CC) AR=$(LLVM_AR) wasm-pack build --release --weak-refs --reference-types -t bundler
+	rm -f pkg/.gitignore
+
+# Build WASM package for npm publish under @freqhole scope
+.PHONY: build-release-npm
+build-release-npm:
+	CC=$(LLVM_CC) AR=$(LLVM_AR) wasm-pack build --release --weak-refs --reference-types -t bundler --scope freqhole
 	rm -f pkg/.gitignore
 
 # Clean build artifacts

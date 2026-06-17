@@ -13,7 +13,7 @@
 //
 // added 2026-05-25 for phase 9 walk-expansion.
 
-import type { AlbumQueryResult } from "freqhole-api-client";
+import type { AlbumQueryResult } from "@freqhole/api-client";
 import type { AlbumSummary, ImageMetadata } from "../../../music/data/types";
 import type { AlbumNodeData } from "../../../components/graph/types";
 import { adaptAlbum, type AdaptAlbumOpts } from "./adaptAlbum";

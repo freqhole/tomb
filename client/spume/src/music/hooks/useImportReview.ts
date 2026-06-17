@@ -20,7 +20,7 @@ import { getRemoteMediaUrl } from "../../utils/urls";
 import { toast } from "../../components/feedback/Toast";
 import type { CurrentRemoteInfo } from "../data/currentState";
 import type { ImportReviewAlbum, ImportReviewSong } from "../../components/import/ImportGroupingView";
-import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "freqhole-api-client";
+import type { PatchAlbumReviewRequest, PendingReviewAlbum } from "@freqhole/api-client";
 
 // ----------------------------------------------------------------------------
 // helpers

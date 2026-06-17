@@ -108,7 +108,7 @@ import {
   DEFAULT_TUNING,
   type SimTuningValues,
 } from "../../../components/graph/SimTuningOverlay";
-import type { TaxonRef, TaxonKind as TaxonKindType } from "freqhole-api-client";
+import type { TaxonRef, TaxonKind as TaxonKindType } from "@freqhole/api-client";
 import { Icon } from "../../../components/icons/registry";
 
 // ---- public props -----------------------------------------------------------

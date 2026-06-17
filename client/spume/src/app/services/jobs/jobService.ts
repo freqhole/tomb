@@ -7,8 +7,8 @@
 // p2p remotes, tauri channel on charnel-managed remotes, http polling on http
 // remotes), so the polling-era batching has been removed.
 
-import type { JobEvent, JobStateSnapshot } from "freqhole-api-client";
-import { JobEventsStreamClosed } from "freqhole-api-client";
+import type { JobEvent, JobStateSnapshot } from "@freqhole/api-client";
+import { JobEventsStreamClosed } from "@freqhole/api-client";
 
 import { getClientForRemote, type RemoteRef } from "../../api/client";
 import { debug, warn, error as errorLog } from "../../../utils/logger";

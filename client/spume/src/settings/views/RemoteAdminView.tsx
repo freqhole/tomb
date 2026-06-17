@@ -24,7 +24,7 @@ import {
   type AdminUserSummary,
   type AdminInviteInfo,
   type AdminPeerSummary,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import { toast } from "../../components/feedback/Toast";
 import { CopyButton } from "../../components/buttons/CopyButton";
 import { DEFAULT_SHARE_WEB_HOST } from "../../utils/permalink";

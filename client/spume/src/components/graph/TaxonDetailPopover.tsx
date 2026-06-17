@@ -4,7 +4,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { Taxon, TaxonRef } from "freqhole-api-client";
+import type { Taxon, TaxonRef } from "@freqhole/api-client";
 import { GraphFilterInput } from "./GraphFilterInput";
 
 const MAX_DESCENDANTS = 8;

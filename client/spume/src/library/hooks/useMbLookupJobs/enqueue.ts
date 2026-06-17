@@ -1,4 +1,4 @@
-import type { FreqholeClient } from "freqhole-api-client";
+import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote } from "../../../app/api/client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 

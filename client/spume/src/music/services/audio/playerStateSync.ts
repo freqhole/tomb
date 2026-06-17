@@ -18,7 +18,7 @@
 // `volume` signal as part of `setPlayerVolume()` and forwards the
 // command to the active backend.
 
-import type { PlayerEvent } from "freqhole-api-client";
+import type { PlayerEvent } from "@freqhole/api-client";
 import type { PlayerBackend, Unsubscribe } from "./backend";
 import {
   setCurrentTime,

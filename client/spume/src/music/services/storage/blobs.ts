@@ -2,7 +2,7 @@
 // spume's debug logger is wired in at module load.
 
 import { debug } from "../../../utils/logger";
-import { setStorageLogger } from "freqhole-api-client/storage";
+import { setStorageLogger } from "@freqhole/api-client/storage";
 
 // wire spume's debug logger into the shared storage module
 setStorageLogger(debug);
@@ -19,4 +19,4 @@ export {
   clearBlobUrlCache,
   deleteBlob,
   closeBlobDB,
-} from "freqhole-api-client/storage";
+} from "@freqhole/api-client/storage";

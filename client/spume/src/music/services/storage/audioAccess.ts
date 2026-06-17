@@ -6,7 +6,7 @@ import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
 import { debug } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
-import type { BlobProgressCallback } from "freqhole-api-client";
+import type { BlobProgressCallback } from "@freqhole/api-client";
 
 // cache of active blob urls to prevent memory leaks
 // stores {url, remoteId, blobId} so we can properly cleanup from blobResolver too

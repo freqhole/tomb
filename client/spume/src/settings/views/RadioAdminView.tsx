@@ -37,7 +37,7 @@ import {
   type StationFilter,
   type RadioSeedSuggestion,
   type RadioConfigPayload,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import { toast } from "../../components/feedback/Toast";
 
 export function RadioAdminView() {

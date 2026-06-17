@@ -9,7 +9,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { permissions, type UserRoleName } from "@freqhole/api-client";
 import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import {
   getAuthInfo,

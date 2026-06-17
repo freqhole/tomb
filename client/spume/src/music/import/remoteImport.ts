@@ -1,7 +1,7 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
 import { createStore, produce } from "solid-js/store";
-import type { FreqholeClient } from "freqhole-api-client";
+import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";

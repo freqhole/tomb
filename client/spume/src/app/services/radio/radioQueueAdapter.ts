@@ -11,7 +11,7 @@
 // upcoming songs in the background so transitions are gapless.
 
 import { createEffect, createRoot, on } from "solid-js";
-import { schema, type PublicTimelineManifestItem } from "freqhole-api-client";
+import { schema, type PublicTimelineManifestItem } from "@freqhole/api-client";
 import { localDataSource } from "../../../music/data/local/localSource";
 import type { RemoteSong } from "../../../music/data/remote/adapters";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";

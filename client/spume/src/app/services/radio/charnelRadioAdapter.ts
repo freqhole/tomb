@@ -8,7 +8,7 @@
 // fans them out to the same `(on_hello, on_meta, on_chunk)` callbacks
 // midden invokes directly.
 
-import type { RadioHandleLike } from "freqhole-api-client";
+import type { RadioHandleLike } from "@freqhole/api-client";
 import { isCharnelMode } from "../../services/charnel";
 
 interface RadioChunkEvent {

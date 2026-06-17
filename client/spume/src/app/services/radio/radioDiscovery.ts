@@ -5,7 +5,7 @@
 import {
   type PublicStation,
   type RadioStationsResponse,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import { getClientForRemote, getLocalNodeIdAsync, isCharnelAvailable } from "../../api/client";
 import type { Remote, RemoteRef } from "../../api/client";
 import { isP2PRemote, isHttpRemote } from "../../services/storage/types";

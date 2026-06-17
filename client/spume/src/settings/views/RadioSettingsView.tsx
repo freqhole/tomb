@@ -16,7 +16,7 @@ import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
 import type { RemoteRef } from "../../app/api/client";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { isP2PRemote } from "../../app/services/storage/types";
-import type { PublicStation, RadioStationsResponse } from "freqhole-api-client";
+import type { PublicStation, RadioStationsResponse } from "@freqhole/api-client";
 import { debug } from "../../utils/logger";
 
 export function RadioSettingsView() {

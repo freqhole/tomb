@@ -9,8 +9,8 @@
 //   - radioState() → coarse status signal: 'idle' | 'connecting' | 'playing' | 'error'
 
 import { createSignal } from "solid-js";
-import { schema, type PublicNowPlaying } from "freqhole-api-client";
-import type { RadioHandleLike } from "freqhole-api-client";
+import { schema, type PublicNowPlaying } from "@freqhole/api-client";
+import type { RadioHandleLike } from "@freqhole/api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import {

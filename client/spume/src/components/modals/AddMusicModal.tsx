@@ -21,7 +21,7 @@ import { getLocalLibraryName } from "../../app/services/storage/db";
 import { getCurrentRemote } from "../../music/data";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
-import type { PreCheckFetchResponse, PendingReviewSession } from "freqhole-api-client";
+import type { PreCheckFetchResponse, PendingReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 
 // ---------------------------------------------------------------------------

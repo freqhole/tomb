@@ -9,7 +9,7 @@
 // to "unknown" rather than blocking the send.
 
 import { createResource, type Accessor } from "solid-js";
-import { schema } from "freqhole-api-client";
+import { schema } from "@freqhole/api-client";
 import { getTransportForRemote } from "../../../app/api/client";
 import { getSongBySha256 } from "../../services/storage/db/songs";
 import { debug } from "../../../utils/logger";

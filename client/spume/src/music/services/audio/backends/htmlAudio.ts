@@ -30,7 +30,7 @@ import type {
   PlayerCommand,
   PlayerEvent,
   PlayerSnapshot,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import {
   emptySnapshot,
   type BackendKind,

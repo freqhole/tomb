@@ -10,7 +10,7 @@ import { getAuthInfo } from "../../app/services/remotes/authStatusStore";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
 import { adminClientFor, getLocalAdminClient } from "../../app/api/adminClient";
 import { isP2PRemote, type Remote } from "../../app/services/storage/schemas/remote";
-import { AdminClient } from "freqhole-api-client";
+import { AdminClient } from "@freqhole/api-client";
 import { KnocksSection } from "./knocks/KnocksSection";
 
 interface AdminRemote {
