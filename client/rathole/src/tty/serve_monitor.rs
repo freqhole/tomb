@@ -29,16 +29,6 @@ pub enum ServeKind {
     P2p,
 }
 
-impl ServeKind {
-    fn arg(self) -> &'static str {
-        match self {
-            Self::Auto => "serve",
-            Self::Http => "http",
-            Self::P2p => "p2p",
-        }
-    }
-}
-
 /// snapshot of the monitor state, cheap to clone for the ui layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServeStatus {
