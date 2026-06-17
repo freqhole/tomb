@@ -665,9 +665,7 @@ impl UserService {
                     SelfAccountLinkResponse { code, expires_at },
                 )
             }
-            Err(err) => {
-                GrimoireResponse::failure("failed to create invite code", vec![err.into()])
-            }
+            Err(err) => GrimoireResponse::failure("failed to create invite code", vec![err.into()]),
         }
     }
 
@@ -680,12 +678,12 @@ impl UserService {
     }
 
     /// revoke one of the caller's own account-link invite codes
-    pub async fn revoke_own_invite_code(
-        &self,
-        code: &str,
-        user_id: &str,
-    ) -> GrimoireResponse<()> {
-        match self.repository.deactivate_own_invite_code(code, user_id).await {
+    pub async fn revoke_own_invite_code(&self, code: &str, user_id: &str) -> GrimoireResponse<()> {
+        match self
+            .repository
+            .deactivate_own_invite_code(code, user_id)
+            .await
+        {
             Ok(true) => GrimoireResponse::success("invite code revoked", ()),
             Ok(false) => GrimoireResponse::failure(
                 "not found",

@@ -49,6 +49,7 @@ pub async fn extract_metadata(
 
 /// extract metadata using flat-playlist mode (fast, no per-video page loads).
 /// used by the precheck job so the confirm screen appears quickly.
+#[allow(dead_code)]
 pub async fn extract_metadata_flat(
     url: &str,
     config: &GrimoireConfig,
@@ -60,7 +61,9 @@ fn run_precheck_command<'a>(
     url: &'a str,
     config: &'a GrimoireConfig,
     flat_playlist: bool,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<ContentMetadata>, String>> + Send + 'a>> {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<ContentMetadata>, String>> + Send + 'a>,
+> {
     Box::pin(async move {
         let fetch_config = config
             .server

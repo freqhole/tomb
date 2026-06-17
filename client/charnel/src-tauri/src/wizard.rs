@@ -176,7 +176,10 @@ pub async fn close_setup_wizard(
                             }
                         })
                     }
-                    grimoire::events::GrimoireEvent::DeviceLinked { peer_addr, server_name } => {
+                    grimoire::events::GrimoireEvent::DeviceLinked {
+                        peer_addr,
+                        server_name,
+                    } => {
                         serde_json::json!({
                             "type": "device-linked",
                             "data": {
@@ -185,7 +188,10 @@ pub async fn close_setup_wizard(
                             }
                         })
                     }
-                    grimoire::events::GrimoireEvent::KnockAccepted { peer_addr, server_name } => {
+                    grimoire::events::GrimoireEvent::KnockAccepted {
+                        peer_addr,
+                        server_name,
+                    } => {
                         serde_json::json!({
                             "type": "knock-accepted",
                             "data": {

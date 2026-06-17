@@ -5,8 +5,8 @@ use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::{
-    CreateUserRequest, InviteCodeType, RedeemInviteRequest, RevokeOwnInviteRequest, UpdateUserRequest, UpdateUsernameRequest, UserQueryParams,
-    UserService, WhoAmIResponse,
+    CreateUserRequest, InviteCodeType, RedeemInviteRequest, RevokeOwnInviteRequest,
+    UpdateUserRequest, UpdateUsernameRequest, UserQueryParams, UserService, WhoAmIResponse,
 };
 use crate::users::{UpdatePasskeyNameRequest, WebAuthnService};
 use serde::Deserialize;
@@ -684,13 +684,19 @@ pub async fn update_username(caller: &Caller, body: JsonValue) -> GrimoireRespon
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };
 
     let service = UserService::new();
-    let response = service.update_username(&caller.user_id, &req.username).await;
+    let response = service
+        .update_username(&caller.user_id, &req.username)
+        .await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
@@ -737,13 +743,19 @@ pub async fn revoke_own_invite(caller: &Caller, body: JsonValue) -> GrimoireResp
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };
 
     let service = UserService::new();
-    let response = service.revoke_own_invite_code(&req.code, &caller.user_id).await;
+    let response = service
+        .revoke_own_invite_code(&req.code, &caller.user_id)
+        .await;
     response.map(|_| JsonValue::Null)
 }
 
@@ -756,7 +768,11 @@ pub async fn update_passkey_name(caller: &Caller, body: JsonValue) -> GrimoireRe
         Err(e) => {
             return GrimoireResponse::failure(
                 "bad request",
-                vec![ErrorDetail::new("bad_request", "bad request", e.to_string())],
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
             )
         }
     };

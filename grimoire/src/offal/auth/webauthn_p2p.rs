@@ -61,7 +61,8 @@ struct P2pLoginStartRequest {
     /// browser origin (window.location.origin) - used to derive rp_id
     origin: String,
     /// injected by p2p handler
-    node_id: Option<String>,
+    #[serde(rename = "node_id")]
+    _node_id: Option<String>,
 }
 
 /// finish login over p2p

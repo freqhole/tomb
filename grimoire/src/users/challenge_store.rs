@@ -60,11 +60,9 @@ impl ChallengeStore {
 
     /// save a challenge and return the generated nonce
     pub async fn save(&self, args: SaveChallengeArgs<'_>) -> Result<String, sqlx::Error> {
-        let pool = database::connect().await.map_err(|e| {
-            sqlx::Error::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        let pool = database::connect()
+            .await
+            .map_err(|e| sqlx::Error::Io(std::io::Error::other(e.to_string())))?;
 
         let nonce = Uuid::new_v4().to_string();
         let now = OffsetDateTime::now_utc().unix_timestamp();
@@ -105,11 +103,9 @@ impl ChallengeStore {
         nonce: &str,
         expected_kind: &str,
     ) -> Result<Option<ChallengeRow>, sqlx::Error> {
-        let pool = database::connect().await.map_err(|e| {
-            sqlx::Error::Io(std::io::Error::other(
-                e.to_string(),
-            ))
-        })?;
+        let pool = database::connect()
+            .await
+            .map_err(|e| sqlx::Error::Io(std::io::Error::other(e.to_string())))?;
 
         let now = OffsetDateTime::now_utc().unix_timestamp();
 

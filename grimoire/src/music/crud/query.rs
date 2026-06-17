@@ -1131,11 +1131,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
                AND ib.reviewed_at IS NULL)"
                 .to_string()
         } else {
-            let uid = params
-                .user_id
-                .as_deref()
-                .unwrap_or("")
-                .replace('\'', "''");
+            let uid = params.user_id.as_deref().unwrap_or("").replace('\'', "''");
             format!(
                 "EXISTS (SELECT 1 FROM import_blobz ib \
                  JOIN media_blobz mb ON mb.id = ib.media_blob_id \
@@ -1194,11 +1190,7 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
                AND ib.reviewed_at IS NULL)"
                 .to_string()
         } else {
-            let uid = params
-                .user_id
-                .as_deref()
-                .unwrap_or("")
-                .replace('\'', "''");
+            let uid = params.user_id.as_deref().unwrap_or("").replace('\'', "''");
             format!(
                 "EXISTS (SELECT 1 FROM import_blobz ib \
                  JOIN media_blobz mb ON mb.id = ib.media_blob_id \
@@ -1725,6 +1717,8 @@ mod tests {
             favorites_only: None,
             min_rating: None,
             mb_lookup_status: None,
+            pending_review: None,
+            caller_is_admin: None,
         };
         let mut q = Query::select();
         q.column(sea_query::Asterisk).from(AlbumView::Table);
