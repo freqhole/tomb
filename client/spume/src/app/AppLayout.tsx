@@ -626,12 +626,13 @@ export function AppLayout(props: AppLayoutProps) {
       if (songInQueue) {
         setCurrentSongData(songInQueue);
       } else if (state.queue.length > 0) {
-        // queue exists but song not in it - hide the player bar visually.
-        // do NOT write setCurrentSong(null) here: that async IDB write races
-        // with playSong() when the queue is being rebuilt for a new track
-        // (setQueue fires first, then playSong sets current_sha256), and the
-        // null write can land after playSong's write, wiping out the new song.
-        setCurrentSongData(null);
+        // sha256 is set but not yet in the queue. this is a brief transitional
+        // window while the queue is being rebuilt for a new track (setQueue
+        // fires first, then playSong sets current_sha256). holding the previous
+        // song data keeps the player bar showing something instead of flashing
+        // "no song playing". the next appState tick (when current_sha256 lands
+        // and the song IS in the queue) will update it correctly.
+        // intentionally not calling setCurrentSongData(null) here.
       } else {
         // queue is empty - try fetching the song directly (page-reload case
         // where the queue hasn't been rehydrated yet).
@@ -1516,19 +1517,41 @@ export function AppLayout(props: AppLayoutProps) {
               };
             }
             const cs = currentSongData();
-            if (!cs) return undefined;
+            if (cs) {
+              return {
+                id: cs.id,
+                sha256: cs.sha256,
+                title: cs.title,
+                artist:
+                  cs.album_type === "compilation" && cs.track_artist?.trim()
+                    ? cs.track_artist
+                    : cs.artist_name,
+                album: cs.album_title,
+                images: cs.images,
+                album_images: cs.album_images,
+                isFavorite: cs.is_favorite || false,
+              };
+            }
+            // fall back to appState directly so the bar never flashes "no
+            // song playing" during the brief window between appState loading
+            // from IDB and the createEffect updating currentSongData.
+            const state = appState();
+            const sha256 = state?.current_sha256;
+            if (!sha256) return undefined;
+            const queueSong = state?.queue.find((s) => s.sha256 === sha256);
+            if (!queueSong) return undefined;
             return {
-              id: cs.id,
-              sha256: cs.sha256,
-              title: cs.title,
+              id: queueSong.id,
+              sha256: queueSong.sha256,
+              title: queueSong.title,
               artist:
-                cs.album_type === "compilation" && cs.track_artist?.trim()
-                  ? cs.track_artist
-                  : cs.artist_name,
-              album: cs.album_title,
-              images: cs.images,
-              album_images: cs.album_images,
-              isFavorite: cs.is_favorite || false,
+                queueSong.album_type === "compilation" && queueSong.track_artist?.trim()
+                  ? queueSong.track_artist
+                  : queueSong.artist_name,
+              album: queueSong.album_title,
+              images: queueSong.images,
+              album_images: queueSong.album_images,
+              isFavorite: queueSong.is_favorite || false,
             };
           };
 
