@@ -16,6 +16,14 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServeLaunchMode {
+    /// launch a dedicated server binary that reads mode from config.
+    ServerBinary,
+    /// launch a cli-capable binary and pass `serve`/`http`/`p2p`.
+    CliBinary,
+}
+
 /// which serve mode a subprocess was launched with. lines up with
 /// `server::ServeMode` but we keep our own copy so this module
 /// stays decoupled from the server crate.
@@ -27,6 +35,16 @@ pub enum ServeKind {
     Http,
     /// `freqhole p2p` — p2p only
     P2p,
+}
+
+impl ServeKind {
+    fn arg(self) -> &'static str {
+        match self {
+            Self::Auto => "serve",
+            Self::Http => "http",
+            Self::P2p => "p2p",
+        }
+    }
 }
 
 /// snapshot of the monitor state, cheap to clone for the ui layer.
@@ -68,6 +86,8 @@ pub struct ServeMonitor {
     /// path to the freqhole binary to invoke. usually
     /// `std::env::current_exe()` but configurable for tests.
     binary: PathBuf,
+    /// how to invoke `binary`.
+    launch_mode: ServeLaunchMode,
     /// optional path to the config file passed to the child via
     /// `--config <path>`. mirrors the user's tui invocation so the
     /// child operates on the same db.
@@ -77,9 +97,14 @@ pub struct ServeMonitor {
 }
 
 impl ServeMonitor {
-    pub fn new(binary: PathBuf, config_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        binary: PathBuf,
+        launch_mode: ServeLaunchMode,
+        config_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             binary,
+            launch_mode,
             config_path,
             child: None,
             snapshot: Arc::new(Mutex::new(ServeStatus::Stopped)),
@@ -117,11 +142,15 @@ impl ServeMonitor {
         }
 
         let mut cmd = Command::new(&self.binary);
-        // the server binary uses `--config <path>` (not a positional subcommand).
-        // kind is recorded for ui labels; the server itself determines which
-        // modes are active from the config (server.enabled + federation.enabled).
+        // all launch modes accept `--config <path>` globally.
         if let Some(cfg) = &self.config_path {
             cmd.arg("--config").arg(cfg);
+        }
+        // dedicated `server` binary reads mode from config.
+        // cli binaries (`freqhole`, charnel passthrough) need an explicit
+        // subcommand so `/serve-http` and `/serve-p2p` map correctly.
+        if self.launch_mode == ServeLaunchMode::CliBinary {
+            cmd.arg(kind.arg());
         }
         // detach stdio so the child's logs don't smear the tui.
         // server logs still go to its configured log_file.
