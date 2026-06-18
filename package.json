@@ -1,6 +1,6 @@
 {
     "name": "freqhole-release",
-    "version": "0.1.29",
+    "version": "0.1.30",
     "private": true,
     "description": "release coordination (changesets + version sync) for freqhole. not published.",
     "type": "module",
