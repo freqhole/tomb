@@ -48,7 +48,9 @@ fn is_cli_capable_binary(path: &std::path::Path) -> bool {
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
-    stem == "freqhole" || stem == "charnel"
+    // "rathole" covers the cli-crate binary which has serve/http/p2p subcommands.
+    // "freqhole" and "charnel" are the full cli and tauri passthroughs.
+    matches!(stem.as_str(), "freqhole" | "charnel" | "rathole")
 }
 
 fn find_in_path(name: &str) -> Option<std::path::PathBuf> {
