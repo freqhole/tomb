@@ -48,7 +48,10 @@ pub(in crate::admin_dispatch) async fn validate_path(
     )
 }
 
-pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse<JsonValue> {
+pub(in crate::admin_dispatch) async fn scan(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
     let raw_path = match require_str(&args, "path") {
         Ok(v) => v,
         Err(r) => return r,
@@ -100,7 +103,7 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
             let req = crate::jobs::CreateJobSessionRequest {
                 job_type: crate::jobs::JobType::ProcessFile,
                 batch_size: None,
-                created_by: Some("admin-dispatch-scan".to_string()),
+                created_by: Some(caller.user_id.clone()),
             };
             let sess = crate::jobs::create_job_session(req).await;
             match sess.data {
@@ -113,12 +116,8 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
     };
 
     if !tags.is_empty() {
-        let _ = crate::jobs::add_directory_tags(
-            &path,
-            tags.clone(),
-            Some("admin-dispatch-scan".to_string()),
-        )
-        .await;
+        let _ = crate::jobs::add_directory_tags(&path, tags.clone(), Some(caller.user_id.clone()))
+            .await;
     }
 
     let resp = crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await;
@@ -135,7 +134,7 @@ pub(in crate::admin_dispatch) async fn scan(args: JsonValue) -> GrimoireResponse
             total: count as i64,
             topic: crate::jobs::JobType::ScanDirectory,
             entity_ref: None,
-            created_by: None,
+            created_by: Some(caller.user_id.clone()),
             details: Some(serde_json::json!({
                 "directory": path.clone(),
                 "songs_added": 0,

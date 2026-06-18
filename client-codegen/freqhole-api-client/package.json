@@ -1,8 +1,11 @@
 {
-  "name": "freqhole-api-client",
+  "name": "@freqhole/api-client",
   "version": "0.1.30",
   "type": "module",
   "main": "./src/index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./storage": "./src/storage/index.ts",

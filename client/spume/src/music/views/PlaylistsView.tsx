@@ -208,9 +208,14 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // save selected playlist to history state when it changes
   createEffect(() => {
     const playlistId = selectedPlaylistId();
-    if (playlistId && typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
       const currentState = window.history.state || {};
-      window.history.replaceState({ ...currentState, selectedPlaylistId: playlistId }, "");
+      if (playlistId) {
+        window.history.replaceState({ ...currentState, selectedPlaylistId: playlistId }, "");
+      } else {
+        const { selectedPlaylistId: _ignored, ...rest } = currentState;
+        window.history.replaceState(rest, "");
+      }
     }
   });
 
@@ -881,11 +886,26 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
-  const handlePlaylistDeleted = () => {
-    // clear selection and navigate back to list
-    setSelectedPlaylistId(null);
+  const handlePlaylistDeleted = (deletedPlaylistId: string) => {
+    const all = playlists();
+    const remaining = all.filter((p) => p.playlist_id !== deletedPlaylistId);
+
+    // no playlists left: clear selection and show empty state
+    if (remaining.length === 0) {
+      setSelectedPlaylistId(null);
+      const prefix = getRoutePrefix();
+      navigate(`${prefix}/playlists`, { replace: true });
+      return;
+    }
+
+    // pick the next playlist by preserving list position where possible
+    const deletedIndex = all.findIndex((p) => p.playlist_id === deletedPlaylistId);
+    const nextIndex = deletedIndex >= 0 ? Math.min(deletedIndex, remaining.length - 1) : 0;
+    const fallback = remaining[Math.max(0, nextIndex)];
+
+    setSelectedPlaylistId(fallback.playlist_id);
     const prefix = getRoutePrefix();
-    navigate(`${prefix}/playlists`, { replace: true });
+    navigate(`${prefix}/playlists/${fallback.playlist_id}`, { replace: true });
   };
 
   const handlePlaylistEditCancelled = () => {

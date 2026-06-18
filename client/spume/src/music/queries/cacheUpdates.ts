@@ -119,7 +119,7 @@ export function updateSongInCache(
     limit: number;
     has_more: boolean;
   }>({
-    queryKey: ["genre", "songs"], // queryKeys.genres.songs() needs genreId
+    queryKey: ["genre", "songs"], 
     exact: false,
   });
 

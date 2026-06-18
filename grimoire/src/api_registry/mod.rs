@@ -120,16 +120,21 @@ pub mod type_registry {
 
     // auth types
     use crate::users::{
-        ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest, WhoAmIResponse,
+        ApiKeyRegenerateResponse, ApiKeyStatusResponse, RedeemInviteRequest,
+        RevokeOwnInviteRequest, SelfAccountLinkResponse, UpdateUsernameRequest, WhoAmIResponse,
     };
 
     // webauthn types
     use crate::users::{
-        RegisterStartRequest, SetFavoriteRequest, SetRatingRequest, StartLoginRequest,
+        DeletePasskeyRequest, LinkNodeRequest, PasskeyCredentialSummary, RegisterStartRequest,
+        SetFavoriteRequest, SetRatingRequest, StartLoginRequest, UpdatePasskeyNameRequest,
     };
 
     // health types
     use crate::health::{EmptyResponse, HealthResponse, ServerInfoResponse};
+
+    // federation types
+    use crate::federation::knock::{DeviceLinkedCallbackRequest, KnockAcceptedCallbackRequest};
 
     // music types
     use crate::media_blobz::{
@@ -175,6 +180,11 @@ pub mod type_registry {
         ProposeRelatedArtistsResponse, RelatedArtistProposal, UpdateArtistMetadataRequest,
         UpdateArtistMetadataResponse, UpdateArtistRequest,
     };
+    use crate::music::entities::import_review::models::{
+        AlbumPendingRequest, AlbumPendingResponse, ImportReviewOk, ListPendingReviewRequest,
+        MarkAlbumReviewedRequest, MergeAlbumsReviewRequest, MoveSongReviewRequest,
+        PatchAlbumReviewRequest, PendingReviewAlbum, PendingReviewSession, SongReviewPatch,
+    };
     use crate::music::entities::playlists::{
         AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest,
         GetPlaylistRequest, Playlist, RemovePlaylistThumbnailRequest,
@@ -195,7 +205,10 @@ pub mod type_registry {
         SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind, TaxonParentEdge,
         TaxonRef, TaxonWithStats, TaxonsQueryResult,
     };
-    use crate::music::fetch::{FetchMediaParams, FetchMediaResult};
+    use crate::music::fetch::{
+        ContentMetadata, FetchMediaParams, FetchMediaResult, PreCheckFetchParams,
+        PreCheckFetchResponse,
+    };
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
         MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
@@ -222,8 +235,8 @@ pub mod type_registry {
 
     // jobs types
     use crate::jobs::{
-        CreateJobRequest, GetJobRequest, GetJobsStatusRequest, GetJobsStatusResponse, JobResponse,
-        ListJobsRequest,
+        CancelJobRequest, CreateJobRequest, GetJobRequest, GetJobsStatusRequest,
+        GetJobsStatusResponse, JobResponse, ListJobsRequest,
     };
 
     // error types
@@ -356,6 +369,12 @@ pub mod type_registry {
         gen.add_schema::<ServerInfoResponse>("ServerInfoResponse");
         registered.insert("ServerInfoResponse".to_string());
 
+        // p2p callback request types
+        gen.add_schema::<DeviceLinkedCallbackRequest>("DeviceLinkedCallbackRequest");
+        registered.insert("DeviceLinkedCallbackRequest".to_string());
+        gen.add_schema::<KnockAcceptedCallbackRequest>("KnockAcceptedCallbackRequest");
+        registered.insert("KnockAcceptedCallbackRequest".to_string());
+
         // radio discovery types
         gen.add_schema::<PublicNowPlaying>("PublicNowPlaying");
         registered.insert("PublicNowPlaying".to_string());
@@ -391,6 +410,27 @@ pub mod type_registry {
 
         gen.add_schema::<StartLoginRequest>("StartLoginRequest");
         registered.insert("StartLoginRequest".to_string());
+
+        gen.add_schema::<PasskeyCredentialSummary>("PasskeyCredentialSummary");
+        registered.insert("PasskeyCredentialSummary".to_string());
+
+        gen.add_schema::<DeletePasskeyRequest>("DeletePasskeyRequest");
+        registered.insert("DeletePasskeyRequest".to_string());
+
+        gen.add_schema::<LinkNodeRequest>("LinkNodeRequest");
+        registered.insert("LinkNodeRequest".to_string());
+
+        gen.add_schema::<UpdateUsernameRequest>("UpdateUsernameRequest");
+        registered.insert("UpdateUsernameRequest".to_string());
+
+        gen.add_schema::<RevokeOwnInviteRequest>("RevokeOwnInviteRequest");
+        registered.insert("RevokeOwnInviteRequest".to_string());
+
+        gen.add_schema::<SelfAccountLinkResponse>("SelfAccountLinkResponse");
+        registered.insert("SelfAccountLinkResponse".to_string());
+
+        gen.add_schema::<UpdatePasskeyNameRequest>("UpdatePasskeyNameRequest");
+        registered.insert("UpdatePasskeyNameRequest".to_string());
 
         // music types
         gen.add_schema::<QueryParams>("QueryParams");
@@ -529,6 +569,9 @@ pub mod type_registry {
 
         gen.add_schema::<GetJobsStatusRequest>("GetJobsStatusRequest");
         registered.insert("GetJobsStatusRequest".to_string());
+
+        gen.add_schema::<CancelJobRequest>("CancelJobRequest");
+        registered.insert("CancelJobRequest".to_string());
 
         gen.add_schema::<GetJobsStatusResponse>("GetJobsStatusResponse");
         registered.insert("GetJobsStatusResponse".to_string());
@@ -695,6 +738,15 @@ pub mod type_registry {
 
         gen.add_schema::<FetchMediaResult>("FetchMediaResult");
         registered.insert("FetchMediaResult".to_string());
+
+        gen.add_schema::<ContentMetadata>("ContentMetadata");
+        registered.insert("ContentMetadata".to_string());
+
+        gen.add_schema::<PreCheckFetchParams>("PreCheckFetchParams");
+        registered.insert("PreCheckFetchParams".to_string());
+
+        gen.add_schema::<PreCheckFetchResponse>("PreCheckFetchResponse");
+        registered.insert("PreCheckFetchResponse".to_string());
 
         // jobs types
         gen.add_schema::<CreateJobRequest>("CreateJobRequest");
@@ -1414,5 +1466,29 @@ pub mod type_registry {
         registered.insert("SyncAlbumRequest".to_string());
         gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
         registered.insert("SyncAlbumResponse".to_string());
+
+        // import review types
+        gen.add_schema::<ListPendingReviewRequest>("ListPendingReviewRequest");
+        registered.insert("ListPendingReviewRequest".to_string());
+        gen.add_schema::<PendingReviewAlbum>("PendingReviewAlbum");
+        registered.insert("PendingReviewAlbum".to_string());
+        gen.add_schema::<PendingReviewSession>("PendingReviewSession");
+        registered.insert("PendingReviewSession".to_string());
+        gen.add_schema::<MarkAlbumReviewedRequest>("MarkAlbumReviewedRequest");
+        registered.insert("MarkAlbumReviewedRequest".to_string());
+        gen.add_schema::<SongReviewPatch>("SongReviewPatch");
+        registered.insert("SongReviewPatch".to_string());
+        gen.add_schema::<PatchAlbumReviewRequest>("PatchAlbumReviewRequest");
+        registered.insert("PatchAlbumReviewRequest".to_string());
+        gen.add_schema::<MergeAlbumsReviewRequest>("MergeAlbumsReviewRequest");
+        registered.insert("MergeAlbumsReviewRequest".to_string());
+        gen.add_schema::<MoveSongReviewRequest>("MoveSongReviewRequest");
+        registered.insert("MoveSongReviewRequest".to_string());
+        gen.add_schema::<ImportReviewOk>("ImportReviewOk");
+        registered.insert("ImportReviewOk".to_string());
+        gen.add_schema::<AlbumPendingRequest>("AlbumPendingRequest");
+        registered.insert("AlbumPendingRequest".to_string());
+        gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
+        registered.insert("AlbumPendingResponse".to_string());
     }
 }

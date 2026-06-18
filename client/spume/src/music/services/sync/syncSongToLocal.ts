@@ -32,7 +32,7 @@ import {
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
-import type { Transport } from "freqhole-api-client";
+import type { Transport } from "@freqhole/api-client";
 
 // shape sent to /api/sync/song-by-blake3 for each image. matches grimoire
 // `SyncImageRef`. `data_base64` is the inline-bytes path (preferred when

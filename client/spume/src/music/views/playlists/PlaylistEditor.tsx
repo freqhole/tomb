@@ -17,7 +17,7 @@ import { EntityUrlz, type EntityUrlFormItem } from "../../../components/forms/En
 export interface PlaylistEditorProps {
   playlist: Playlist;
   onSaved?: () => void;
-  onDeleted?: () => void;
+  onDeleted?: (deletedPlaylistId: string) => void;
   onCancelled?: () => void;
 }
 
@@ -236,7 +236,6 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   const handleDelete = async () => {
     const remote = getCurrentRemote();
     const playlistId = props.playlist?.playlist_id;
-    const playlistTitle = props.playlist?.title;
     if (!playlistId) return;
 
     setIsDeleting(true);
@@ -254,11 +253,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         await queryClient.invalidateQueries({ queryKey: ["playlists"] });
       }
 
-      toast.success(`deleted "${playlistTitle}"`, {
-        title: "playlist deleted",
-      });
-
-      props.onDeleted?.();
+      props.onDeleted?.(playlistId);
     } catch (error) {
       console.error("failed to delete playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to delete playlist", {

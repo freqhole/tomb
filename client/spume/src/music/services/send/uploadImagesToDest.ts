@@ -13,7 +13,7 @@
 //
 // per-image errors are logged and skipped; they never fail the send.
 
-import type { Transport } from "freqhole-api-client";
+import type { Transport } from "@freqhole/api-client";
 import type { ImageMetadata } from "../storage/types";
 import { debug, info, warn } from "../../../utils/logger";
 import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";

@@ -79,11 +79,46 @@ async fn run_inner(
     // the dev build) and forwards the same --config path so both
     // processes see the same db / log file. failures here are
     // non-fatal: monitor just won't be able to spawn anything.
+    //
+    // look for a sibling `server` binary in the same directory as current_exe.
+    // `cargo run -p rathole` puts rathole in target/debug alongside `server`.
+    // the server binary accepts `--config <path>` and runs all enabled modes
+    // from the config (http + p2p based on [server].enabled / [federation].enabled).
+    // if `server` is not found next to the current binary, skip autostart rather
+    // than accidentally spawn ourselves (rathole has no serve subcommands and
+    // would panic trying to init a second TUI with stdin closed).
     let mut serve_monitor = match std::env::current_exe() {
-        Ok(bin) => Some(super::serve_monitor::ServeMonitor::new(
-            bin,
-            opts.config.clone(),
-        )),
+        Ok(bin) => {
+            let server_bin = bin.parent().and_then(|dir| {
+                let p = dir.join("server");
+                if p.exists() {
+                    Some(p)
+                } else {
+                    None
+                }
+            });
+            match server_bin {
+                Some(server_bin) => {
+                    tracing::info!(
+                        "rathole: serve monitor using server binary at {}",
+                        server_bin.display()
+                    );
+                    Some(super::serve_monitor::ServeMonitor::new(
+                        server_bin,
+                        opts.config.clone(),
+                    ))
+                }
+                None => {
+                    tracing::warn!(
+                        "rathole: no `server` binary found next to {} - \
+                         run `cargo build -p server` first, then restart rathole. \
+                         /serve commands will be unavailable.",
+                        bin.display()
+                    );
+                    None
+                }
+            }
+        }
         Err(e) => {
             tracing::warn!("rathole: current_exe failed ({e}); /serve disabled");
             None
@@ -155,6 +190,20 @@ async fn run_inner(
                             grimoire::events::GrimoireEvent::KnockProcessed { id, .. } => {
                                 AppAction::KnockProcessed { id }
                             }
+                            grimoire::events::GrimoireEvent::DeviceLinked {
+                                peer_addr,
+                                server_name,
+                            } => AppAction::DeviceLinked {
+                                peer_addr: peer_addr.clone(),
+                                server_name: server_name.clone(),
+                            },
+                            grimoire::events::GrimoireEvent::KnockAccepted {
+                                peer_addr,
+                                server_name,
+                            } => AppAction::KnockAccepted {
+                                peer_addr: peer_addr.clone(),
+                                server_name: server_name.clone(),
+                            },
                         };
                         if tx.send(action).is_err() {
                             break;
@@ -1079,6 +1128,29 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             if app.state.ephemeral.pending_knocks != 1 {
                 app.state.ephemeral.pending_knock_username = None;
             }
+        }
+        AppAction::DeviceLinked {
+            peer_addr,
+            server_name,
+        } => {
+            // passkey browser flow completed - remote server registered our node_id.
+            // save the remote so it's available on next connect.
+            persist_peer_addr(peer_addr.clone());
+            app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                "linked to {server_name} ({}) - remote saved",
+                &peer_addr[..peer_addr.len().min(16)],
+            )));
+        }
+        AppAction::KnockAccepted {
+            peer_addr,
+            server_name,
+        } => {
+            // knock request was accepted - save the remote and notify.
+            persist_peer_addr(peer_addr.clone());
+            app.state.ephemeral.repl.status = Some(ReplStatus::ok(format!(
+                "knock accepted by {server_name} ({}) - remote saved",
+                &peer_addr[..peer_addr.len().min(16)],
+            )));
         }
         AppAction::PendingKnocksSynced { count, username } => {
             app.state.ephemeral.pending_knocks = count;
@@ -3783,6 +3855,48 @@ fn on_remote_list_key_tty(
             app.state.ephemeral.peer_cursor = 0;
             app.state.ephemeral.peer_error = None;
             app.state.ephemeral.focus = Focus::PeerInput;
+        }
+        KeyCode::Char('l') => {
+            // generate a spume connect link for this server. copies to
+            // clipboard and tries to open in the default browser.
+            use base64::Engine as _;
+            match grimoire::federation::p2p_client::get_node_id() {
+                Err(e) => {
+                    app.state.ephemeral.repl.status =
+                        Some(ReplStatus::err(format!("link: p2p not ready: {e}")));
+                }
+                Ok(node_id) => {
+                    let config = grimoire::config::get_config();
+                    let name = config
+                        .server
+                        .as_ref()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("freqhole")
+                        .to_string();
+                    // include our own node_id as link_node_id so the browser
+                    // can call link_node and trigger the device-linked event
+                    // back to us after auth completes.
+                    let payload = serde_json::json!({
+                        "peer_addr": node_id,
+                        "name": name,
+                        "description": null,
+                        "link_node_id": node_id,
+                    });
+                    let encoded = base64::engine::general_purpose::STANDARD
+                        .encode(payload.to_string().as_bytes());
+                    let url = format!("https://spume.freqhole.net/?link={encoded}");
+                    let copied = arboard::Clipboard::new()
+                        .and_then(|mut cb| cb.set_text(url.clone()))
+                        .is_ok();
+                    let _ = open::that(&url);
+                    let msg = if copied {
+                        format!("link copied to clipboard: {url}")
+                    } else {
+                        format!("link (clipboard unavailable): {url}")
+                    };
+                    app.state.ephemeral.repl.status = Some(ReplStatus::ok(msg));
+                }
+            }
         }
         KeyCode::Char('d') => {
             let cursor = app.state.ephemeral.remotes_view_cursor;

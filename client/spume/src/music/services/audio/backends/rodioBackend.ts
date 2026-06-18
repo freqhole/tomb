@@ -14,7 +14,7 @@ import type {
   PlayerCommand,
   PlayerEvent,
   PlayerSnapshot,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import {
   BackendPlaybackError,
   emptySnapshot,

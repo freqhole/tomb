@@ -100,6 +100,91 @@ export function createAuthMethods(call: CallFn) {
         params,
       );
     },
+
+    listPasskeys: () => {
+      return call(
+        "auth", "list_passkeys",
+        routes.auth.list_passkeys.resp,
+        routes.auth.list_passkeys.req,
+        routes.auth.list_passkeys.method,
+        routes.auth.list_passkeys.path,
+      );
+    },
+
+    deletePasskey: (params: s.DeletePasskeyRequest) => {
+      return call(
+        "auth", "delete_passkey",
+        routes.auth.delete_passkey.resp,
+        routes.auth.delete_passkey.req,
+        routes.auth.delete_passkey.method,
+        routes.auth.delete_passkey.path,
+        params,
+      );
+    },
+
+    linkNode: (params: s.LinkNodeRequest) => {
+      return call(
+        "auth", "link_node",
+        routes.auth.link_node.resp,
+        routes.auth.link_node.req,
+        routes.auth.link_node.method,
+        routes.auth.link_node.path,
+        params,
+      );
+    },
+
+    updateUsername: (params: s.UpdateUsernameRequest) => {
+      return call(
+        "auth", "update_username",
+        routes.auth.update_username.resp,
+        routes.auth.update_username.req,
+        routes.auth.update_username.method,
+        routes.auth.update_username.path,
+        params,
+      );
+    },
+
+    generateSelfAccountLink: () => {
+      return call(
+        "auth", "generate_self_account_link",
+        routes.auth.generate_self_account_link.resp,
+        routes.auth.generate_self_account_link.req,
+        routes.auth.generate_self_account_link.method,
+        routes.auth.generate_self_account_link.path,
+      );
+    },
+
+    listOwnInvites: () => {
+      return call(
+        "auth", "list_own_invites",
+        routes.auth.list_own_invites.resp,
+        routes.auth.list_own_invites.req,
+        routes.auth.list_own_invites.method,
+        routes.auth.list_own_invites.path,
+      );
+    },
+
+    revokeOwnInvite: (params: s.RevokeOwnInviteRequest) => {
+      return call(
+        "auth", "revoke_own_invite",
+        routes.auth.revoke_own_invite.resp,
+        routes.auth.revoke_own_invite.req,
+        routes.auth.revoke_own_invite.method,
+        routes.auth.revoke_own_invite.path,
+        params,
+      );
+    },
+
+    updatePasskeyName: (params: s.UpdatePasskeyNameRequest) => {
+      return call(
+        "auth", "update_passkey_name",
+        routes.auth.update_passkey_name.resp,
+        routes.auth.update_passkey_name.req,
+        routes.auth.update_passkey_name.method,
+        routes.auth.update_passkey_name.path,
+        params,
+      );
+    },
   };
 }
 

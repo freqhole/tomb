@@ -349,6 +349,9 @@ session_cookie_mode = "auto"
 #   allowed_origins = ["https://music.freqhole.net", "https://staging.freqhole.net"]
 allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
 
+# ttl in minutes for p2p webauthn challenges stored in sqlite (default: 15)
+webauthn_challenge_ttl_minutes = 15
+
 # ============================================================================
 # static file serving
 # ============================================================================

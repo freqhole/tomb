@@ -7,4 +7,6 @@ export { RadioSettingsView } from "./views/RadioSettingsView";
 export { RadioAdminView } from "./views/RadioAdminView";
 export { LogzSettingsView } from "./views/LogzSettingsView";
 export { PendingKnocksView } from "./views/PendingKnocksView";
+export { UserProfileView } from "./views/UserProfileView";
+export { LinkDeviceView } from "./views/LinkDeviceView";
 export { SettingsLayout } from "./layouts/SettingsLayout";

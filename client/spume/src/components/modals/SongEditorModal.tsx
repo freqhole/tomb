@@ -297,7 +297,6 @@ export function SongEditorModal(props: SongEditorModalProps) {
         const dataSource = pickSource();
         if (dataSource.deleteSong) {
           await dataSource.deleteSong(props.songId);
-          toast.success(`deleted "${song.title}"`);
           queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
           queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
           queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });

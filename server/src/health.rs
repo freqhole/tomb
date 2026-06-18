@@ -72,6 +72,19 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
     let lastfm_enabled = Some(config.lastfm.enabled && !config.lastfm.api_key.is_empty());
     let audiodb_enabled = Some(config.audiodb.enabled && !config.audiodb.api_key.is_empty());
 
+    #[cfg(feature = "webauthn")]
+    let passkey_p2p_enabled = Some(config.federation.as_ref().is_some_and(|f| f.enabled));
+    #[cfg(not(feature = "webauthn"))]
+    let passkey_p2p_enabled: Option<bool> = None;
+
+    let fetch_precheck_enabled = Some(
+        config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_music.as_ref())
+            .is_some_and(|f| f.enabled && f.precheck_command.is_some()),
+    );
+
     Ok(Json(ServerInfoResponse {
         name,
         description,
@@ -82,5 +95,7 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         musicbrainz_enabled,
         lastfm_enabled,
         audiodb_enabled,
+        passkey_p2p_enabled,
+        fetch_precheck_enabled,
     }))
 }

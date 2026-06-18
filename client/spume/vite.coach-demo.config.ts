@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => {
       alias: {
         // midden is a wasm/native module — replace with the browser-only stub
         // for any demo build.
-        midden: resolve(__dirname, "src/stubs/midden-stub.ts"),
+        "@freqhole/midden": resolve(__dirname, "src/stubs/midden-stub.ts"),
       },
     },
     define: {

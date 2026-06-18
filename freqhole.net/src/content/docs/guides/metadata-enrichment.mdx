@@ -18,11 +18,17 @@ freqhole can enrich its catalog from three free external sources:
 
 all three are opt-in, independent, and never modify your original audio files. enrichment results live in freqhole's database alongside everything else — each source writes into its own columns, so you can enable any combination without conflicts.
 
-| source        | strengths                                | initiated     |
-| ------------- | ---------------------------------------- | ------------- |
-| MusicBrainz   | canonical metadata, cover art            | manual lookup |
-| last.fm       | bios, folksonomy tags, similar artists   | background    |
-| theaudiodb    | artist imagery, album artwork variants   | background    |
+| source      | strengths                              | initiated     |
+| ----------- | -------------------------------------- | ------------- |
+| MusicBrainz | canonical metadata, cover art          | manual lookup |
+| last.fm     | bios, folksonomy tags, similar artists | background    |
+| theaudiodb  | artist imagery, album artwork variants | background    |
+
+## review flow
+
+when `server.fetch_music.precheck_command` is set, the add music from url flow runs a precheck first and shows a review step before the actual download starts. unfinished review items stay in the add music modal so you can come back later.
+
+member and admin uploads can also use the same review path for metadata tweaks before saving, including MusicBrainz lookups and taxon queries.
 
 ---
 

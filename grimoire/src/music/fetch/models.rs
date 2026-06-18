@@ -1,7 +1,7 @@
 //! fetch music models - types for external media fetching
 
 use serde::{Deserialize, Serialize};
-use zod_gen::{zod_array, zod_number, zod_object, zod_string, ZodSchema};
+use zod_gen::{zod_array, zod_boolean, zod_number, zod_object, zod_string, ZodSchema};
 use zod_gen_derive::ZodSchema;
 
 /// parameters for fetching media from external URL
@@ -11,6 +11,13 @@ pub struct FetchMediaParams {
     pub url: String,
     /// user ID who initiated the fetch
     pub user_id: Option<String>,
+}
+
+/// parameters for pre-checking a URL without downloading
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PreCheckFetchParams {
+    /// URL to inspect (supports single videos, playlists, albums, etc.)
+    pub url: String,
 }
 
 /// result of fetch operation
@@ -69,6 +76,58 @@ pub struct ContentMetadata {
     pub playlist_index: Option<i64>,
     /// raw JSON metadata from external command
     pub raw_metadata: serde_json::Value,
+    /// whether this item already exists in the library (would be skipped)
+    pub is_duplicate: Option<bool>,
+}
+
+impl ZodSchema for ContentMetadata {
+    fn zod_schema() -> String {
+        zod_object(&[
+            ("platform", zod_string()),
+            ("content_id", zod_string()),
+            ("title", &format!("{}.nullish()", zod_string())),
+            ("artist", &format!("{}.nullish()", zod_string())),
+            ("uploader", &format!("{}.nullish()", zod_string())),
+            ("duration_seconds", &format!("{}.nullish()", zod_number())),
+            ("url", zod_string()),
+            ("playlist_title", &format!("{}.nullish()", zod_string())),
+            ("playlist_index", &format!("{}.nullish()", zod_number())),
+            ("is_duplicate", &format!("{}.nullish()", zod_boolean())),
+        ])
+    }
+}
+
+/// result of a pre-check job (no download)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreCheckFetchResponse {
+    /// total items found
+    pub item_count: usize,
+    /// playlist title if applicable
+    pub playlist_title: Option<String>,
+    /// platform (youtube, soundcloud, etc.)
+    pub platform: Option<String>,
+    /// sum of duration_seconds across all items
+    pub total_duration_seconds: Option<i64>,
+    /// items found (with is_duplicate flag set where applicable)
+    pub items: Vec<ContentMetadata>,
+    /// number of items already present (would be skipped)
+    pub duplicate_count: usize,
+}
+
+impl ZodSchema for PreCheckFetchResponse {
+    fn zod_schema() -> String {
+        zod_object(&[
+            ("item_count", zod_number()),
+            ("playlist_title", &format!("{}.nullish()", zod_string())),
+            ("platform", &format!("{}.nullish()", zod_string())),
+            (
+                "total_duration_seconds",
+                &format!("{}.nullish()", zod_number()),
+            ),
+            ("items", &zod_array("ContentMetadataSchema")),
+            ("duplicate_count", zod_number()),
+        ])
+    }
 }
 
 /// downloaded file information
@@ -119,6 +178,7 @@ impl ContentMetadata {
             playlist_title,
             playlist_index,
             raw_metadata: metadata,
+            is_duplicate: None,
         })
     }
 

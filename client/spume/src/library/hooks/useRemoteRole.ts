@@ -14,7 +14,7 @@
 // hammering whoami on every render.
 
 import { createEffect, createMemo, on } from "solid-js";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { permissions, type UserRoleName } from "@freqhole/api-client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import {
   getAuthStatus,

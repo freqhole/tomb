@@ -3,6 +3,7 @@
 //! webauthn registration/authentication, user management, sessions
 
 pub mod users;
+pub mod webauthn_p2p;
 
 use crate::api_registry::RouteInfo;
 use crate::offal::caller::Caller;
@@ -35,6 +36,44 @@ pub async fn dispatch(
         "/api/auth/users/create" => Some(users::create(caller, body.clone()).await),
         "/api/auth/users/update" => Some(users::update(caller, body.clone()).await),
         "/api/auth/users/delete" => Some(users::delete(caller, body.clone()).await),
+
+        // webauthn over p2p transport (sqlite challenge store, no session cookie needed)
+        "/api/auth/webauthn/register/start" => {
+            Some(webauthn_p2p::register_start(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/register/finish" => {
+            Some(webauthn_p2p::register_finish(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/login/start" => {
+            Some(webauthn_p2p::login_start(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/login/finish" => {
+            Some(webauthn_p2p::login_finish(caller, body.clone()).await)
+        }
+
+        // passkey management (authenticated)
+        "/api/auth/webauthn/passkeys" => {
+            Some(webauthn_p2p::list_passkeys(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/passkeys/delete" => {
+            Some(webauthn_p2p::delete_passkey(caller, body.clone()).await)
+        }
+        "/api/auth/webauthn/link-node" => Some(webauthn_p2p::link_node(caller, body.clone()).await),
+
+        // user profile self-service
+        "/api/auth/profile/update-username" => {
+            Some(users::update_username(caller, body.clone()).await)
+        }
+        "/api/auth/profile/generate-invite" => {
+            Some(users::generate_self_account_link(caller, body.clone()).await)
+        }
+        "/api/auth/profile/invites" => Some(users::list_own_invites(caller, body.clone()).await),
+        "/api/auth/profile/invites/revoke" => {
+            Some(users::revoke_own_invite(caller, body.clone()).await)
+        }
+        "/api/auth/profile/passkey-name" => {
+            Some(users::update_passkey_name(caller, body.clone()).await)
+        }
 
         _ => None,
     }

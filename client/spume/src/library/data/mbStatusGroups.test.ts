@@ -5,7 +5,7 @@
 //   3. MB_STATUS_GROUP_MEMBERS — every enum value appears exactly once
 
 import { describe, expect, it } from "vitest";
-import type { MbLookupStatus } from "freqhole-api-client";
+import type { MbLookupStatus } from "@freqhole/api-client";
 import { MB_LOOKUP_STATUSES } from "./albumMetadata";
 import {
   isDone,

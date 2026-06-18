@@ -1,4 +1,12 @@
-import { For, Show, createSignal, createMemo } from "solid-js";
+import {
+  For,
+  Show,
+  createSignal,
+  createMemo,
+  createResource,
+  createEffect,
+  onCleanup,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { Button } from "../buttons/Button";
 import { IconButton } from "../buttons/IconButton";
@@ -7,8 +15,32 @@ import { Icon } from "../icons/registry";
 import { Tab, TabList, TabPanel, Tabs } from "../navigation/Tabs";
 import type { UploadJob } from "../../music/import";
 import type { LocalImportProgress } from "../../music/import";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { pickDirectory, pickFiles } from "../../utils/filePicker";
 import { getLocalLibraryName } from "../../app/services/storage/db";
+import { getCurrentRemote } from "../../music/data";
+import { getClientForRemote } from "../../app/api/client";
+import { JobPoller } from "../../app/services/jobs/jobService";
+import type { PreCheckFetchResponse, PendingReviewSession } from "@freqhole/api-client";
+import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
+
+// ---------------------------------------------------------------------------
+// module-level precheck state so it survives the modal being closed/reopened
+// while a job is still running (user can close and reopen without losing it)
+// ---------------------------------------------------------------------------
+
+type UrlPrecheckState = "idle" | "checking" | "confirm" | "error";
+
+const [_urlPrecheckState, _setUrlPrecheckState] = createSignal<UrlPrecheckState>("idle");
+const [_precheckResult, _setPrecheckResult] = createSignal<PreCheckFetchResponse | null>(null);
+const [_precheckError, _setPrecheckError] = createSignal<string | null>(null);
+const [_precheckUrls, _setPrecheckUrls] = createSignal<string[]>([]);
+const [_precheckJobId, _setPrecheckJobId] = createSignal<string | null>(null);
+// running count emitted by precheck_progress stage events
+const [_precheckLiveCount, _setPrecheckLiveCount] = createSignal<number | null>(null);
+
+// active poller instance - stopped when cancel is called
+let _activePoller: JobPoller | null = null;
 
 export interface AddMusicModalProps {
   /** whether modal is open */
@@ -29,13 +61,61 @@ export interface AddMusicModalProps {
   uploadJobs?: UploadJob[];
   /** local import progress */
   localImportProgress?: LocalImportProgress;
+  /** whether the remote has url precheck (yt-dlp) configured */
+  fetchPrecheckEnabled?: boolean;
   /** additional classes */
   class?: string;
+  /** called when user wants to review a completed import session */
+  onReviewSession?: (sessionId: string) => void;
+  /** increment to trigger a refetch of pending review sessions */
+  refetchReviewKey?: number;
+  /** whether the current user is an admin (shows uploader usernames in review tab) */
+  isAdmin?: boolean;
+  /** session id that has just been reviewed - auto-dismisses its upload card */
+  dismissedReviewSessionId?: string | null;
 }
 
 export function AddMusicModal(props: AddMusicModalProps) {
   const [uploadMode, setUploadMode] = createSignal("files");
   const [urlText, setUrlText] = createSignal("");
+  const [showFullItemList, setShowFullItemList] = createSignal(false);
+
+  // register with the global modal stack so escape closes this modal
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const id = "add-music-modal";
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
+  });
+
+  // pending review sessions - fetched whenever the modal is open.
+  // re-fetches when refetchReviewKey changes (e.g. after a review modal closes).
+  const [pendingSessions, { refetch: refetchPendingSessions }] = createResource<
+    PendingReviewSession[],
+    number | null
+  >(
+    () => (props.isOpen ? (props.refetchReviewKey ?? 0) : null),
+    async (_key: number | null) => {
+      const remote = getCurrentRemote();
+      if (!remote) return [];
+      try {
+        const client = await getClientForRemote(remote);
+        const resp = await client.music.listPendingImportReview({ session_id: null });
+        if (!resp.success) return [];
+        return resp.data ?? [];
+      } catch {
+        return [];
+      }
+    },
+    { initialValue: [] }
+  );
+
+  // aliases to module-level signals so the rest of the component reads normally
+  const urlPrecheckState = _urlPrecheckState;
+  const precheckResult = _precheckResult;
+  const precheckError = _precheckError;
+  const precheckUrls = _precheckUrls;
+  const precheckLiveCount = _precheckLiveCount;
 
   const useNativeDialog = () => !!props.useCharnelDialog;
 
@@ -75,19 +155,183 @@ export function AddMusicModal(props: AddMusicModalProps) {
     if (selected) props.onPathsSelected([selected]);
   };
 
-  const handleDownloadUrls = () => {
-    const text = urlText().trim();
-    if (!text) return;
-
-    const urls = text
+  const parseUrls = () =>
+    urlText()
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
 
+  // detect youtube urls that contain a list= or start_radio= param (any yt domain)
+  const youtubeListWarning = (): string | null => {
+    const text = urlText().trim();
+    if (!text) return null;
+    const firstUrl = text.split("\n")[0].trim();
+    try {
+      const u = new URL(firstUrl);
+      const isYoutube =
+        u.hostname === "youtube.com" ||
+        u.hostname === "www.youtube.com" ||
+        u.hostname === "youtu.be" ||
+        u.hostname === "music.youtube.com" ||
+        u.hostname.endsWith(".youtube.com");
+      if (!isYoutube) return null;
+      if (u.searchParams.has("list") && u.searchParams.has("start_radio")) {
+        return "this url will generate a radio playlist - it may queue hundreds of tracks";
+      }
+      if (u.searchParams.has("start_radio")) {
+        return "this url will generate a radio playlist - it may queue hundreds of tracks";
+      }
+      if (u.searchParams.has("list")) {
+        return "this url includes a playlist param - all playlist tracks will be downloaded";
+      }
+    } catch {
+      // not a valid url, ignore
+    }
+    return null;
+  };
+
+  const handleDownloadUrls = () => {
+    const urls = parseUrls();
     if (urls.length > 0) {
       props.onUrlsSubmitted?.(urls);
-      setUrlText(""); // reset textarea
+      setUrlText("");
     }
+  };
+
+  const handlePrecheckUrls = async () => {
+    const urls = parseUrls();
+    if (urls.length === 0) return;
+
+    const remote = getCurrentRemote();
+    if (!remote) return;
+
+    _setPrecheckUrls(urls);
+    _setPrecheckError(null);
+    _setPrecheckResult(null);
+    _setPrecheckLiveCount(null);
+    _setPrecheckJobId(null);
+    setShowFullItemList(false);
+    _setUrlPrecheckState("checking");
+
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.music.createPrecheckFetchJob({ url: urls[0] });
+      if (!result.success) {
+        const msg = result.error?.issues?.[0]?.message ?? "precheck failed";
+        _setPrecheckError(msg);
+        _setUrlPrecheckState("error");
+        return;
+      }
+
+      const jobId = result.data.id;
+      _setPrecheckJobId(jobId);
+
+      const poller = new JobPoller(remote, 3000);
+      _activePoller = poller;
+      const pollResult = await poller.waitForJob(jobId, 600_000, {
+        onStage: (stage, message) => {
+          if (stage === "precheck_progress" && message) {
+            // parse "found N track(s)..." to show a running count
+            const m = message.match(/(\d+)/);
+            if (m) _setPrecheckLiveCount(parseInt(m[1], 10));
+          }
+        },
+      });
+      _activePoller = null;
+
+      if (pollResult.status !== "completed") {
+        // if it timed out while the modal is closed and then reopened,
+        // we still want to recover the result - check job status once
+        if (pollResult.status === "timeout") {
+          const snap = await client.music.getJobStatus({ job_ids: [jobId] });
+          const snapData = snap.success
+            ? (snap.data as { jobs: Record<string, { status?: string; result?: string | null }> })
+            : null;
+          const snapJob = snapData?.jobs?.[jobId];
+          if (snapJob?.status === "Completed" && snapJob.result) {
+            const parsed = JSON.parse(snapJob.result) as PreCheckFetchResponse;
+            _setPrecheckResult(parsed);
+            _setUrlPrecheckState("confirm");
+            return;
+          }
+        }
+        const msg = pollResult.errorMessage ?? "precheck did not complete";
+        _setPrecheckError(msg);
+        _setUrlPrecheckState("error");
+        return;
+      }
+
+      // fetch full job to get result payload
+      const jobResp = await client.music.getJobStatus({ job_ids: [jobId] });
+      const jobData = jobResp.success
+        ? (jobResp.data as { jobs: Record<string, { result?: string | null }> })
+        : null;
+      const job = jobData?.jobs?.[jobId];
+      if (!job?.result) {
+        _setPrecheckError("no result returned from precheck");
+        _setUrlPrecheckState("error");
+        return;
+      }
+
+      const parsed = JSON.parse(job.result) as PreCheckFetchResponse;
+      _setPrecheckResult(parsed);
+      _setUrlPrecheckState("confirm");
+    } catch (err) {
+      _activePoller = null;
+      _setPrecheckError(String(err));
+      _setUrlPrecheckState("error");
+    }
+  };
+
+  const handlePrecheckConfirm = () => {
+    const urls = precheckUrls();
+    if (urls.length > 0) {
+      props.onUrlsSubmitted?.(urls);
+      setUrlText("");
+    }
+    _setUrlPrecheckState("idle");
+    _setPrecheckResult(null);
+    _setPrecheckUrls([]);
+    _setPrecheckJobId(null);
+    _setPrecheckLiveCount(null);
+  };
+
+  const handlePrecheckCancel = async () => {
+    // stop the local poller subscription immediately
+    _activePoller?.stop();
+    _activePoller = null;
+
+    // tell the server to cancel so it kills the yt-dlp process
+    const jobId = _precheckJobId();
+    if (jobId) {
+      const remote = getCurrentRemote();
+      if (remote) {
+        try {
+          const client = await getClientForRemote(remote);
+          await client.music.cancelJob({ job_id: jobId });
+        } catch {
+          // best-effort, don't block the UI
+        }
+      }
+    }
+
+    _setUrlPrecheckState("idle");
+    _setPrecheckResult(null);
+    _setPrecheckError(null);
+    _setPrecheckUrls([]);
+    _setPrecheckJobId(null);
+    _setPrecheckLiveCount(null);
+    setShowFullItemList(false);
+  };
+
+  const formatDuration = (seconds: number | null | undefined): string => {
+    if (!seconds) return "";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
   };
 
   // derived job counts
@@ -112,6 +356,31 @@ export function AddMusicModal(props: AddMusicModalProps) {
     (props.uploadJobs ?? []).filter((j) => j.status === "timeout")
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
+
+  // completed sessions that have a sessionId - one review card per unique session,
+  // jobCount = number of completed jobs for that session
+  const reviewableSessions = createMemo(() => {
+    const sessionMap = new Map<string, { jobCount: number; label?: string }>();
+    for (const j of props.uploadJobs ?? []) {
+      if (j.status === "completed" && j.sessionId) {
+        const entry = sessionMap.get(j.sessionId);
+        if (entry) {
+          entry.jobCount++;
+        } else {
+          sessionMap.set(j.sessionId, { jobCount: 1, label: j.label });
+        }
+      }
+    }
+    return [...sessionMap.entries()].map(([sessionId, data]) => ({ sessionId, ...data }));
+  });
+  // track which sessions the user has dismissed from this modal session
+  const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
+
+  // auto-dismiss the upload card when a review completes
+  createEffect(() => {
+    const sid = props.dismissedReviewSessionId;
+    if (sid) setDismissedSessions((prev) => new Set([...prev, sid]));
+  });
 
   // local import progress helpers
   const localProgress = () => props.localImportProgress;
@@ -182,10 +451,20 @@ export function AddMusicModal(props: AddMusicModalProps) {
 
             {/* tabs - scrollable area */}
             <div class="px-4 pt-4 overflow-y-auto flex-1 min-h-0">
-              <Tabs activeTab={uploadMode()} onTabChange={setUploadMode}>
+              <Tabs
+                activeTab={uploadMode()}
+                onTabChange={(tab) => {
+                  setUploadMode(tab);
+                }}
+              >
                 <TabList class="justify-center">
                   <Tab id="files" label="upload files" />
                   <Tab id="urls" label="download urls" />
+                  <Tab
+                    id="review"
+                    label="review"
+                    badge={pendingSessions()?.reduce((n, s) => n + s.albums.length, 0) || undefined}
+                  />
                 </TabList>
 
                 <div class="py-6">
@@ -221,40 +500,293 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   </TabPanel>
 
                   <TabPanel id="urls">
-                    <div class="space-y-4">
-                      <div class="text-center mb-4">
-                        <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
-                          download from urls
-                        </h3>
-                        <p class="body-small text-[var(--color-text-secondary)]">
-                          paste audio file urls (one per line)
-                        </p>
-                      </div>
+                    {/* precheck confirm screen */}
+                    <Show when={urlPrecheckState() === "confirm" && precheckResult() !== null}>
+                      {(_) => {
+                        const r = precheckResult()!;
+                        const PREVIEW_COUNT = 5;
+                        const previewItems = r.items?.slice(0, PREVIEW_COUNT) ?? [];
+                        const remainingCount = (r.items?.length ?? 0) - PREVIEW_COUNT;
+                        const duplicateCount = r.duplicate_count ?? 0;
+                        return (
+                          <div class="space-y-4">
+                            <div>
+                              <h3 class="heading-6 text-[var(--color-text-primary)] mb-1">
+                                {r.item_count === 1
+                                  ? (r.items?.[0]?.title ?? "1 track")
+                                  : `${r.item_count} tracks`}
+                                {r.playlist_title ? ` from "${r.playlist_title}"` : ""}
+                              </h3>
+                              <div class="flex flex-wrap gap-x-3 gap-y-1 body-small text-[var(--color-text-secondary)]">
+                                <Show when={r.platform}>
+                                  <span class="capitalize">{r.platform}</span>
+                                </Show>
+                                <Show when={r.total_duration_seconds}>
+                                  <span>{formatDuration(r.total_duration_seconds)}</span>
+                                </Show>
+                                <Show when={duplicateCount > 0}>
+                                  <span class="text-amber-400">
+                                    {duplicateCount} already in library
+                                  </span>
+                                </Show>
+                              </div>
+                            </div>
 
-                      <TextArea
-                        value={urlText()}
-                        onInput={(e) => setUrlText(e.currentTarget.value)}
-                        placeholder="https://example.com/song.mp3"
-                        rows={6}
-                        variant="filled"
-                      />
+                            {/* item preview list */}
+                            <Show when={previewItems.length > 0}>
+                              <div class="space-y-1">
+                                <For each={previewItems}>
+                                  {(item) => (
+                                    <div class="flex items-center gap-2 py-0.5">
+                                      <Show when={item.is_duplicate}>
+                                        <span class="body-xs text-amber-400 flex-shrink-0">
+                                          dup
+                                        </span>
+                                      </Show>
+                                      <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                        {item.title ?? item.content_id}
+                                      </span>
+                                      <Show when={item.duration_seconds}>
+                                        <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                          {formatDuration(item.duration_seconds)}
+                                        </span>
+                                      </Show>
+                                    </div>
+                                  )}
+                                </For>
+                                <Show when={remainingCount > 0 && !showFullItemList()}>
+                                  <button
+                                    class="body-xs text-[var(--color-link)] hover:underline mt-1"
+                                    onClick={() => setShowFullItemList(true)}
+                                  >
+                                    and {remainingCount} more
+                                  </button>
+                                </Show>
+                                <Show when={showFullItemList()}>
+                                  <div class="max-h-40 overflow-y-auto space-y-1 mt-1 border border-[var(--color-border-default)] rounded p-2">
+                                    <For each={r.items?.slice(PREVIEW_COUNT) ?? []}>
+                                      {(item) => (
+                                        <div class="flex items-center gap-2 py-0.5">
+                                          <Show when={item.is_duplicate}>
+                                            <span class="body-xs text-amber-400 flex-shrink-0">
+                                              dup
+                                            </span>
+                                          </Show>
+                                          <span class="body-xs text-[var(--color-text-primary)] truncate flex-1">
+                                            {item.title ?? item.content_id}
+                                          </span>
+                                          <Show when={item.duration_seconds}>
+                                            <span class="body-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                              {formatDuration(item.duration_seconds)}
+                                            </span>
+                                          </Show>
+                                        </div>
+                                      )}
+                                    </For>
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
 
-                      <Show when={props.remoteName}>
-                        <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
-                          urls will be fetched by {props.remoteName}
-                        </p>
-                      </Show>
+                            <div class="flex gap-2 justify-end">
+                              <Button
+                                variant="secondary"
+                                onClick={() => void handlePrecheckCancel()}
+                              >
+                                cancel
+                              </Button>
+                              <Button variant="primary" onClick={handlePrecheckConfirm}>
+                                download all
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </Show>
 
-                      <div class="flex justify-center">
-                        <Button
-                          variant="primary"
-                          onClick={handleDownloadUrls}
-                          disabled={!urlText().trim()}
+                    {/* precheck running */}
+                    <Show when={urlPrecheckState() === "checking"}>
+                      <div class="flex flex-col items-center justify-center py-12 gap-3">
+                        <div class="w-2 h-2 rounded-full bg-[var(--color-accent-500)] animate-pulse" />
+                        <Show
+                          when={precheckLiveCount() !== null}
+                          fallback={
+                            <p class="body-small text-[var(--color-text-secondary)]">
+                              checking url...
+                            </p>
+                          }
                         >
-                          download
+                          <p class="body-small text-[var(--color-text-secondary)]">
+                            found {precheckLiveCount()} track{precheckLiveCount() !== 1 ? "s" : ""}
+                            ...
+                          </p>
+                        </Show>
+                        <Button variant="ghost" onClick={() => void handlePrecheckCancel()}>
+                          cancel
                         </Button>
                       </div>
+                    </Show>
+
+                    {/* precheck error */}
+                    <Show when={urlPrecheckState() === "error"}>
+                      <div class="space-y-4">
+                        <div class="text-center">
+                          <p class="body-small text-red-400 mb-1">precheck failed</p>
+                          <p class="body-xs text-[var(--color-text-tertiary)]">{precheckError()}</p>
+                        </div>
+                        <div class="flex gap-2 justify-center">
+                          <Button variant="secondary" onClick={() => void handlePrecheckCancel()}>
+                            back
+                          </Button>
+                          <Button variant="primary" onClick={handlePrecheckConfirm}>
+                            download anyway
+                          </Button>
+                        </div>
+                      </div>
+                    </Show>
+
+                    {/* url input (idle state) */}
+                    <Show when={urlPrecheckState() === "idle"}>
+                      <div class="space-y-4">
+                        <div class="text-center mb-4">
+                          <h3 class="heading-6 text-[var(--color-text-primary)] mb-2">
+                            download from urls
+                          </h3>
+                          <p class="body-small text-[var(--color-text-secondary)]">
+                            paste audio file urls (one per line)
+                          </p>
+                        </div>
+
+                        <TextArea
+                          value={urlText()}
+                          onInput={(e) => setUrlText(e.currentTarget.value)}
+                          placeholder="https://example.com/song.mp3"
+                          rows={6}
+                          variant="filled"
+                        />
+
+                        {/* youtube playlist / radio warning */}
+                        <Show when={youtubeListWarning()}>
+                          <p class="body-xs text-amber-400 mt-1">{youtubeListWarning()}</p>
+                        </Show>
+
+                        <Show when={props.remoteName}>
+                          <p class="body-xs text-[var(--color-text-tertiary)] mt-1">
+                            urls will be fetched by {props.remoteName}
+                          </p>
+                        </Show>
+
+                        <div class="flex justify-center">
+                          <Show
+                            when={props.fetchPrecheckEnabled}
+                            fallback={
+                              <Button
+                                variant="primary"
+                                onClick={handleDownloadUrls}
+                                disabled={!urlText().trim()}
+                              >
+                                download
+                              </Button>
+                            }
+                          >
+                            <Button
+                              variant="primary"
+                              onClick={() => void handlePrecheckUrls()}
+                              disabled={!urlText().trim()}
+                            >
+                              check url
+                            </Button>
+                          </Show>
+                        </div>
+                      </div>
+                    </Show>
+                  </TabPanel>
+
+                  <TabPanel id="review">
+                    {/* toolbar: refetch button */}
+                    <div class="flex justify-center mb-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void refetchPendingSessions()}
+                        disabled={pendingSessions.loading}
+                      >
+                        <Show when={pendingSessions.loading} fallback={<span>refresh</span>}>
+                          <Icon name="loader" size={14} color="currentColor" />
+                          <span class="ml-1">loading...</span>
+                        </Show>
+                      </Button>
                     </div>
+                    <Show when={!pendingSessions.loading && (pendingSessions() ?? []).length === 0}>
+                      <div class="flex flex-col items-center justify-center py-12 gap-2 text-[var(--color-text-muted)]">
+                        <Icon name="check" size={32} color="currentColor" />
+                        <p class="body-small">no pending reviews</p>
+                      </div>
+                    </Show>
+                    <Show when={(pendingSessions() ?? []).length > 0}>
+                      <div class="flex flex-col gap-3">
+                        <For each={pendingSessions() ?? []}>
+                          {(session) => (
+                            <div class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)] p-4">
+                              <div class="flex items-start justify-between gap-3">
+                                <div class="flex flex-col gap-1 min-w-0">
+                                  <div class="flex items-center gap-2 flex-wrap">
+                                    <p class="body-small font-medium text-[var(--color-text-primary)]">
+                                      {session.albums.length} album
+                                      {session.albums.length !== 1 ? "s" : ""}
+                                      {" · "}
+                                      {session.albums.reduce(
+                                        (n, a) => n + a.pending_blob_count,
+                                        0
+                                      )}{" "}
+                                      unreviewed
+                                    </p>
+                                    <Show when={props.isAdmin && session.uploader_username}>
+                                      <span class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]">
+                                        {session.uploader_username}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <p class="body-xs text-[var(--color-text-muted)]">
+                                    {new Date(session.created_at * 1000).toLocaleString()}
+                                  </p>
+                                  <div class="flex flex-wrap gap-1 mt-1">
+                                    <For each={session.albums.slice(0, 3)}>
+                                      {(album) => {
+                                        const remoteId = getCurrentRemote()?.remote_id;
+                                        const href = remoteId
+                                          ? `#/${remoteId}/albums/${encodeURIComponent(album.album_id)}`
+                                          : undefined;
+                                        return (
+                                          <a
+                                            href={href}
+                                            class="body-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] truncate max-w-[160px] hover:text-[var(--color-accent-500)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+                                          >
+                                            {album.title}
+                                          </a>
+                                        );
+                                      }}
+                                    </For>
+                                    <Show when={session.albums.length > 3}>
+                                      <span class="body-xs text-[var(--color-text-muted)]">
+                                        +{session.albums.length - 3} more
+                                      </span>
+                                    </Show>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => props.onReviewSession?.(session.session_id)}
+                                >
+                                  review
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
                   </TabPanel>
                 </div>
               </Tabs>
@@ -440,8 +972,9 @@ export function AddMusicModal(props: AddMusicModalProps) {
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
                           </span>
-                          {/* album link (once import finishes) */}
-                          <Show when={job.status === "completed" && job.albumId}>
+                          {/* album link - shown whenever albumId is known, even for
+                              failed/duplicate jobs (the track is already in that album) */}
+                          <Show when={job.albumId}>
                             <a
                               class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
                               href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}
@@ -456,6 +989,27 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   </div>
                 </div>
               </Show>
+              {/* review cards - one per completed import session that has pending review items */}
+              <For each={reviewableSessions().filter((s) => !dismissedSessions().has(s.sessionId))}>
+                {(session) => (
+                  <div class="px-4 pb-2">
+                    <ImportPendingReviewCard
+                      sessionLabel={session.label}
+                      pendingCount={session.jobCount}
+                      onReview={() => {
+                        props.onReviewSession?.(session.sessionId);
+                      }}
+                      onDismiss={() => {
+                        setDismissedSessions((prev) => {
+                          const next = new Set(prev);
+                          next.add(session.sessionId);
+                          return next;
+                        });
+                      }}
+                    />
+                  </div>
+                )}
+              </For>
             </div>
           </div>
         </div>

@@ -11,9 +11,9 @@ import {
   type AlbumMetadata,
   type MbCandidate,
   type MbLookupStatus,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 
-export type { AlbumMetadata, MbCandidate, MbLookupStatus } from "freqhole-api-client";
+export type { AlbumMetadata, MbCandidate, MbLookupStatus } from "@freqhole/api-client";
 
 /** every known mb_lookup_status value, in display order. canonical
  *  superset — used by `parseMbLookupStatus` for value validation. */

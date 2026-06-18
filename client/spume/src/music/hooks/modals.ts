@@ -118,6 +118,8 @@ interface AlbumEditorOptions {
   disableNestedModals?: boolean;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /** called after a successful delete so callers can navigate away from the now-gone album */
+  onDeleted?: () => void;
   /** bulk-enrichment review mode (phase 14.7/14.9). when set, the modal
    *  renders a header strip + footer toolbar + arrow/`j`/`k` keybindings
    *  for navigating through the supplied list. */

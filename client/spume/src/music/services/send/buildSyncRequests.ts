@@ -11,7 +11,7 @@ import type {
   SyncAlbumRequest,
   SyncPlaylistRequest,
   SyncSongByBlake3Request,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import type { ImageMetadata } from "../storage/types";
 import type { RemoteSong } from "../../data/remote/adapters";
 

@@ -26,7 +26,7 @@ import type {
   PlayerCommand,
   PlayerEvent,
   PlayerSnapshot,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import type { Song } from "../storage/types";
 
 /// listener registered via `PlayerBackend.subscribe`.

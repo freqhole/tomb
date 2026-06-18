@@ -523,6 +523,18 @@ export const AlbumMetadataSchema = z.object({
 });
 export type AlbumMetadata = z.infer<typeof AlbumMetadataSchema>;
 
+export const AlbumPendingRequestSchema = z.object({
+  album_id: z.string()
+});
+export type AlbumPendingRequest = z.infer<typeof AlbumPendingRequestSchema>;
+
+export const AlbumPendingResponseSchema = z.object({
+  session_id: z.string().nullish(),
+  pending_count: z.number(),
+  created_at: z.number().nullish()
+});
+export type AlbumPendingResponse = z.infer<typeof AlbumPendingResponseSchema>;
+
 export const AlbumQueryResultSchema = z.object({
   album: z.object({
   id: z.string(),
@@ -1346,6 +1358,11 @@ export const CancelBulkEnrichmentResponseSchema = z.object({
 });
 export type CancelBulkEnrichmentResponse = z.infer<typeof CancelBulkEnrichmentResponseSchema>;
 
+export const CancelJobRequestSchema = z.object({
+  job_id: z.string()
+});
+export type CancelJobRequest = z.infer<typeof CancelJobRequestSchema>;
+
 export const CloseReasonSchema = z.union([z.object({
   kind: z.literal('client_unsubscribed')
 }), z.object({
@@ -1364,6 +1381,20 @@ export const ConfirmMbMatchRequestSchema = z.object({
 });
 export type ConfirmMbMatchRequest = z.infer<typeof ConfirmMbMatchRequestSchema>;
 
+export const ContentMetadataSchema = z.object({
+  platform: z.string(),
+  content_id: z.string(),
+  title: z.string().nullish(),
+  artist: z.string().nullish(),
+  uploader: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  url: z.string(),
+  playlist_title: z.string().nullish(),
+  playlist_index: z.number().nullish(),
+  is_duplicate: z.boolean().nullish()
+});
+export type ContentMetadata = z.infer<typeof ContentMetadataSchema>;
+
 export const CreateArtistRequestSchema = z.object({
   name: z.string(),
   created_by: z.string().nullish()
@@ -1371,7 +1402,7 @@ export const CreateArtistRequestSchema = z.object({
 export type CreateArtistRequest = z.infer<typeof CreateArtistRequestSchema>;
 
 export const CreateJobRequestSchema = z.object({
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   session_id: z.string().nullish(),
   parameters: z.any(),
   max_retries: z.number().nullish(),
@@ -1488,6 +1519,11 @@ export const DeleteListenSessionRequestSchema = z.object({
 });
 export type DeleteListenSessionRequest = z.infer<typeof DeleteListenSessionRequestSchema>;
 
+export const DeletePasskeyRequestSchema = z.object({
+  credential_id: z.string()
+});
+export type DeletePasskeyRequest = z.infer<typeof DeletePasskeyRequestSchema>;
+
 export const DeletePlaylistRequestSchema = z.object({
   playlist_id: z.string()
 });
@@ -1515,6 +1551,12 @@ export const DeleteTaxonRequestSchema = z.object({
   id: z.string()
 });
 export type DeleteTaxonRequest = z.infer<typeof DeleteTaxonRequestSchema>;
+
+export const DeviceLinkedCallbackRequestSchema = z.object({
+  peer_addr: z.string(),
+  server_name: z.string()
+});
+export type DeviceLinkedCallbackRequest = z.infer<typeof DeviceLinkedCallbackRequestSchema>;
 
 export const EmptyResponseSchema = z.object({
   success: z.boolean()
@@ -1740,7 +1782,7 @@ export const ErrorDetailSchema = z.object({
 export type ErrorDetail = z.infer<typeof ErrorDetailSchema>;
 
 export const EventFilterSchema = z.object({
-  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')])).nullish(),
+  kinds: z.array(z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')])).nullish(),
   job_ids: z.array(z.string()).nullish(),
   session_ids: z.array(z.string()).nullish(),
   entity_refs: z.array(z.union([z.object({
@@ -2802,6 +2844,11 @@ export const ImageUploadResponseSchema = z.object({
 });
 export type ImageUploadResponse = z.infer<typeof ImageUploadResponseSchema>;
 
+export const ImportReviewOkSchema = z.object({
+  ok: z.boolean()
+});
+export type ImportReviewOk = z.infer<typeof ImportReviewOkSchema>;
+
 export const IngestRemoteImageRequestSchema = z.object({
   remote_url: z.string(),
   target: z.union([z.object({
@@ -2830,7 +2877,7 @@ export const JobEventSchema = z.union([z.object({
   session_id: z.string(),
   complete: z.number(),
   total: z.number(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2846,7 +2893,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   from: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]).nullish(),
   to: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2861,7 +2908,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   error_type: z.string(),
   message: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2876,7 +2923,7 @@ export const JobEventSchema = z.union([z.object({
   job_id: z.string(),
   stage: z.string(),
   message: z.string().nullish(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2888,7 +2935,7 @@ export const JobEventSchema = z.union([z.object({
 }), z.object({
   kind: z.literal('completed'),
   session_id: z.string(),
-  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  topic: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
   id: z.string()
@@ -2926,7 +2973,7 @@ export type JobResponse = z.infer<typeof JobResponseSchema>;
 export const JobStateSnapshotSchema = z.object({
   job_id: z.string(),
   session_id: z.string().nullish(),
-  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
+  job_type: z.union([z.literal('ScanDirectory'), z.literal('RescanDirectories'), z.literal('ProcessFile'), z.literal('ProcessDirectory'), z.literal('FetchMedia'), z.literal('PreCheckFetch'), z.literal('ConvertWebp'), z.literal('ImportMusic'), z.literal('MbAlbumSearch'), z.literal('MbAlbumDetail'), z.literal('LastFmAlbumDetail'), z.literal('LastFmArtistDetail'), z.literal('AudioDbAlbumDetail'), z.literal('AudioDbArtistDetail'), z.literal('AlbumEnrichmentPipeline'), z.literal('AutoApplyAlbumEnrichment')]),
   status: z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]),
   entity_ref: z.union([z.object({
   kind: z.literal('album'),
@@ -2944,6 +2991,12 @@ export type JobStateSnapshot = z.infer<typeof JobStateSnapshotSchema>;
 
 export const JobStatusWireSchema = z.union([z.literal('pending'), z.literal('running'), z.literal('completed'), z.literal('failed'), z.literal('cancelled')]);
 export type JobStatusWire = z.infer<typeof JobStatusWireSchema>;
+
+export const KnockAcceptedCallbackRequestSchema = z.object({
+  peer_addr: z.string(),
+  server_name: z.string()
+});
+export type KnockAcceptedCallbackRequest = z.infer<typeof KnockAcceptedCallbackRequestSchema>;
 
 export const KnockRequestSchema = z.object({
   id: z.string(),
@@ -3008,6 +3061,11 @@ export const LastFmAlbumDetailResultSchema = z.object({
   similar_artist_count: z.number()
 });
 export type LastFmAlbumDetailResult = z.infer<typeof LastFmAlbumDetailResultSchema>;
+
+export const LinkNodeRequestSchema = z.object({
+  node_id: z.string()
+});
+export type LinkNodeRequest = z.infer<typeof LinkNodeRequestSchema>;
 
 export const ListBelovedRequestSchema = z.object({
 
@@ -3372,6 +3430,11 @@ export const ListListenSessionsResponseSchema = z.object({
 });
 export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
 
+export const ListPendingReviewRequestSchema = z.object({
+  session_id: z.string().nullish()
+});
+export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
+
 export const ListRelatedArtistsBatchRequestSchema = z.object({
   artist_ids: z.array(z.string()),
   include_pending: z.boolean().nullish()
@@ -3537,6 +3600,12 @@ export const ListeningHistoryResponseSchema = z.object({
   total: z.number()
 });
 export type ListeningHistoryResponse = z.infer<typeof ListeningHistoryResponseSchema>;
+
+export const MarkAlbumReviewedRequestSchema = z.object({
+  album_id: z.string(),
+  session_id: z.string()
+});
+export type MarkAlbumReviewedRequest = z.infer<typeof MarkAlbumReviewedRequestSchema>;
 
 export const MbAlbumDetailParamsSchema = z.object({
   album_id: z.string(),
@@ -3849,6 +3918,13 @@ export const MediaBlobSchema = z.object({
 });
 export type MediaBlob = z.infer<typeof MediaBlobSchema>;
 
+export const MergeAlbumsReviewRequestSchema = z.object({
+  session_id: z.string(),
+  source_ids: z.array(z.string()),
+  target_id: z.string()
+});
+export type MergeAlbumsReviewRequest = z.infer<typeof MergeAlbumsReviewRequestSchema>;
+
 export const MergedKeyMatchSchema = z.object({
   merged_key: z.string(),
   albums: z.array(z.object({
@@ -3915,6 +3991,13 @@ export const MergedKeyMatchSchema = z.object({
 });
 export type MergedKeyMatch = z.infer<typeof MergedKeyMatchSchema>;
 
+export const MoveSongReviewRequestSchema = z.object({
+  session_id: z.string(),
+  song_id: z.string(),
+  to_album_id: z.string()
+});
+export type MoveSongReviewRequest = z.infer<typeof MoveSongReviewRequestSchema>;
+
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
   jobs_created: z.number(),
@@ -3957,6 +4040,60 @@ export const OverviewStatsSchema = z.object({
   total_duration_seconds: z.number()
 });
 export type OverviewStats = z.infer<typeof OverviewStatsSchema>;
+
+export const PasskeyCredentialSummarySchema = z.object({
+  id: z.string(),
+  created_at: z.number(),
+  last_used_at: z.number().nullish(),
+  name: z.string().nullish()
+});
+export type PasskeyCredentialSummary = z.infer<typeof PasskeyCredentialSummarySchema>;
+
+export const PatchAlbumReviewRequestSchema = z.object({
+  album_id: z.string(),
+  session_id: z.string(),
+  title: z.string().nullish(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  album_type: z.string().nullish(),
+  release_date: z.string().nullish(),
+  label: z.string().nullish(),
+  songs: z.array(z.object({
+  song_id: z.string(),
+  title: z.string().nullish(),
+  track_number: z.number().nullish(),
+  disc_number: z.number().nullish(),
+  track_artist: z.string().nullish()
+})).nullish()
+});
+export type PatchAlbumReviewRequest = z.infer<typeof PatchAlbumReviewRequestSchema>;
+
+export const PendingReviewAlbumSchema = z.object({
+  album_id: z.string(),
+  title: z.string(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  artwork_blob_id: z.string().nullish(),
+  song_count: z.number(),
+  pending_blob_count: z.number()
+});
+export type PendingReviewAlbum = z.infer<typeof PendingReviewAlbumSchema>;
+
+export const PendingReviewSessionSchema = z.object({
+  session_id: z.string(),
+  created_at: z.number(),
+  uploader_username: z.string().nullish(),
+  albums: z.array(z.object({
+  album_id: z.string(),
+  title: z.string(),
+  artist_id: z.string().nullish(),
+  artist_name: z.string().nullish(),
+  artwork_blob_id: z.string().nullish(),
+  song_count: z.number(),
+  pending_blob_count: z.number()
+}))
+});
+export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
 
 export const PlayAnalyticsSchema = z.object({
   song_id: z.string(),
@@ -4412,6 +4549,21 @@ export const PlaylistsQueryResultSchema = z.object({
 });
 export type PlaylistsQueryResult = z.infer<typeof PlaylistsQueryResultSchema>;
 
+export const PreCheckFetchParamsSchema = z.object({
+  url: z.string()
+});
+export type PreCheckFetchParams = z.infer<typeof PreCheckFetchParamsSchema>;
+
+export const PreCheckFetchResponseSchema = z.object({
+  item_count: z.number(),
+  playlist_title: z.string().nullish(),
+  platform: z.string().nullish(),
+  total_duration_seconds: z.number().nullish(),
+  items: z.array(ContentMetadataSchema),
+  duplicate_count: z.number()
+});
+export type PreCheckFetchResponse = z.infer<typeof PreCheckFetchResponseSchema>;
+
 export const ProcessKnockRequestSchema = z.object({
   username: z.string().nullish(),
   role: z.string(),
@@ -4624,7 +4776,9 @@ export const QueryParamsSchema = z.object({
   user_id: z.string().nullish(),
   favorites_only: z.boolean().nullish(),
   min_rating: z.number().nullish(),
-  mb_lookup_status: z.array(z.string()).nullish()
+  mb_lookup_status: z.array(z.string()).nullish(),
+  pending_review: z.boolean().nullish(),
+  caller_is_admin: z.boolean().nullish()
 });
 export type QueryParams = z.infer<typeof QueryParamsSchema>;
 
@@ -4955,7 +5109,8 @@ export type RedeemInviteRequest = z.infer<typeof RedeemInviteRequestSchema>;
 
 export const RegisterStartRequestSchema = z.object({
   username: z.string(),
-  invite_code: z.string().nullish()
+  invite_code: z.string().nullish(),
+  origin: z.string().nullish()
 });
 export type RegisterStartRequest = z.infer<typeof RegisterStartRequestSchema>;
 
@@ -5155,6 +5310,11 @@ export const RestartPolicySchema = z.object({
 });
 export type RestartPolicy = z.infer<typeof RestartPolicySchema>;
 
+export const RevokeOwnInviteRequestSchema = z.object({
+  code: z.string()
+});
+export type RevokeOwnInviteRequest = z.infer<typeof RevokeOwnInviteRequestSchema>;
+
 export const ScalarAttributeSchema = z.object({
   album_id: z.string(),
   taxon_kind_id: z.string(),
@@ -5275,6 +5435,12 @@ export const SearchResponseSchema = z.object({
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
+export const SelfAccountLinkResponseSchema = z.object({
+  code: z.string(),
+  expires_at: z.number()
+});
+export type SelfAccountLinkResponse = z.infer<typeof SelfAccountLinkResponseSchema>;
+
 export const ServerInfoResponseSchema = z.object({
   name: z.string(),
   description: z.string().nullish(),
@@ -5284,7 +5450,9 @@ export const ServerInfoResponseSchema = z.object({
   knocking_enabled: z.boolean().nullish(),
   musicbrainz_enabled: z.boolean().nullish(),
   lastfm_enabled: z.boolean().nullish(),
-  audiodb_enabled: z.boolean().nullish()
+  audiodb_enabled: z.boolean().nullish(),
+  passkey_p2p_enabled: z.boolean().nullish(),
+  fetch_precheck_enabled: z.boolean().nullish()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
 
@@ -5595,6 +5763,15 @@ export const SongQueryResultSchema = z.object({
 });
 export type SongQueryResult = z.infer<typeof SongQueryResultSchema>;
 
+export const SongReviewPatchSchema = z.object({
+  song_id: z.string(),
+  title: z.string().nullish(),
+  track_number: z.number().nullish(),
+  disc_number: z.number().nullish(),
+  track_artist: z.string().nullish()
+});
+export type SongReviewPatch = z.infer<typeof SongReviewPatchSchema>;
+
 export const SongSearchResultSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -5763,7 +5940,8 @@ export const SongsQueryResultSchema = z.object({
 export type SongsQueryResult = z.infer<typeof SongsQueryResultSchema>;
 
 export const StartLoginRequestSchema = z.object({
-  username: z.string()
+  username: z.string().nullish(),
+  origin: z.string().nullish()
 });
 export type StartLoginRequest = z.infer<typeof StartLoginRequestSchema>;
 
@@ -6334,6 +6512,12 @@ export const UpdateListenSessionStatusRequestSchema = z.object({
 });
 export type UpdateListenSessionStatusRequest = z.infer<typeof UpdateListenSessionStatusRequestSchema>;
 
+export const UpdatePasskeyNameRequestSchema = z.object({
+  credential_id: z.string(),
+  name: z.string().nullish()
+});
+export type UpdatePasskeyNameRequest = z.infer<typeof UpdatePasskeyNameRequestSchema>;
+
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   title: z.string().nullish(),
@@ -6493,6 +6677,11 @@ export const UpdateStationRequestSchema = z.object({
   timeline_only_mode: z.boolean().nullish()
 });
 export type UpdateStationRequest = z.infer<typeof UpdateStationRequestSchema>;
+
+export const UpdateUsernameRequestSchema = z.object({
+  username: z.string()
+});
+export type UpdateUsernameRequest = z.infer<typeof UpdateUsernameRequestSchema>;
 
 export const UploadMusicByBlake3RequestSchema = z.object({
   blake3: z.string(),

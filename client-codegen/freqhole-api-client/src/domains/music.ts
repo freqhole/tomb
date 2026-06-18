@@ -1004,6 +1004,30 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    createPrecheckFetchJob: (params: s.PreCheckFetchParams) => {
+      return call(
+        "music",
+        "create_precheck_fetch_job",
+        routes.music.create_precheck_fetch_job.resp,
+        routes.music.create_precheck_fetch_job.req,
+        routes.music.create_precheck_fetch_job.method,
+        routes.music.create_precheck_fetch_job.path,
+        params,
+      );
+    },
+
+    cancelJob: (params: s.CancelJobRequest) => {
+      return call(
+        "music",
+        "cancel_job",
+        routes.music.cancel_job.resp,
+        routes.music.cancel_job.req,
+        routes.music.cancel_job.method,
+        routes.music.cancel_job.path,
+        params,
+      );
+    },
+
     getFetchJob: (params: s.GetJobRequest) => {
       return call(
         "music",
@@ -1829,6 +1853,79 @@ export function createMusicMethods(call: CallFn) {
         routes.music.upload_music_by_blake3.req,
         routes.music.upload_music_by_blake3.method,
         routes.music.upload_music_by_blake3.path,
+        params,
+      );
+    },
+
+    // import review
+    listPendingImportReview: (params: s.ListPendingReviewRequest) => {
+      return call(
+        "music",
+        "list_pending_import_review",
+        routes.music.list_pending_import_review.resp,
+        routes.music.list_pending_import_review.req,
+        routes.music.list_pending_import_review.method,
+        routes.music.list_pending_import_review.path,
+        params,
+      );
+    },
+
+    markAlbumReviewed: (params: s.MarkAlbumReviewedRequest) => {
+      return call(
+        "music",
+        "mark_album_reviewed",
+        routes.music.mark_album_reviewed.resp,
+        routes.music.mark_album_reviewed.req,
+        routes.music.mark_album_reviewed.method,
+        routes.music.mark_album_reviewed.path,
+        params,
+      );
+    },
+
+    mergeAlbumsReview: (params: s.MergeAlbumsReviewRequest) => {
+      return call(
+        "music",
+        "merge_albums_review",
+        routes.music.merge_albums_review.resp,
+        routes.music.merge_albums_review.req,
+        routes.music.merge_albums_review.method,
+        routes.music.merge_albums_review.path,
+        params,
+      );
+    },
+
+    moveSongReview: (params: s.MoveSongReviewRequest) => {
+      return call(
+        "music",
+        "move_song_review",
+        routes.music.move_song_review.resp,
+        routes.music.move_song_review.req,
+        routes.music.move_song_review.method,
+        routes.music.move_song_review.path,
+        params,
+      );
+    },
+
+    patchAlbumReview: (params: s.PatchAlbumReviewRequest) => {
+      return call(
+        "music",
+        "patch_album_review",
+        routes.music.patch_album_review.resp,
+        routes.music.patch_album_review.req,
+        routes.music.patch_album_review.method,
+        routes.music.patch_album_review.path,
+        params,
+      );
+    },
+
+    albumPending: (params: s.AlbumPendingRequest) => {
+      return call(
+        "music",
+        "album_pending",
+        routes.music.album_pending.resp,
+        routes.music.album_pending.req,
+        routes.music.album_pending.method,
+        routes.music.album_pending.path,
         params,
       );
     },

@@ -593,6 +593,24 @@ pub fn run() {
                                     }
                                 })
                             }
+                            grimoire::events::GrimoireEvent::DeviceLinked { peer_addr, server_name } => {
+                                serde_json::json!({
+                                    "type": "device-linked",
+                                    "data": {
+                                        "peer_addr": peer_addr,
+                                        "server_name": server_name,
+                                    }
+                                })
+                            }
+                            grimoire::events::GrimoireEvent::KnockAccepted { peer_addr, server_name } => {
+                                serde_json::json!({
+                                    "type": "knock-accepted",
+                                    "data": {
+                                        "peer_addr": peer_addr,
+                                        "server_name": server_name,
+                                    }
+                                })
+                            }
                         };
                         // emit to frontend as tauri event (matching spume's event channel)
                         if let Err(e) = event_handle.emit("freqhole:event", spume_event) {

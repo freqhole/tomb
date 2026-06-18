@@ -1365,7 +1365,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     value_norm: string;
     limit?: number | null;
     offset?: number | null;
-  }): Promise<import("freqhole-api-client").AlbumsByValueResponse | null> {
+  }): Promise<import("@freqhole/api-client").AlbumsByValueResponse | null> {
     const result = await (await this.getClient()).music.albumsByValue({
       kind: params.kind,
       value_norm: params.value_norm,
@@ -1385,7 +1385,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async entityTaxonsBatch(params: {
     entity_kind: "album" | "artist";
     entity_ids: string[];
-  }): Promise<import("freqhole-api-client").EntityTaxonsBatchResponse | null> {
+  }): Promise<import("@freqhole/api-client").EntityTaxonsBatchResponse | null> {
     if (params.entity_ids.length === 0) {
       return { entity_kind: params.entity_kind, entries: [] };
     }
@@ -1407,7 +1407,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   async findByMergedKey(params: {
     entity_kind: "album" | "artist";
     keys: string[];
-  }): Promise<import("freqhole-api-client").FindByMergedKeyResponse | null> {
+  }): Promise<import("@freqhole/api-client").FindByMergedKeyResponse | null> {
     if (params.keys.length === 0) {
       return { entity_kind: params.entity_kind, matches: [] };
     }
@@ -1434,7 +1434,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // return an empty `bins` vec while the heuristic is still pending.
   async eraBins(
     params: { target_min?: number | null; target_max?: number | null } = {},
-  ): Promise<import("freqhole-api-client").EraBinsResponse | null> {
+  ): Promise<import("@freqhole/api-client").EraBinsResponse | null> {
     const result = await (await this.getClient()).music.eraBins({
       target_min: params.target_min ?? null,
       target_max: params.target_max ?? null,
@@ -1451,7 +1451,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   // images + favorites). default 32, server-capped at 256.
   async recentlyAddedAlbums(
     params: { limit?: number | null } = {},
-  ): Promise<import("freqhole-api-client").RecentlyAddedAlbumsResponse | null> {
+  ): Promise<import("@freqhole/api-client").RecentlyAddedAlbumsResponse | null> {
     const result = await (await this.getClient()).music.recentlyAddedAlbums({
       limit: params.limit ?? null,
     });

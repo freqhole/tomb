@@ -108,7 +108,7 @@ import {
   DEFAULT_TUNING,
   type SimTuningValues,
 } from "../../../components/graph/SimTuningOverlay";
-import type { TaxonRef, TaxonKind as TaxonKindType } from "freqhole-api-client";
+import type { TaxonRef, TaxonKind as TaxonKindType } from "@freqhole/api-client";
 import { Icon } from "../../../components/icons/registry";
 
 // ---- public props -----------------------------------------------------------
@@ -666,6 +666,11 @@ function Inner(props: {
     }
   };
 
+  // how long to wait for a health check before treating the remote as offline.
+  // keeps the graph responsive on connected-but-no-internet networks where TCP
+  // connections can hang for 30-90 seconds before the OS gives up.
+  const HEALTH_CHECK_TIMEOUT_MS = 8_000;
+
   // run a health check (deduped) and reflect the result into offlineByRemote.
   const runHealthCheck = async (remoteId: string): Promise<boolean | null> => {
     if (recheckingRemotes.has(remoteId)) return null;
@@ -673,7 +678,16 @@ function Inner(props: {
     try {
       const remote = await getRemoteById(remoteId);
       if (!remote) return null;
-      const online = await checkRemoteHealth(remote);
+      // race against a timeout so a hanging TCP connection doesn't leave the
+      // remote stuck in "online" state for 30+ seconds.
+      const timedOut = Symbol("timeout");
+      const result = await Promise.race([
+        checkRemoteHealth(remote),
+        new Promise<typeof timedOut>((resolve) =>
+          setTimeout(() => resolve(timedOut), HEALTH_CHECK_TIMEOUT_MS)
+        ),
+      ]);
+      const online = result === timedOut ? false : result;
       setOfflineByRemote((prev) => {
         if (prev.get(remoteId) === !online) return prev;
         const next = new Map(prev);
@@ -2950,6 +2964,10 @@ function Inner(props: {
   // graph artist nodes can replace their album-derived placeholders with
   // real artist art (when the remote has any). same activation gate as
   // favorites — paid for only when the user reaches the remote.
+  //
+  // deferred by one idle cycle (requestIdleCallback / setTimeout fallback)
+  // so this heavyweight fetch (up to 1000 artists) doesn't compete with the
+  // initial album + taxon requests that the user needs to see the graph.
   let artistImagesLastResetTick = 0;
   createEffect(() => {
     const tick = mergeResetTick();
@@ -2961,6 +2979,8 @@ function Inner(props: {
     for (const remote of online) {
       if (artistImagesLoadedRemotes.has(remote.remote_id)) continue;
       artistImagesLoadedRemotes.add(remote.remote_id);
+      // mergeResetTick already ensures this fires only after the walker has
+      // init()'d with real album data, so no extra deferral needed here.
       void loadArtistImagesForRemote(remote);
     }
   });

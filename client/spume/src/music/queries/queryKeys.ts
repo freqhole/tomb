@@ -72,15 +72,6 @@ export const queryKeys = {
       [...queryKeys.artists.all(), "autocomplete", search] as const,
   },
 
-  // genres
-  genres: {
-    all: () => ["genres", getDataSourceKey()] as const,
-    lists: () => [...queryKeys.genres.all(), "list"] as const,
-    list: (search?: string) => [...queryKeys.genres.lists(), search] as const,
-    detail: (id: string) => [...queryKeys.genres.all(), id] as const,
-    songs: (genreId: string) => ["genre", "songs", getDataSourceKey(), genreId] as const,
-  },
-
   // playlists
   playlists: {
     all: () => ["playlists", getDataSourceKey()] as const,

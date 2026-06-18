@@ -6,7 +6,7 @@
 // same admin commands, different entry point.
 
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { AdminClient, AdminCommandError, type RadioStation } from "freqhole-api-client";
+import { AdminClient, AdminCommandError, type RadioStation } from "@freqhole/api-client";
 import { adminClientFor, getLocalAdminClient } from "../../app/api/adminClient";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { toast } from "../feedback/Toast";

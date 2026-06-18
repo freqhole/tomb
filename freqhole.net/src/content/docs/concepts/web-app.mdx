@@ -36,6 +36,8 @@ each remote has:
 
 the currently active remote is shown in the header. switch between remotes to browse different libraries.
 
+the remote `...` menu also exposes a profile page when you're signed in. use it to update your username or generate an account-link code for a new passkey/device.
+
 ---
 
 ## local storage
@@ -123,7 +125,7 @@ the web app uses WebAuthn for authentication:
 - one passkey per device
 
 :::caution[HTTPS required]
-WebAuthn only works with remotes served over HTTPS (or `localhost`). it also doesn't work for P2P remotes. if your server is on a plain HTTP address (e.g. `http://192.168.1.50:8080`) or connected via P2P, passkey login won't be available — use an API key or invite code instead.
+WebAuthn needs to be used on a page served over HTTPS (or `localhost` for development/testing). P2P remotes can use passkeys easily in web browsers. for charnel (gui app) or rathole (cli app): you can open a special link in a web browser and the use a passkey that you've setup already (or setup a new passkey with an account-link invite code). this should enable getting p2p access on many different devices a lot easier.
 :::
 
 ### session persistence

@@ -353,6 +353,24 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
+    // create a session so this upload lands in the import review queue.
+    let upload_sess_resp = create_job_session(CreateJobSessionRequest {
+        job_type: JobType::ImportMusic,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let upload_session_id = match upload_sess_resp.data {
+        Some(s) => {
+            tracing::info!(session_id = %s.id, "created upload session for import review tracking");
+            Some(s.id)
+        }
+        None => {
+            tracing::warn!("failed to create upload session; import review will be unavailable for this upload");
+            None
+        }
+    };
+
     // create import job
     let job_payload = json!({
         "blob_id": blob.id,
@@ -364,7 +382,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let job_response = create_job(CreateJobRequest {
         job_type: JobType::ImportMusic,
-        session_id: None,
+        session_id: upload_session_id,
         parameters: job_payload,
         max_retries: Some(3),
         scheduled_at: None,
@@ -1130,9 +1148,29 @@ pub async fn upload_music_by_blake3(
         "user_hints": req.metadata,
     });
 
+    // create a session so this upload lands in the import review queue.
+    let blake3_sess_resp = create_job_session(CreateJobSessionRequest {
+        job_type: JobType::ImportMusic,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let blake3_session_id = match blake3_sess_resp.data {
+        Some(s) => {
+            tracing::info!(session_id = %s.id, "created blake3 upload session for import review tracking");
+            Some(s.id)
+        }
+        None => {
+            tracing::warn!(
+                "failed to create blake3 upload session; import review will be unavailable"
+            );
+            None
+        }
+    };
+
     let job_response = create_job(CreateJobRequest {
         job_type: JobType::ImportMusic,
-        session_id: None,
+        session_id: blake3_session_id,
         parameters: job_payload,
         max_retries: Some(3),
         scheduled_at: None,

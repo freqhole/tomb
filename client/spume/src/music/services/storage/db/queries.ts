@@ -28,15 +28,18 @@ export async function queryAlbums(options?: {
 }): Promise<AlbumQueryResult[]> {
   const db = await initMusicDB();
 
-  // get all albums (or specific album if albumId provided)
-  const allAlbums = options?.albumId
-    ? [await db.get(STORE_ALBUMS, options.albumId)].filter(Boolean) as Album[]
-    : await db.getAll(STORE_ALBUMS);
+  // fetch all needed stores in parallel (except when filtering by albumId where
+  // we only need that one album record — songs/artists/genres still run in parallel).
+  const albumsPromise = options?.albumId
+    ? db.get(STORE_ALBUMS, options.albumId).then((a) => (a ? [a] : []) as Album[])
+    : db.getAll(STORE_ALBUMS) as Promise<Album[]>;
 
-  // get all songs, artists, and genres once
-  const allSongs = await db.getAll(STORE_SONGS);
-  const allArtists = await db.getAll(STORE_ARTISTS);
-  const allGenres = await db.getAll(STORE_GENRES);
+  const [allAlbums, allSongs, allArtists, allGenres] = await Promise.all([
+    albumsPromise,
+    db.getAll(STORE_SONGS),
+    db.getAll(STORE_ARTISTS),
+    db.getAll(STORE_GENRES),
+  ]);
 
   // create artist and genre lookup maps
   const artistsById = new Map<string, Artist>();

@@ -2,7 +2,7 @@
 // can reuse the same UI per admin remote without circular deps.
 
 import { createSignal, createResource, Show, For } from "solid-js";
-import { AdminClient, AdminCommandError } from "freqhole-api-client";
+import { AdminClient, AdminCommandError } from "@freqhole/api-client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { toast } from "../../../components/feedback/Toast";
 import { CopyButton } from "../../../components/buttons/CopyButton";

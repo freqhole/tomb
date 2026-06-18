@@ -29,6 +29,7 @@ import { getClientForRemote } from "../../app/api/client";
 import { EnrichmentReviewPanel } from "../../library/components/EnrichmentReviewPanel";
 import { useRemoteIsAdmin } from "../../library/hooks/useRemoteRole";
 import { useEnrichmentEnabledQuery } from "../../music/hooks/useEnrichmentEnabled";
+import { useAlbumPending } from "../../music/hooks/useAlbumPending";
 import { showArtistEditor } from "../../music/hooks/modals";
 import { Modal } from "./Modal";
 import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEditor";
@@ -51,6 +52,8 @@ interface AlbumEditorModalProps {
   onOpenSongEditor?: (songId: string) => void;
   /** called after a successful merge with the target album id, so callers can navigate */
   onMergeNavigate?: (newAlbumId: string) => void;
+  /** called after a successful delete so callers (e.g. album detail view) can navigate away */
+  onDeleted?: () => void;
   /**
    * bulk-enrichment review mode (phase 14.7).
    *
@@ -359,7 +362,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(mergeTarget) }),
           queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
           queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
         ]);
 
         props.onSave?.();
@@ -415,7 +417,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         queryClient.invalidateQueries({ queryKey: queryKeys.albums.songs(props.albumId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() }),
       ]);
 
       props.onSave?.();
@@ -526,6 +527,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
   // here — we just need the type to line up.
   const reviewRemote = () => (currentRemote() ?? undefined) as Remote | undefined;
   const isRemoteAdmin = useRemoteIsAdmin(reviewRemote);
+
+  // check if this album has pending (unreviewed) import blobs
+  const albumPending = useAlbumPending(
+    () => props.albumId,
+    () => currentRemote() ?? null
+  );
 
   // which external enrichment sources the operator has enabled in
   // freqhole-config.toml on this remote. tabs for disabled sources are
@@ -652,10 +659,16 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
         const dataSource = getDataSource();
         if (dataSource.deleteAlbum) {
           await dataSource.deleteAlbum(props.albumId);
-          toast.success(`deleted "${album.title}"`);
-          queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-          queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+          // reset clears data + immediately refetches for any active observer
+          // (e.g. albums grid still mounted behind this modal). inactive
+          // queries are just cleared; they refetch on next mount.
+          await Promise.all([
+            queryClient.resetQueries({ queryKey: queryKeys.albums.all() }),
+            queryClient.resetQueries({ queryKey: ["library-albums"] }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() }),
+          ]);
+          props.onDeleted?.();
           props.onClose();
         } else {
           toast.error("delete not supported for this data source");
@@ -947,6 +960,28 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
           </TabList>
 
           <TabPanel id="info" class="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* pending import review badge */}
+            <Show when={albumPending.hasPending()}>
+              <div class="flex items-center justify-between gap-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <span class="text-sm font-medium text-yellow-400">pending import review</span>
+                  <Show when={albumPending.createdAt()}>
+                    {(ts) => (
+                      <span class="text-xs text-[var(--color-text-tertiary)]">
+                        imported {formatDateTime(ts() * 1000)}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+                <button
+                  onClick={() => void albumPending.markReviewed()}
+                  class="shrink-0 px-3 py-1.5 text-xs rounded-md bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors"
+                >
+                  mark reviewed
+                </button>
+              </div>
+            </Show>
+
             {/* album title */}
             <div class="space-y-2">
               <div class="flex items-center justify-between">
@@ -1221,7 +1256,6 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
                   queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
                   queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
-                  queryClient.invalidateQueries({ queryKey: queryKeys.genres.all() });
                   queryClient.invalidateQueries({
                     queryKey: queryKeys.albums.songs(props.albumId),
                   });

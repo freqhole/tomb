@@ -19,13 +19,9 @@ import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
 import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
-import {
-  getCurrentRemote,
-  getDataSource,
-  getRemoteClient,
-  useLocalSource,
-  useRemoteSource,
-} from "../music/data";
+import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
+import type { CurrentRemoteInfo } from "../music/data/currentState";
+import { isAdmin } from "../music/data/permissions";
 import {
   closeAddMusic,
   hideAlbumEditor,
@@ -51,6 +47,7 @@ import {
   getLocalImportProgress,
   getUploadJobs,
   importMusicFiles,
+  importPathsToLocal,
   uploadFilesToRemote,
   uploadPathsToRemote,
 } from "../music/import";
@@ -83,6 +80,7 @@ import {
 } from "./services/charnel";
 import {
   checkRemoteHealth,
+  createRemote,
   getAllRemotes,
   getRemoteByPeerAddr,
   markRemoteOffline,
@@ -102,12 +100,33 @@ import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
+import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
+import { useImportReview } from "../music/hooks/useImportReview";
+import { ImportReviewModal } from "../components/modals/ImportReviewModal";
+import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
 
 export function App() {
   const queryClient = useQueryClient();
   const isAddMusicOpen = useAddMusicState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
+  // session id for the import review modal - set when user clicks "review now"
+  const [reviewSessionId, setReviewSessionId] = createSignal<string | null>(null);
+  // the remote that owns the review session - captured at start time so it stays
+  // stable even if the user navigates to a different remote while reviewing
+  const [reviewRemote, setReviewRemote] = createSignal<CurrentRemoteInfo | null>(null);
+
+  // open a review session, capturing the active remote at this moment
+  function openReviewSession(sid: string) {
+    setReviewRemote(getCurrentRemote() ?? null);
+    setReviewSessionId(sid);
+  }
+  // incremented when the review modal closes - triggers AddMusicModal to refetch pending sessions
+  const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
+  // last session id that completed review - triggers AddMusicModal to auto-dismiss its card
+  const [completedReviewSessionId, setCompletedReviewSessionId] = createSignal<string | null>(null);
+  // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
+  const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
@@ -120,6 +139,33 @@ export function App() {
   // track current hash reactively (allows settings + radio in empty state)
   const [currentHash, setCurrentHash] = createSignal(window.location.hash);
   const isSettingsRoute = () => currentHash().startsWith("#/settings");
+
+  // query whether the current remote has url precheck (yt-dlp) configured
+  const fetchPrecheckEnabledQuery = useFetchPrecheckEnabledQuery(
+    () => getCurrentRemote() ?? undefined
+  );
+
+  // import review - keyed to the captured remote for the session, not getCurrentRemote()
+  const importReview = useImportReview(
+    () => reviewSessionId(),
+    () => reviewRemote()
+  );
+  // map of albumId -> save fn registered by ImportReviewEditor instances
+  const editorSaveFns = new Map<string, () => Promise<void>>();
+
+  // when albums drain to zero while the modal is open (e.g. after a merge
+  // marks everything reviewed server-side), treat it as a completion so the
+  // add-music modal re-opens for the next pending session.
+  createEffect(() => {
+    if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
+      const sid = reviewSessionId();
+      if (sid) setCompletedReviewSessionId(sid);
+      setReviewSessionId(null);
+      setReviewRemote(null);
+      setReviewRefetchKey((k) => k + 1);
+      openAddMusic();
+    }
+  });
   // radio works with zero remotes (anyone with a node id can listen)
   const isRadioRoute = () => currentHash().startsWith("#/radio");
   const isSharedRoute = () => currentHash().startsWith("#/shared");
@@ -141,6 +187,14 @@ export function App() {
       debug("App", `found ?r= param: ${remoteParam.slice(0, 16)}...`);
       setAddRemoteInitialValue(remoteParam);
       setIsAddRemoteOpen(true);
+    }
+
+    // check for ?link= param (device link flow from charnel app)
+    // navigate to the #/link route which reads the param from window.location.search
+    const linkParam = params.get("link");
+    if (linkParam) {
+      debug("App", "found ?link= param, navigating to /link");
+      window.location.hash = "/link";
     }
   });
 
@@ -332,6 +386,114 @@ export function App() {
         // show toast for federation knock request with federation view button
         showKnockCreatedToast(event.data.username, event.data.message);
         break;
+
+      case "device-linked": {
+        // remote server confirmed charnel's node_id is registered.
+        // if the modal is open, signal it to auto-complete; otherwise do it here.
+        const { peer_addr, server_name } = event.data;
+        if (isAddRemoteOpen()) {
+          // modal is open - let it drive the completion and show its own success step
+          setAutoCompletePeerAddr(peer_addr);
+          // reset after a tick so the effect fires again if the same addr comes twice
+          setTimeout(() => setAutoCompletePeerAddr(null), 100);
+        } else {
+          void (async () => {
+            const existing = await getRemoteByPeerAddr(peer_addr);
+            if (existing) {
+              toast.success(`already connected to ${existing.name}`, {
+                title: "device linked",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${existing.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+              return;
+            }
+            try {
+              const remote = await createRemote({ peer_addr });
+              toast.success(`${remote.name} added`, {
+                title: "remote linked",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${remote.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+            } catch (err) {
+              debug("App", `device-linked: createRemote failed for ${server_name}:`, err);
+              toast.info(`passkey linked to ${server_name} - add the remote to browse`, {
+                title: "device linked",
+                action: {
+                  label: "add remote",
+                  onClick: () => {
+                    setIsAddRemoteOpen(true);
+                  },
+                },
+                persistent: true,
+              });
+            }
+          })();
+        }
+        break;
+      }
+
+      case "knock-accepted": {
+        // remote server accepted the knock request.
+        // same as device-linked: drive modal completion if open, else toast+create.
+        const { peer_addr, server_name } = event.data;
+        if (isAddRemoteOpen()) {
+          setAutoCompletePeerAddr(peer_addr);
+          setTimeout(() => setAutoCompletePeerAddr(null), 100);
+        } else {
+          void (async () => {
+            const existing = await getRemoteByPeerAddr(peer_addr);
+            if (existing) {
+              toast.success(`access granted to ${existing.name}`, {
+                title: "knock accepted",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${existing.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+              return;
+            }
+            try {
+              const remote = await createRemote({ peer_addr });
+              toast.success(`${remote.name} added`, {
+                title: "knock accepted",
+                action: {
+                  label: "browse remote",
+                  onClick: () => {
+                    window.location.hash = `/${remote.remote_id}/feed`;
+                  },
+                },
+                persistent: true,
+              });
+            } catch (err) {
+              debug("App", `knock-accepted: createRemote failed for ${server_name}:`, err);
+              toast.info(`access granted to ${server_name} - add the remote to browse`, {
+                title: "knock accepted",
+                action: {
+                  label: "add remote",
+                  onClick: () => {
+                    setIsAddRemoteOpen(true);
+                  },
+                },
+                persistent: true,
+              });
+            }
+          })();
+        }
+        break;
+      }
 
       case "peer-offline":
         // P2P connection failure - mark remote offline immediately
@@ -645,12 +807,14 @@ export function App() {
   // callback for when any remote job completes — invalidate queries for new music
   const onRemoteJobComplete = () => {
     setHasSongs(true);
+    setReviewRefetchKey((k) => k + 1);
     queryClient.invalidateQueries({
       predicate: (query) => {
         const key = query.queryKey[0];
         return (
           key === "songs" ||
           key === "albums" ||
+          key === "library-albums" ||
           key === "artists" ||
           key === "genres" ||
           key === "feed" ||
@@ -684,7 +848,14 @@ export function App() {
           queryClient.invalidateQueries({
             predicate: (query) => {
               const key = query.queryKey[0];
-              return key === "songs" || key === "albums" || key === "artists";
+              return (
+                key === "songs" ||
+                key === "albums" ||
+                key === "library-albums" ||
+                key === "artists" ||
+                key === "genres" ||
+                key === "feed"
+              );
             },
           });
         }
@@ -773,33 +944,11 @@ export function App() {
       return;
     }
 
+    // use importPathsToLocal which tracks each job with progress.
+    // the add music modal shows a review card when the session finishes;
+    // the user clicks it to open the review modal rather than auto-opening.
     try {
-      const client = await getRemoteClient();
-      if (!client) {
-        toast.error("no remote client available", { title: "import error" });
-        return;
-      }
-
-      // use musicByPaths to import files/directories
-      const result = await client.upload.musicByPaths(paths, { waitForCompletion: false });
-      if (result.success && result.data) {
-        const data = result.data;
-        if (data.jobs_created > 0) {
-          toast.success(data.message, { title: "import started" });
-          // invalidate queries after import starts
-          onRemoteJobComplete();
-        } else if (data.files_skipped > 0) {
-          toast.info(`skipped ${data.files_skipped} files (no supported audio found)`, {
-            title: "nothing to import",
-          });
-        } else {
-          toast.info("no audio files found", { title: "nothing to import" });
-        }
-      } else {
-        const errMsg =
-          (!result.success && result.error?.issues?.[0]?.message) || "failed to start import";
-        toast.error(errMsg, { title: "import error" });
-      }
+      await importPathsToLocal(paths, onRemoteJobComplete);
     } catch (error) {
       console.error("failed to import paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -849,6 +998,10 @@ export function App() {
             {routes({
               onAddMusic: () => openAddMusic(),
               onSongDoubleClick: handleSongDoubleClick,
+              onImportReview: (sid) => {
+                openReviewSession(sid);
+                handleCloseAddMusic();
+              },
             })}
           </HashRouter>
         </Show>
@@ -864,6 +1017,71 @@ export function App() {
         useCharnelDialog={isCharnelMode()}
         uploadJobs={getUploadJobs()}
         localImportProgress={getLocalImportProgress()}
+        fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
+        onReviewSession={(sid) => {
+          openReviewSession(sid);
+          handleCloseAddMusic();
+        }}
+        refetchReviewKey={reviewRefetchKey()}
+        isAdmin={isAdmin()}
+        dismissedReviewSessionId={completedReviewSessionId()}
+      />
+
+      <ImportReviewModal
+        isOpen={reviewSessionId() !== null}
+        loading={importReview.loading()}
+        onClose={() => {
+          setReviewSessionId(null);
+          setReviewRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open the add music modal so the user can pick the next
+          // pending review without having to open it manually
+          openAddMusic();
+        }}
+        albums={importReview.albums()}
+        onComplete={() => {
+          const sid = reviewSessionId();
+          if (sid) setCompletedReviewSessionId(sid);
+          setReviewSessionId(null);
+          setReviewRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open to let the user pick the next pending review
+          openAddMusic();
+        }}
+        onMergeAlbums={(sourceIds: string[], targetId: string) =>
+          void importReview.mergeAlbums(sourceIds, targetId)
+        }
+        onMoveSong={(songId: string, toAlbumId: string) =>
+          void importReview.moveSong(songId, toAlbumId)
+        }
+        onMarkReviewed={async (albumId: string) => {
+          // flush any pending edits from the editor before marking reviewed
+          const saveFn = editorSaveFns.get(albumId);
+          if (saveFn) {
+            try {
+              await saveFn();
+            } catch {
+              /* saveFn shows its own toast */
+            }
+          } else {
+            // no editor registered (e.g. grouping stage) - just mark reviewed
+            void importReview.markReviewed(albumId);
+          }
+        }}
+        renderAlbumEditor={(editorProps) => {
+          const remote = reviewRemote();
+          if (!remote || !reviewSessionId()) return <></>;
+          return (
+            <ImportReviewEditor
+              {...editorProps}
+              remote={remote}
+              reviewHandle={importReview}
+              sessionId={reviewSessionId()!}
+              onRegisterSave={(id, fn) => editorSaveFns.set(id, fn)}
+              onUnregisterSave={(id) => editorSaveFns.delete(id)}
+            />
+          );
+        }}
       />
 
       <AddRemoteModal
@@ -872,6 +1090,7 @@ export function App() {
           setIsAddRemoteOpen(false);
           setAddRemoteInitialValue(undefined);
         }}
+        completePeerAddr={autoCompletePeerAddr}
         onSuccess={(remote) => {
           debug("App", "remote added successfully:", remote.name);
           // show success toast
@@ -943,6 +1162,7 @@ export function App() {
             disableNestedModals={state().disableNestedModals}
             onOpenSongEditor={(songId) => showSongEditor({ songId, disableNestedModals: true })}
             onMergeNavigate={state().onMergeNavigate}
+            onDeleted={state().onDeleted}
             review={state().review}
           />
         )}

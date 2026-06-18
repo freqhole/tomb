@@ -77,3 +77,7 @@ uses same protocol as grimoire's federation transport:
 - blob streaming: length-prefixed header followed by raw bytes
 
 see `grimoire/src/federation/transport/protocol.rs` for details.
+
+---
+
+made with 💖 in NYC

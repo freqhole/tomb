@@ -170,10 +170,15 @@ async fn handle_stream(
                 .unwrap_or(JsonValue::Null);
 
             // inject node_id for routes that need to know who's connecting
-            // (knock/invite for pending requests, upload for iroh-blobs pull)
+            // (knock/invite for pending requests, upload for iroh-blobs pull,
+            // webauthn for p2p passkey register/login flows)
             if path == "/api/knock"
                 || path == "/api/knock/status"
                 || path == "/api/auth/invite"
+                || path == "/api/auth/webauthn/register/start"
+                || path == "/api/auth/webauthn/register/finish"
+                || path == "/api/auth/webauthn/login/start"
+                || path == "/api/auth/webauthn/login/finish"
                 || path == "/api/upload/music-by-blake3"
             {
                 if let Some(obj) = json_body.as_object_mut() {

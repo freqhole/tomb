@@ -1,8 +1,19 @@
 // add remote modal - multi-step wizard for adding a new remote server
 // steps: 1) enter url/peer, 2) test connection, 3) authenticate, 4) complete
-import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
-import { getClientForRemote, isCharnelAvailable } from "../../app/api/client";
-import { authenticate, getServerInfo, whoami } from "../../app/services/remotes/authService";
+import { Accessor, createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js";
+import {
+  getClientForRemote,
+  getLocalNodeId,
+  getLocalNodeIdAsync,
+  isCharnelAvailable,
+} from "../../app/api/client";
+import {
+  authenticate,
+  getServerInfo,
+  loginWithWebauthnP2P,
+  registerWithWebauthnP2P,
+  whoami,
+} from "../../app/services/remotes/authService";
 import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteManager";
 import {
   createPendingRemote,
@@ -97,6 +108,12 @@ export interface AddRemoteModalProps {
   }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
+  /**
+   * when set to a peer_addr, the modal will auto-complete the setup for that
+   * peer. used by App.tsx to drive completion from device-linked / knock-accepted
+   * events without the user having to click "continue setup".
+   */
+  completePeerAddr?: Accessor<string | null>;
 }
 
 type Step = "url" | "testing" | "auth" | "complete" | "knock-sent";
@@ -119,6 +136,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     image_blob_id?: string | null;
     requiresAuth: boolean;
     knocking_enabled?: boolean | null;
+    passkey_p2p_enabled?: boolean | null;
   } | null>(null);
 
   // pre-fetched P2P server image URL (stored as object URL during connection test)
@@ -139,6 +157,45 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
 
+  // charnel mode: link to complete passkey auth in the system browser.
+  // generates a ?link= url for spume's /link route.
+  // payload: { peer_addr (server node_id), name, description, link_node_id (charnel's node_id) }
+  const [showCharnelLink, setShowCharnelLink] = createSignal(false);
+  const [charnelLinkCopied, setCharnelLinkCopied] = createSignal(false);
+  // pre-fetched charnel node_id (async, since getLocalNodeId() returns null in tauri mode)
+  const [localNodeId, setLocalNodeId] = createSignal<string | null>(null);
+  createEffect(() => {
+    if (props.isOpen && isCharnelAvailable()) {
+      void getLocalNodeIdAsync().then(setLocalNodeId);
+    }
+  });
+  const charnelSpumeLink = () => {
+    const peer = peerAddr();
+    if (!peer) return null;
+    const info = serverInfo();
+    // prefer the async-resolved id (works in tauri); fall back to sync for browser
+    const clientNodeId = localNodeId() ?? getLocalNodeId();
+    const payload: Record<string, unknown> = {
+      peer_addr: peer,
+      name: info?.name ?? "freqhole",
+      description: info?.description ?? null,
+    };
+    if (clientNodeId) payload.link_node_id = clientNodeId;
+    return `https://spume.freqhole.net/?link=${btoa(JSON.stringify(payload))}`;
+  };
+  const handleCharnelLinkCopy = () => {
+    const link = charnelSpumeLink();
+    if (!link) return;
+    void navigator.clipboard.writeText(link).then(() => {
+      setCharnelLinkCopied(true);
+      setTimeout(() => setCharnelLinkCopied(false), 2000);
+    });
+  };
+  const handleCharnelLinkOpen = () => {
+    const link = charnelSpumeLink();
+    if (link) window.open(link, "_blank");
+  };
+
   // QR scanner state (browser-only, not in tauri)
   const [showScanner, setShowScanner] = createSignal(false);
   const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
@@ -151,6 +208,29 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         if (isOpen && props.initialValue) {
           setInputValue(props.initialValue);
           debug("AddRemoteModal", `set initial value: ${props.initialValue.slice(0, 16)}...`);
+        }
+      }
+    )
+  );
+
+  // auto-complete setup when a device-linked / knock-accepted event arrives
+  // for the peer the modal is currently working with
+  createEffect(
+    on(
+      () => props.completePeerAddr?.(),
+      async (triggerAddr) => {
+        if (!triggerAddr || !props.isOpen) return;
+        // if the modal already has this peer staged, drive it through completeSetup
+        if (peerAddr() === triggerAddr) {
+          await completeSetup();
+          return;
+        }
+        // check pending remotes list for a match and stage it
+        const allPending = await getAllPendingRemotes();
+        const match = allPending.find((p) => p.peer_addr === triggerAddr);
+        if (match) {
+          setPeerAddr(triggerAddr);
+          await completeSetup();
         }
       }
     )
@@ -326,6 +406,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           image_url: info.image_url,
           image_blob_id: info.image_blob_id,
           knocking_enabled: info.knocking_enabled,
+          passkey_p2p_enabled: info.passkey_p2p_enabled,
         });
 
         // save server info first
@@ -337,6 +418,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           image_blob_id: info.image_blob_id,
           requiresAuth: false, // P2P registration uses invite code only - no passkey needed
           knocking_enabled: info.knocking_enabled,
+          passkey_p2p_enabled: info.passkey_p2p_enabled,
         });
 
         // check if user already has access via whoami BEFORE fetching image
@@ -467,6 +549,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                 name: info.name,
                 image_blob_id: info.image_blob_id,
                 knocking_enabled: info.knocking_enabled,
+                passkey_p2p_enabled: info.passkey_p2p_enabled,
               });
 
               // try to fetch server image via dedicated HelloImageRequest (public, no auth required)
@@ -511,6 +594,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                 image_blob_id: info.image_blob_id,
                 requiresAuth: true,
                 knocking_enabled: info.knocking_enabled,
+                passkey_p2p_enabled: info.passkey_p2p_enabled,
               });
 
               // create or update pending remote even on 401/403 - we got server info
@@ -843,6 +927,57 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     }
   };
 
+  // handle passkey p2p authentication (login or register)
+  const handlePasskeyAuth = async (data: {
+    username: string;
+    inviteCode?: string;
+    mode: "login" | "register";
+  }) => {
+    const currentPeerAddr = peerAddr();
+    const username = data.username.trim() || undefined;
+    const inviteCode = data.inviteCode?.trim();
+
+    if (!currentPeerAddr) {
+      setError("no peer address available");
+      return;
+    }
+
+    // P2P passkey auth always uses register mode with invite code
+    if (currentPeerAddr && data.mode === "register" && !inviteCode) {
+      setError("invite code is required to register a new passkey");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      let result;
+      if (currentPeerAddr && data.mode === "register") {
+        // P2P registration with invite code
+        result = await registerWithWebauthnP2P(currentPeerAddr, username!, inviteCode!);
+      } else if (!currentPeerAddr && data.mode === "login") {
+        // HTTP login mode
+        result = await loginWithWebauthnP2P(url(), username);
+      } else {
+        throw new Error("unsupported auth combination");
+      }
+
+      if (!result.success) {
+        setError(result.error ?? "passkey authentication failed");
+        return;
+      }
+
+      debug("passkey-auth", `${data.mode} successful for`, username ?? "(discoverable)");
+      await completeSetup();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : `passkey ${data.mode} failed`;
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // final step: save remote config
   const completeSetup = async () => {
     try {
@@ -1018,6 +1153,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               image_blob_id: info.image_blob_id,
               requiresAuth: false,
               knocking_enabled: info.knocking_enabled,
+              passkey_p2p_enabled: info.passkey_p2p_enabled,
             });
           }
 
@@ -1071,6 +1207,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             image_blob_id: info.image_blob_id,
             requiresAuth: false,
             knocking_enabled: info.knocking_enabled,
+            passkey_p2p_enabled: info.passkey_p2p_enabled,
           });
 
           await deletePendingRemote(pending.id);
@@ -1141,7 +1278,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     setServerInfo(null);
     setOriginHint(null);
     setShowKnockOption(false);
-    setIsLoading(false);
+    setShowCharnelLink(false);
     // revoke and clear P2P image URL
     const imgUrl = p2pImageUrl();
     if (imgUrl) {
@@ -1202,13 +1339,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
           "margin-top": "var(--safe-area-top, 0px)",
           height: "calc(100% - var(--safe-area-top, 0px))",
         }}
-        onClick={handleClose}
       >
         {/* modal */}
-        <div
-          class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div class="bg-[var(--color-bg-primary)] shadow-xl w-full wide:border wide:border-[var(--color-border-default)] flex flex-col h-full wide:rounded-lg wide:max-w-md wide:max-h-[80dvh] wide:h-auto">
           {/* header */}
           <div class="flex items-center justify-between p-6 border-b border-[var(--color-border-default)] flex-shrink-0">
             <div class="flex items-center gap-3">
@@ -1439,6 +1572,49 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           use it to register
                         </button>
                       </p>
+                      <Show when={serverInfo()?.passkey_p2p_enabled}>
+                        <button
+                          type="button"
+                          class="w-full mt-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                          onClick={() => {
+                            setShowKnockOption(false);
+                            setError(null);
+                            setStep("auth");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          {isLoading() ? "signing in..." : "sign in with passkey"}
+                        </button>
+                      </Show>
+                      <Show when={isCharnelAvailable() && showCharnelLink()}>
+                        <div class="space-y-2 mt-2">
+                          <div class="flex gap-2">
+                            <input
+                              type="text"
+                              readOnly
+                              value={charnelSpumeLink() ?? ""}
+                              class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                              onClick={(e) => (e.target as HTMLInputElement).select()}
+                            />
+                          </div>
+                          <div class="flex gap-2">
+                            <button
+                              type="button"
+                              class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                              onClick={handleCharnelLinkCopy}
+                            >
+                              {charnelLinkCopied() ? "copied!" : "copy link"}
+                            </button>
+                            <button
+                              type="button"
+                              class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                              onClick={handleCharnelLinkOpen}
+                            >
+                              open in browser
+                            </button>
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   </Show>
                   {/* hint: use current origin if it's a valid server */}
@@ -1651,29 +1827,69 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                   <AuthForm
                     initialMode={peerAddr() ? "register" : "login"}
                     onSubmit={handleAuth}
+                    onPasskeyClick={handlePasskeyAuth}
                     loading={isLoading()}
                     error={error() || undefined}
                     showModeToggle={!peerAddr()} // hide mode toggle for P2P (login not supported)
                     hidePasskeyInfo={!!peerAddr() || isCharnelAvailable()} // hide for P2P and tauri
+                    hidePasskeyButton={!peerAddr() && isCharnelAvailable()} // hide passkey for HTTP+tauri
                   />
 
                   {/* request access option for P2P when knocking is enabled */}
-                  <Show when={peerAddr() && serverInfo()?.knocking_enabled}>
+                  <Show
+                    when={
+                      peerAddr() &&
+                      (serverInfo()?.knocking_enabled || serverInfo()?.passkey_p2p_enabled)
+                    }
+                  >
                     <div class="text-center pt-4 border-t border-[var(--color-border-default)]">
-                      <p class="text-sm text-[var(--color-text-secondary)] mb-2">
-                        don't have an invite code?
-                      </p>
-                      <button
-                        type="button"
-                        class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                        onClick={() => {
-                          setShowKnockOption(true);
-                          setStep("url");
-                        }}
-                        disabled={isLoading()}
-                      >
-                        request access from the admin
-                      </button>
+                      <Show when={serverInfo()?.knocking_enabled}>
+                        <p class="text-sm text-[var(--color-text-secondary)] mb-2">
+                          don't have an invite code?
+                        </p>
+                        <button
+                          type="button"
+                          class="text-sm text-[var(--color-accent-primary)] hover:underline"
+                          onClick={() => {
+                            setShowKnockOption(true);
+                            setStep("url");
+                          }}
+                          disabled={isLoading()}
+                        >
+                          request access from the admin
+                        </button>
+                      </Show>
+                      <Show when={serverInfo()?.passkey_p2p_enabled}>
+                        <Show when={isCharnelAvailable() && showCharnelLink()}>
+                          <div class="space-y-2 mt-2">
+                            <div class="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={charnelSpumeLink() ?? ""}
+                                class="flex-1 px-3 py-2 text-xs rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] select-all cursor-text"
+                                onClick={(e) => (e.target as HTMLInputElement).select()}
+                              />
+                            </div>
+                            <div class="flex gap-2">
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+                                onClick={handleCharnelLinkCopy}
+                              >
+                                {charnelLinkCopied() ? "copied!" : "copy link"}
+                              </button>
+                              <button
+                                type="button"
+                                class="flex-1 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                onClick={handleCharnelLinkOpen}
+                              >
+                                open in browser
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
+                      </Show>
                     </div>
                   </Show>
                 </div>

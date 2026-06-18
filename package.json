@@ -7,8 +7,11 @@
     "scripts": {
         "changeset": "changeset",
         "changeset:status": "changeset status",
-        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\") && npm --prefix freqhole.net run gen:dates",
-        "release:publish": "node scripts/release-publish.mjs"
+        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\")",
+        "release:publish": "node scripts/release-publish.mjs",
+        "publish:npm:api-client:local": "cd client-codegen/freqhole-api-client && npm publish --access public",
+        "publish:npm:midden:local": "cd client/midden && make build-release-npm && cd pkg && npm publish --access public",
+        "publish:npm:local": "npm run publish:npm:api-client:local && npm run publish:npm:midden:local"
     },
     "devDependencies": {
         "@changesets/cli": "^2.27.10"

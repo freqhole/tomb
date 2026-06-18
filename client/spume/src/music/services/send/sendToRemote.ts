@@ -33,7 +33,7 @@
 //   3. POST `/api/sync/playlist` -> capture dest `playlist_id`, upload
 //      playlist images.
 
-import { schema } from "freqhole-api-client";
+import { schema } from "@freqhole/api-client";
 import type {
   SyncAlbumRequest,
   SyncAlbumResponse,
@@ -42,7 +42,7 @@ import type {
   SyncSongByBlake3Request,
   SyncSongByBlake3Response,
   Transport,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 const {
   HasBlobsResponseSchema,
   SyncAlbumResponseSchema,

@@ -272,6 +272,7 @@ pub struct WebAuthnCredential {
     pub created_at: i64,
     pub last_used_at: Option<i64>,
     pub deleted_at: Option<i64>,
+    pub name: Option<String>,
 }
 
 impl WebAuthnCredential {
@@ -624,4 +625,23 @@ pub struct RedeemInviteRequest {
     pub username: Option<String>,
     /// P2P peer node_id - if provided, links this peer to the user
     pub node_id: Option<String>,
+}
+
+/// request to update the current user's own username
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdateUsernameRequest {
+    pub username: String,
+}
+
+/// request to revoke one of the caller's own account-link invite codes
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RevokeOwnInviteRequest {
+    pub code: String,
+}
+
+/// response for self-serve account-link code generation
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SelfAccountLinkResponse {
+    pub code: String,
+    pub expires_at: i64,
 }

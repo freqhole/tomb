@@ -5,7 +5,7 @@
 
 import { For, Show, createSignal } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { TaxonKind } from "freqhole-api-client";
+import type { TaxonKind } from "@freqhole/api-client";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 
 export interface RemoteDetailPopoverProps {

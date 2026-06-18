@@ -1,7 +1,7 @@
 // remote import service - handles uploading music files and fetching urls on a remote server
 // tracks upload/fetch jobs reactively so the UI can show progress
 import { createStore, produce } from "solid-js/store";
-import type { FreqholeClient } from "freqhole-api-client";
+import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
@@ -45,6 +45,8 @@ export interface UploadJob {
   albumId?: string;
   artistId?: string;
   songId?: string;
+  /** job session id - set after completion; used to open import review */
+  sessionId?: string;
 }
 
 // reactive store for all tracked upload jobs
@@ -113,7 +115,7 @@ function updateJobStage(id: string, stage: string | undefined) {
 // server-side job result.
 function updateJobEntities(
   id: string,
-  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string }
+  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string; sessionId?: string }
 ) {
   setUploadJobs(
     (j) => j.id === id,
@@ -122,6 +124,7 @@ function updateJobEntities(
       if (ids.artistId) j.artistId = ids.artistId;
       if (ids.songId) j.songId = ids.songId;
       if (ids.remoteId) j.remoteId = ids.remoteId;
+      if (ids.sessionId) j.sessionId = ids.sessionId;
     })
   );
 }
@@ -133,15 +136,16 @@ function updateJobEntities(
 async function resolveJobEntities(
   client: FreqholeClient,
   jobId: string
-): Promise<{ albumId?: string; artistId?: string; songId?: string } | null> {
+): Promise<{ albumId?: string; artistId?: string; songId?: string; sessionId?: string } | null> {
   try {
     const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
     if (!statusResp.success || !statusResp.data) return null;
     const row = statusResp.data.jobs[jobId];
     if (!row) return null;
     const fromResult = parseJobResult(row.result ?? null);
+    const sessionId = row.session_id ?? undefined;
     if (fromResult.albumId || fromResult.songId || fromResult.artistId) {
-      return fromResult;
+      return { ...fromResult, sessionId };
     }
     // FetchMedia parent path: walk children via session_id
     if (row.session_id) {
@@ -154,7 +158,7 @@ async function resolveJobEntities(
           for (const child of listResp.data) {
             if (child.id === jobId) continue;
             const childIds = parseJobResult(child.result ?? null);
-            if (childIds.albumId || childIds.songId) return childIds;
+            if (childIds.albumId || childIds.songId) return { ...childIds, sessionId };
           }
         }
       } catch (e) {
@@ -393,6 +397,129 @@ export async function uploadPathsToRemote(
       }
     })();
   }
+}
+
+// ============================================================================
+// import by local filesystem path (charnel/tauri - files already on disk)
+// ============================================================================
+
+/**
+ * import music files that are already on the local filesystem (charnel/tauri path).
+ * uses musicByPaths (batch) so all files share one session_id - multiple files
+ * selected together will land in the same review session. shows one tracked
+ * progress row per submitted path. calls onJobComplete when any file finishes
+ * and onSessionComplete(sessionId) when all jobs in the batch are done.
+ */
+export async function importPathsToLocal(
+  paths: string[],
+  onJobComplete?: () => void,
+  onSessionComplete?: (sessionId: string) => void
+): Promise<void> {
+  if (paths.length === 0) return;
+  const remote = getCurrentRemote();
+  if (!remote) throw new Error("no active remote");
+
+  const client = await getClientForRemote(remote);
+
+  // submit all paths in one request - server creates a single session for the
+  // batch so all files end up reviewable together
+  const batchResult = await client.upload.musicByPaths(paths);
+  if (!batchResult.success) {
+    const errMsg = batchResult.error?.issues?.[0]?.message || "batch import request failed";
+    throw new Error(errMsg);
+  }
+
+  const sessionId = batchResult.data.session_id;
+
+  // add one tracked progress row per path so the upload panel shows granular feedback
+  const trackIds: string[] = paths.map((filePath) => {
+    const filename = filePath.split("/").pop() || filePath.split("\\").pop() || filePath;
+    const trackId = addTrackedJob(filename, "file");
+    updateJobEntities(trackId, { remoteId: remote.remote_id, sessionId });
+    updateJobStatus(trackId, "polling");
+    return trackId;
+  });
+
+  // poll child jobs from the session to update per-file progress
+  const poller = new JobPoller(remote, 3000);
+  let remaining = paths.length;
+
+  (async () => {
+    // give the server a moment to spawn child jobs before polling
+    await new Promise((res) => setTimeout(res, 800));
+
+    try {
+      const listResp = await client.music.listJobs({ session_id: sessionId });
+      const childJobs = (listResp.success && listResp.data) ? listResp.data : [];
+
+      if (childJobs.length === 0) {
+        // no child jobs found - mark all as completed and open review
+        for (const trackId of trackIds) updateJobStatus(trackId, "completed");
+        onSessionComplete?.(sessionId);
+        return;
+      }
+
+      remaining = childJobs.length;
+      // remap track rows to child job ids (best-effort by index)
+      childJobs.forEach((job, i) => {
+        const trackId = trackIds[i] ?? trackIds[trackIds.length - 1];
+        updateJobStatus(trackId, "polling", { jobId: job.id });
+      });
+
+      await Promise.all(
+        childJobs.map(async (job, i) => {
+          const trackId = trackIds[i] ?? trackIds[trackIds.length - 1];
+          try {
+            const pollResult = await poller.waitForJob(job.id, 180_000, {
+              onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
+            });
+            if (pollResult.status === "completed") {
+              const ids = await resolveJobEntities(client, job.id);
+              if (ids) updateJobEntities(trackId, { ...ids, sessionId });
+              updateJobStatus(trackId, "completed");
+              onJobComplete?.();
+            } else if (pollResult.status === "timeout") {
+              updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+              onJobComplete?.();
+            } else {
+              const friendly = humanizeJobError(pollResult.errorMessage, pollResult.errors?.[0]?.error_type);
+              updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+              onJobComplete?.();
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "unknown error";
+            const friendly = humanizeJobError(msg, undefined);
+            updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+          } finally {
+            remaining -= 1;
+            if (remaining === 0) onSessionComplete?.(sessionId);
+          }
+        })
+      );
+
+      // propagate albumId to any tracked rows that didn't resolve one.
+      // this happens when the server returns fewer child jobs than submitted
+      // paths (e.g. a parent orchestrator job covers the whole batch).
+      // also ensure any unmatched rows are marked completed so they don't
+      // stay stuck in "polling" forever.
+      const anyAlbumId = uploadJobs.find((j) => trackIds.includes(j.id) && !!j.albumId)?.albumId;
+      for (const trackId of trackIds) {
+        const j = uploadJobs.find((j) => j.id === trackId);
+        if (!j) continue;
+        if (anyAlbumId && !j.albumId) {
+          updateJobEntities(trackId, { albumId: anyAlbumId, sessionId });
+        }
+        if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
+          updateJobStatus(trackId, "completed");
+          onJobComplete?.();
+        }
+      }
+    } catch (err) {
+      logWarn("remoteImport", `importPathsToLocal session poll failed: ${String(err)}`);
+      for (const trackId of trackIds) updateJobStatus(trackId, "completed");
+      onSessionComplete?.(sessionId);
+    }
+  })();
 }
 
 // ============================================================================

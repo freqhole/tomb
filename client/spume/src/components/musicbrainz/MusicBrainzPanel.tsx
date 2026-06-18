@@ -1,9 +1,14 @@
 // musicbrainz integration panel for album editor
 // search musicbrainz releases, browse results, import cover art + metadata
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show, on } from "solid-js";
 import type { Song } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
-import type { MbArtistCredit, MbReleaseListItem, MbReleaseDetail } from "../../music/data/types";
+import type {
+  MbArtistCredit,
+  MbReleaseListItem,
+  MbReleaseDetail,
+  MbSearchReleasesResponse,
+} from "../../music/data/types";
 import { getClientForRemote } from "../../app/api/client";
 import { TextInput } from "../forms/TextInput";
 import { Button } from "../buttons/Button";
@@ -39,6 +44,24 @@ export interface MusicBrainzPanelProps {
   songs: Song[];
   /** called after any metadata or image import so parent can refetch */
   onAlbumUpdated: () => void;
+  /** canonical album title from the source object (bypasses the edit() signal
+   *  layer in ImportReviewEditor). used to reset search inputs on album change
+   *  with the correct new-album values without timing issues. */
+  canonicalAlbumTitle?: string;
+  canonicalArtistName?: string;
+  /** optional override for the mb search call.
+   *  when provided, takes precedence over getDataSource().searchMusicbrainzReleases.
+   *  use MusicBrainzBrowserClient.searchReleases for browser-only (storybook / local library). */
+  mbSearchFn?: (params: {
+    artist: string | null;
+    release: string | null;
+    limit: number;
+    offset: number | null;
+  }) => Promise<MbSearchReleasesResponse | null>;
+  /** optional override for the mb release detail call.
+   *  when provided, takes precedence over getDataSource().getMusicbrainzRelease.
+   *  use MusicBrainzBrowserClient.getRelease for browser-only use. */
+  mbGetReleaseFn?: (mbid: string) => Promise<MbReleaseDetail | null>;
 }
 
 // re-export types for local use
@@ -58,6 +81,29 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const [selectedRelease, setSelectedRelease] = createSignal<ReleaseDetail | null>(null);
   const [selectedListItem, setSelectedListItem] = createSignal<ReleaseListItem | null>(null);
   const [loadingRelease, setLoadingRelease] = createSignal(false);
+
+  // reset all search/selection state when the album changes so the next
+  // album doesn't show stale search inputs and results from the previous one.
+  // use canonicalAlbumTitle/canonicalArtistName (derived directly from the
+  // source album, not via edit()) to avoid a one-tick stale read.
+  const albumIdMemo = createMemo(() => props.albumId);
+  createEffect(
+    on(
+      albumIdMemo,
+      () => {
+        setSearchRelease(props.canonicalAlbumTitle ?? props.albumTitle ?? "");
+        setSearchArtist(props.canonicalArtistName ?? props.artistName ?? "");
+        setResults([]);
+        setSearchCount(0);
+        setCurrentOffset(0);
+        setCountryFilter("");
+        setSelectedRelease(null);
+        setSelectedListItem(null);
+        setHasSearched(false);
+      },
+      { defer: true }
+    )
+  );
 
   // image import state — track per-image progress
   const [importingImages, setImportingImages] = createSignal<Set<string>>(new Set());
@@ -139,12 +185,6 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
       return;
     }
 
-    const dataSource = getDataSource();
-    if (!dataSource.searchMusicbrainzReleases) {
-      toast.error("musicbrainz search not available");
-      return;
-    }
-
     setSearching(true);
     setHasSearched(true);
     if (offset === 0) {
@@ -162,7 +202,20 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
     };
 
     try {
-      const result = await dataSource.searchMusicbrainzReleases(params);
+      // prefer the injected fn (browser client / storybook), fall back to dataSource
+      let result: MbSearchReleasesResponse | null | undefined;
+      if (props.mbSearchFn) {
+        result = await props.mbSearchFn(params);
+      } else {
+        const dataSource = getDataSource();
+        if (!dataSource.searchMusicbrainzReleases) {
+          toast.error("musicbrainz search not available");
+          setSearching(false);
+          setHasSearched(false);
+          return;
+        }
+        result = await dataSource.searchMusicbrainzReleases(params);
+      }
 
       if (result) {
         setResults(result.results || []);
@@ -186,19 +239,24 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
   const handleNextPage = () => doSearch(currentOffset() + PAGE_SIZE);
 
   const handleSelectRelease = async (release: ReleaseListItem) => {
-    const dataSource = getDataSource();
-    if (!dataSource.getMusicbrainzRelease) {
-      toast.error("musicbrainz not available");
-      return;
-    }
-
     setSelectedListItem(release);
     setSelectedRelease(null);
     setLoadingRelease(true);
     setImportedImages(new Set<string>());
 
     try {
-      const result = await dataSource.getMusicbrainzRelease(release.id);
+      let result: MbReleaseDetail | null;
+      if (props.mbGetReleaseFn) {
+        result = await props.mbGetReleaseFn(release.id);
+      } else {
+        const dataSource = getDataSource();
+        if (!dataSource.getMusicbrainzRelease) {
+          toast.error("musicbrainz not available");
+          setLoadingRelease(false);
+          return;
+        }
+        result = await dataSource.getMusicbrainzRelease(release.id);
+      }
 
       if (result) {
         setSelectedRelease(result);
@@ -327,7 +385,7 @@ export function MusicBrainzPanel(props: MusicBrainzPanelProps) {
         label: "type",
         currentValue: curAlbumType,
         mbValue: mbAlbumType,
-        differs: mbAlbumType !== curAlbumType,
+        differs: mbAlbumType.toLowerCase() !== curAlbumType.toLowerCase(),
       });
     }
 

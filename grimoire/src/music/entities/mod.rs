@@ -3,6 +3,7 @@
 
 pub mod albums;
 pub mod artists;
+pub mod import_review;
 pub mod playlists;
 pub mod related_artists;
 pub mod relations;

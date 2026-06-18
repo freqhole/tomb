@@ -20,7 +20,7 @@ mod service;
 
 // re-export public types
 pub use models::{
-    CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
+    CancelJobRequest, CreateJobRequest, CreateJobSessionRequest, EnrichmentSource, GetJobRequest,
     GetJobsStatusRequest, GetJobsStatusResponse, Job, JobError, JobListResponse, JobProgress,
     JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
     ProcessorResponse, QueueStats, SessionStatus,

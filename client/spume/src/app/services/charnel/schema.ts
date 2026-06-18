@@ -120,6 +120,32 @@ export const PeerOfflineEventSchema = z.object({
 });
 
 /**
+ * device linked event - server registered this app's node_id after passkey link flow
+ */
+export const DeviceLinkedEventSchema = z.object({
+  type: z.literal("device-linked"),
+  data: z.object({
+    /** the server's own peer_addr (node_id) - use to auto-add remote */
+    peer_addr: z.string(),
+    /** server display name */
+    server_name: z.string(),
+  }),
+});
+
+/**
+ * knock accepted event - remote server accepted our knock request
+ */
+export const KnockAcceptedEventSchema = z.object({
+  type: z.literal("knock-accepted"),
+  data: z.object({
+    /** the server's own peer_addr (node_id) - use to auto-add remote */
+    peer_addr: z.string(),
+    /** server display name */
+    server_name: z.string(),
+  }),
+});
+
+/**
  * deep-link share-link received event — user opened a `freqhole://o/<token>`
  * url while the app was running. spume routes it through the same
  * ResolveShareModal flow used for `https://...#?share=<token>` urls.
@@ -153,6 +179,8 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   ScanCompleteEventSchema,
   KnockCreatedEventSchema,
   PeerOfflineEventSchema,
+  DeviceLinkedEventSchema,
+  KnockAcceptedEventSchema,
   ShareLinkReceivedEventSchema,
   UpdateCheckResultEventSchema,
 ]);
@@ -164,5 +192,7 @@ export type ScanProgressEvent = z.infer<typeof ScanProgressEventSchema>;
 export type ScanCompleteEvent = z.infer<typeof ScanCompleteEventSchema>;
 export type KnockCreatedEvent = z.infer<typeof KnockCreatedEventSchema>;
 export type PeerOfflineEvent = z.infer<typeof PeerOfflineEventSchema>;
+export type DeviceLinkedEvent = z.infer<typeof DeviceLinkedEventSchema>;
+export type KnockAcceptedEvent = z.infer<typeof KnockAcceptedEventSchema>;
 export type ShareLinkReceivedEvent = z.infer<typeof ShareLinkReceivedEventSchema>;
 export type UpdateCheckResultEvent = z.infer<typeof UpdateCheckResultEventSchema>;

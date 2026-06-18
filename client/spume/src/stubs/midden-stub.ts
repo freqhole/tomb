@@ -1,7 +1,7 @@
 // stub for midden in Tauri builds
 // midden WASM isn't needed - CharnelTransport uses app iroh via tauri IPC
 //
-// this stub exists so dynamic imports of "midden" don't fail during dev/build
+// this stub exists so dynamic imports of "@freqhole/midden" don't fail during dev/build
 // when VITE_CHARNEL_MODE=true
 
 export class MiddenNode {

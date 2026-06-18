@@ -29,6 +29,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 Span::raw(" connect  "),
                 Span::styled("a", Style::new().fg(ACCENT)),
                 Span::raw(" add  "),
+                Span::styled("l", Style::new().fg(ACCENT)),
+                Span::raw(" share link  "),
                 Span::styled("d", Style::new().fg(ACCENT)),
                 Span::raw(" delete  "),
                 Span::styled("esc", Style::new().fg(ACCENT)),
@@ -48,7 +50,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Line::from(""),
             Line::from(Span::raw("no saved remotes yet").dim()).centered(),
             Line::from(""),
-            Line::from(Span::raw("press `a` to add one, or `esc` to go back").dim()).centered(),
+            Line::from(
+                Span::raw("press `a` to add one, `l` to share a link, or `esc` to go back").dim(),
+            )
+            .centered(),
         ];
         frame.render_widget(Paragraph::new(lines), inner);
         return;

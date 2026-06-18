@@ -13,11 +13,59 @@ pub struct RegisterStartRequest {
     pub username: String,
     /// Optional invite code for registration
     pub invite_code: Option<String>,
+    /// Browser origin (window.location.origin) - required for p2p transport
+    /// so the server can derive rp_id without a validated http header.
+    /// ignored by http handlers (they read origin from the request header).
+    pub origin: Option<String>,
 }
 
 /// Request to start webauthn login
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct StartLoginRequest {
-    /// Username to authenticate
-    pub username: String,
+    /// username to authenticate - optional.
+    /// if omitted, the server issues a discoverable-credential challenge
+    /// (empty allowCredentials) so the platform authenticator can select
+    /// the passkey itself without the user typing a username.
+    pub username: Option<String>,
+    /// Browser origin (window.location.origin) - required for p2p transport.
+    /// ignored by http handlers.
+    pub origin: Option<String>,
+}
+
+/// Summary of a single passkey credential, safe to return to the owning user.
+/// does not include the raw credential blob.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct PasskeyCredentialSummary {
+    /// row id (used for deletion)
+    pub id: String,
+    /// unix timestamp when the credential was registered
+    pub created_at: i64,
+    /// unix timestamp of last successful authentication, if any
+    pub last_used_at: Option<i64>,
+    /// optional user-supplied label for this passkey
+    pub name: Option<String>,
+}
+
+/// Request to set or clear the name on a passkey
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UpdatePasskeyNameRequest {
+    /// row id of the passkey to update
+    pub credential_id: String,
+    /// new name, or null/empty to clear it
+    pub name: Option<String>,
+}
+
+/// Request to delete a passkey by row id
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeletePasskeyRequest {
+    /// the credential row id to delete (from PasskeyCredentialSummary.id)
+    pub credential_id: String,
+}
+
+/// Request to link a new node_id to the authenticated user's account.
+/// the calling node must already be a trusted peer (authenticated via passkey or invite).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct LinkNodeRequest {
+    /// iroh node_id of the device to add as an allowed peer
+    pub node_id: String,
 }

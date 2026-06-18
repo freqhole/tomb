@@ -9,7 +9,7 @@ import {
   Show,
   type JSX,
 } from "solid-js";
-import { permissions, type UserRoleName } from "freqhole-api-client";
+import { permissions, type UserRoleName } from "@freqhole/api-client";
 import { getLocalNodeId, isCharnelMode } from "../../app/services/charnel";
 import {
   getAuthInfo,
@@ -552,6 +552,15 @@ export function TopNav(props: TopNavProps) {
         },
       });
     }
+
+    // profile settings
+    actions.push({
+      label: "profile",
+      icon: "user",
+      onClick: () => {
+        props.onNavigate?.(`/settings/remotes/${remote.id}/profile`);
+      },
+    });
 
     // rename is only offered for "local library" remotes — the
     // charnel-managed (home-icon) row on android. user-added p2p/http

@@ -24,6 +24,25 @@ pub enum GrimoireEvent {
         status: String,
         username: String,
     },
+    /// the remote server accepted our knock request.
+    /// emitted on the requester's node so the tauri/rathole app can
+    /// complete the add-remote flow automatically.
+    KnockAccepted {
+        /// the server's own peer_addr (node_id) - use to add as remote
+        peer_addr: String,
+        /// server display name
+        server_name: String,
+    },
+    /// a remote device was linked via passkey browser flow
+    ///
+    /// emitted after `link_node` registers a new peer node. the tauri app
+    /// uses this to show a toast prompting the user to browse the remote.
+    DeviceLinked {
+        /// the peer_addr (node_id) of the server that accepted the link
+        peer_addr: String,
+        /// display name of the server
+        server_name: String,
+    },
 }
 
 /// the global event channel

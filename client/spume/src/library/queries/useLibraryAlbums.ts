@@ -29,6 +29,8 @@ export interface LibraryAlbumsQueryOptions {
    *  subview which doesn't need live mb-lookup updates and finds the
    *  resulting periodic rebuild worse than the staleness. */
   disablePolling?: boolean;
+  /** when true, only return albums with pending (unreviewed) import blobs. */
+  pendingReview?: Accessor<boolean>;
 }
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -46,6 +48,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
       opts.search?.() ?? null,
       opts.sortBy?.() ?? null,
       opts.sortDirection?.() ?? null,
+      opts.pendingReview?.() ?? null,
     ],
     enabled: !!opts.remote(),
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<PaginatedResponse<AlbumSummary>> => {
@@ -66,6 +69,7 @@ export function useLibraryAlbumsQuery(opts: LibraryAlbumsQueryOptions) {
         user_id: null,
         favorites_only: null,
         min_rating: null,
+        pending_review: opts.pendingReview?.() ? true : undefined,
       });
 
       if (!result.success || !result.data) {

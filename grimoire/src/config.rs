@@ -540,6 +540,14 @@ pub struct AuthConfig {
     /// If not specified, only same-origin requests work
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+    /// TTL in minutes for p2p webauthn challenges stored in sqlite.
+    /// challenges older than this are rejected and purged. default: 15.
+    #[serde(default = "default_webauthn_challenge_ttl_minutes")]
+    pub webauthn_challenge_ttl_minutes: u32,
+}
+
+fn default_webauthn_challenge_ttl_minutes() -> u32 {
+    15
 }
 
 fn default_session_cookie_mode() -> String {

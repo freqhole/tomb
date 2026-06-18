@@ -17,6 +17,7 @@ import { createSignal, type Accessor } from "solid-js";
 import { whoamiForRemote } from "./authService";
 import { isHttpRemote, type Remote } from "../storage/types";
 import { getRemoteById, onRemoteStatusChange } from "./remoteManager";
+import { debug } from "../../../utils/logger";
 
 export interface AuthInfo {
   loggedIn: boolean;
@@ -44,6 +45,7 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
   // offline -> online transition the listener at the bottom of this
   // file refreshes auth automatically.
   if (remote.is_offline === true) {
+    debug("auth-store", "resolveOne: skipping %s (is_offline=true)", remote.remote_id);
     return { loggedIn: false };
   }
   // charnel-managed remotes (the tauri sidecar's own owner): query
@@ -56,12 +58,14 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
   if (remote.is_charnel_managed) {
     try {
       const result = await whoamiForRemote(remote);
+      debug("auth-store", "resolveOne charnel %s: loggedIn=%s role=%s", remote.remote_id, result.success, result.role);
       return {
         loggedIn: result.success,
         username: result.username,
         role: result.role,
       };
-    } catch {
+    } catch (e) {
+      debug("auth-store", "resolveOne charnel %s: threw", remote.remote_id, e);
       return { loggedIn: false };
     }
   }
@@ -73,6 +77,7 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
   if (!isHttpRemote(remote)) {
     try {
       const result = await whoamiForRemote(remote);
+      debug("auth-store", "resolveOne p2p %s: loggedIn=%s role=%s", remote.remote_id, result.success, result.role);
       if (result.success) {
         return {
           loggedIn: true,
@@ -81,15 +86,17 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
         };
       }
       return { loggedIn: false };
-    } catch {
+    } catch (e) {
       // transport not warm / peer unreachable. callers see
       // `loggedIn:false` and the offline -> online listener at the
       // bottom of this file will retry once the peer comes back.
+      debug("auth-store", "resolveOne p2p %s: threw", remote.remote_id, e);
       return { loggedIn: false };
     }
   }
   // http remotes without a base_url can't be queried; treat as logged-out.
   if (!remote.base_url) {
+    debug("auth-store", "resolveOne http %s: no base_url", remote.remote_id);
     return { loggedIn: false };
   }
   try {
@@ -99,12 +106,14 @@ async function resolveOne(remote: Remote): Promise<AuthInfo> {
     // remote via `httpRemote(...)`, which is why admin gating used to
     // silently come back false on every non-charnel http remote.
     const result = await whoamiForRemote(remote);
+    debug("auth-store", "resolveOne http %s: loggedIn=%s role=%s", remote.remote_id, result.success, result.role);
     return {
       loggedIn: result.success,
       username: result.username,
       role: result.role,
     };
-  } catch {
+  } catch (e) {
+    debug("auth-store", "resolveOne http %s: threw", remote.remote_id, e);
     return { loggedIn: false };
   }
 }

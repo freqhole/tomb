@@ -21,7 +21,7 @@ import {
   HttpTransport,
   type AtlasManifest,
   type BuildAtlasRequest,
-} from "freqhole-api-client";
+} from "@freqhole/api-client";
 import { getTransportForRemote } from "../../app/api/client";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { debug, error as errorLog } from "../../utils/logger";

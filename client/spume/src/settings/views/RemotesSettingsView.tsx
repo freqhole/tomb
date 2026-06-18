@@ -318,16 +318,43 @@ export function RemotesSettingsView() {
 
   const handleRecheckStatus = async (remote: Remote) => {
     setRechecking(remote.remote_id);
+    // use a fresh remote ref after health check - the captured `remote` may
+    // have is_offline:true, which causes resolveOne to bail immediately
+    let freshRemote = remote;
     try {
       const isOnline = await checkRemoteHealth(remote);
-      // refresh remotes to get updated status
+      // refresh remote list to pick up updated is_offline flag
       const updated = await getAllRemotes();
       setRemotes(updated);
+      freshRemote = updated.find((r) => r.remote_id === remote.remote_id) ?? remote;
+      debug(
+        "remotes-settings",
+        "check status: isOnline=%s is_offline=%s",
+        isOnline,
+        freshRemote.is_offline
+      );
       if (isOnline) {
         toast.success(`${remote.name} is online`);
       }
     } catch (err) {
+      debug("remotes-settings", "check status: health check threw", err);
       toast.error("failed to check server status");
+    }
+    // always refresh auth regardless of health check outcome, using
+    // the fresh remote so is_offline is current.
+    try {
+      debug(
+        "remotes-settings",
+        "check status: refreshing auth for %s (is_offline=%s)",
+        freshRemote.remote_id,
+        freshRemote.is_offline
+      );
+      await refreshOneAuthStatus(freshRemote);
+      debug(
+        "remotes-settings",
+        "check status: auth refreshed → %o",
+        authStatus().get(remote.remote_id)
+      );
     } finally {
       setRechecking(null);
     }
@@ -501,7 +528,10 @@ export function RemotesSettingsView() {
                           if (info?.loggedIn && info.username) {
                             return (
                               <p class="text-xs text-[var(--color-text-secondary)] mb-2">
-                                signed in as <span class="font-medium">{info.username}</span>
+                                signed in as{" "}
+                                <span class="font-medium text-[var(--color-text-primary)]">
+                                  {info.username}
+                                </span>
                                 <Show when={info.role}>
                                   <span class="text-[var(--color-text-muted)]"> ({info.role})</span>
                                 </Show>
@@ -541,90 +571,99 @@ export function RemotesSettingsView() {
                           );
                         })()}
                       </div>
+                    </div>
 
-                      {/* action buttons */}
-                      <div class="flex flex-col gap-2 shrink-0">
-                        {/* auth status indicator + login/logout button (HTTP remotes only) */}
-                        <Show when={!isP2P()}>
-                          {(() => {
-                            const info = authStatus().get(remote.remote_id);
-                            const isChecking = info === null;
-                            const isLoggedIn = info?.loggedIn === true;
+                    {/* action buttons - wrapping row */}
+                    <div class="flex flex-wrap gap-2 mt-3">
+                      {/* profile button: P2P remotes (including charnel) where the caller is logged in */}
+                      <Show
+                        when={isP2PRemote(remote) && authStatus().get(remote.remote_id)?.loggedIn}
+                      >
+                        <button
+                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                          onClick={() => navigate(`/settings/remotes/${remote.remote_id}/profile`)}
+                        >
+                          profile
+                        </button>
+                      </Show>
+                      {/* auth status indicator + login/logout button (HTTP remotes only) */}
+                      <Show when={!isP2P()}>
+                        {(() => {
+                          const info = authStatus().get(remote.remote_id);
+                          const isChecking = info === null;
+                          const isLoggedIn = info?.loggedIn === true;
 
-                            if (isChecking) {
-                              return (
-                                <button
-                                  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
-                                  disabled
-                                >
-                                  checking...
-                                </button>
-                              );
-                            }
-
-                            if (isLoggedIn) {
-                              return (
-                                <button
-                                  class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                  onClick={() => handleLogout(remote)}
-                                  disabled={loggingOut() === remote.remote_id}
-                                >
-                                  {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
-                                </button>
-                              );
-                            }
-
-                            // not logged in
+                          if (isChecking) {
                             return (
                               <button
-                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
-                                onClick={() => handleLogin(remote)}
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border-subtle)] cursor-default"
+                                disabled
                               >
-                                sign in
+                                checking...
                               </button>
                             );
-                          })()}
-                        </Show>
-                        <button
-                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => handleRecheckStatus(remote)}
-                          disabled={rechecking() === remote.remote_id}
-                        >
-                          {rechecking() === remote.remote_id ? "checking..." : "check status"}
-                        </button>
-                        {/* admin button: P2P remotes where the caller is an admin */}
-                        <Show
-                          when={
-                            isP2PRemote(remote) &&
-                            authStatus().get(remote.remote_id)?.role === "admin"
                           }
-                        >
-                          <button
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
-                            onClick={() => navigate(`/settings/remotes/${remote.remote_id}/admin`)}
-                          >
-                            admin
-                          </button>
-                          <Show when={!isCharnelMode()}>
+
+                          if (isLoggedIn) {
+                            return (
+                              <button
+                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                onClick={() => handleLogout(remote)}
+                                disabled={loggingOut() === remote.remote_id}
+                              >
+                                {loggingOut() === remote.remote_id ? "logging out..." : "logout"}
+                              </button>
+                            );
+                          }
+
+                          // not logged in
+                          return (
                             <button
-                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
-                              onClick={() =>
-                                navigate(`/settings/remotes/${remote.remote_id}/radio`)
-                              }
-                              title="manage radio stations on this remote"
+                              class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-600)] text-white transition-colors"
+                              onClick={() => handleLogin(remote)}
                             >
-                              radio
+                              sign in
                             </button>
-                          </Show>
-                        </Show>
+                          );
+                        })()}
+                      </Show>
+                      <button
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => handleRecheckStatus(remote)}
+                        disabled={rechecking() === remote.remote_id}
+                      >
+                        {rechecking() === remote.remote_id ? "checking..." : "check status"}
+                      </button>
+                      {/* admin button: P2P remotes where the caller is an admin */}
+                      <Show
+                        when={
+                          isP2PRemote(remote) &&
+                          authStatus().get(remote.remote_id)?.role === "admin"
+                        }
+                      >
                         <button
-                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => showDeleteConfirm(remote)}
-                          disabled={deleting() === remote.remote_id}
+                          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+                          onClick={() => navigate(`/settings/remotes/${remote.remote_id}/admin`)}
                         >
-                          {deleting() === remote.remote_id ? "deleting..." : "delete"}
+                          admin
                         </button>
-                      </div>
+                        <Show when={!isCharnelMode()}>
+                          <button
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-quaternary)] text-[var(--color-text-secondary)] border border-[var(--color-border-subtle)] transition-colors"
+                            onClick={() => navigate(`/settings/remotes/${remote.remote_id}/radio`)}
+                            title="manage radio stations on this remote"
+                          >
+                            radio
+                          </button>
+                        </Show>
+                      </Show>
+                      <button
+                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => showDeleteConfirm(remote)}
+                        disabled={deleting() === remote.remote_id}
+                      >
+                        {deleting() === remote.remote_id ? "deleting..." : "delete"}
+                      </button>
                     </div>
                   </div>
                 );
