@@ -42,17 +42,6 @@ fn build_commands() -> Vec<AdminCommand> {
     cmds
 }
 
-fn is_cli_capable_binary(path: &std::path::Path) -> bool {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_ascii_lowercase())
-        .unwrap_or_default();
-    // "rathole" covers the cli-crate binary which has serve/http/p2p subcommands.
-    // "freqhole" and "charnel" are the full cli and tauri passthroughs.
-    matches!(stem.as_str(), "freqhole" | "charnel" | "rathole")
-}
-
 fn find_in_path(name: &str) -> Option<std::path::PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     std::env::split_paths(&path_var)
@@ -76,9 +65,20 @@ fn resolve_from_path() -> Option<(std::path::PathBuf, super::serve_monitor::Serv
 }
 
 fn resolve_serve_binary(
+    serve_capable: bool,
 ) -> Result<(std::path::PathBuf, super::serve_monitor::ServeLaunchMode), String> {
     use super::serve_monitor::ServeLaunchMode;
 
+    // if the host binary was compiled with serve subcommands, reuse it directly.
+    // this works regardless of what the binary is named on disk.
+    if serve_capable {
+        return match std::env::current_exe() {
+            Ok(p) => Ok((p, ServeLaunchMode::CliBinary)),
+            Err(e) => Err(format!("current_exe lookup failed: {e}")),
+        };
+    }
+
+    // standalone rathole binary: look for a sibling or PATH server.
     let bin = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
@@ -103,11 +103,6 @@ fn resolve_serve_binary(
         return Ok((sibling_server, ServeLaunchMode::ServerBinary));
     }
 
-    // if launched from a cli-capable binary (freqhole/charnel), reuse it.
-    if is_cli_capable_binary(&bin) {
-        return Ok((bin, ServeLaunchMode::CliBinary));
-    }
-
     // packaged layouts may ship a sibling `freqhole` binary.
     let sibling_freqhole = dir.join("freqhole");
     if sibling_freqhole.exists() {
@@ -119,7 +114,7 @@ fn resolve_serve_binary(
     }
 
     Err(format!(
-        "no compatible serve launcher found (checked current_exe and sibling server/freqhole near {})",
+        "no compatible serve launcher found (checked sibling server/freqhole near {})",
         bin.display()
     ))
 }
@@ -160,27 +155,28 @@ async fn run_inner(
     // - local dev (`rathole` + sibling `server`)
     // - packaged/prod (`freqhole`/`charnel` cli-capable binary)
     // failures are non-fatal: `/serve*` commands stay disabled.
-    let (mut serve_monitor, serve_unavailable_reason) = match resolve_serve_binary() {
-        Ok((bin, launch_mode)) => {
-            tracing::info!(
-                "rathole: serve monitor using {} ({:?})",
-                bin.display(),
-                launch_mode
-            );
-            (
-                Some(super::serve_monitor::ServeMonitor::new(
-                    bin,
-                    launch_mode,
-                    opts.config.clone(),
-                )),
-                None,
-            )
-        }
-        Err(reason) => {
-            tracing::warn!("rathole: /serve disabled: {}", reason);
-            (None, Some(reason))
-        }
-    };
+    let (mut serve_monitor, serve_unavailable_reason) =
+        match resolve_serve_binary(opts.serve_capable) {
+            Ok((bin, launch_mode)) => {
+                tracing::info!(
+                    "rathole: serve monitor using {} ({:?})",
+                    bin.display(),
+                    launch_mode
+                );
+                (
+                    Some(super::serve_monitor::ServeMonitor::new(
+                        bin,
+                        launch_mode,
+                        opts.config.clone(),
+                    )),
+                    None,
+                )
+            }
+            Err(reason) => {
+                tracing::warn!("rathole: /serve disabled: {}", reason);
+                (None, Some(reason))
+            }
+        };
 
     // autostart the serve subprocess based on the persisted config
     // flags. set by the setup wizard (or hand-edited in

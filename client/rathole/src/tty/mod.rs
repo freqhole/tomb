@@ -20,6 +20,11 @@ pub struct LaunchOpts {
     /// path to a `freqhole-config.toml`. when `None`, falls back to
     /// the same defaults as the rest of the cli.
     pub config: Option<PathBuf>,
+    /// set to `true` when the host binary includes `serve`/`http`/`p2p`
+    /// subcommands (i.e. built via the cli crate). allows the serve
+    /// monitor to reuse `current_exe()` directly instead of searching
+    /// for a sibling binary by name.
+    pub serve_capable: bool,
 }
 
 /// run the rathole tui. expects grimoire's config + database to be
