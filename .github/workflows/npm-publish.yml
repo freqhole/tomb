@@ -52,6 +52,8 @@ jobs:
       - name: publish
         if: steps.api_exists.outputs.published == 'false'
         working-directory: client-codegen/freqhole-api-client
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
   publish-midden:
@@ -73,6 +75,9 @@ jobs:
 
       - name: install wasm-pack
         run: cargo install wasm-pack --locked
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
 
       - name: build npm package
         working-directory: client/midden
@@ -103,4 +108,6 @@ jobs:
       - name: publish
         if: steps.midden_exists.outputs.published == 'false'
         working-directory: client/midden/pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
