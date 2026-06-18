@@ -3,6 +3,7 @@ name = "midden"
 version = "0.1.31"
 edition = "2021"
 description = "WASM bindings for freqhole P2P client (iroh-based)"
+repository = "https://github.com/freqhole/tomb"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

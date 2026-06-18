@@ -2,6 +2,10 @@
   "name": "@freqhole/api-client",
   "version": "0.1.31",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/freqhole/tomb"
+  },
   "main": "./src/index.ts",
   "publishConfig": {
     "access": "public"
