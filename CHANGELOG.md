@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.1.31
+
+### Patch Changes
+
+- de9a816: add review step to add music fetch from url flow so user can review + confirm what yt-dlp will fetch first (will run if there's `precheck_command` set in freqhole-config.yaml). in addition, member (and admin but they could do this already) users can optionally review and edit music metadata for the music they upload; pending review items are persisted in a new tab in the add music modal so user can come back later to finish reviewing. also includes taxons and musicbrainz look up queries
+- de9a816: route passkeys over p2p! browser users can use passkey to auth with a remote (in addition to knock access requests and invite codes). also can link out to spume.freqhole.net so charnel app users (desktop or android apps) can use browser for passkey.
+- d4cf92c: you can change your username to something else (as long as it's not already taken!): see new `profile` option in the top nav's remote `...` flyout menu
+
 ## 0.1.30
 
 ### Patch Changes

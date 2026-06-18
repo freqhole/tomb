@@ -42,6 +42,88 @@ fn build_commands() -> Vec<AdminCommand> {
     cmds
 }
 
+fn is_cli_capable_binary(path: &std::path::Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    // "rathole" covers the cli-crate binary which has serve/http/p2p subcommands.
+    // "freqhole" and "charnel" are the full cli and tauri passthroughs.
+    matches!(stem.as_str(), "freqhole" | "charnel" | "rathole")
+}
+
+fn find_in_path(name: &str) -> Option<std::path::PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|dir| dir.join(name))
+        .find(|p| p.exists())
+}
+
+fn resolve_from_path() -> Option<(std::path::PathBuf, super::serve_monitor::ServeLaunchMode)> {
+    use super::serve_monitor::ServeLaunchMode;
+
+    if let Some(server) = find_in_path("server") {
+        return Some((server, ServeLaunchMode::ServerBinary));
+    }
+    if let Some(freqhole) = find_in_path("freqhole") {
+        return Some((freqhole, ServeLaunchMode::CliBinary));
+    }
+    if let Some(charnel) = find_in_path("charnel") {
+        return Some((charnel, ServeLaunchMode::CliBinary));
+    }
+    None
+}
+
+fn resolve_serve_binary(
+) -> Result<(std::path::PathBuf, super::serve_monitor::ServeLaunchMode), String> {
+    use super::serve_monitor::ServeLaunchMode;
+
+    let bin = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            if let Some(found) = resolve_from_path() {
+                return Ok(found);
+            }
+            return Err(format!(
+                "current_exe lookup failed: {e}; also could not find server/freqhole/charnel on PATH"
+            ));
+        }
+    };
+    let Some(dir) = bin.parent() else {
+        return Err(format!(
+            "current_exe has no parent directory: {}",
+            bin.display()
+        ));
+    };
+
+    // local dev (`cargo run -p rathole`) typically has a sibling `server` bin.
+    let sibling_server = dir.join("server");
+    if sibling_server.exists() {
+        return Ok((sibling_server, ServeLaunchMode::ServerBinary));
+    }
+
+    // if launched from a cli-capable binary (freqhole/charnel), reuse it.
+    if is_cli_capable_binary(&bin) {
+        return Ok((bin, ServeLaunchMode::CliBinary));
+    }
+
+    // packaged layouts may ship a sibling `freqhole` binary.
+    let sibling_freqhole = dir.join("freqhole");
+    if sibling_freqhole.exists() {
+        return Ok((sibling_freqhole, ServeLaunchMode::CliBinary));
+    }
+
+    if let Some(found) = resolve_from_path() {
+        return Ok(found);
+    }
+
+    Err(format!(
+        "no compatible serve launcher found (checked current_exe and sibling server/freqhole near {})",
+        bin.display()
+    ))
+}
+
 pub async fn run(terminal: ratatui::DefaultTerminal, opts: LaunchOpts) -> color_eyre::Result<()> {
     // wrap in a LocalSet so we can use `tokio::task::spawn_local` —
     // the `Transport` trait is `?Send` (matches the wasm shell's
@@ -74,54 +156,29 @@ async fn run_inner(
     // the header is correct on startup even before new events arrive.
     sync_pending_knocks(&app, &action_tx);
 
-    // build the serve subprocess monitor. uses the same binary the
-    // user invoked (so dev `cargo run --bin freqhole` keeps using
-    // the dev build) and forwards the same --config path so both
-    // processes see the same db / log file. failures here are
-    // non-fatal: monitor just won't be able to spawn anything.
-    //
-    // look for a sibling `server` binary in the same directory as current_exe.
-    // `cargo run -p rathole` puts rathole in target/debug alongside `server`.
-    // the server binary accepts `--config <path>` and runs all enabled modes
-    // from the config (http + p2p based on [server].enabled / [federation].enabled).
-    // if `server` is not found next to the current binary, skip autostart rather
-    // than accidentally spawn ourselves (rathole has no serve subcommands and
-    // would panic trying to init a second TUI with stdin closed).
-    let mut serve_monitor = match std::env::current_exe() {
-        Ok(bin) => {
-            let server_bin = bin.parent().and_then(|dir| {
-                let p = dir.join("server");
-                if p.exists() {
-                    Some(p)
-                } else {
-                    None
-                }
-            });
-            match server_bin {
-                Some(server_bin) => {
-                    tracing::info!(
-                        "rathole: serve monitor using server binary at {}",
-                        server_bin.display()
-                    );
-                    Some(super::serve_monitor::ServeMonitor::new(
-                        server_bin,
-                        opts.config.clone(),
-                    ))
-                }
-                None => {
-                    tracing::warn!(
-                        "rathole: no `server` binary found next to {} - \
-                         run `cargo build -p server` first, then restart rathole. \
-                         /serve commands will be unavailable.",
-                        bin.display()
-                    );
-                    None
-                }
-            }
+    // build the serve subprocess monitor with a resolver that supports both:
+    // - local dev (`rathole` + sibling `server`)
+    // - packaged/prod (`freqhole`/`charnel` cli-capable binary)
+    // failures are non-fatal: `/serve*` commands stay disabled.
+    let (mut serve_monitor, serve_unavailable_reason) = match resolve_serve_binary() {
+        Ok((bin, launch_mode)) => {
+            tracing::info!(
+                "rathole: serve monitor using {} ({:?})",
+                bin.display(),
+                launch_mode
+            );
+            (
+                Some(super::serve_monitor::ServeMonitor::new(
+                    bin,
+                    launch_mode,
+                    opts.config.clone(),
+                )),
+                None,
+            )
         }
-        Err(e) => {
-            tracing::warn!("rathole: current_exe failed ({e}); /serve disabled");
-            None
+        Err(reason) => {
+            tracing::warn!("rathole: /serve disabled: {}", reason);
+            (None, Some(reason))
         }
     };
 
@@ -322,7 +379,12 @@ async fn run_inner(
                 }
             }
             Some(action) = action_rx.recv() => {
-                if handle_serve_action(&mut app, &action, serve_monitor.as_mut()) {
+                if handle_serve_action(
+                    &mut app,
+                    &action,
+                    serve_monitor.as_mut(),
+                    serve_unavailable_reason.as_deref(),
+                ) {
                     continue;
                 }
                 on_action(&mut app, action, &action_tx);
@@ -530,6 +592,7 @@ fn handle_serve_action(
     app: &mut App,
     action: &AppAction,
     monitor: Option<&mut super::serve_monitor::ServeMonitor>,
+    unavailable_reason: Option<&str>,
 ) -> bool {
     use super::serve_monitor::ServeKind;
     use crate::ratcore::app::{ReplStatus, ServeKindRequest};
@@ -537,9 +600,10 @@ fn handle_serve_action(
     match action {
         AppAction::ServeStart { kind } => {
             let Some(monitor) = monitor else {
-                app.state.ephemeral.repl.status = Some(ReplStatus::err(
-                    "serve unavailable: current_exe lookup failed",
-                ));
+                let msg = unavailable_reason
+                    .map(|r| format!("serve unavailable: {r}"))
+                    .unwrap_or_else(|| "serve unavailable".to_string());
+                app.state.ephemeral.repl.status = Some(ReplStatus::err(msg));
                 return true;
             };
             let mapped = match kind {
