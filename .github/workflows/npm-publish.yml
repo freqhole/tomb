@@ -20,8 +20,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
+          node-version: 24
 
       - name: install deps
         working-directory: client-codegen/freqhole-api-client
@@ -64,8 +63,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
+          node-version: 24
 
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable

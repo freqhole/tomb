@@ -84,7 +84,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # midden wasm pkg/ and the generated api client are committed, so spume
       # typechecks against them without a wasm rebuild here. but spume links
@@ -123,7 +123,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       # eslint resolves imports into the api-client `file:` symlink, so its
       # deps must be present too (same reason as the typecheck job).
@@ -152,7 +152,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: install changesets
         run: npm install --no-save @changesets/cli
