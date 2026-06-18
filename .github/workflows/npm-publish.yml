@@ -28,6 +28,7 @@ jobs:
         run: npm ci
 
       - name: verify package version matches tag
+        if: github.ref_type == 'tag'
         working-directory: client-codegen/freqhole-api-client
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
@@ -82,6 +83,7 @@ jobs:
         run: make build-release-npm
 
       - name: verify package version matches tag
+        if: github.ref_type == 'tag'
         working-directory: client/midden/pkg
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
