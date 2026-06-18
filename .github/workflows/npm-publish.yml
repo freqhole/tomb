@@ -74,6 +74,9 @@ jobs:
       - name: install wasm-pack
         run: cargo install wasm-pack --locked
 
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
       - name: build npm package
         working-directory: client/midden
         run: make build-release-npm
