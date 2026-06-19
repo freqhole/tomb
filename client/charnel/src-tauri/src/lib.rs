@@ -742,6 +742,8 @@ pub fn run() {
             commands::get_freqhole_config,
             commands::get_client_config,
             commands::open_config_dir,
+            commands::save_zip_to_downloads,
+            commands::open_path_in_folder,
             commands::scan_directory,
             commands::rescan_directories,
             commands::get_federation_status,

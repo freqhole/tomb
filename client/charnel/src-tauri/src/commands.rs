@@ -514,6 +514,114 @@ pub fn open_config_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+/// save raw bytes to ~/Downloads/<filename> and return the final file path.
+/// used by spume's zip-bundle download in tauri mode.
+#[tauri::command]
+pub fn save_zip_to_downloads(
+    app_handle: tauri::AppHandle,
+    bytes: Vec<u8>,
+    filename: String,
+) -> Result<String, String> {
+    let downloads = app_handle
+        .path()
+        .download_dir()
+        .map_err(|e| format!("could not resolve downloads directory: {}", e))?;
+
+    if !downloads.exists() {
+        std::fs::create_dir_all(&downloads)
+            .map_err(|e| format!("failed to create downloads directory: {}", e))?;
+    }
+
+    // sanitize filename: allow letters, digits, hyphens, underscores, dots
+    let safe: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || "-_.".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = if safe.is_empty() {
+        "playlist.zip".to_string()
+    } else {
+        safe
+    };
+
+    // if the file already exists, append an incrementing counter before the extension
+    // e.g. my-playlist.zip -> my-playlist_2.zip -> my-playlist_3.zip
+    let dest = {
+        let base = downloads.join(&safe);
+        if !base.exists() {
+            base
+        } else {
+            let stem = std::path::Path::new(&safe)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("playlist")
+                .to_string();
+            let ext = std::path::Path::new(&safe)
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("zip")
+                .to_string();
+            let mut n = 2u32;
+            loop {
+                let candidate = downloads.join(format!("{}_{}.{}", stem, n, ext));
+                if !candidate.exists() {
+                    break candidate;
+                }
+                n += 1;
+            }
+        }
+    };
+
+    std::fs::write(&dest, &bytes)
+        .map_err(|e| format!("failed to write zip to downloads: {}", e))?;
+
+    dest.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "file path contains non-utf8 characters".to_string())
+}
+
+/// open the folder containing the given file path in Finder / Files.
+/// used with the "open folder" button after a zip download.
+#[tauri::command]
+pub fn open_path_in_folder(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("path does not exist: {}", path));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        // reveal the parent directory on linux
+        let dir = p.parent().unwrap_or(&p);
+        app_handle
+            .opener()
+            .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+            .or_else(|_| {
+                Command::new("xdg-open")
+                    .arg(dir)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| format!("xdg-open failed: {}", e))
+            })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        app_handle
+            .opener()
+            .reveal_item_in_dir(&p)
+            .map_err(|e| format!("failed to reveal file: {}", e))
+    }
+}
+
 /// scan result
 #[derive(Debug, Serialize)]
 pub struct ScanResult {
