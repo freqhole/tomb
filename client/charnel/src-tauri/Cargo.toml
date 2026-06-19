@@ -42,6 +42,7 @@ which = "7"
 urlencoding = "2"
 chrono = "0.4"
 base64 = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # internal dependencies
 grimoire = { path = "../../../grimoire", default-features = false }

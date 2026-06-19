@@ -7,7 +7,10 @@
 //! the config's data_dir field can point to a different location for the database/media
 
 use serde::Serialize;
+use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::Manager;
 
 use crate::app_config::{get_server_config_path_resolved, save_admin_user, FreqholeAppConfig};
@@ -620,6 +623,135 @@ pub fn open_path_in_folder(app_handle: tauri::AppHandle, path: String) -> Result
             .reveal_item_in_dir(&p)
             .map_err(|e| format!("failed to reveal file: {}", e))
     }
+}
+
+// ---- streaming zip builder ----
+//
+// js calls zip_create → zip_append_file (once per song/image/metadata file) → zip_finish.
+// on error, call zip_abort to clean up the temp file.
+// this avoids accumulating the entire zip in the js heap: only one file's bytes
+// cross the ipc boundary at a time, and rust writes them to disk immediately.
+
+type ZipWriterMap = Mutex<HashMap<String, zip::ZipWriter<std::fs::File>>>;
+
+// module-level state for in-progress zip builds, keyed by caller-supplied temp_id.
+static ZIP_WRITERS: std::sync::OnceLock<ZipWriterMap> = std::sync::OnceLock::new();
+
+fn zip_writers() -> &'static ZipWriterMap {
+    ZIP_WRITERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn zip_temp_path(temp_id: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("playlistz-{}.zip", temp_id))
+}
+
+/// create a new in-progress zip file identified by temp_id.
+#[tauri::command]
+pub fn zip_create(temp_id: String) -> Result<(), String> {
+    let path = zip_temp_path(&temp_id);
+    let file = std::fs::File::create(&path)
+        .map_err(|e| format!("failed to create temp zip at {}: {}", path.display(), e))?;
+    let writer = zip::ZipWriter::new(file);
+    zip_writers().lock().unwrap().insert(temp_id, writer);
+    Ok(())
+}
+
+/// append a file to the in-progress zip. bytes are written directly to disk;
+/// the caller can drop the buffer immediately after this call returns.
+#[tauri::command]
+pub fn zip_append_file(temp_id: String, path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let mut map = zip_writers().lock().unwrap();
+    let writer = map
+        .get_mut(&temp_id)
+        .ok_or_else(|| format!("no zip in progress for id '{}'", temp_id))?;
+    let opts =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    writer
+        .start_file(&path, opts)
+        .map_err(|e| format!("zip_append_file start_file '{}': {}", path, e))?;
+    writer
+        .write_all(&bytes)
+        .map_err(|e| format!("zip_append_file write '{}': {}", path, e))?;
+    Ok(())
+}
+
+/// finalize the zip, move it to ~/Downloads with deduplication, return the final path.
+#[tauri::command]
+pub fn zip_finish(
+    app_handle: tauri::AppHandle,
+    temp_id: String,
+    filename: String,
+) -> Result<String, String> {
+    let writer = zip_writers()
+        .lock()
+        .unwrap()
+        .remove(&temp_id)
+        .ok_or_else(|| format!("no zip in progress for id '{}'", temp_id))?;
+    writer
+        .finish()
+        .map_err(|e| format!("failed to finalize zip: {}", e))?;
+
+    let temp_path = zip_temp_path(&temp_id);
+    let downloads = app_handle
+        .path()
+        .download_dir()
+        .map_err(|e| format!("could not resolve downloads directory: {}", e))?;
+
+    let safe: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || "-_.".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = if safe.is_empty() {
+        "playlist.zip".to_string()
+    } else {
+        safe
+    };
+
+    let dest = {
+        let base = downloads.join(&safe);
+        if !base.exists() {
+            base
+        } else {
+            let stem = std::path::Path::new(&safe)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("playlist")
+                .to_string();
+            let ext = std::path::Path::new(&safe)
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("zip")
+                .to_string();
+            let mut n = 2u32;
+            loop {
+                let candidate = downloads.join(format!("{}_{}.{}", stem, n, ext));
+                if !candidate.exists() {
+                    break candidate;
+                }
+                n += 1;
+            }
+        }
+    };
+
+    std::fs::rename(&temp_path, &dest)
+        .map_err(|e| format!("failed to move zip to downloads: {}", e))?;
+
+    dest.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "file path contains non-utf8 characters".to_string())
+}
+
+/// abort an in-progress zip and delete the temp file.
+#[tauri::command]
+pub fn zip_abort(temp_id: String) {
+    zip_writers().lock().unwrap().remove(&temp_id);
+    let _ = std::fs::remove_file(zip_temp_path(&temp_id));
 }
 
 /// scan result
