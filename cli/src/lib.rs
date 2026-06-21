@@ -382,6 +382,7 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         Commands::Rathole { action: None } => {
             rathole::run(rathole::LaunchOpts {
                 config: cli.config.clone(),
+                serve_capable: true,
             })
             .await
             .map_err(|e| anyhow::anyhow!("rathole exited with error: {e}"))?;

@@ -28,9 +28,33 @@ import {
   post,
   state,
 } from "./walkerState";
-import { crossKey, remoteOfId, slug } from "./walkerHelpers";
+import { crossKey, leaderOf, remoteOfId, slug } from "./walkerHelpers";
 import { buildSim } from "./walkerSim";
 import type { MainToWorker } from "./messages";
+
+// ---- remap breadcrumb entries to their cluster leaders --------------------
+//
+// call after indexGraph() whenever the cluster map may have changed (merge,
+// remove). a cross-remote merge can elect a new leader for the entity the
+// user is currently pivoted on (the newly merged node may have a
+// lexicographically smaller id). if the stale follower id remains in the
+// breadcrumb, pivot() returns it and getVisible() / computeTargets() misbehave:
+//   - album auto-expansion fails (breadcrumbSet.has(leader) is false)
+//   - computeTargets places the leader off-center as a pseudo-child
+//
+// consecutive duplicate ids are deduped so a cluster that collapses a
+// multi-hop breadcrumb to the same leader doesn't create a cycle.
+function remapBreadcrumbToLeaders(crumb: string[]): string[] {
+  const remapped = crumb.map((id) => {
+    const lead = leaderOf(id);
+    // only promote when the leader is actually in the graph; if not (e.g.
+    // the leader itself was just removed), keep the original id and let the
+    // normal breadcrumb-pruning logic handle it.
+    return nodeMap.has(lead) ? lead : id;
+  });
+  // dedupe consecutive same-id entries
+  return remapped.filter((id, i) => i === 0 || id !== remapped[i - 1]);
+}
 
 // ---- rebuild graph index (call after fullGraph changes) --------------------
 
@@ -184,14 +208,18 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
     case "expand": {
       const { nodeId } = msg;
       if (!nodeMap.has(nodeId)) break;
+      // always operate on the cluster leader so a follower id (e.g. from a
+      // search-seed stub or a just-merged cross-remote sibling) never lands
+      // in the breadcrumb and breaks pivot layout.
+      const leadId = leaderOf(nodeId);
 
-      const idx = state.breadcrumb.indexOf(nodeId);
+      const idx = state.breadcrumb.indexOf(leadId);
       if (idx >= 0) {
         // walk back: trim breadcrumb to this node
         state.breadcrumb = state.breadcrumb.slice(0, idx + 1);
       } else {
         // walk forward: append (only allowed from pivot's children)
-        state.breadcrumb = [...state.breadcrumb, nodeId];
+        state.breadcrumb = [...state.breadcrumb, leadId];
       }
 
       buildSim();
@@ -286,6 +314,12 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         }
       }
       indexGraph();
+      // remap breadcrumb: a merge can change cluster leadership (the newly
+      // merged node may have a lexicographically smaller id, dethroning the
+      // current breadcrumb tip from leader to follower). if a follower id
+      // sits in the breadcrumb, pivot() returns it, getVisible() and
+      // computeTargets() misplace the pivot node and miss the album ring.
+      state.breadcrumb = remapBreadcrumbToLeaders(state.breadcrumb);
       buildSim();
       break;
     }
@@ -309,6 +343,9 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       // would briefly un-hide nodes mid-refresh, breaking edit-mode
       // filter persistence across re-parent operations.
       indexGraph();
+      // re-elect leaders after removal — a cluster may shrink to one
+      // member, which dissolves the cluster entirely.
+      state.breadcrumb = remapBreadcrumbToLeaders(state.breadcrumb);
       buildSim();
       break;
     }
@@ -327,10 +364,12 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
 
     case "repivot": {
       if (!nodeMap.has(msg.nodeId)) break;
+      // use the canonical leader so a follower id never becomes the pivot.
+      const rLeadId = leaderOf(msg.nodeId);
       if (msg.resetBreadcrumb) {
-        state.breadcrumb = [msg.nodeId];
+        state.breadcrumb = [rLeadId];
       } else {
-        state.breadcrumb = [...state.breadcrumb, msg.nodeId];
+        state.breadcrumb = [...state.breadcrumb, rLeadId];
       }
       buildSim();
       break;

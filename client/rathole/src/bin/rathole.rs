@@ -36,7 +36,11 @@ async fn main() -> color_eyre::Result<()> {
     // emitted on first playback corrupt the ratatui alt-screen.
     redirect_stderr_to_log();
 
-    rathole::run(rathole::LaunchOpts { config }).await
+    rathole::run(rathole::LaunchOpts {
+        config,
+        serve_capable: false,
+    })
+    .await
 }
 
 fn init_file_logging() {

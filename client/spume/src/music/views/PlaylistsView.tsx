@@ -43,6 +43,7 @@ import { getPlaylistById } from "../services/storage/db";
 import { type Playlist } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
+import { DownloadPlaylistZipBundleButton } from "./playlists/DownloadPlaylistZipBundleButton";
 import { debug, error as errorLog } from "../../utils/logger";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
@@ -1202,6 +1203,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   source={() => currentRemoteFull()}
                                   buildSendPayload={buildPlaylistSendPayload}
                                 />
+                                <Show when={playlistSongs().length > 0}>
+                                  <DownloadPlaylistZipBundleButton
+                                    playlist={selectedPlaylist()!}
+                                    songs={playlistSongs()}
+                                  />
+                                </Show>
                               </div>
                             </Show>
                           </div>
@@ -1281,6 +1288,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               source={() => currentRemoteFull()}
                               buildSendPayload={buildPlaylistSendPayload}
                             />
+                            <Show when={playlistSongs().length > 0}>
+                              <DownloadPlaylistZipBundleButton
+                                playlist={selectedPlaylist()!}
+                                songs={playlistSongs()}
+                              />
+                            </Show>
                           </div>
                         </Show>
 

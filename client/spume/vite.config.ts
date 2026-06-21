@@ -95,6 +95,36 @@ function serviceWorkerPlugin(): Plugin {
 // tauri builds should not include midden WASM - use app P2P via CharnelTransport
 const isCharnelBuild = !!process.env.VITE_CHARNEL_MODE;
 
+// serve the standalone freqhole-playlistz.js bundle from the local package dist.
+// this lets buildPlaylistZip fetch it when building zip downloads in dev mode.
+function servePlaylistzBundle(): Plugin {
+  const bundlePath = path.resolve(
+    dirname,
+    "node_modules/@freqhole/playlistz/dist/freqhole-playlistz.js",
+  );
+  return {
+    name: "serve-playlistz-bundle",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] === "/freqhole-playlistz.js" && fs.existsSync(bundlePath)) {
+          res.setHeader("Content-Type", "application/javascript");
+          fs.createReadStream(bundlePath).pipe(res);
+          return;
+        }
+        next();
+      });
+    },
+    // also copy it to the build output so production builds work
+    writeBundle(options) {
+      if (fs.existsSync(bundlePath)) {
+        const outDir = options.dir || "dist";
+        fs.mkdirSync(outDir, { recursive: true });
+        fs.copyFileSync(bundlePath, path.join(outDir, "freqhole-playlistz.js"));
+      }
+    },
+  };
+}
+
 export default defineConfig({
   server: {
     allowedHosts: ["a75fda8121f7.ngrok.app"],
@@ -105,6 +135,7 @@ export default defineConfig({
     solidPlugin(),
     serviceWorkerPlugin(),
     sourcemapUrlPlugin(),
+    servePlaylistzBundle(),
   ],
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: isCharnelBuild ? "./" : "/",
