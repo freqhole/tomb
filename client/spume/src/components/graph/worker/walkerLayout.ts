@@ -98,7 +98,7 @@ export function computeTargets(
   }
 
   // pivot's children fan forward
-  const rootKids = (childrenOf.get(pivotId) ?? []).filter((id) => visibleIds.has(id));
+  const rootKids = clusterChildrenOf(pivotId).filter((id) => visibleIds.has(id));
   const pivotNode = nodeMap.get(pivotId);
   const pivotR = pivotNode ? nodeRadius(pivotNode.role, pivotNode.childCount) : 14;
   place(cx, cy, pivotR, rootKids, FORWARD, INIT_WEDGE);
@@ -188,7 +188,11 @@ export function getVisible(): Set<string> {
   // surface every artist AND every album in that remote at once \u2014 huge
   // graphs and a giant ball of nodes. progressive expansion is the goal:
   // pivot a remote \u2192 see artists; click an artist \u2192 see its albums.
-  const breadcrumbSet = new Set(state.breadcrumb);
+  // leader-map the breadcrumb so that if a stale follower id is still in
+  // state.breadcrumb (defensive guard; should be resolved by remapBreadcrumbToLeaders
+  // in the merge/remove handlers), the auto-expansion check below finds
+  // the correct leader id rather than silently skipping the album ring.
+  const breadcrumbSet = new Set(state.breadcrumb.map(leaderOf));
   // honor eager-expansion requests: long-press / "expand all" on a hub
   // walks the entire descendant taxon subtree from that hub, surfacing\n  // every value/group taxon plus every artist found along the way. each
   // surfaced artist is then treated as auto-expand source for its albums.

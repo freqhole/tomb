@@ -1342,12 +1342,13 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     });
     const wc = walkerClient();
     if (addNodes.length > 0 || addEdges.length > 0) wc?.merge(addNodes, addEdges);
-    // expand each relation hub we just attached value chips to, so
-    // those chips become visible on the canvas. only the kinds with
-    // labels on THIS entity get expanded \u2014 the rest stay collapsed.
-    if (wc) {
-      for (const kind of seenKinds) wc.expand(relationHubId(remoteId, kind));
-    }
+    // note: no wc.expand() calls here. after the merge, indexGraph() reverses
+    // the value→artist edges so the chips appear as children of the pivot
+    // artist in childrenOf. getVisible() then surfaces them automatically via
+    // clusterChildrenOf(piv), and their parent relation hubs are surfaced by
+    // the "surface hub for every visible value" pass. calling expand() on a
+    // relation hub that already sits in the breadcrumb path would truncate the
+    // breadcrumb back to that hub, making the artist invisible.
     entityRelationsLoadedByPivot.add(nodeId);
   };
 
