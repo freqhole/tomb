@@ -13,7 +13,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./storage": "./src/storage/index.ts",
-    "./playlistz": "./src/playlistz/index.ts",
     "./automerge": "./src/automerge/index.ts"
   },
   "scripts": {
