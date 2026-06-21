@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.1.32
+
+### Patch Changes
+
+- 770c2c0: mostly some npm package stuff for playlistz
+- d1fae39: add zip bundle download to playlistz. tidy'n some issues with graph viz.
+
 ## 0.1.31
 
 ### Patch Changes
