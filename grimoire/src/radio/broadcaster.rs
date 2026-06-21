@@ -39,6 +39,11 @@ const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
 const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
 const SKIP_MIN_REMAINING_MS: i64 = 30_000;
 
+/// number of media chunks to emit at full speed at the start of a
+/// post-skip track. shifts pace_origin backward so the listener's buffer
+/// fills immediately rather than draining in at real-time cadence.
+const SKIP_BURST_CHUNKS: u64 = 3;
+
 /// maximum upcoming items to maintain in the rolling planner.
 pub const MAX_UPCOMING_ITEMS: usize = 8;
 /// minimum upcoming items before the horizon check stops filling.
@@ -517,7 +522,11 @@ impl Broadcaster {
             .store(now_ms, Ordering::Relaxed);
         self.force_new_album_pick.store(true, Ordering::Relaxed);
         self.skip_request_generation.fetch_add(1, Ordering::Relaxed);
-        self.skip_notify.notify_waiters();
+        // notify_one stores a permit if no waiter is currently registered,
+        // so the signal is never lost even if the pacing loop is between
+        // iterations (not yet blocked on notified()). notify_waiters() does
+        // not store a permit and would silently drop the skip in that window.
+        self.skip_notify.notify_one();
         info!(
             "[radio-broadcaster] station {} accepted admin skip request (remaining={}ms)",
             self.station_id, remaining_ms
@@ -575,7 +584,14 @@ impl Broadcaster {
                         bc.refill_planner(Some(current_song_id)).await;
                     });
 
-                    if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
+                    if let Err(e) = self
+                        .play_track(
+                            &track,
+                            /*is_bumper=*/ false,
+                            /*is_post_skip=*/ force_new_album,
+                        )
+                        .await
+                    {
                         warn!(
                             "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
                             self.station_id
@@ -678,7 +694,10 @@ impl Broadcaster {
             "[radio-broadcaster] station {} playing bumper '{}' ({})",
             self.station_id, bumper.label, bumper.id
         );
-        self.play_track(&track, /*is_bumper=*/ true).await?;
+        self.play_track(
+            &track, /*is_bumper=*/ true, /*is_post_skip=*/ false,
+        )
+        .await?;
         self.last_bumper_at.store(now, Ordering::Relaxed);
         Ok(true)
     }
@@ -717,6 +736,7 @@ impl Broadcaster {
         self: &Arc<Self>,
         track: &crate::radio::playlist::RadioTrack,
         is_bumper: bool,
+        is_post_skip: bool,
     ) -> GrimoireResult<()> {
         info!(
             "[radio-broadcaster] station {} now playing{}: {} ({})",
@@ -854,14 +874,25 @@ impl Broadcaster {
         };
         let started = std::time::Instant::now();
         let mut silence_since: Option<Instant> = None;
+        let frag_ms = radio_cfg.frag_ms.max(1) as u64;
         // server-side pacing: emit each media chunk at the wall-clock
         // moment its audio should start playing. computed against the
         // track's start instant so error doesn't accumulate. with no
         // `-re` flag on ffmpeg, the buffered encoder runs as fast as
         // the kernel pipe allows and the broadcaster pacer is the only
         // thing keeping listeners in sync with "now".
-        let pace_origin = started;
-        let frag_ms = radio_cfg.frag_ms.max(1) as u64;
+        //
+        // after an admin skip, shift pace_origin back by SKIP_BURST_CHUNKS
+        // fragment durations so the first several media chunks are emitted
+        // immediately (target < now), filling the listener's MSE buffer
+        // quickly before real-time pacing resumes.
+        let pace_origin = if is_post_skip {
+            started
+                .checked_sub(Duration::from_millis(SKIP_BURST_CHUNKS * frag_ms))
+                .unwrap_or(started)
+        } else {
+            started
+        };
         let mut media_chunks_emitted: u64 = 0;
 
         // pull chunks until ffmpeg signals EOF (clean song end). if it
