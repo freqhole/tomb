@@ -77,6 +77,8 @@ export interface BiStreamLike {
  */
 export interface MiddenStreamNode {
   node_id(): string;
+  /** full serialized endpoint addr (node id + relay url) for deterministic dialing. */
+  node_addr?(): string;
   open_bi(peer_addr: string, alpn: string): Promise<BiStreamLike>;
   accept(): Promise<BiStreamLike | null>;
 }
@@ -152,6 +154,14 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     string,
     { attempt: number; timer: ReturnType<typeof setTimeout> | null }
   >();
+
+  /**
+   * optional per-peer dial address hint keyed by node id. when present the
+   * adapter dials this full endpoint addr instead of the bare node id, which
+   * skips discovery (pkarr/dns) lookup. empty in normal operation; populated
+   * by callers that already know a peer's reachable addr.
+   */
+  private peerDialAddr = new Map<string, string>();
 
   /** listeners for connection state changes. */
   private connectionStateListeners: Array<() => void> = [];
@@ -248,6 +258,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     this.readLoops.clear();
     this.intendedPeers.clear();
     this.failedPeers.clear();
+    this.peerDialAddr.clear();
     this.alpnHandlers.clear();
 
     // cancel all pending reconnection timers
@@ -278,7 +289,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
    * ALPN, starts a read loop, and emits a peer-candidate event so
    * automerge-repo begins syncing with this peer.
    */
-  async addPeer(nodeId: string): Promise<void> {
+  async addPeer(nodeId: string, dialAddr?: string): Promise<void> {
     if (this._disconnected) {
       throw new Error("adapter is disconnected");
     }
@@ -286,6 +297,11 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     // track this peer as one we intend to stay connected to
     this.intendedPeers.add(nodeId);
     this.failedPeers.delete(nodeId);
+    // remember an explicit dial addr hint so dials (and reconnects) can skip
+    // discovery. keyed by node id; everything else stays keyed by node id too.
+    if (dialAddr) {
+      this.peerDialAddr.set(nodeId, dialAddr);
+    }
     this.emitConnectionStateChange();
 
     // clear any pending reconnection state - this is a fresh attempt
@@ -298,9 +314,22 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     }
 
     const midden = await this.ensureMidden();
-    const stream = await midden.open_bi(nodeId, this.syncAlpn);
-
-    this.registerStream(nodeId, stream);
+    const target = this.peerDialAddr.get(nodeId) ?? nodeId;
+    try {
+      const stream = await midden.open_bi(target, this.syncAlpn);
+      this.registerStream(nodeId, stream);
+    } catch (err) {
+      // the initial dial can fail when the peer is not yet discoverable. hand
+      // off to the background reconnect loop with backoff instead of forcing
+      // every caller to implement its own retry.
+      console.warn(
+        TAG,
+        "initial dial failed, scheduling reconnect:",
+        nodeId.slice(0, 16) + "...",
+        err
+      );
+      this.scheduleReconnect(nodeId);
+    }
   }
 
   /**
@@ -313,6 +342,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
     // remove from intended set first so removePeer() won't schedule a reconnect
     this.intendedPeers.delete(nodeId);
     this.failedPeers.delete(nodeId);
+    this.peerDialAddr.delete(nodeId);
     this.clearReconnectState(nodeId);
     // delegate stream cleanup and peer-disconnected emission to removePeer
     this.removePeer(nodeId);
@@ -643,6 +673,7 @@ export class IrohNetworkAdapter extends NetworkAdapter {
       );
       this.intendedPeers.delete(peerId);
       this.failedPeers.add(peerId);
+      this.peerDialAddr.delete(peerId);
       this.clearReconnectState(peerId);
       this.emitConnectionStateChange();
       return;
@@ -696,7 +727,8 @@ export class IrohNetworkAdapter extends NetworkAdapter {
 
     try {
       const midden = await this.ensureMidden();
-      const stream = await midden.open_bi(peerId, this.syncAlpn);
+      const target = this.peerDialAddr.get(peerId) ?? peerId;
+      const stream = await midden.open_bi(target, this.syncAlpn);
       console.log(TAG, "reconnected to peer:", peerId.slice(0, 16) + "...");
       this.registerStream(peerId, stream);
       // registerStream calls clearReconnectState, so no need to do it here

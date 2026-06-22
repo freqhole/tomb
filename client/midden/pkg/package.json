@@ -1,10 +1,11 @@
 {
-  "name": "@freqhole/midden",
+  "name": "midden",
   "type": "module",
   "description": "WASM bindings for freqhole P2P client (iroh-based)",
-  "version": "0.1.30",
-  "publishConfig": {
-    "access": "public"
+  "version": "0.1.32",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/freqhole/tomb"
   },
   "files": [
     "midden_bg.wasm",

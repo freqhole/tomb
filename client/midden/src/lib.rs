@@ -45,6 +45,21 @@ const ADMIN_ALPN: &[u8] = b"freqhole-admin/1";
 /// ALPN for job-event subscriptions (must match grimoire's EVENTS_ALPN)
 const EVENTS_ALPN: &[u8] = b"freqhole-events/1";
 
+/// default wall-clock ceiling for a single dial in `open_bi`. iroh otherwise
+/// retries discovery internally for ~2 minutes when a peer isn't reachable yet;
+/// a bounded failure lets callers retry (or surface an error) promptly. can be
+/// overridden per node via the optional `connect_timeout_ms` constructor arg.
+const DEFAULT_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// resolve an optional caller-supplied connect timeout (in ms) to a Duration,
+/// falling back to DEFAULT_CONNECT_TIMEOUT when omitted or zero.
+fn resolve_connect_timeout(connect_timeout_ms: Option<u32>) -> std::time::Duration {
+    match connect_timeout_ms {
+        Some(ms) if ms > 0 => std::time::Duration::from_millis(ms as u64),
+        _ => DEFAULT_CONNECT_TIMEOUT,
+    }
+}
+
 /// admin protocol messages (must match grimoire's AdminMessage)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -470,6 +485,8 @@ pub struct MiddenNode {
     protected_hashes: Arc<Mutex<HashSet<Hash>>>,
     /// guards against starting the blob server accept loop more than once
     blob_server_running: RefCell<bool>,
+    /// wall-clock ceiling for a single dial in `open_bi` (see DEFAULT_CONNECT_TIMEOUT).
+    connect_timeout: std::time::Duration,
 }
 
 /// build a GcConfig that protects any hash present in `protected_hashes`
@@ -514,18 +531,27 @@ impl Drop for ProtectGuard {
 #[wasm_bindgen]
 impl MiddenNode {
     /// create a new node with random identity
-    /// waits for relay connection before returning
-    pub async fn create() -> Result<MiddenNode, JsError> {
+    /// waits for relay connection before returning.
+    ///
+    /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+    /// (defaults to 10s when omitted/undefined).
+    pub async fn create(connect_timeout_ms: Option<u32>) -> Result<MiddenNode, JsError> {
         // generate random secret key
         let mut bytes = [0u8; 32];
         getrandom::getrandom(&mut bytes).map_err(|e| JsError::new(&e.to_string()))?;
 
-        Self::create_with_secret_key(bytes).await
+        Self::create_with_secret_key(bytes, connect_timeout_ms).await
     }
 
     /// create a node from existing secret key bytes (for persistence)
-    /// key_bytes must be exactly 32 bytes
-    pub async fn create_from_key(key_bytes: &[u8]) -> Result<MiddenNode, JsError> {
+    /// key_bytes must be exactly 32 bytes.
+    ///
+    /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+    /// (defaults to 10s when omitted/undefined).
+    pub async fn create_from_key(
+        key_bytes: &[u8],
+        connect_timeout_ms: Option<u32>,
+    ) -> Result<MiddenNode, JsError> {
         if key_bytes.len() != 32 {
             return Err(JsError::new("secret key must be exactly 32 bytes"));
         }
@@ -533,11 +559,14 @@ impl MiddenNode {
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(key_bytes);
 
-        Self::create_with_secret_key(bytes).await
+        Self::create_with_secret_key(bytes, connect_timeout_ms).await
     }
 
     /// internal: create node with given secret key bytes
-    async fn create_with_secret_key(bytes: [u8; 32]) -> Result<MiddenNode, JsError> {
+    async fn create_with_secret_key(
+        bytes: [u8; 32],
+        connect_timeout_ms: Option<u32>,
+    ) -> Result<MiddenNode, JsError> {
         let secret_key = SecretKey::from_bytes(&bytes);
 
         // use N0 preset for relay + DNS discovery (peers can find each other)
@@ -582,6 +611,7 @@ impl MiddenNode {
             active_tags: RefCell::new(IndexMap::new()),
             protected_hashes,
             blob_server_running: RefCell::new(false),
+            connect_timeout: resolve_connect_timeout(connect_timeout_ms),
         })
     }
 
@@ -596,13 +626,28 @@ impl MiddenNode {
         self.endpoint.secret_key().public().to_string()
     }
 
+    /// get our full endpoint address as JSON (node_id + relay url + any direct addrs).
+    ///
+    /// after `online()` has resolved this includes the home relay url, which is
+    /// enough for a remote peer to dial us directly via the relay without doing
+    /// a pkarr/DNS discovery lookup first. pass the returned string straight to
+    /// `open_bi`/`connect` on the other side - `parse_peer_addr` accepts this
+    /// same JSON shape. avoids the discovery propagation race on fresh boots.
+    pub fn node_addr(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.endpoint.addr()).map_err(to_js_err)
+    }
+
     /// create a node from existing secret key with additional ALPN protocols.
     ///
     /// `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
     /// the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+    ///
+    /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+    /// (defaults to 10s when omitted/undefined).
     pub async fn create_with_alpns(
         key_bytes: &[u8],
         extra_alpns: &js_sys::Array,
+        connect_timeout_ms: Option<u32>,
     ) -> Result<MiddenNode, JsError> {
         if key_bytes.len() != 32 {
             return Err(JsError::new("secret key must be exactly 32 bytes"));
@@ -659,6 +704,7 @@ impl MiddenNode {
             active_tags: RefCell::new(IndexMap::new()),
             protected_hashes,
             blob_server_running: RefCell::new(false),
+            connect_timeout: resolve_connect_timeout(connect_timeout_ms),
         })
     }
 
@@ -673,11 +719,20 @@ impl MiddenNode {
         let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
         let alpn_bytes = alpn.as_bytes();
 
-        let conn = self
-            .endpoint
-            .connect(addr.clone(), alpn_bytes)
-            .await
-            .map_err(to_js_err)?;
+        // bound the connect attempt with a wall-clock timeout. without an addr
+        // hint iroh falls back to pkarr/DNS discovery, which can spin internally
+        // for ~2 minutes when the peer isn't discoverable yet. n0_future::time
+        // works under wasm (it drives browser timers), so this fires reliably
+        // even while iroh is busy polling - unlike a JS setTimeout race, which
+        // gets starved by the wasm microtask loop. a bounded failure lets the
+        // caller retry instead of hanging.
+        let conn = n0_future::time::timeout(
+            self.connect_timeout,
+            self.endpoint.connect(addr.clone(), alpn_bytes),
+        )
+        .await
+        .map_err(|_| JsError::new("connect timed out"))?
+        .map_err(to_js_err)?;
 
         let (send, recv) = conn.open_bi().await.map_err(to_js_err)?;
 

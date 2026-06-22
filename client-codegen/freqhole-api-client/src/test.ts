@@ -2,7 +2,6 @@
 import { validateWrapperCoverage } from "./test/coverage.js";
 import { runIntegrationTests } from "./test/integration.js";
 import { runStatefulTests } from "./test/stateful.js";
-import { runPlaylistzTests } from "./test/playlistz.js";
 import { runAutomergeTests } from "./test/automerge.js";
 import { runStorageTests } from "./test/storage.js";
 
@@ -18,14 +17,6 @@ async function main() {
   const coverageResults = await validateWrapperCoverage();
   totalPassed += coverageResults.passed;
   totalFailed += coverageResults.failed;
-
-  console.log("=".repeat(50));
-  console.log("");
-
-  // always run playlistz domain tests (pure - no server needed)
-  const playlistzResults = await runPlaylistzTests();
-  totalPassed += playlistzResults.passed;
-  totalFailed += playlistzResults.failed;
 
   console.log("=".repeat(50));
   console.log("");

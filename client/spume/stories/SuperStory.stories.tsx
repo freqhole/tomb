@@ -1167,8 +1167,10 @@ export function FullAppDemoBody() {
                   </div>
                 </div>
 
-                {/* sticky action buttons */}
-                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
+                {/* action buttons - flex-shrink-0 keeps them pinned at the bottom of the flex column;
+                     avoid sticky here: on iOS Safari, sticky inside a css-hidden parent escapes
+                     and renders at the viewport bottom regardless of display:none on the column */}
+                <div class="flex-shrink-0 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
                   <Button variant="primary" onClick={() => console.log("play all songs")}>
                     <span class="hidden wide:inline">play all</span>
                     <span class="wide:hidden">play</span>
@@ -1336,8 +1338,10 @@ export function FullAppDemoBody() {
                   </div>
                 </div>
 
-                {/* sticky action buttons */}
-                <div class="sticky bottom-0 z-10 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
+                {/* action buttons - flex-shrink-0 keeps them pinned at the bottom of the flex column;
+                     avoid sticky here: on iOS Safari, sticky inside a css-hidden parent escapes
+                     and renders at the viewport bottom regardless of display:none on the column */}
+                <div class="flex-shrink-0 bg-[var(--color-bg-primary)] border-t border-[var(--color-bg-tertiary)] px-3 wide:px-6 py-2 wide:py-3 flex gap-2 wide:gap-3">
                   <Button variant="primary">play</Button>
                   <Button variant="secondary">shuffle</Button>
                   <Button variant="ghost">edit</Button>

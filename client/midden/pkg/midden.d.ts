@@ -173,21 +173,30 @@ export class MiddenNode {
     compute_blake3(peer_addr: string, blob_id: string): Promise<string | undefined>;
     /**
      * create a new node with random identity
-     * waits for relay connection before returning
+     * waits for relay connection before returning.
+     *
+     * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+     * (defaults to 10s when omitted/undefined).
      */
-    static create(): Promise<MiddenNode>;
+    static create(connect_timeout_ms?: number | null): Promise<MiddenNode>;
     /**
      * create a node from existing secret key bytes (for persistence)
-     * key_bytes must be exactly 32 bytes
+     * key_bytes must be exactly 32 bytes.
+     *
+     * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+     * (defaults to 10s when omitted/undefined).
      */
-    static create_from_key(key_bytes: Uint8Array): Promise<MiddenNode>;
+    static create_from_key(key_bytes: Uint8Array, connect_timeout_ms?: number | null): Promise<MiddenNode>;
     /**
      * create a node from existing secret key with additional ALPN protocols.
      *
      * `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
      * the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+     *
+     * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+     * (defaults to 10s when omitted/undefined).
      */
-    static create_with_alpns(key_bytes: Uint8Array, extra_alpns: Array<any>): Promise<MiddenNode>;
+    static create_with_alpns(key_bytes: Uint8Array, extra_alpns: Array<any>, connect_timeout_ms?: number | null): Promise<MiddenNode>;
     /**
      * download a blob using iroh-blobs verified streaming
      *
@@ -290,6 +299,16 @@ export class MiddenNode {
      * returns a JS object: `{ hash: string, bao: Uint8Array }`
      */
     import_blob_and_export_bao(data: Uint8Array): Promise<any>;
+    /**
+     * get our full endpoint address as JSON (node_id + relay url + any direct addrs).
+     *
+     * after `online()` has resolved this includes the home relay url, which is
+     * enough for a remote peer to dial us directly via the relay without doing
+     * a pkarr/DNS discovery lookup first. pass the returned string straight to
+     * `open_bi`/`connect` on the other side - `parse_peer_addr` accepts this
+     * same JSON shape. avoids the discovery propagation race on fresh boots.
+     */
+    node_addr(): string;
     /**
      * get our node_id (iroh public key)
      */

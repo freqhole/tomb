@@ -1,0 +1,104 @@
+# dependabot keeps tomb's dependencies fresh by opening PRs here. it runs with
+# tomb's own GITHUB_TOKEN (no PAT needed), so it can also pick up new
+# @freqhole/playlistz releases on npm and open a bump PR in client/spume.
+#
+# noise controls:
+#   - minor + patch bumps are grouped into one PR per ecosystem.
+#   - a cooldown holds back brand-new releases for a few days, so you are not
+#     chasing same-day releases that might get yanked or hot-fixed.
+#     @freqhole/playlistz is excluded from the cooldown so it bumps right away.
+#   - majors stay ungrouped so breaking changes get reviewed one at a time.
+#   - schedules are staggered across the week so PRs do not all land at once.
+version: 2
+updates:
+  # rust crates. the root Cargo.toml workspace covers grimoire, cli, server,
+  # client-codegen, client/charnel/src-tauri and client/rathole.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 5
+      semver-major-days: 7
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # client/midden is excluded from the root workspace (separate wasm crate).
+  - package-ecosystem: "cargo"
+    directory: "/client/midden"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 5
+      semver-major-days: 7
+    groups:
+      midden-cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # javascript / typescript deps across the repo. this is what picks up new
+  # @freqhole/playlistz versions (client/spume) and keeps the other web clients
+  # current.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/client/spume"
+      - "/client/charnel"
+      - "/freqhole.net"
+      - "/client-codegen/freqhole-api-client"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 5
+      semver-major-days: 7
+      # our own package should not wait - bump it as soon as it publishes.
+      exclude:
+        - "@freqhole/playlistz"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # the workflow actions themselves. checked monthly and grouped into a single
+  # PR - actions change rarely.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "ci(deps)"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns:
+          - "*"

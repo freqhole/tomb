@@ -1,6 +1,6 @@
 {
   "name": "@freqhole/api-client",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "type": "module",
   "repository": {
     "type": "git",
@@ -13,7 +13,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./storage": "./src/storage/index.ts",
-    "./playlistz": "./src/playlistz/index.ts",
     "./automerge": "./src/automerge/index.ts"
   },
   "scripts": {

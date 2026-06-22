@@ -1093,6 +1093,7 @@ export async function tuneIntoRadio(
     // so the buffered range doesn't grow forever across track changes.
     if (
       sb.buffered.length > 0 &&
+      audio.currentTime <= sb.buffered.end(sb.buffered.length - 1) &&
       audio.currentTime - sb.buffered.start(0) > BUFFER_BEHIND_LIMIT_S
     ) {
       const removeUpTo = audio.currentTime - BUFFER_BEHIND_TARGET_S;
@@ -1110,13 +1111,14 @@ export async function tuneIntoRadio(
     // chunks carry mid-track media timestamps, so the playhead at 0 sits
     // in an empty range until we seek forward. when the player has
     // stalled before, `liveEdgeBufferMs` shifts the target back from the
-    // true edge so MSE has more headroom.
+    // true edge so MSE has more headroom. seek in either direction so a
+    // playhead stranded ahead of a rebuilt (post-lag) buffer also re-anchors.
     if (!seekedToLive && sb.buffered.length > 0) {
       const start = sb.buffered.start(0);
       const end = sb.buffered.end(sb.buffered.length - 1);
       const targetFromEnd = Math.max(0, end - liveEdgeBufferMs / 1000);
       const target = Math.max(start, targetFromEnd);
-      if (audio.currentTime < target) {
+      if (audio.currentTime < target || audio.currentTime > end) {
         audio.currentTime = target;
       }
       seekedToLive = true;
@@ -1208,12 +1210,15 @@ export async function tuneIntoRadio(
   const RESYNC_COOLDOWN_MS = stabilityMode() ? 8_000 : 5_000;
   // adaptive buffer: when MediaElement fires `waiting` / `stalled` we
   // bump the live-edge target back so the SourceBuffer has more headroom
-  // before the playhead crosses into the unbuffered zone. starts at the
-  // default (live edge) and grows by `LIVE_EDGE_BUMP_MS` per stall, up
-  // to `MAX_LIVE_EDGE_BUFFER_MS` total.
-  let liveEdgeBufferMs = 0;
+  // before the playhead crosses into the unbuffered zone. starts with a
+  // small headroom behind the true live edge so a brief producer gap (track
+  // transition, ffmpeg cold start, jitter) doesn't immediately drain the
+  // buffer and park the playhead, and grows by `LIVE_EDGE_BUMP_MS` per
+  // stall up to `MAX_LIVE_EDGE_BUFFER_MS`, letting a struggling listener
+  // gracefully fall behind the live edge instead of dropping out.
+  let liveEdgeBufferMs = stabilityMode() ? 4000 : 2500;
   const LIVE_EDGE_BUMP_MS = stabilityMode() ? 2000 : 1500;
-  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 9000 : 5000;
+  const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 20000 : 12000;
   let stallCount = 0;
   const onStall = () => {
     if (!isActiveTune()) return;
@@ -1247,9 +1252,76 @@ export async function tuneIntoRadio(
       console.warn("[radio] stall seek recovery failed:", e);
     }
   };
+
+  // ---- stall watchdog --------------------------------------------------
+  // the media element can wedge at the end of a buffered range during a
+  // track transition (admin skip, ffmpeg cold start): the playhead reaches
+  // the old track's end just before the next track's chunks land, fires
+  // `waiting`, and the browser doesn't always auto-resume across the
+  // micro-gap once data arrives. this periodic check re-anchors the
+  // playhead onto buffered media and re-arms play() in place, recovering
+  // without a full re-tune (which would cause an audible dropout).
+  let lastWatchdogTime = 0;
+  let lastWatchdogProgressMs = Date.now();
+  let watchdogTick: number | null = null;
+  const STALL_RECOVERY_AFTER_MS = 1500;
+  const runWatchdog = () => {
+    if (!isActiveTune() || useTimelineMode() || !sb) return;
+    if (!chunkPlayStarted || chunkAutoplayBlocked) return;
+    const now = Date.now();
+    const t = audio.currentTime;
+    if (t > lastWatchdogTime + 0.02) {
+      lastWatchdogTime = t;
+      lastWatchdogProgressMs = now;
+      return;
+    }
+    if (now - lastWatchdogProgressMs < STALL_RECOVERY_AFTER_MS) return;
+    if (sb.buffered.length === 0) {
+      if (audio.paused) void audio.play().catch(() => {});
+      return;
+    }
+    const start = sb.buffered.start(0);
+    const end = sb.buffered.end(sb.buffered.length - 1);
+    let seekTarget: number | null = null;
+    if (t > end + 0.05 || t < start - 0.05) {
+      // playhead stranded outside the buffered span (e.g. after a buffer
+      // rebuild); re-anchor to the trailing live-edge target.
+      seekTarget = Math.max(start, end - liveEdgeBufferMs / 1000);
+    } else if (end - t > 0.25) {
+      // data exists ahead but the playhead is wedged (track-boundary gap);
+      // cross to the live-edge target so playback resumes into the new track.
+      seekTarget = Math.max(t + 0.05, end - liveEdgeBufferMs / 1000);
+    }
+    if (seekTarget !== null && Math.abs(seekTarget - t) > 0.05) {
+      console.info(
+        `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s`,
+      );
+      try {
+        audio.currentTime = seekTarget;
+      } catch (e) {
+        console.warn("[radio] watchdog seek failed:", e);
+      }
+      lastWatchdogProgressMs = now; // grace period after the seek
+    }
+    if (audio.paused) void audio.play().catch(() => {});
+  };
+  const startWatchdog = () => {
+    if (watchdogTick !== null) return;
+    lastWatchdogTime = audio.currentTime;
+    lastWatchdogProgressMs = Date.now();
+    watchdogTick = window.setInterval(runWatchdog, 750);
+  };
+  const stopWatchdog = () => {
+    if (watchdogTick !== null) {
+      window.clearInterval(watchdogTick);
+      watchdogTick = null;
+    }
+  };
+
   if (ms) {
     audio.addEventListener("waiting", onStall);
     audio.addEventListener("stalled", onStall);
+    startWatchdog();
     audio.addEventListener("playing", () => {
       console.info("[radio] media element event: playing");
     });
@@ -1761,6 +1833,7 @@ export async function tuneIntoRadio(
         // best effort
       }
       stopDiagnostics();
+      stopWatchdog();
       if (timelineBootstrapTimer !== null) {
         window.clearTimeout(timelineBootstrapTimer);
         timelineBootstrapTimer = null;
