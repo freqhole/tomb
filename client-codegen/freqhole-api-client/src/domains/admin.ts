@@ -93,5 +93,28 @@ export function createAdminMethods(call: CallFn) {
         routes.admin.get_knock_status_public.path,
       );
     },
+
+    // internal service callbacks
+    deviceLinkedCallback: (params: s.DeviceLinkedCallbackRequest) => {
+      return call(
+        "admin", "device_linked_callback",
+        routes.admin.device_linked_callback.resp,
+        routes.admin.device_linked_callback.req,
+        routes.admin.device_linked_callback.method,
+        routes.admin.device_linked_callback.path,
+        params,
+      );
+    },
+
+    knockAcceptedCallback: (params: s.KnockAcceptedCallbackRequest) => {
+      return call(
+        "admin", "knock_accepted_callback",
+        routes.admin.knock_accepted_callback.resp,
+        routes.admin.knock_accepted_callback.req,
+        routes.admin.knock_accepted_callback.method,
+        routes.admin.knock_accepted_callback.path,
+        params,
+      );
+    },
   };
 }
