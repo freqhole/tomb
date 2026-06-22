@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, Notify, RwLock};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// short pause between songs when the playlist or encoder fails. avoids
 /// a hot retry loop if (e.g.) the library is empty or ffmpeg is missing.
@@ -37,7 +37,10 @@ const RETRY_PAUSE: Duration = Duration::from_secs(3);
 /// for a bit in case they only paused / scrubbed / reconnected.
 const NO_LISTENER_GRACE: Duration = Duration::from_secs(60);
 const SKIP_REQUEST_COOLDOWN_MS: i64 = 5_000;
-const SKIP_MIN_REMAINING_MS: i64 = 30_000;
+/// when this little (or less) audio remains on the current track, an admin
+/// skip is ignored: the track plays out and the next one buffers naturally.
+/// avoids a redundant transition right as a track is already ending.
+const SKIP_TAIL_IGNORE_MS: i64 = 10_000;
 
 /// number of media chunks to emit at full speed at the start of a
 /// post-skip track. shifts pace_origin backward so the listener's buffer
@@ -136,6 +139,11 @@ pub struct Broadcaster {
     /// when set, the next pick bypasses planner continuity and forces
     /// album mode to start a new random album from track 1.
     force_new_album_pick: AtomicBool,
+    /// set true when the active track is interrupted by an admin skip;
+    /// consumed by the run loop so the post-skip burst pacing applies to
+    /// the track that actually starts next, not whichever track happened
+    /// to be playing when the flag was toggled.
+    post_skip_pending: AtomicBool,
     /// wakes the run loop when the first listener arrives while the
     /// station is idle.
     listener_notify: Notify,
@@ -172,6 +180,7 @@ impl Broadcaster {
             skip_request_generation: AtomicU32::new(0),
             last_skip_requested_at_ms: AtomicI64::new(0),
             force_new_album_pick: AtomicBool::new(false),
+            post_skip_pending: AtomicBool::new(false),
             listener_notify: Notify::new(),
             skip_notify: Notify::new(),
             plan: RwLock::new(VecDeque::new()),
@@ -473,12 +482,6 @@ impl Broadcaster {
     }
 
     pub fn request_skip_current_track(&self) -> GrimoireResult<()> {
-        if self.current_track_is_bumper.load(Ordering::Relaxed) {
-            return Err(GrimoireError::BadRequest {
-                message: "cannot skip a station bumper".to_string(),
-            });
-        }
-
         let now_ms = unix_now_ms();
         let last_skip = self.last_skip_requested_at_ms.load(Ordering::Relaxed);
         if last_skip > 0 {
@@ -509,13 +512,16 @@ impl Broadcaster {
 
         let elapsed_ms = now_ms.saturating_sub(started_at);
         let remaining_ms = duration_ms.saturating_sub(elapsed_ms);
-        if remaining_ms < SKIP_MIN_REMAINING_MS {
-            return Err(GrimoireError::BadRequest {
-                message: format!(
-                    "skip is only allowed when at least 30s remain on the current track ({:.0}s left)",
-                    remaining_ms.max(0) as f64 / 1000.0,
-                ),
-            });
+        // if the track is nearly over, ignore the skip and let it play out.
+        // the next track buffers naturally; no error is surfaced to the caller.
+        if remaining_ms <= SKIP_TAIL_IGNORE_MS {
+            debug!(
+                "[radio-broadcaster] station {} skip ignored; track ending in {}ms (tail <= {}ms)",
+                self.station_id,
+                remaining_ms.max(0),
+                SKIP_TAIL_IGNORE_MS
+            );
+            return Ok(());
         }
 
         self.last_skip_requested_at_ms
@@ -561,6 +567,7 @@ impl Broadcaster {
             }
 
             let force_new_album = self.force_new_album_pick.swap(false, Ordering::Relaxed);
+            let is_post_skip = self.post_skip_pending.swap(false, Ordering::Relaxed);
 
             // consume from planner if available; fall back to a direct pick.
             // after a skip request, drop stale plan continuity and force
@@ -588,7 +595,7 @@ impl Broadcaster {
                         .play_track(
                             &track,
                             /*is_bumper=*/ false,
-                            /*is_post_skip=*/ force_new_album,
+                            /*is_post_skip=*/ is_post_skip,
                         )
                         .await
                     {
@@ -926,7 +933,7 @@ impl Broadcaster {
 
             let next = tokio::select! {
                 res = encoder.next_chunk() => Some(res),
-                _ = self.skip_notify.notified(), if !is_bumper => {
+                _ = self.skip_notify.notified() => {
                     if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
                         skipped_by_admin = true;
                         encoder.interrupt();
@@ -958,7 +965,7 @@ impl Broadcaster {
                         let sleep_for = target - now;
                         tokio::select! {
                             _ = tokio::time::sleep(sleep_for) => {}
-                            _ = self.skip_notify.notified(), if !is_bumper => {
+                            _ = self.skip_notify.notified() => {
                                 if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
                                     skipped_by_admin = true;
                                     encoder.interrupt();
@@ -1007,6 +1014,7 @@ impl Broadcaster {
         }
 
         if skipped_by_admin {
+            self.post_skip_pending.store(true, Ordering::Relaxed);
             info!(
                 "[radio-broadcaster] station {} admin-skipped track: {}",
                 self.station_id, track.title
