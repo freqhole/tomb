@@ -361,7 +361,11 @@ pub async fn reconcile_ephemeral_dir(
     }
 
     if deleted > 0 {
-        tracing::info!(kept = kept.len(), deleted, "ephemeral reconcile: removed stale files");
+        tracing::info!(
+            kept = kept.len(),
+            deleted,
+            "ephemeral reconcile: removed stale files"
+        );
     } else {
         tracing::debug!(kept = kept.len(), "ephemeral reconcile: no changes");
     }
