@@ -3,15 +3,24 @@ import { createEffect, createMemo, createSignal, on, onCleanup, type JSX } from 
 import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
-import { addToQueue } from "../../music/services/queue/queue";
+import { addToQueue, playQueue } from "../../music/services/queue/queue";
 import { routes, matchRoute } from "../../music/utils/routing";
 import { valueNodeId, type RelationKind } from "../graph/data/nodeIds";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
 import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
+import type { MenuAction } from "../overlays/ContextMenu";
 import { extractShareTokenFromAnyText, SHARE_HASH_PARAM } from "../../utils/permalink";
 import { recordSharedItemFromToken } from "../../app/services/storage/sharedItems";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
+import { showPlaylistSelector } from "../../music/hooks/playlistSelectorState";
+import { showStationSelector } from "../../music/hooks/stationSelectorState";
+import { isCharnelMode } from "../../app/services/charnel";
+import { isP2PRemote } from "../../app/services/storage/schemas/remote";
+import { createShareMenuAction } from "../../music/hooks/contextMenu";
+import { useToggleFavoriteMutation } from "../../music/queries/favorites";
+import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 
 export interface TopNavSearchProps {
   placeholder?: string;
@@ -89,6 +98,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const [isFocused, setIsFocused] = createSignal(false);
   const [suggestionsOpen, setSuggestionsOpen] = createSignal(false);
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  // called at component level so the mutation's reactive state lives in
+  // this component's scope, not inside suggestionsWithPlay().
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
   let inputRef: HTMLInputElement | undefined;
   let collapseTimer: ReturnType<typeof setTimeout> | undefined;
   let filterDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -485,8 +497,29 @@ export function TopNavSearch(props: TopNavSearchProps) {
     }
   };
 
-  // attach play callbacks to suggestions before passing to SearchInput
+  // attach play callbacks and context menu actions to suggestions before passing to SearchInput
   const suggestionsWithPlay = (): SearchSuggestion[] => {
+    // resolve remote id for a suggestion, then navigate to the built path.
+    // mirrors what handleSelect does but lets each action pick its own route.
+    const resolveAndNavigate = async (
+      suggestion: SearchSuggestion,
+      buildPath: (remoteId: string | undefined) => string
+    ) => {
+      let remoteId: string | undefined;
+      try {
+        const resolved = await props.remoteIdFor?.(suggestion);
+        if (resolved === null) return; // user cancelled remote picker
+        if (resolved && typeof resolved === "object") {
+          remoteId = resolved.remoteId;
+        } else {
+          remoteId = resolved ?? undefined;
+        }
+      } catch {
+        // fall through with no remote — navigation uses current remote
+      }
+      props.onNavigate?.(buildPath(remoteId));
+    };
+
     return (props.suggestions || []).map((s) => {
       const apiSuggestion = s.data as APISuggestion | undefined;
       const canPlay =
@@ -494,9 +527,432 @@ export function TopNavSearch(props: TopNavSearchProps) {
         (apiSuggestion.suggestion_type === "song" ||
           apiSuggestion.suggestion_type === "album" ||
           apiSuggestion.suggestion_type === "playlist");
+
+      const contextMenuActions: MenuAction[] = [];
+      if (apiSuggestion) {
+        const meta = apiSuggestion.metadata as any;
+        const isFav = !!s.isFavorite;
+
+        // helper: resolve the remote for this suggestion, then return the
+        // data source scoped to it (or the active source as fallback).
+        const resolveDs = async () => {
+          try {
+            const resolved = await props.remoteIdFor?.(s);
+            if (resolved === null) return null;
+            const remoteId =
+              resolved && typeof resolved === "object" ? resolved.remoteId : resolved;
+            if (!remoteId || remoteId === "local")
+              return { ds: getDataSource(), remote: undefined };
+            const remote = await getRemoteById(remoteId);
+            return {
+              ds: remote ? new RemoteMusicDataSource(remote) : getDataSource(),
+              remote: remote ?? undefined,
+            };
+          } catch {
+            return { ds: getDataSource(), remote: undefined };
+          }
+        };
+
+        // helper: resolve remoteId string only (for station / share actions)
+        const resolveRemoteId = async (): Promise<string | undefined> => {
+          try {
+            const resolved = await props.remoteIdFor?.(s);
+            if (resolved === null) return undefined;
+            if (resolved && typeof resolved === "object") return resolved.remoteId;
+            return resolved ?? undefined;
+          } catch {
+            return undefined;
+          }
+        };
+
+        switch (apiSuggestion.suggestion_type) {
+          case "song": {
+            contextMenuActions.push({
+              label: "play now",
+              icon: "play",
+              onClick: () => void handlePlay(apiSuggestion),
+            });
+            contextMenuActions.push({
+              label: "play next",
+              icon: "queue",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const song = await r.ds.getSongById?.(apiSuggestion.entity_id);
+                if (song)
+                  await addToQueue([song], {
+                    position: "next",
+                    source: { type: "song", label: song.title },
+                  });
+              },
+            });
+            contextMenuActions.push({
+              label: "add to queue",
+              icon: "queue",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const song = await r.ds.getSongById?.(apiSuggestion.entity_id);
+                if (song) await addToQueue([song], { source: { type: "song", label: song.title } });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                const r = await resolveDs();
+                toggleFavoriteMutation.mutate({
+                  targetType: "song",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                  remote: r?.remote ?? undefined,
+                });
+              },
+            });
+            contextMenuActions.push({
+              label: "add to playlist...",
+              icon: "playlist",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                void showPlaylistSelector([apiSuggestion.entity_id], r.remote);
+              },
+            });
+            if (isCharnelMode() || meta?.remote_server_id) {
+              contextMenuActions.push({
+                label: "add to station...",
+                icon: "headphones",
+                onClick: async () => {
+                  const remoteId = await resolveRemoteId();
+                  void showStationSelector(
+                    { kind: "songs", songIds: [apiSuggestion.entity_id] },
+                    remoteId
+                  );
+                },
+              });
+            }
+            contextMenuActions.push(
+              createShareMenuAction(
+                { kind: "song", id: apiSuggestion.entity_id, displayTitle: apiSuggestion.display },
+                undefined,
+                undefined
+              )
+            );
+            if (meta?.album_id) {
+              contextMenuActions.push({ type: "separator" });
+              contextMenuActions.push({
+                label: "go to album",
+                icon: "album",
+                onClick: () =>
+                  void resolveAndNavigate(s, (rid) =>
+                    rid ? routes.albumOn(rid, meta.album_id) : routes.album(meta.album_id)
+                  ),
+              });
+            }
+            const firstArtistId = (() => {
+              try {
+                const ids =
+                  typeof meta?.artist_ids === "string"
+                    ? JSON.parse(meta.artist_ids)
+                    : meta?.artist_ids;
+                return Array.isArray(ids) ? ids[0] : undefined;
+              } catch {
+                return undefined;
+              }
+            })();
+            if (firstArtistId) {
+              contextMenuActions.push({
+                label: "go to artist",
+                icon: "artist",
+                onClick: () =>
+                  void resolveAndNavigate(s, (rid) =>
+                    rid ? routes.artistOn(rid, firstArtistId) : routes.artist(firstArtistId)
+                  ),
+              });
+            }
+            break;
+          }
+          case "album": {
+            contextMenuActions.push({
+              label: "play album",
+              icon: "play",
+              onClick: () => void handlePlay(apiSuggestion),
+            });
+            contextMenuActions.push({
+              label: "shuffle album",
+              icon: "shuffle",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getAlbumSongs?.(apiSuggestion.entity_id);
+                if (res) {
+                  const shuffled = [...res.items].sort(() => Math.random() - 0.5);
+                  await playQueue(shuffled, {
+                    source: { type: "shuffle", label: apiSuggestion.display },
+                  });
+                }
+              },
+            });
+            contextMenuActions.push({
+              label: "add to queue",
+              icon: "queue",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getAlbumSongs?.(apiSuggestion.entity_id);
+                if (res)
+                  await addToQueue(res.items, {
+                    source: { type: "album", label: apiSuggestion.display },
+                  });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                const r = await resolveDs();
+                toggleFavoriteMutation.mutate({
+                  targetType: "album",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                  remote: r?.remote ?? undefined,
+                });
+              },
+            });
+            contextMenuActions.push({
+              label: "add to playlist...",
+              icon: "playlist",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getAlbumSongs?.(apiSuggestion.entity_id);
+                if (res)
+                  void showPlaylistSelector(
+                    res.items.map((s) => s.id),
+                    r.remote
+                  );
+              },
+            });
+            const currentRemote = getCurrentRemote();
+            const stationCapable =
+              isCharnelMode() || (!!currentRemote && isP2PRemote(currentRemote as any));
+            if (stationCapable) {
+              contextMenuActions.push({
+                label: "add to station...",
+                icon: "headphones",
+                onClick: async () => {
+                  const remoteId = await resolveRemoteId();
+                  void showStationSelector(
+                    {
+                      kind: "album",
+                      albumId: apiSuggestion.entity_id,
+                      albumTitle: apiSuggestion.display,
+                    },
+                    remoteId ?? currentRemote?.remote_id
+                  );
+                },
+              });
+            }
+            contextMenuActions.push(
+              createShareMenuAction(
+                {
+                  kind: "album",
+                  id: apiSuggestion.entity_id,
+                  displayTitle: apiSuggestion.display,
+                  artistName: meta?.artist_name,
+                },
+                undefined,
+                undefined
+              )
+            );
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: "go to album",
+              icon: "album",
+              onClick: () =>
+                void resolveAndNavigate(s, (rid) =>
+                  rid
+                    ? routes.albumOn(rid, apiSuggestion.entity_id)
+                    : routes.album(apiSuggestion.entity_id)
+                ),
+            });
+            if (meta?.artist_id) {
+              contextMenuActions.push({
+                label: "go to artist",
+                icon: "artist",
+                onClick: () =>
+                  void resolveAndNavigate(s, (rid) =>
+                    rid ? routes.artistOn(rid, meta.artist_id) : routes.artist(meta.artist_id)
+                  ),
+              });
+            }
+            break;
+          }
+          case "artist": {
+            contextMenuActions.push({
+              label: "play all",
+              icon: "play",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getArtistSongs?.(apiSuggestion.entity_id);
+                if (res)
+                  await playQueue(res.items, {
+                    source: { type: "artist", label: apiSuggestion.display },
+                  });
+              },
+            });
+            contextMenuActions.push({
+              label: "shuffle all",
+              icon: "shuffle",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getArtistSongs?.(apiSuggestion.entity_id);
+                if (res) {
+                  const shuffled = [...res.items].sort(() => Math.random() - 0.5);
+                  await playQueue(shuffled, {
+                    source: { type: "shuffle", label: apiSuggestion.display },
+                  });
+                }
+              },
+            });
+            contextMenuActions.push({
+              label: "add to queue",
+              icon: "queue",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getArtistSongs?.(apiSuggestion.entity_id);
+                if (res)
+                  await addToQueue(res.items, {
+                    source: { type: "artist", label: apiSuggestion.display },
+                  });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                const r = await resolveDs();
+                toggleFavoriteMutation.mutate({
+                  targetType: "artist",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                  remote: r?.remote ?? undefined,
+                });
+              },
+            });
+            if (isCharnelMode() || !!getCurrentRemote()) {
+              contextMenuActions.push({
+                label: "add to station...",
+                icon: "headphones",
+                onClick: async () => {
+                  const remoteId = await resolveRemoteId();
+                  void showStationSelector(
+                    {
+                      kind: "artist",
+                      artistId: apiSuggestion.entity_id,
+                      artistName: apiSuggestion.display,
+                    },
+                    remoteId ?? getCurrentRemote()?.remote_id
+                  );
+                },
+              });
+            }
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: "go to artist",
+              icon: "artist",
+              onClick: () =>
+                void resolveAndNavigate(s, (rid) =>
+                  rid
+                    ? routes.artistOn(rid, apiSuggestion.entity_id)
+                    : routes.artist(apiSuggestion.entity_id)
+                ),
+            });
+            break;
+          }
+          case "playlist": {
+            contextMenuActions.push({
+              label: "play playlist",
+              icon: "play",
+              onClick: () => void handlePlay(apiSuggestion),
+            });
+            contextMenuActions.push({
+              label: "shuffle playlist",
+              icon: "shuffle",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getPlaylistSongs?.(apiSuggestion.entity_id);
+                if (res) {
+                  const shuffled = [...res.items].sort(() => Math.random() - 0.5);
+                  await playQueue(shuffled, {
+                    source: { type: "shuffle", label: apiSuggestion.display },
+                  });
+                }
+              },
+            });
+            contextMenuActions.push({
+              label: "add to queue",
+              icon: "queue",
+              onClick: async () => {
+                const r = await resolveDs();
+                if (!r) return;
+                const res = await r.ds.getPlaylistSongs?.(apiSuggestion.entity_id);
+                if (res)
+                  await addToQueue(res.items, {
+                    source: { type: "playlist", label: apiSuggestion.display },
+                  });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                toggleFavoriteMutation.mutate({
+                  targetType: "playlist",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                });
+              },
+            });
+            contextMenuActions.push(
+              createShareMenuAction(
+                {
+                  kind: "playlist",
+                  id: apiSuggestion.entity_id,
+                  displayTitle: apiSuggestion.display,
+                },
+                undefined,
+                undefined
+              )
+            );
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: "go to playlist",
+              icon: "playlist",
+              onClick: () =>
+                void resolveAndNavigate(s, (rid) =>
+                  rid
+                    ? routes.playlistOn(rid, apiSuggestion.entity_id)
+                    : routes.playlist(apiSuggestion.entity_id)
+                ),
+            });
+            break;
+          }
+        }
+      }
+
       return {
         ...s,
         onPlay: canPlay ? () => handlePlay(apiSuggestion) : undefined,
+        contextMenuActions: contextMenuActions.length > 0 ? contextMenuActions : undefined,
       };
     });
   };

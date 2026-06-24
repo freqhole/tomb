@@ -679,7 +679,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // update positions
     const updates = reordered.map((song, index) => ({
-      song_id: song.id,
+      song_id: song.song_id,
       position: index + 1,
     }));
 

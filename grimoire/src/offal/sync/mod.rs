@@ -302,29 +302,48 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
             );
         }
 
-        let media_blob_id = crate::media_blobz::get_media_blob_by_blake3(&req.blake3)
+        // single lookup for both id and local_path
+        let opt_blob = crate::media_blobz::get_media_blob_by_blake3(&req.blake3)
             .await
-            .map(|b| b.id)
+            .ok();
+        let media_blob_id = opt_blob.as_ref().map(|b| b.id.clone()).unwrap_or_default();
+        let local_path = opt_blob
+            .as_ref()
+            .and_then(|b| b.local_path.clone())
             .unwrap_or_default();
-        let local_path = crate::media_blobz::get_media_blob_by_blake3(&req.blake3)
-            .await
-            .ok()
-            .and_then(|b| b.local_path)
-            .unwrap_or_default();
-        let response = SyncSongByBlake3Response {
-            song_id: existing_song_id,
-            media_blob_id,
-            file_path: local_path,
-            sha256: req.sha256.clone(),
-            blake3: req.blake3.clone(),
-            existing: true,
-            images_linked: 0,
-            missing_image_sha256s: Vec::new(),
-        };
-        return GrimoireResponse::success(
-            "song already existed",
-            serde_json::to_value(response).unwrap_or_default(),
-        );
+
+        if local_path.is_empty() {
+            // song row exists but the file isn't on disk (local_path null or blob row missing).
+            // fall through to the pull path so it re-downloads and returns a usable path.
+            // the pull path handles the resulting duplicate detection cleanly.
+            tracing::warn!(
+                "sync_song_by_blake3: song {} exists for blake3 {} but local_path is empty (media_blob='{}') — re-pulling",
+                existing_song_id,
+                &req.blake3[..16.min(req.blake3.len())],
+                media_blob_id,
+            );
+        } else {
+            tracing::info!(
+                "sync_song_by_blake3: song {} already local — media_blob={} path={}",
+                existing_song_id,
+                media_blob_id,
+                local_path,
+            );
+            let response = SyncSongByBlake3Response {
+                song_id: existing_song_id,
+                media_blob_id,
+                file_path: local_path,
+                sha256: req.sha256.clone(),
+                blake3: req.blake3.clone(),
+                existing: true,
+                images_linked: 0,
+                missing_image_sha256s: Vec::new(),
+            };
+            return GrimoireResponse::success(
+                "song already existed",
+                serde_json::to_value(response).unwrap_or_default(),
+            );
+        }
     }
 
     // 3. pull the audio blob (verified streaming + sha256 verify + dedupe)
@@ -426,6 +445,18 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
     .await;
 
     if !import_response.success {
+        tracing::error!(
+            "sync_song_by_blake3: import failed for title=\"{}\" blake3={} blob={} — {} — errors: {}",
+            req.title,
+            &req.blake3[..16.min(req.blake3.len())],
+            pulled.blob.id,
+            import_response.message,
+            import_response.errors
+                .iter()
+                .map(|e| format!("[{}] {}", e.error_type, e.detail))
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
         return GrimoireResponse::failure("failed to import song", import_response.errors);
     }
     let import_result = match import_response.data {
@@ -441,6 +472,14 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
             );
         }
     };
+    if import_result.existing {
+        tracing::info!(
+            "sync_song_by_blake3: pulled blob {} is a duplicate of existing song {} — using pulled blob path",
+            pulled.blob.id,
+            import_result.song.id,
+        );
+    }
+    let import_existing = import_result.existing;
     let song_id = import_result.song.id.clone();
 
     // 5. link song images. each ref is either inline base64 (decode + dedupe by
@@ -556,7 +595,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         file_path: pulled.local_path.to_string_lossy().to_string(),
         sha256: pulled.sha256,
         blake3: req.blake3.clone(),
-        existing: false,
+        existing: import_existing,
         images_linked,
         missing_image_sha256s,
     };

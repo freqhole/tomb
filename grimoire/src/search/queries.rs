@@ -106,7 +106,7 @@ pub async fn search_songs(
                 WHERE asong_filter.song_id = song.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -253,7 +253,7 @@ pub async fn search_artists(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -393,7 +393,7 @@ pub async fn search_albums(
                 WHERE atag.album_id = album.id
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT ? OFFSET ?
         "#,
         user_id_param,
@@ -531,7 +531,7 @@ pub async fn search_genres(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY genre.id, genre.label, fts.rank
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,
@@ -639,7 +639,7 @@ pub async fn search_playlists(
                 AND atag.tag_id IN (SELECT value FROM json_each(?))
             ))
         GROUP BY playlist.id, playlist.title, playlist.description, playlist.is_public, playlist.created_by, fts.rank
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT ? OFFSET ?
         "#,
         sanitized_query,

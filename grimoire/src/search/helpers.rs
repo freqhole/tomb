@@ -98,6 +98,69 @@ pub fn apply_user_preference_multiplier(
     score
 }
 
+/// extract a short context snippet around the first occurrence of `query`
+/// in `text`. returns `None` if `query` does not appear in `text`.
+/// the returned string has a `<mark>…</mark>` around the matched word(s)
+/// and leading/trailing `...` when the match is not at the start/end.
+pub fn extract_snippet(text: &str, query: &str, context_chars: usize) -> Option<String> {
+    let text_lower = text.to_lowercase();
+    let query_lower = query.to_lowercase();
+    // find the first word from the query that appears in the text
+    let first_word = query_lower
+        .split_whitespace()
+        .next()
+        .unwrap_or(&query_lower);
+    let pos = text_lower.find(first_word)?;
+    let half = context_chars / 2;
+    let start = pos.saturating_sub(half);
+    // snap start to a character boundary (utf-8 safe)
+    let start = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .rfind(|&i| i <= start)
+        .unwrap_or(0);
+    let end_raw = (pos + first_word.len() + half).min(text.len());
+    let end = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .find(|&i| i >= end_raw)
+        .unwrap_or(text.len());
+    let fragment = &text[start..end];
+    // re-highlight within the fragment
+    let highlighted = generate_highlight(fragment, query);
+    let mut result = String::new();
+    if start > 0 {
+        result.push_str("...");
+    }
+    result.push_str(&highlighted);
+    if end < text.len() {
+        result.push_str("...");
+    }
+    Some(result)
+}
+
+/// returns true when the query (case-insensitive) appears verbatim in text
+pub fn text_contains_query(text: &str, query: &str) -> bool {
+    let first_word = query.split_whitespace().next().unwrap_or(query);
+    text.to_lowercase().contains(&first_word.to_lowercase())
+}
+
+/// given a json array of name strings (e.g. `["The Beatles","Lennon"]`),
+/// finds the first entry that contains `query` (case-insensitive) and
+/// returns a snippet with the match wrapped in `<mark>...</mark>`.
+/// returns `None` if the json is malformed or no entry matches.
+pub fn find_match_in_json_array(json: &str, query: &str) -> Option<String> {
+    let arr: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+    for val in arr {
+        if let Some(name) = val.as_str() {
+            if text_contains_query(name, query) {
+                return Some(generate_highlight(name, query));
+            }
+        }
+    }
+    None
+}
+
 /// generate highlight with markdown bold for matched text
 pub fn generate_highlight(text: &str, query: &str) -> String {
     let query_lower = query.to_lowercase();
@@ -193,6 +256,8 @@ mod tests {
             metadata: Some(serde_json::json!({"match_type": "title"})),
             entity_id: "1".to_string(),
             is_favorite: true,
+            matched_field: None,
+            match_snippet: None,
         };
 
         // title match with high confidence - should include

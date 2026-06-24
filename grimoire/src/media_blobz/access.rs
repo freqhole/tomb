@@ -26,6 +26,13 @@ pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
                     }),
                 )
             } else {
+                // blob record exists but has no file path — likely a db-only blob,
+                // a record whose file was never written, or a stale path after
+                // an app data directory move (e.g. flatpak sandbox change).
+                tracing::warn!(
+                    blob_id = %blob.id,
+                    "blob has no local_path — db record exists but file path is null"
+                );
                 GrimoireResponse::failure(
                     "blob has no local path",
                     vec![ErrorDetail::new(

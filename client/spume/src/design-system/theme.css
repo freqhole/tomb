@@ -510,3 +510,11 @@ select option {
     color: var(--color-text-secondary);
   }
 }
+
+/* kobalte's popper positioner uses position: absolute with no z-index by
+ * default, which puts it below any positioned ancestor with a positive
+ * z-index (e.g. the playlist panel's relative z-10 div). give it a high
+ * z-index so dropdown/context menu portals always appear on top. */
+[data-popper-positioner] {
+  z-index: 1200;
+}

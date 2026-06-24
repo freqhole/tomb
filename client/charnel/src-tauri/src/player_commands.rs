@@ -191,6 +191,13 @@ pub async fn resolve_blob_path(blob_id: String) -> Result<serde_json::Value, Str
                 .first()
                 .map(|e| e.error_type.clone())
                 .unwrap_or_else(|| "unknown_error".to_string());
+            // log at warn so path failures are visible in charnel logz
+            tracing::warn!(
+                blob_id = %blob_id,
+                error_type = %kind,
+                "resolve_blob_path: {}",
+                resp.message,
+            );
             Err(format!("{kind}: {}", resp.message))
         }
     }

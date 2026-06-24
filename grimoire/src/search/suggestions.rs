@@ -2,7 +2,8 @@
 
 use crate::error::GrimoireResult;
 use crate::search::helpers::{
-    apply_user_preference_multiplier, calculate_confidence, generate_highlight, sanitize_fts_query,
+    apply_user_preference_multiplier, calculate_confidence, extract_snippet,
+    find_match_in_json_array, generate_highlight, sanitize_fts_query, text_contains_query,
 };
 use crate::search::models::{Suggestion, SuggestionType};
 use sqlx::SqlitePool;
@@ -26,6 +27,7 @@ pub async fn get_song_suggestions(
         album_title: Option<String>,
         artist_ids: Option<String>,   // JSON array of artistz.id
         artist_names: Option<String>, // JSON array of artistz.name, parallel order
+        lyrics: Option<String>,
         fts_rank: f64,
         user_rating: Option<i64>,
         is_favorite: i64,
@@ -55,6 +57,7 @@ pub async fn get_song_suggestions(
                 SELECT ar.name AS name FROM artist_songz asj JOIN artistz ar ON ar.id = asj.artist_id
                 WHERE asj.song_id = song.id AND ar.deleted_at IS NULL ORDER BY ar.id
              )) as "artist_names: String",
+            song.lyrics as "lyrics: String",
             fts.rank as "fts_rank!: f64",
             rating.rating as "user_rating: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
@@ -71,7 +74,7 @@ pub async fn get_song_suggestions(
         WHERE songz_fts MATCH ?
             AND song.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT 100
         "#,
         user_id_param,
@@ -93,6 +96,45 @@ pub async fn get_song_suggestions(
             );
             let highlight = generate_highlight(&row.song_title, partial);
 
+            // detect which field matched, in priority order:
+            // title > artist_name > album_name > lyrics.
+            // for artist/album matches we return the actual name as the snippet
+            // so the ui can explain why the result appeared.
+            let (matched_field, match_snippet) = if text_contains_query(&row.song_title, partial) {
+                (None, None)
+            } else if let Some(artist_snippet) = row
+                .artist_names
+                .as_deref()
+                .and_then(|j| find_match_in_json_array(j, partial))
+            {
+                (Some("artist".to_string()), Some(artist_snippet))
+            } else if let Some(album) = &row.album_title {
+                if text_contains_query(album, partial) {
+                    (
+                        Some("album".to_string()),
+                        Some(generate_highlight(album, partial)),
+                    )
+                } else if let Some(snippet) = row
+                    .lyrics
+                    .as_deref()
+                    .and_then(|l| extract_snippet(l, partial, 80))
+                {
+                    (Some("lyrics".to_string()), Some(snippet))
+                } else {
+                    (None, None)
+                }
+            } else if let Some(snippet) = row
+                .lyrics
+                .as_deref()
+                .and_then(|l| extract_snippet(l, partial, 80))
+            {
+                (Some("lyrics".to_string()), Some(snippet))
+            } else {
+                (None, None)
+            };
+
+            let match_type = matched_field.as_deref().unwrap_or("title");
+
             Suggestion {
                 value: row.song_title.clone(),
                 display: row.song_title.clone(),
@@ -101,7 +143,7 @@ pub async fn get_song_suggestions(
                 suggestion_type: SuggestionType::Song,
                 confidence,
                 metadata: Some(serde_json::json!({
-                    "match_type": "title",
+                    "match_type": match_type,
                     "images": row.images,
                     "album_id": row.album_id,
                     "album_title": row.album_title,
@@ -110,6 +152,8 @@ pub async fn get_song_suggestions(
                 })),
                 entity_id: row.song_id,
                 is_favorite: row.is_favorite != 0,
+                matched_field,
+                match_snippet,
             }
         })
         .collect();
@@ -170,7 +214,7 @@ pub async fn get_artist_suggestions(
             AND artist.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY artist.id, artist.name, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT 100
         "#,
         user_id_param,
@@ -205,6 +249,8 @@ pub async fn get_artist_suggestions(
                 })),
                 entity_id: row.artist_id,
                 is_favorite: row.is_favorite != 0,
+                matched_field: None,
+                match_snippet: None,
             }
         })
         .collect();
@@ -212,7 +258,6 @@ pub async fn get_artist_suggestions(
     Ok(suggestions)
 }
 
-/// get album suggestions from FTS with user preferences
 pub async fn get_album_suggestions(
     pool: &SqlitePool,
     partial: &str,
@@ -275,7 +320,7 @@ pub async fn get_album_suggestions(
             AND album.deleted_at IS NULL
             AND (rating.rating IS NULL OR rating.rating != 0)
         GROUP BY album.id, album.title, fts.rank, rating.rating, favorite.id
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT 100
         "#,
         user_id_param,
@@ -297,6 +342,20 @@ pub async fn get_album_suggestions(
             );
             let highlight = generate_highlight(&row.album_title, partial);
 
+            // detect if the match came from artist name rather than album title.
+            let (matched_field, match_snippet) = if text_contains_query(&row.album_title, partial) {
+                (None, None)
+            } else if let Some(artist_snippet) = row
+                .artist_names
+                .as_deref()
+                .and_then(|j| find_match_in_json_array(j, partial))
+            {
+                (Some("artist".to_string()), Some(artist_snippet))
+            } else {
+                (None, None)
+            };
+            let match_type = matched_field.as_deref().unwrap_or("title");
+
             Suggestion {
                 value: row.album_title.clone(),
                 display: row.album_title.clone(),
@@ -305,13 +364,15 @@ pub async fn get_album_suggestions(
                 suggestion_type: SuggestionType::Album,
                 confidence,
                 metadata: Some(serde_json::json!({
-                    "match_type": "title",
+                    "match_type": match_type,
                     "images": row.images,
                     "artist_ids": row.artist_ids,
                     "artist_names": row.artist_names
                 })),
                 entity_id: row.album_id,
                 is_favorite: row.is_favorite != 0,
+                matched_field,
+                match_snippet,
             }
         })
         .collect();
@@ -350,7 +411,7 @@ pub async fn get_taxon_suggestions(
         WHERE taxonz_fts MATCH ?
             AND taxon.deleted_at IS NULL
         GROUP BY taxon.id, taxon.label, kind.slug, fts.rank
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT 100
         "#,
         match_query
@@ -377,6 +438,8 @@ pub async fn get_taxon_suggestions(
                 })),
                 entity_id: row.taxon_id,
                 is_favorite: false,
+                matched_field: None,
+                match_snippet: None,
             }
         })
         .collect();
@@ -407,6 +470,7 @@ pub async fn get_playlist_suggestions(
              WHERE pi.playlist_id = playlist.id) as "images: String",
             playlist.is_public as "is_public!: i64",
             playlist.created_by as "created_by!: String",
+            playlist.description as "description: String",
             fts.rank as "fts_rank!: f64",
             COUNT(DISTINCT ps.song_id) as "song_count!: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
@@ -421,7 +485,7 @@ pub async fn get_playlist_suggestions(
             AND playlist.deleted_at IS NULL
             AND (playlist.is_public = 1 OR playlist.created_by = ?)
         GROUP BY playlist.id, playlist.title, playlist.is_public, playlist.created_by, fts.rank, favorite.id
-        ORDER BY fts.rank DESC
+        ORDER BY fts.rank
         LIMIT 100
         "#,
         user_id_param,
@@ -438,6 +502,23 @@ pub async fn get_playlist_suggestions(
                 calculate_confidence(partial, &row.playlist_title, row.fts_rank as f32);
             let highlight = generate_highlight(&row.playlist_title, partial);
 
+            // detect if the match came from the description rather than the title.
+            let primary_match = text_contains_query(&row.playlist_title, partial);
+            let (matched_field, match_snippet) = if !primary_match {
+                if let Some(desc) = &row.description {
+                    if let Some(snippet) = extract_snippet(desc, partial, 80) {
+                        (Some("description".to_string()), Some(snippet))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+            let match_type = matched_field.as_deref().unwrap_or("title");
+
             Suggestion {
                 value: row.playlist_title.clone(),
                 display: row.playlist_title.clone(),
@@ -446,12 +527,14 @@ pub async fn get_playlist_suggestions(
                 suggestion_type: SuggestionType::Playlist,
                 confidence,
                 metadata: Some(serde_json::json!({
-                    "match_type": "title",
+                    "match_type": match_type,
                     "is_public": row.is_public != 0,
                     "images": row.images
                 })),
                 entity_id: row.playlist_id,
                 is_favorite: row.is_favorite != 0,
+                matched_field,
+                match_snippet,
             }
         })
         .collect();

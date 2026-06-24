@@ -58,6 +58,8 @@ pub struct ImportSongResult {
     pub created_new_artist: bool,
     pub created_new_album: bool,
     pub created_new_genre: bool,
+    /// true when a duplicate was detected and the song already existed; song is the pre-existing record
+    pub existing: bool,
 }
 
 /// request for creating song with guaranteed artist and album

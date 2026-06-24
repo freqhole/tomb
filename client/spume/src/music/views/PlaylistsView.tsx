@@ -16,7 +16,7 @@ import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { DraggableRow, DraggableRowSongContent } from "../../components/lists/DraggableRow";
-import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { ContextMenu, ClickDropdownMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
@@ -47,6 +47,7 @@ import { DownloadPlaylistZipBundleButton } from "./playlists/DownloadPlaylistZip
 import { debug, error as errorLog } from "../../utils/logger";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { isTouchDevice } from "../../utils/isMobile";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -57,6 +58,9 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   const [searchParams] = useSearchParams();
   const [isResetting, setIsResetting] = createSignal(false);
   const navigate = useNavigate();
+
+  // detect touch device once - stable for the session
+  const isTouch = isTouchDevice();
 
   // restore selected playlist from history state on mount, fallback to params.id
   const initialPlaylistId =
@@ -95,7 +99,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
-  // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
+  // pointer-based drag state for Tauri and touch devices
   const [pointerDragSongId, setPointerDragSongId] = createSignal<string | null>(null);
   let pendingPointerDrag: {
     songId: string;
@@ -104,6 +108,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     target: HTMLElement;
   } | null = null;
   const DRAG_THRESHOLD = 8;
+  let songListScrollRef: HTMLElement | undefined;
   const [backgroundImageUrl, setBackgroundImageUrl] = createSignal<string | null>(null);
 
   onMount(() => {
@@ -124,9 +129,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     };
     document.addEventListener("dragend", handleGlobalDragEnd);
 
-    // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
+    // pointer-based drag for Tauri and touch devices
+    // (HTML5 drag API doesn't work in WKWebView or on mobile browsers)
     const handlePointerMove = (e: PointerEvent) => {
-      if (!isCharnelMode()) return;
+      if (!isCharnelMode() && !isTouch) return;
 
       // check if pending drag should activate
       if (pendingPointerDrag !== null) {
@@ -142,14 +148,18 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       const dragId = pointerDragSongId();
       if (!dragId) return;
 
-      // find target index based on Y position (56px per row)
+      // prevent page scroll during active drag on touch
+      e.preventDefault();
+
+      // find target index based on Y position (68px per row, account for scroll)
       const songs = playlistSongs();
       const container = document.querySelector("[data-playlist-songs]");
       const rect = container?.getBoundingClientRect();
       if (!rect) return;
 
-      const relativeY = e.clientY - rect.top;
-      const targetIndex = Math.floor(relativeY / 56);
+      const scrollTop = songListScrollRef?.scrollTop ?? 0;
+      const relativeY = e.clientY - rect.top + scrollTop;
+      const targetIndex = Math.floor(relativeY / 68);
       const clampedTarget = Math.max(0, Math.min(targetIndex, songs.length - 1));
       const currentIndex = songs.findIndex((s) => s.id === dragId);
 
@@ -161,7 +171,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     };
 
     const handlePointerUp = async () => {
-      if (!isCharnelMode()) return;
+      if (!isCharnelMode() && !isTouch) return;
       pendingPointerDrag = null;
 
       const dragId = pointerDragSongId();
@@ -191,7 +201,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       setDropTargetIndex(null);
     };
 
-    document.addEventListener("pointermove", handlePointerMove);
+    // use non-passive listener so we can call e.preventDefault() during touch drag
+    document.addEventListener("pointermove", handlePointerMove, { passive: false });
     document.addEventListener("pointerup", handlePointerUp);
 
     onCleanup(() => {
@@ -743,8 +754,9 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setEditMode(!editMode());
   };
 
-  // combined dragged song id (works for both HTML5 drag and pointer drag)
-  const effectiveDraggedSongId = () => (isCharnelMode() ? pointerDragSongId() : draggedSongId());
+  // combined dragged song id (pointer drag for charnel/touch, HTML5 drag otherwise)
+  const effectiveDraggedSongId = () =>
+    isCharnelMode() || isTouch ? pointerDragSongId() : draggedSongId();
 
   // handle drag start
   const handleDragStart = (songId: string) => (e: DragEvent) => {
@@ -790,16 +802,20 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setDropTargetIndex(null);
   };
 
-  // handle pointer down for Tauri drag
+  // handle pointer down for pointer-based drag (Tauri and touch)
   const handlePointerDown = (songId: string) => (e: PointerEvent) => {
-    if (isCharnelMode() && e.button === 0) {
-      pendingPointerDrag = {
-        songId,
-        startY: e.clientY,
-        pointerId: e.pointerId,
-        target: e.currentTarget as HTMLElement,
-      };
-    }
+    if (!isCharnelMode() && !isTouch) return;
+    if (e.button !== 0) return;
+    // on touch, only initiate drag when the touch starts on the drag handle
+    // (the handle has touch-action:none so scroll won't compete)
+    const target = e.target as HTMLElement;
+    if (isTouch && !target.closest("[data-drag-handle]")) return;
+    pendingPointerDrag = {
+      songId,
+      startY: e.clientY,
+      pointerId: e.pointerId,
+      target: e.currentTarget as HTMLElement,
+    };
   };
 
   // handle drop
@@ -1319,7 +1335,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 </div>
                               }
                             >
-                              <div class={`${isNarrow() ? "" : "overflow-auto h-full"}`}>
+                              <div
+                                class={`${isNarrow() ? "" : "overflow-auto h-full"}`}
+                                ref={(el) => (songListScrollRef = el)}
+                              >
                                 <div class="space-y-1" data-playlist-songs>
                                   <For each={playlistSongs()}>
                                     {(song, index) => {
@@ -1330,46 +1349,64 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                         isFavorite: song.is_favorite ?? false,
                                       });
 
-                                      return (
-                                        <ContextMenu actions={contextMenuActions}>
-                                          <DraggableRow
-                                            id={song.id}
-                                            index={index()}
-                                            isDragging={effectiveDraggedSongId() === song.id}
-                                            isDropTarget={dropTargetIndex() === index()}
-                                            isPlaying={appState()?.current_sha256 === song.sha256}
-                                            onDragStart={handleDragStart(song.id)}
-                                            onDragOver={handleDragOver(index())}
-                                            onDragLeave={handleDragLeave}
-                                            onDrop={() => handleDrop(index())}
-                                            onDragEnd={handleDragEnd}
-                                            onPointerDown={handlePointerDown(song.id)}
-                                            onDoubleClick={() => handleSongDoubleClick(song)}
-                                            onPlayClick={() => handleSongDoubleClick(song)}
-                                            images={[
-                                              ...(song.images || []),
-                                              ...(song.album_images || []),
-                                            ]}
-                                            disabled={isCharnelMode()}
-                                          >
-                                            <DraggableRowSongContent
-                                              title={song.title}
-                                              artist={song.artist_name}
-                                              album={song.album_title}
-                                              durationSeconds={song.duration_seconds}
-                                              playCount={song.play_count ?? null}
-                                              isFavorite={song.is_favorite}
-                                              songId={song.id}
-                                              sha256={song.sha256}
-                                              onFavoriteToggle={(songId, isFavorite) => {
-                                                toggleFavoriteMutation.mutate({
-                                                  targetType: "song",
-                                                  targetId: songId,
-                                                  sha256: song.sha256,
-                                                  isFavorite,
-                                                });
-                                              }}
-                                              actions={
+                                      const songRow = (
+                                        <DraggableRow
+                                          id={song.id}
+                                          index={index()}
+                                          isDragging={effectiveDraggedSongId() === song.id}
+                                          isDropTarget={dropTargetIndex() === index()}
+                                          isPlaying={appState()?.current_sha256 === song.sha256}
+                                          onDragStart={handleDragStart(song.id)}
+                                          onDragOver={handleDragOver(index())}
+                                          onDragLeave={handleDragLeave}
+                                          onDrop={() => handleDrop(index())}
+                                          onDragEnd={handleDragEnd}
+                                          onPointerDown={handlePointerDown(song.id)}
+                                          onDoubleClick={() => handleSongDoubleClick(song)}
+                                          onPlayClick={() => handleSongDoubleClick(song)}
+                                          images={[
+                                            ...(song.images || []),
+                                            ...(song.album_images || []),
+                                          ]}
+                                          disabled={isCharnelMode()}
+                                          showDragHandle={isTouch}
+                                        >
+                                          <DraggableRowSongContent
+                                            title={song.title}
+                                            artist={song.artist_name}
+                                            album={song.album_title}
+                                            durationSeconds={song.duration_seconds}
+                                            playCount={song.play_count ?? null}
+                                            isFavorite={song.is_favorite}
+                                            songId={song.id}
+                                            sha256={song.sha256}
+                                            alwaysShowActions={isTouch}
+                                            onFavoriteToggle={(songId, isFavorite) => {
+                                              toggleFavoriteMutation.mutate({
+                                                targetType: "song",
+                                                targetId: songId,
+                                                sha256: song.sha256,
+                                                isFavorite,
+                                              });
+                                            }}
+                                            actions={
+                                              <>
+                                                <Show
+                                                  when={isTouch && contextMenuActions.length > 0}
+                                                >
+                                                  <ClickDropdownMenu
+                                                    trigger={
+                                                      <IconButton
+                                                        icon="more"
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        aria-label="song actions"
+                                                        data-testid="btn-more-song"
+                                                      />
+                                                    }
+                                                    actions={contextMenuActions}
+                                                  />
+                                                </Show>
                                                 <Show
                                                   when={canRemoveSongsFromPlaylist(
                                                     selectedPlaylist()?.created_by_id ?? null
@@ -1387,9 +1424,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                                     aria-label="remove from playlist"
                                                   />
                                                 </Show>
-                                              }
-                                            />
-                                          </DraggableRow>
+                                              </>
+                                            }
+                                          />
+                                        </DraggableRow>
+                                      );
+
+                                      return isTouch ? (
+                                        songRow
+                                      ) : (
+                                        <ContextMenu actions={contextMenuActions}>
+                                          {songRow}
                                         </ContextMenu>
                                       );
                                     }}

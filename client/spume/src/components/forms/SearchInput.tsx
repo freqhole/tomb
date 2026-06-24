@@ -7,6 +7,7 @@ import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { HighlightedMarqueeText } from "../text/HighlightedMarqueeText";
 import { Icon } from "../icons/registry";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { isNarrowViewport } from "../../config/breakpoints";
 
 export interface SearchSuggestion {
@@ -22,6 +23,8 @@ export interface SearchSuggestion {
   onPlay?: () => void;
   /** original data passed through for selection */
   data?: any;
+  /** optional context menu actions (right-click on desktop, long-press on touch) */
+  contextMenuActions?: MenuAction[];
 }
 
 export interface SearchInputProps {
@@ -340,7 +343,7 @@ function SuggestionRow(props: {
   const [imageHovered, setImageHovered] = createSignal(false);
   const hasPlayAction = () => !!props.suggestion.onPlay;
 
-  return (
+  const rowContent = (
     <div
       data-index={props.index}
       role="option"
@@ -394,6 +397,33 @@ function SuggestionRow(props: {
           highlight={props.suggestion.highlight}
           isHovering={props.highlighted}
         />
+        {/* context snippet: shown when the match came from a secondary field
+         *  (e.g. artist, album, lyrics) so the user understands why this
+         *  row appeared in results. uses the same marquee as the main text
+         *  since field labels like artist names can overflow the narrow cell. */}
+        {(() => {
+          const api = props.suggestion.data as
+            | { matched_field?: string | null; match_snippet?: string | null }
+            | undefined;
+          if (!api?.matched_field || !api?.match_snippet) return null;
+          // strip <mark> tags to get plain text for title/marquee base
+          const plain = api.match_snippet.replace(/<\/?mark>/g, "");
+          return (
+            <div class="flex items-center gap-1 min-w-0 mt-0.5">
+              <span class="text-[10px] text-[var(--color-text-muted)] opacity-60 flex-shrink-0">
+                {api.matched_field}:
+              </span>
+              <div class="min-w-0 flex-1">
+                <HighlightedMarqueeText
+                  text={plain}
+                  highlight={api.match_snippet}
+                  isHovering={props.highlighted}
+                  class="text-[10px] text-[var(--color-text-muted)]"
+                />
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* favorite heart */}
@@ -436,4 +466,10 @@ function SuggestionRow(props: {
       </Show>
     </div>
   );
+
+  const actions = props.suggestion.contextMenuActions;
+  if (actions?.length) {
+    return <ContextMenu actions={actions}>{rowContent}</ContextMenu>;
+  }
+  return rowContent;
 }

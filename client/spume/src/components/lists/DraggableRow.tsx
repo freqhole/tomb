@@ -4,6 +4,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../design-system/colors";
 import { formatDuration } from "../../utils/formatDuration";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { Icon } from "../icons/registry";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -137,6 +138,17 @@ export function DraggableRow(props: DraggableRowProps) {
       data-row-id={local.id}
       {...others}
     >
+      {/* drag handle - shown on touch devices as the drag initiation target */}
+      <Show when={local.showDragHandle}>
+        <div
+          data-drag-handle
+          class="flex-shrink-0 flex items-center justify-center w-7 text-[var(--color-text-muted)] opacity-50 cursor-grab active:cursor-grabbing"
+          style={{ "touch-action": "none" }}
+        >
+          <Icon name="drag" size={16} color="currentColor" />
+        </div>
+      </Show>
+
       {/* thumbnail with index overlay - always shown for playlists */}
       <MediaThumbnail
         images={local.images}
@@ -177,6 +189,8 @@ export interface DraggableRowSongContentProps {
   onFavoriteToggle?: (songId: string, isFavorite: boolean) => void;
   /** additional actions (buttons, icons, etc) */
   actions?: JSX.Element;
+  /** when true, actions are always visible (not just on hover - use on touch devices) */
+  alwaysShowActions?: boolean;
   /** total play count to show inline (omit or null/0 to hide) */
   playCount?: number | null;
   /** additional classes */
@@ -230,7 +244,11 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
 
       {/* actions */}
       <Show when={props.actions}>
-        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <div
+          class={`flex items-center gap-1 transition-opacity flex-shrink-0 ${
+            props.alwaysShowActions ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
           {props.actions}
         </div>
       </Show>
