@@ -167,6 +167,12 @@ export interface SearchSuggestion {
   metadata?: any;
   entity_id: string;
   is_favorite: boolean;
+  /** which secondary field matched the query (e.g. "lyrics", "description").
+   *  absent when the match was on the primary display field. */
+  matched_field?: string | null;
+  /** short context snippet from the matched secondary field, with the
+   *  matching term wrapped in `<mark>...</mark>`. absent when `matched_field` is absent. */
+  match_snippet?: string | null;
 }
 
 export interface SuggestionsResponse {

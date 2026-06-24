@@ -1,5 +1,15 @@
 import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
-import { For, JSX, Show, splitProps, type ValidComponent } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  JSX,
+  onCleanup,
+  Show,
+  splitProps,
+  type ValidComponent,
+} from "solid-js";
+import { Portal } from "solid-js/web";
 import { Icon, type IconName } from "../icons/registry";
 
 export type MenuAction =
@@ -198,5 +208,143 @@ export function DropdownMenu(props: DropdownMenuProps) {
         </KobalteContextMenu.Content>
       </KobalteContextMenu.Portal>
     </KobalteContextMenu>
+  );
+}
+
+// click-triggered dropdown menu using position:fixed portal positioning.
+// bypasses @floating-ui entirely (kobalte's dropdown uses strategy:"absolute"
+// which can miscompute available space when inside a scrolled container, causing
+// the menu to clip at viewport edges). uses getBoundingClientRect + position:fixed
+// for reliable viewport-relative placement regardless of ancestor transforms or
+// overflow contexts.
+export function ClickDropdownMenu(props: DropdownMenuProps) {
+  const [local] = splitProps(props, ["trigger", "actions", "header"]);
+
+  type MenuPos = { top?: number; bottom?: number; right: number; maxHeight: number };
+  const [open, setOpen] = createSignal(false);
+  const [menuPos, setMenuPos] = createSignal<MenuPos | null>(null);
+  let triggerRef: HTMLDivElement | undefined;
+  let menuRef: HTMLDivElement | undefined;
+
+  const computePos = (): MenuPos => {
+    const rect = triggerRef!.getBoundingClientRect();
+    const gutter = 4;
+    const pad = 8;
+    const right = Math.max(pad, window.innerWidth - rect.right);
+    const spaceBelow = window.innerHeight - rect.bottom - pad;
+    const spaceAbove = rect.top - pad;
+    if (spaceBelow >= spaceAbove) {
+      return { top: rect.bottom + gutter, right, maxHeight: spaceBelow - gutter };
+    } else {
+      return {
+        bottom: window.innerHeight - rect.top + gutter,
+        right,
+        maxHeight: spaceAbove - gutter,
+      };
+    }
+  };
+
+  const openMenu = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!triggerRef) return;
+    setMenuPos(computePos());
+    setOpen(true);
+  };
+
+  const closeMenu = () => setOpen(false);
+
+  createEffect(() => {
+    if (open()) {
+      const onPointerDown = (e: PointerEvent) => {
+        if (!menuRef?.contains(e.target as Node) && !triggerRef?.contains(e.target as Node)) {
+          closeMenu();
+        }
+      };
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") closeMenu();
+      };
+      document.addEventListener("pointerdown", onPointerDown);
+      document.addEventListener("keydown", onKeyDown);
+      onCleanup(() => {
+        document.removeEventListener("pointerdown", onPointerDown);
+        document.removeEventListener("keydown", onKeyDown);
+      });
+    }
+  });
+
+  const menuStyle = (): JSX.CSSProperties => {
+    const p = menuPos();
+    if (!p) return {};
+    const s: JSX.CSSProperties = {
+      position: "fixed",
+      right: `${p.right}px`,
+      "max-height": `${p.maxHeight}px`,
+      "z-index": "1200",
+    };
+    if (p.top !== undefined) s.top = `${p.top}px`;
+    if (p.bottom !== undefined) s.bottom = `${p.bottom}px`;
+    return s;
+  };
+
+  const itemClass = (action: Exclude<MenuAction, { type: "separator" }>) =>
+    `w-full px-4 py-2 text-left flex items-center gap-3 transition-colors body-small outline-none cursor-pointer
+    ${
+      action.disabled
+        ? "text-[var(--color-text-disabled)] cursor-not-allowed opacity-50"
+        : action.destructive
+          ? "text-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-white focus:bg-[var(--color-error)] focus:text-white"
+          : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus:bg-[var(--color-bg-hover)]"
+    }`;
+
+  return (
+    <>
+      <div ref={(el) => (triggerRef = el)} class="outline-none inline-flex" onClick={openMenu}>
+        {local.trigger}
+      </div>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          <div
+            ref={(el) => (menuRef = el)}
+            role="menu"
+            style={menuStyle()}
+            class="min-w-48 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-y-auto animate-[fade-in_0.15s_ease-out]"
+          >
+            <Show when={local.header}>
+              <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
+            </Show>
+            <div class="py-1">
+              <For each={local.actions}>
+                {(action) => {
+                  if (!isActionItem(action)) {
+                    return (
+                      <div role="separator" class="my-1 h-px bg-[var(--color-border-subtle)]" />
+                    );
+                  }
+                  return (
+                    <button
+                      role="menuitem"
+                      class={itemClass(action)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!action.disabled) {
+                          action.onClick();
+                          closeMenu();
+                        }
+                      }}
+                      disabled={action.disabled}
+                    >
+                      <Show when={action.icon}>
+                        <Icon name={action.icon!} size={16} color="currentColor" />
+                      </Show>
+                      <span>{action.label}</span>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Portal>
+      </Show>
+    </>
   );
 }

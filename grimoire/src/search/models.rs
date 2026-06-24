@@ -112,6 +112,16 @@ pub struct Suggestion {
     pub metadata: Option<serde_json::Value>,
     pub entity_id: String, // primary key for navigation
     pub is_favorite: bool,
+    /// which secondary field matched the query, when the match did not come
+    /// from the primary display field (e.g. "lyrics", "description").
+    /// `None` means the match was on the primary field (title/name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_field: Option<String>,
+    /// short context snippet from the matched secondary field, with the
+    /// matching text wrapped in `<mark>…</mark>`. `None` when
+    /// `matched_field` is `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_snippet: Option<String>,
 }
 
 /// autocomplete response
