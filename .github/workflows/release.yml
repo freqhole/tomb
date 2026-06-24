@@ -263,7 +263,7 @@ jobs:
         run: |
           TAG="${{ needs.create-release.outputs.tag }}"
           V="${{ needs.create-release.outputs.version }}"
-          chmod +x "build/$V/rathole_${V}_linux-x86_64"
+          sudo chmod +x "build/$V/rathole_${V}_linux-x86_64"
           gh release upload "$TAG" \
             "build/$V/rathole_${V}_linux-x86_64" \
             "build/$V/freqhole_charnel_${V}_x86_64.deb" \
@@ -303,7 +303,7 @@ jobs:
         run: |
           TAG="${{ needs.create-release.outputs.tag }}"
           V="${{ needs.create-release.outputs.version }}"
-          chmod +x "build/$V/rathole_${V}_linux-aarch64"
+          sudo chmod +x "build/$V/rathole_${V}_linux-aarch64"
           gh release upload "$TAG" \
             "build/$V/rathole_${V}_linux-aarch64" \
             "build/$V/freqhole_charnel_${V}_aarch64.deb" \
@@ -497,7 +497,7 @@ jobs:
         run: |
           TAG="${{ needs.create-release.outputs.tag }}"
           V="${{ needs.create-release.outputs.version }}"
-          chmod +x "build/$V/rathole_${V}_linux-armv7"
+          sudo chmod +x "build/$V/rathole_${V}_linux-armv7"
           gh release upload "$TAG" \
             "build/$V/rathole_${V}_linux-armv7" \
             --clobber
