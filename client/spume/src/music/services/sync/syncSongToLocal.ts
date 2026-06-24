@@ -519,9 +519,23 @@ export async function syncSongToLocal(
   // check unified download state BEFORE any async work
   // this prevents duplicate downloads when multiple triggers fire
   if (!canStartDownload(sha256)) {
-    const reason = isDownloadInProgress(sha256) ? "download in progress" : "already synced";
-    debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (${reason})`);
-    return { success: true, localSongId: sha256, skipped: true };
+    if (isDownloadInProgress(sha256)) {
+      debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (download in progress)`);
+      return { success: true, localSongId: sha256, skipped: true };
+    }
+    // song is already marked as synced locally. in browser mode the caller
+    // uses sha256 as the IDB key so no path lookup is needed. in charnel
+    // mode rodio requires a filesystem path — skip the full download but
+    // still ask grimoire for the local blob path via the fast existing-song
+    // shortcut (db lookup only, no network transfer).
+    if (!isCharnelMode()) {
+      debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (already synced)`);
+      return { success: true, localSongId: sha256, skipped: true };
+    }
+    debug("syncSongToLocal", `${sha256.slice(0, 8)}... already synced — resolving local path via grimoire`);
+    const remote = await getRemoteById(remote_server_id);
+    if (!remote) return { success: false, error: `remote not found: ${remote_server_id}` };
+    return syncSongViaLocalGrimoire(song, remote);
   }
 
   // wrap the actual sync work in a promise we can register

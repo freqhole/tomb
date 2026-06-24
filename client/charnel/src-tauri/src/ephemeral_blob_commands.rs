@@ -154,12 +154,24 @@ pub async fn fetch_ephemeral_blob(
             Ok(target.display().to_string())
         }
         Ok(Err(e)) => {
-            // best-effort cleanup of any partial file written before failure.
             let _ = tokio::fs::remove_file(&target).await;
+            tracing::error!(
+                blake3 = %&blake3[..16],
+                peer = %&peer_addr[..16.min(peer_addr.len())],
+                target = %target.display(),
+                error = %e,
+                "ephemeral blob fetch failed"
+            );
             Err(format!("fetch failed: {e}"))
         }
         Err(_) => {
             let _ = tokio::fs::remove_file(&target).await;
+            tracing::error!(
+                blake3 = %&blake3[..16],
+                peer = %&peer_addr[..16.min(peer_addr.len())],
+                target = %target.display(),
+                "ephemeral blob fetch timed out (120s)"
+            );
             Err("fetch timeout (120s)".to_string())
         }
     }
@@ -348,7 +360,11 @@ pub async fn reconcile_ephemeral_dir(
         deleted += 1;
     }
 
-    tracing::info!(kept = kept.len(), deleted, "ephemeral reconcile complete");
+    if deleted > 0 {
+        tracing::info!(kept = kept.len(), deleted, "ephemeral reconcile: removed stale files");
+    } else {
+        tracing::debug!(kept = kept.len(), "ephemeral reconcile: no changes");
+    }
     Ok(EphemeralReconcileResult { kept, deleted })
 }
 

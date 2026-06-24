@@ -221,18 +221,40 @@ pub async fn import_song_with_metadata(
                         }
                     }
 
-                    // skip this import - duplicate found
-                    // return an error that signals duplicate detection
-                    return GrimoireResponse::failure(
-                        "Duplicate song detected and skipped",
-                        vec![ErrorDetail::new(
-                            "duplicate_song",
-                            "Duplicate Song",
-                            format!(
-                                "Song with artist '{}', album '{}', disc {}, track {}, and similar duration already exists (song_id: {})",
-                                artist_name, album_title, req.disc_number, req.track_number, existing.id
-                            ),
-                        )],
+                    // fetch the full song record so callers get actionable data without a
+                    // separate lookup (e.g. sync needs the song_id to return a usable path).
+                    let existing_song = match songs::get_song(&existing.id).await {
+                        GrimoireResponse {
+                            success: true,
+                            data: Some(s),
+                            ..
+                        } => s,
+                        _ => {
+                            return GrimoireResponse::failure(
+                                "duplicate detected but could not fetch existing record",
+                                vec![ErrorDetail::new(
+                                    "duplicate_song",
+                                    "duplicate song",
+                                    format!(
+                                        "song with artist '{}', album '{}', disc {}, track {}, and similar duration already exists (song_id: {}), but re-fetch failed",
+                                        artist_name, album_title, req.disc_number, req.track_number, existing.id
+                                    ),
+                                )],
+                            );
+                        }
+                    };
+                    return GrimoireResponse::success(
+                        "song already existed",
+                        ImportSongResult {
+                            song: existing_song,
+                            artist: None,
+                            album: None,
+                            genres: Vec::new(),
+                            created_new_artist: false,
+                            created_new_album: false,
+                            created_new_genre: false,
+                            existing: true,
+                        },
                     );
                 }
             }
@@ -537,6 +559,7 @@ pub async fn import_song_with_metadata(
             created_new_artist,
             created_new_album,
             created_new_genre: created_any_genre,
+            existing: false,
         },
     )
 }
