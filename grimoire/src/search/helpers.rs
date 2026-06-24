@@ -256,6 +256,8 @@ mod tests {
             metadata: Some(serde_json::json!({"match_type": "title"})),
             entity_id: "1".to_string(),
             is_favorite: true,
+            matched_field: None,
+            match_snippet: None,
         };
 
         // title match with high confidence - should include
