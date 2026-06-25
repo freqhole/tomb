@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.1.34
+
+### Patch Changes
+
+- 7e6310d: fix some issues with search results ranking; add ... context menu button to playlist rows for touch devices and fix song row sorting; chmod +x rathole bin file
+- 06698af: try to fix some playback bugz; add more error logging + try to improve existing song lookupz
+
 ## 0.1.33
 
 ### Patch Changes
