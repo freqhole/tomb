@@ -73,9 +73,11 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
             let image_data = {
                 let data_response = blob_data::get_blob_data(blob_id).await;
                 if data_response.success {
-                    data_response.data.ok_or_else(|| JobError::ProcessingFailed {
-                        reason: "blob_data row exists but data field is empty".to_string(),
-                    })?
+                    data_response
+                        .data
+                        .ok_or_else(|| JobError::ProcessingFailed {
+                            reason: "blob_data row exists but data field is empty".to_string(),
+                        })?
                 } else {
                     // blob_data missing — try reading from local_path on disk
                     let local = crate::media_blobz::get_media_blob(blob_id)
@@ -98,9 +100,11 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                         "ConvertWebp {}: blob_data missing, reading from local_path={}",
                         blob_id, local
                     );
-                    tokio::fs::read(&local).await.map_err(|e| JobError::ProcessingFailed {
-                        reason: format!("failed to read local_path {}: {}", local, e),
-                    })?
+                    tokio::fs::read(&local)
+                        .await
+                        .map_err(|e| JobError::ProcessingFailed {
+                            reason: format!("failed to read local_path {}: {}", local, e),
+                        })?
                 }
             };
 
