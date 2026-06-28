@@ -178,6 +178,7 @@ async fn supervise(
         let join_handle = match rodio_backend::spawn(std_rx, events_for_thread) {
             Ok(h) => h,
             Err(e) => {
+                error!(error = %e, "[player] failed to spawn rodio audio thread");
                 let _ = events.send(PlayerEvent::Error {
                     detail: ErrorDetail::new(
                         "audio_thread_spawn_failed",

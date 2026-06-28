@@ -4,6 +4,7 @@
 
 import { getClientForRemote, httpRemote, type Remote, type RemoteLike } from "../../../app/api/client";
 import { createSignal } from "solid-js";
+import { error as errorLog, warn } from "../../../utils/logger";
 import { initAppDB } from "../../../app/services/storage/db";
 import {
   STORE_ANALYTICS_EVENTS,
@@ -57,7 +58,7 @@ export async function queueAnalyticsEvent(
     // trigger an immediate sync attempt
     void syncEvents();
   } catch (error) {
-    console.error("failed to queue analytics event:", error);
+    errorLog("analytics", "queue event failed:", error);
   }
 }
 
@@ -154,7 +155,7 @@ async function syncEvents(): Promise<void> {
 
     await refreshPendingCount();
   } catch (error) {
-    console.error("analytics sync error:", error);
+    errorLog("analytics", "sync error:", error);
   } finally {
     isSyncing = false;
   }
@@ -217,9 +218,9 @@ async function syncSingleEvent(
     };
     await db.put(STORE_ANALYTICS_EVENTS, failed);
 
-    console.warn(
-      `analytics event ${event.id} failed (attempt ${failed.retry_count}/${event.max_retries}):`,
-      errorMessage,
+    warn(
+      "analytics",
+      `event ${event.id} failed attempt ${failed.retry_count}/${event.max_retries}: ${errorMessage}`,
     );
   }
 }

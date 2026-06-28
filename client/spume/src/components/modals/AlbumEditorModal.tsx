@@ -9,7 +9,7 @@ import { canUpdateAlbum, canDeleteAlbum } from "../../music/data/permissions";
 import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
-import { pollJobUntilComplete, pollJobWithDetails } from "../../app/services/jobs/jobService";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import { error as errorLog } from "../../utils/logger";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";

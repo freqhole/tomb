@@ -11,7 +11,7 @@
 import { createSignal } from "solid-js";
 import { getClientForRemote, type Remote, type RemoteRef, isNetworkError } from "../../../app/api/client";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
-import { debug, warn } from "../../../utils/logger";
+import { debug, warn, error as errorLog } from "../../../utils/logger";
 import type { QueueSourceContext } from "../../../app/services/storage/types";
 import type { Song } from "../storage/types";
 import { computeSmartLabel } from "./smartLabel";
@@ -154,14 +154,16 @@ export async function createServerSessions(
           remoteSessions.set(remoteId, session);
           created.set(remoteId, result.data.id);
         } else {
-          console.error(
-            `failed to create server session on remote ${remoteId}:`,
+          errorLog(
+            "queue.session",
+            `create session failed on ${remoteId}:`,
             (result as any).error,
           );
         }
       } catch (error) {
-        console.error(
-          `failed to create server session on remote ${remoteId}:`,
+        errorLog(
+          "queue.session",
+          `create session threw on ${remoteId}:`,
           error,
         );
       }
@@ -230,7 +232,7 @@ export function advanceServerProgress(
 async function sendProgress(session: RemoteSession): Promise<void> {
   const remote = await resolveRemote(session.remoteId);
   if (!remote) {
-    console.warn(`cannot send progress - remote ${session.remoteId} not found`);
+    warn("queue.session", `cannot send progress: remote ${session.remoteId} not found`);
     remoteSessions.delete(session.remoteId);
     updatePrimarySessionId();
     return;
@@ -251,8 +253,9 @@ async function sendProgress(session: RemoteSession): Promise<void> {
     );
 
     if (isSessionNotFound) {
-      console.warn(
-        `server session ${session.sessionId} not found, stopping tracking`,
+      warn(
+        "queue.session",
+        `session ${session.sessionId} not found on ${session.remoteId}, stopping tracking`,
       );
       remoteSessions.delete(session.remoteId);
       updatePrimarySessionId();
@@ -270,8 +273,9 @@ async function sendProgress(session: RemoteSession): Promise<void> {
       return;
     }
 
-    console.error(
-      `failed to update server session progress on remote ${session.remoteId}:`,
+    errorLog(
+      "queue.session",
+      `update progress failed on ${session.remoteId}:`,
       error,
     );
     return;
@@ -312,8 +316,9 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               );
             }
           } catch (error) {
-            console.error(
-              `failed to abandon server session on remote ${remoteId}:`,
+            errorLog(
+              "queue.session",
+              `abandon failed on ${remoteId}:`,
               error,
             );
           }
@@ -350,8 +355,9 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
               );
             }
           } catch (error) {
-            console.error(
-              `failed to update server session songs on remote ${remoteId}:`,
+            errorLog(
+              "queue.session",
+              `update songs failed on ${remoteId}:`,
               error,
             );
           }
@@ -382,8 +388,9 @@ export async function stopAllServerSessions(
         );
       }
     } catch (error) {
-      console.error(
-        `failed to update server session status on remote ${session.remoteId}:`,
+      errorLog(
+        "queue.session",
+        `update status failed on ${session.remoteId}:`,
         error,
       );
     }
@@ -465,8 +472,9 @@ export async function resumeServerSession(
     );
 
     if (isSessionNotFound) {
-      console.warn(
-        `server session ${sessionId} not found during resume, cleaning up`,
+      warn(
+        "queue.session",
+        `session ${sessionId} not found during resume, cleaning up`,
       );
       remoteSessions.delete(remoteId);
       updatePrimarySessionId();
@@ -477,7 +485,7 @@ export async function resumeServerSession(
       return;
     }
 
-    console.error("failed to resume server session:", error);
+    errorLog("queue.session", "resume failed:", error);
   }
 }
 
@@ -506,7 +514,7 @@ export async function reconnectServerSession(
 
   const remote = await resolveRemote(historyEntry.server_remote_id);
   if (!remote) {
-    console.warn("could not resolve remote for server session reconnection");
+    warn("queue.session", "cannot reconnect: remote not found");
     return;
   }
 

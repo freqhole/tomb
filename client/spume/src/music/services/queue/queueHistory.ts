@@ -1,6 +1,7 @@
 // queue history service — tracks what was added to the queue
 // stores entries in freqhole_app indexed db with a 1,000 item cap
 import { createSignal } from "solid-js";
+import { error as errorLog } from "../../../utils/logger";
 import { initAppDB } from "../../../app/services/storage/db";
 import {
   STORE_QUEUE_HISTORY,
@@ -52,7 +53,7 @@ export async function loadQueueHistory(): Promise<void> {
     all.sort((a, b) => b.queued_at - a.queued_at);
     setQueueHistory(all);
   } catch (error) {
-    console.error("failed to load queue history:", error);
+    errorLog("queue.history", "load failed:", error);
   }
 }
 
@@ -119,7 +120,7 @@ export async function addHistoryEntry(
 
     return entry.id;
   } catch (error) {
-    console.error("failed to add queue history entry:", error);
+    errorLog("queue.history", "add entry failed:", error);
     return null;
   }
 }
@@ -131,7 +132,7 @@ export async function removeHistoryEntry(id: string): Promise<void> {
     await db.delete(STORE_QUEUE_HISTORY, id);
     await loadQueueHistory();
   } catch (error) {
-    console.error("failed to remove history entry:", error);
+    errorLog("queue.history", "remove entry failed:", error);
   }
 }
 
@@ -162,7 +163,7 @@ export async function updateHistoryProgress(
       prev.map((e) => (e.id === id ? { ...e, ...updates } : e)),
     );
   } catch (error) {
-    console.error("failed to update history progress:", error);
+    errorLog("queue.history", "update progress failed:", error);
   }
 }
 
@@ -199,7 +200,7 @@ export async function updateHistoryEntrySongs(
       ),
     );
   } catch (error) {
-    console.error("failed to update history entry songs:", error);
+    errorLog("queue.history", "update songs failed:", error);
   }
 }
 
@@ -231,7 +232,7 @@ export async function updateHistoryServerSession(
       ),
     );
   } catch (error) {
-    console.error("failed to update history server session:", error);
+    errorLog("queue.history", "update server session failed:", error);
   }
 }
 
@@ -259,7 +260,7 @@ export async function clearHistoryServerSession(id: string): Promise<void> {
       ),
     );
   } catch (error) {
-    console.error("failed to clear history server session:", error);
+    errorLog("queue.history", "clear server session failed:", error);
   }
 }
 
@@ -270,7 +271,7 @@ export async function clearQueueHistory(): Promise<void> {
     await db.clear(STORE_QUEUE_HISTORY);
     setQueueHistory([]);
   } catch (error) {
-    console.error("failed to clear queue history:", error);
+    errorLog("queue.history", "clear failed:", error);
   }
 }
 
@@ -312,7 +313,7 @@ export async function addRadioStationHistoryEntry(
     await loadQueueHistory();
     return entry.id;
   } catch (error) {
-    console.error("failed to add radio station history entry:", error);
+    errorLog("queue.history", "add radio entry failed:", error);
     return null;
   }
 }

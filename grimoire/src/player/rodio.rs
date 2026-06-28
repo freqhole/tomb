@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 use rodio::mixer::Mixer;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use tokio::sync::broadcast;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::error::ErrorDetail;
 use crate::player::control::{PlayerCommand, PlayerEvent, PlayerState};
@@ -93,6 +93,11 @@ fn audio_loop(cmd_rx: CmdRx, events: broadcast::Sender<PlayerEvent>) {
             s
         }
         Err(e) => {
+            error!(
+                target: "player",
+                error = %e,
+                "[player] failed to open audio output device; audio is unavailable"
+            );
             emit(
                 &events,
                 PlayerEvent::Error {
@@ -237,6 +242,12 @@ fn handle_command(
                     Err(detail) => {
                         // skip this track but report it; continue with the rest
                         // so a single bad file doesn't kill the whole queue.
+                        error!(
+                            target: "player",
+                            error_type = %detail.error_type,
+                            detail = %detail.detail,
+                            "[player] rodio Load: failed to decode source; skipping"
+                        );
                         emit(events, PlayerEvent::Error { detail });
                     }
                 }
@@ -338,6 +349,12 @@ fn handle_command(
                         }
                     }
                     Err(detail) => {
+                        error!(
+                            target: "player",
+                            error_type = %detail.error_type,
+                            detail = %detail.detail,
+                            "[player] rodio Enqueue: failed to decode source; skipping"
+                        );
                         emit(events, PlayerEvent::Error { detail });
                     }
                 }
@@ -499,7 +516,15 @@ fn advance(
                     }
                 }
             }
-            Err(detail) => emit(events, PlayerEvent::Error { detail }),
+            Err(detail) => {
+                error!(
+                    target: "player",
+                    error_type = %detail.error_type,
+                    detail = %detail.detail,
+                    "[player] rodio advance: failed to decode source; skipping"
+                );
+                emit(events, PlayerEvent::Error { detail });
+            }
         }
     }
 
@@ -551,6 +576,7 @@ fn load_source(
 ) -> Result<(Decoder<std::io::BufReader<std::fs::File>>, Duration), ErrorDetail> {
     let p = std::path::Path::new(path);
     if !p.exists() {
+        warn!(target: "player", path = %path, "[player] audio file not found");
         return Err(ErrorDetail::new(
             "audio_file_missing",
             "Audio File Missing",
@@ -558,6 +584,7 @@ fn load_source(
         ));
     }
     let meta = std::fs::metadata(p).map_err(|e| {
+        warn!(target: "player", path = %path, error = %e, "[player] audio file stat failed");
         ErrorDetail::new(
             "audio_file_stat_failed",
             "Audio File Stat Failed",
@@ -565,6 +592,7 @@ fn load_source(
         )
     })?;
     if meta.len() == 0 {
+        warn!(target: "player", path = %path, "[player] audio file is empty (zero bytes)");
         return Err(ErrorDetail::new(
             "audio_file_empty",
             "Audio File Empty",
@@ -591,6 +619,7 @@ fn load_source(
         );
     }
     let file = std::fs::File::open(path).map_err(|e| {
+        warn!(target: "player", path = %path, error = %e, "[player] audio file open failed");
         ErrorDetail::new(
             "audio_file_open_failed",
             "Audio File Open Failed",
@@ -608,6 +637,7 @@ fn load_source(
     let src = match result {
         Ok(Ok(src)) => src,
         Ok(Err(e)) => {
+            warn!(target: "player", path = %path, error = %e, "[player] audio decode failed");
             return Err(ErrorDetail::new(
                 "audio_decode_failed",
                 "Audio Decode Failed",

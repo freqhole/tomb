@@ -17,7 +17,7 @@ use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::{Hash, HashAndFormat};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::transport::{PeerConnection, FREQHOLE_ALPN};
@@ -169,8 +169,15 @@ async fn connect_to_peer(
     let conn = endpoint
         .connect(addr.clone(), FREQHOLE_ALPN)
         .await
-        .map_err(|e| GrimoireError::FederationApiError {
-            message: format!("failed to connect to peer {}: {}", node_id_short, e),
+        .map_err(|e| {
+            warn!(
+                peer = %node_id_short,
+                error = %e,
+                "[p2p] connect to peer failed"
+            );
+            GrimoireError::FederationApiError {
+                message: format!("failed to connect to peer {}: {}", node_id_short, e),
+            }
         })?;
 
     debug!("connected to peer {}", node_id_short);
@@ -345,8 +352,8 @@ async fn download_blob_to_store(
             DownloadProgressItem::PartComplete { .. } => {
                 debug!("iroh-blobs: part complete for {}", hash_short);
             }
-            _ => {
-                debug!("iroh-blobs: progress event for {}", hash_short);
+            other => {
+                debug!("iroh-blobs: {:?} for {}", other, hash_short);
             }
         }
     }
@@ -357,11 +364,15 @@ async fn download_blob_to_store(
     );
 
     if had_error {
+        let msg = last_error.unwrap_or_else(|| "no error detail in stream".to_string());
+        error!(
+            hash = %hash_short,
+            peer = %node_id_short,
+            error = %msg,
+            "[p2p] iroh-blobs verified download failed"
+        );
         return Err(GrimoireError::FederationApiError {
-            message: format!(
-                "verified download failed: {}",
-                last_error.unwrap_or_else(|| "unknown error".to_string())
-            ),
+            message: format!("verified download failed: {}", msg),
         });
     }
 
@@ -478,9 +489,11 @@ pub async fn fetch_blob_verified_with_ensure(
         Ok(data) => return Ok(data),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
-            debug!(
-                "verified download failed for {}, trying ensure: {}",
-                hash_short, e
+            warn!(
+                hash = %hash_short,
+                peer = %&peer_addr[..16.min(peer_addr.len())],
+                error = %e,
+                "[p2p] first download attempt failed, trying ensure+retry"
             );
         }
     }
@@ -602,7 +615,17 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await
+    let result = fetch_blob_verified_to_file(peer_addr, blake3_hash, target).await;
+    if let Err(ref e) = result {
+        error!(
+            hash = %&blake3_hash[..16.min(blake3_hash.len())],
+            peer = %&peer_addr[..16.min(peer_addr.len())],
+            target = %target.display(),
+            error = %e,
+            "[p2p] fetch_blob_verified_to_file_with_ensure: retry also failed"
+        );
+    }
+    result
 }
 
 /// fetch a blob by blob_id using verified streaming with on-demand blake3 computation

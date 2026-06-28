@@ -52,7 +52,7 @@ import {
   trySwapToCachedURL,
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
-import { debug } from "../../../../utils/logger";
+import { debug, warn, error as errorLog } from "../../../../utils/logger";
 import { mirrorVolumeToRadio } from "../../../../app/services/playbackCoordinator";
 import { registerWatchdog } from "../mediaSessionBridge";
 import {
@@ -276,8 +276,10 @@ export class HtmlAudioBackend implements PlayerBackend {
       try {
         audioURL = await getAudioURL(song);
       } catch (urlError) {
-        console.error(
-          `[playSong] getAudioURL failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
+        // log here so the outer catch doesn't double-log.
+        errorLog(
+          "player.html",
+          `getAudioURL failed for "${song.title}" (${song.sha256.slice(0, 8)}):`,
           urlError instanceof Error ? urlError.message : urlError,
         );
         alreadyLogged = true;
@@ -376,10 +378,10 @@ export class HtmlAudioBackend implements PlayerBackend {
           await audio.play();
           resetPlaybackEnded();
         } catch (playError) {
-          console.error(
-            `[playSong] audio.play() failed for "${song.title}" (${song.sha256.slice(0, 8)}...):`,
+          errorLog(
+            "player.html",
+            `audio.play() rejected for "${song.title}" (${song.sha256.slice(0, 8)}) url=${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}:`,
             playError instanceof Error ? playError.message : playError,
-            `URL type: ${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}`,
           );
           alreadyLogged = true;
           // play failed — emit a state derived from the audio element
@@ -403,8 +405,9 @@ export class HtmlAudioBackend implements PlayerBackend {
       }
     } catch (error) {
       if (!alreadyLogged) {
-        console.error(
-          `[loadAndPlay] unexpected error for "${song.title}" (${song.sha256.slice(0, 8)}...)`,
+        errorLog(
+          "player.html",
+          `loadAndPlay unexpected error for "${song.title}" (${song.sha256.slice(0, 8)}):`,
           error,
         );
       }
@@ -637,13 +640,9 @@ export class HtmlAudioBackend implements PlayerBackend {
 
     // song ended
     audio.addEventListener("ended", () => {
-      // [radio-skip-debug] #2 — log when local audio reports natural end.
-      // helps tell whether ended fires before/after radio Meta(B) on admin skip.
-      console.info(
-        "[radio-skip-debug] audio ended",
-        "songId=", this.currentSongId,
-        "src=", audio.src?.slice(0, 80) ?? null,
-        "t=", Date.now(),
+      debug(
+        "player.html",
+        `ended: songId=${this.currentSongId?.slice(0, 8)} src=${audio.src?.slice(0, 60) ?? null}`,
       );
       // facade's `bindAutoAdvance` reacts to this and runs queue
       // traversal for both backends.
@@ -653,20 +652,12 @@ export class HtmlAudioBackend implements PlayerBackend {
     // error during playback - skip to next song
     audio.addEventListener("error", () => {
       const error = audio.error;
-      // [radio-skip-debug] #1 — log every audio.error with code + src snippet.
-      // suspected to fire when broadcaster restarts encoder mid-skip.
-      console.info(
-        "[radio-skip-debug] audio error",
-        "code=", error?.code ?? null,
-        "songId=", this.currentSongId,
-        "src=", audio.src?.slice(0, 80) ?? null,
-        "t=", Date.now(),
+      const code = error?.code ?? null;
+      const msg = error?.message ?? "unknown error";
+      warn(
+        "player.html",
+        `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`,
       );
-      if (error) {
-        console.error(
-          `media error code: ${error.code}, message: ${error.message}, src: ${audio.src?.slice(0, 120)}`,
-        );
-      }
       // surface as a structured error event — facade's auto-advance
       // bridge treats this the same way it treats `ended` (advance
       // the queue with a retry budget).
