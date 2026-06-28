@@ -35,7 +35,11 @@ import { useTopNavSlots } from "../../../app/shell/topNavSlots";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { RemoteAlbumsLoader } from "./graphSubview/RemoteAlbumsLoader";
 import { LocalAlbumsLoader, LOCAL_GRAPH_REMOTE_ID } from "./graphSubview/LocalAlbumsLoader";
-import { getLocalLibraryName } from "../../../app/services/storage/db";
+import {
+  getLocalLibraryName,
+  getGraphPrefs,
+  saveGraphPrefs,
+} from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { listFavoritedSongAlbumArtistIds } from "../../../music/services/storage/db";
 import { pickPrimaryImage, buildImageUrls, fetchAlbumSongs } from "./graphSubview/helpers";
@@ -171,6 +175,26 @@ function Inner(props: {
   const isAnyRemoteAdmin = (): boolean => isAnyRemoteAdminMemo();
 
   // ---- per-remote album store + rAF batcher ---------------------------
+
+  // when false, only one remote's data is graphed at a time:
+  //   - all remote hubs stay visible so the user can pick one
+  //   - clicking a remote hub focuses it; only that remote's albums/artists render
+  //   - clicking root clears focus; hubs-only view returns
+  // preference is persisted to IDB so it survives page reloads.
+  const [multiRemoteMode, setMultiRemoteMode] = createSignal(true);
+  // which remote is currently focused in single-remote mode (null = hubs only)
+  const [focusedRemoteId, setFocusedRemoteId] = createSignal<string | null>(null);
+
+  // seed multiRemoteMode from IDB on mount (async, defaults to true until loaded).
+  void getGraphPrefs().then((prefs) => setMultiRemoteMode(prefs.multi_remote_mode));
+
+  // toggle handler: persists to IDB, clears focus when turning multi back on.
+  const toggleMultiRemoteMode = () => {
+    const next = !multiRemoteMode();
+    setMultiRemoteMode(next);
+    if (next) setFocusedRemoteId(null);
+    void saveGraphPrefs({ multi_remote_mode: next });
+  };
 
   const [nodesByRemote, setNodesByRemote] = createSignal<Map<string, AlbumNodeData[]>>(new Map());
   const [fetchingByRemote, setFetchingByRemote] = createSignal<Map<string, boolean>>(new Map());
@@ -795,12 +819,25 @@ function Inner(props: {
       }
       return out;
     };
+    // in single-remote mode (not in edit mode), filter data maps so only the
+    // focused remote's albums/artists render. all hub nodes remain visible so
+    // the user can switch remotes. when no remote is focused, no album/artist
+    // data is shown — just the hub ring around the root triangle.
+    const focused = !multiRemoteMode() && !active ? focusedRemoteId() : null;
+    const filterByFocus = <T,>(src: Map<string, T>): Map<string, T> => {
+      if (multiRemoteMode() || active) return src; // normal mode: pass all data
+      if (focused === null) return new Map(); // hubs only, no data yet
+      const out = new Map<string, T>();
+      const v = src.get(focused);
+      if (v !== undefined) out.set(focused, v);
+      return out;
+    };
     const remoteNames = new Map<string, string>(props.remotes().map((r) => [r.remote_id, r.name]));
     if (includeLocalHub) remoteNames.set(LOCAL_GRAPH_REMOTE_ID, getLocalLibraryName());
     return buildWalkGraph({
       remoteIds,
-      albumsByRemote: stripDisabled(byRemote),
-      artistsByRemote: stripDisabled(artistsByRemote()),
+      albumsByRemote: filterByFocus(stripDisabled(byRemote)),
+      artistsByRemote: filterByFocus(stripDisabled(artistsByRemote())),
       favoriteSongAlbumIds: favSongAlbumIds(),
       favoriteSongArtistIds: favSongArtistIds(),
       charnelManagedRemoteIds: new Set(
@@ -989,61 +1026,75 @@ function Inner(props: {
       // retryCrossRemoteForRemote on warm-up. wipe + repopulate each
       // tick so the set tracks the live visible-ids stream.
       latestVisibleArtistsBySlug.clear();
-      for (const id of ids) {
-        if (!id.startsWith("artist::")) continue;
-        let parsed: ReturnType<typeof parseNodeId>;
-        try {
-          parsed = parseNodeId(id);
-        } catch {
-          continue;
+      // cross-remote artist matching is only active in multi-remote mode.
+      // in single-remote mode the visible-ids loop still updates
+      // latestVisibleArtistsBySlug (for the retry path) but skips the
+      // batchLookupAndMerge fan-out so no cross-remote edges are drawn.
+      if (!multiRemoteMode()) {
+        for (const id of ids) {
+          if (!id.startsWith("artist::")) continue;
+          const node = lookupNode(id);
+          if (!node || !("name" in node)) continue;
+          const artistSlug = slug((node as ArtistNodeData).name);
+          if (artistSlug) latestVisibleArtistsBySlug.set(artistSlug, (node as ArtistNodeData).name);
         }
-        if (parsed.kind !== "artist") continue;
-        const node = lookupNode(id);
-        if (!node || !("name" in node)) continue;
-        const artistName = (node as ArtistNodeData).name;
-        const artistSlug = slug(artistName);
-        if (!artistSlug) continue;
-        latestVisibleArtistsBySlug.set(artistSlug, artistName);
-        for (const remote of props.remotes()) {
-          if (remote.remote_id === parsed.remoteId) continue;
-          // skip offline remotes here too so we don't even occupy the
-          // crossRemoteLookups slot — keeps it open for retry after
-          // the remote comes back online. graph-disabled remotes are
-          // likewise excluded so shared artists never re-link to them.
-          if (offlineByRemote().get(remote.remote_id) === true) continue;
-          if (graphDisabledByRemote().get(remote.remote_id) === true) continue;
-          const key = `${remote.remote_id}::${artistSlug}`;
-          if (crossRemoteLookups.has(key)) continue;
-          // if artist with this slug is already in the main graph for this
-          // remote, mark as loaded — the worker already synthesized the wire.
-          let alreadyPresent = false;
-          const nb = buildResult()?.nodesById;
-          if (nb) {
-            for (const [nid, n] of nb) {
-              if (
-                nid.startsWith(`artist::${remote.remote_id}::`) &&
-                "name" in n &&
-                slug((n as ArtistNodeData).name) === artistSlug
-              ) {
-                alreadyPresent = true;
-                break;
-              }
-            }
-          }
-          if (alreadyPresent) {
-            crossRemoteLookups.set(key, "loaded");
+      } else {
+        for (const id of ids) {
+          if (!id.startsWith("artist::")) continue;
+          let parsed: ReturnType<typeof parseNodeId>;
+          try {
+            parsed = parseNodeId(id);
+          } catch {
             continue;
           }
-          crossRemoteLookups.set(key, "loading");
-          if (!pendingByRemote.has(remote.remote_id)) {
-            pendingByRemote.set(remote.remote_id, new Map());
+          if (parsed.kind !== "artist") continue;
+          const node = lookupNode(id);
+          if (!node || !("name" in node)) continue;
+          const artistName = (node as ArtistNodeData).name;
+          const artistSlug = slug(artistName);
+          if (!artistSlug) continue;
+          latestVisibleArtistsBySlug.set(artistSlug, artistName);
+          for (const remote of props.remotes()) {
+            if (remote.remote_id === parsed.remoteId) continue;
+            // skip offline remotes here too so we don't even occupy the
+            // crossRemoteLookups slot — keeps it open for retry after
+            // the remote comes back online. graph-disabled remotes are
+            // likewise excluded so shared artists never re-link to them.
+            if (offlineByRemote().get(remote.remote_id) === true) continue;
+            if (graphDisabledByRemote().get(remote.remote_id) === true) continue;
+            const key = `${remote.remote_id}::${artistSlug}`;
+            if (crossRemoteLookups.has(key)) continue;
+            // if artist with this slug is already in the main graph for this
+            // remote, mark as loaded — the worker already synthesized the wire.
+            let alreadyPresent = false;
+            const nb = buildResult()?.nodesById;
+            if (nb) {
+              for (const [nid, n] of nb) {
+                if (
+                  nid.startsWith(`artist::${remote.remote_id}::`) &&
+                  "name" in n &&
+                  slug((n as ArtistNodeData).name) === artistSlug
+                ) {
+                  alreadyPresent = true;
+                  break;
+                }
+              }
+            }
+            if (alreadyPresent) {
+              crossRemoteLookups.set(key, "loaded");
+              continue;
+            }
+            crossRemoteLookups.set(key, "loading");
+            if (!pendingByRemote.has(remote.remote_id)) {
+              pendingByRemote.set(remote.remote_id, new Map());
+            }
+            pendingByRemote.get(remote.remote_id)!.set(artistSlug, artistName);
           }
-          pendingByRemote.get(remote.remote_id)!.set(artistSlug, artistName);
         }
-      }
-      for (const [remoteId, candidates] of pendingByRemote) {
-        void batchLookupAndMerge(remoteId, candidates);
-      }
+        for (const [remoteId, candidates] of pendingByRemote) {
+          void batchLookupAndMerge(remoteId, candidates);
+        }
+      } // end else (multiRemoteMode) branch
     });
     onCleanup(unsub);
   });
@@ -2044,6 +2095,8 @@ function Inner(props: {
   // online via the interceptClick health-check path so its match set
   // joins the deep-link / search-driven view immediately.
   const retryCrossRemoteForRemote = (warmedRemoteId: string) => {
+    // cross-remote lookups are suppressed in single-remote mode.
+    if (!multiRemoteMode()) return;
     if (latestVisibleArtistsBySlug.size === 0) return;
     if (offlineByRemote().get(warmedRemoteId) === true) return;
     const pending = new Map<string, string>();
@@ -2131,8 +2184,13 @@ function Inner(props: {
           clearCrossRemotePins();
           setForceResetTick((n) => n + 1);
           walkApi()?.resetWalk();
+          // clear any active selection and close open detail panels
+          setSelectedId(null);
+          setDetailPanelsHidden(false);
           void queryClient.invalidateQueries({ queryKey: ["library-albums"] });
         }}
+        multiRemote={multiRemoteMode()}
+        onToggleMultiRemote={toggleMultiRemoteMode}
         extra={props.extraTools}
       />
     );
@@ -2794,7 +2852,7 @@ function Inner(props: {
     // can surface taxon hubs + related-artist clouds once batch
     // matches land.
     const seedArtistName = parsed.kind === "artist" ? (nameHint ?? null) : (artistHint ?? null);
-    if (seedArtistName) {
+    if (seedArtistName && multiRemoteMode()) {
       const seedSlug = slug(seedArtistName);
       if (seedSlug) {
         for (const other of props.remotes()) {
@@ -3071,7 +3129,21 @@ function Inner(props: {
     } catch {
       return false;
     }
+    // single-remote mode: clicking root clears the focused remote so
+    // all hub nodes become visible again (hubs-only view).
+    if (!multiRemoteMode() && parsed.kind === "root" && focusedRemoteId() !== null) {
+      setFocusedRemoteId(null);
+      // let canvas pivot to root normally
+      return false;
+    }
     if (parsed.kind !== "remote") return false;
+    // single-remote mode: clicking a remote hub focuses it, collapsing all
+    // other remotes' data. the remote is activated here too (if not already)
+    // so its albums start loading; the existing activation block below handles
+    // the same case, so we let it fall through.
+    if (!multiRemoteMode()) {
+      setFocusedRemoteId(parsed.remoteId);
+    }
     if (offlineByRemote().get(parsed.remoteId) === true) {
       const remote = props.remotes().find((r) => r.remote_id === parsed.remoteId);
       const name = remote?.name ?? parsed.remoteId;

@@ -14,6 +14,7 @@ import {
   STORE_RADIO_HISTORY,
   STORE_SHARED_ITEMS,
   type AppState,
+  type GraphPrefs,
   type P2PIdentity,
   type PendingRemote,
 } from "./types";
@@ -273,6 +274,25 @@ function closeAppDB(): void {
 }
 
 // ============================================================================
+// graph preferences
+// ============================================================================
+
+/** read the persisted graph preferences. returns sensible defaults if not yet stored. */
+async function getGraphPrefs(): Promise<GraphPrefs> {
+  const db = await initAppDB();
+  const stored = await db.get(STORE_APP_STATE, "graph_prefs");
+  if (stored) return stored as GraphPrefs;
+  return { id: "graph_prefs", multi_remote_mode: true };
+}
+
+/** persist a single graph preference field. */
+async function saveGraphPrefs(updates: Partial<Omit<GraphPrefs, "id">>): Promise<void> {
+  const db = await initAppDB();
+  const current = await getGraphPrefs();
+  await db.put(STORE_APP_STATE, { ...current, ...updates });
+}
+
+// ============================================================================
 // P2P identity persistence (midden)
 // ============================================================================
 
@@ -391,6 +411,8 @@ export {
   getAllPendingRemotes,
   getPendingRemoteById,
   getPendingRemoteByPeerAddr,
+  getGraphPrefs,
+  saveGraphPrefs,
   getP2PIdentity,
   getSyncQueueToLocal,
   getLocalLibraryName,
