@@ -22,6 +22,11 @@ export interface GraphTopNavToolsProps {
   onFit?: () => void;
   /** called when the user taps the reset-walk button */
   onResetWalk?: () => void;
+  /** whether multi-remote graphing is active (all remotes shown).
+   *  when false only the primary/local hub is visible. */
+  multiRemote?: boolean;
+  /** called when the user taps the multi-remote toggle */
+  onToggleMultiRemote?: () => void;
 
   /** optional trailing slot — rendered after the last control on
    *  the right edge of the cluster. used by LibraryGraphSubview to
@@ -70,6 +75,17 @@ export function GraphTopNavTools(props: GraphTopNavToolsProps) {
           icon="home"
           label="reset graph"
           onClick={props.onResetWalk}
+          sizeClass={btnSize()}
+          iconPx={iconPx()}
+        />
+      </Show>
+
+      <Show when={props.onToggleMultiRemote}>
+        <IconBtn
+          icon="selectMulti"
+          label={props.multiRemote ? "multi-remote graph (on)" : "multi-remote graph (off)"}
+          onClick={props.onToggleMultiRemote}
+          active={props.multiRemote}
           sizeClass={btnSize()}
           iconPx={iconPx()}
         />

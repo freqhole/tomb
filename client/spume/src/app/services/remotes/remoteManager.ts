@@ -446,6 +446,9 @@ export async function createRemote(data: {
   debug(
     `created remote: ${remote.name} (${isHttpRemote(remote) ? remote.base_url : remote.peer_addr})`,
   );
+  // notify AppLayout (and any other listener) so the remotes list in the
+  // top nav refreshes without requiring a page reload.
+  notifyStatusChange(remote.remote_id, false);
 
   return remote;
 }

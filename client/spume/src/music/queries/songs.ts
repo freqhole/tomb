@@ -367,6 +367,13 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
       return result;
     },
     enabled: () => !!artistId(),
+    // prevent spurious refetches when the panel remounts during artist-list
+    // pagination (auto-fetch loads many pages, which causes selectedArtist()
+    // to momentarily be null then truthy again as new pages arrive).
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   }));
 }
 

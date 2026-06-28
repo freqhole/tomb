@@ -1,5 +1,5 @@
+import { warn } from "../../utils/logger";
 // playback coordinator — a tiny pub/sub that lets the music player and
-// the radio service interrupt each other without a circular import.
 //
 // both subsystems own their own audio element + state, but only one
 // should produce sound at a time. each side registers a "stop me"
@@ -34,7 +34,7 @@ async function fireAll(handlers: Set<StopHandler>, label: string): Promise<void>
       try {
         await fn();
       } catch (e) {
-        console.warn(`[playback-coordinator] ${label} handler failed:`, e);
+        warn("playback", `${label} handler failed:`, e);
       }
     }),
   );
@@ -70,6 +70,6 @@ export function mirrorVolumeToRadio(volume: number): void {
   try {
     volumeMirror(volume);
   } catch (e) {
-    console.warn("[playback-coordinator] volume mirror failed:", e);
+    warn("playback", "volume mirror failed:", e);
   }
 }

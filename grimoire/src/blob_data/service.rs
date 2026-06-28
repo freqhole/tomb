@@ -16,7 +16,7 @@ pub async fn store_blob_data(blob_id: &str, data: Vec<u8>) -> GrimoireResponse<(
         }
     };
 
-    match sqlx::query("INSERT INTO blob_data (id, data) VALUES (?, ?)")
+    match sqlx::query("INSERT OR IGNORE INTO blob_data (id, data) VALUES (?, ?)")
         .bind(blob_id)
         .bind(&data)
         .execute(&pool)

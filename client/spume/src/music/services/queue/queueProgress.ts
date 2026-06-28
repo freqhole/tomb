@@ -3,6 +3,7 @@
 // - in-memory signal for reactive display updates
 // - persisted on song.queue_max_progress in IDB via queue save
 import { createSignal } from "solid-js";
+import { error as errorLog } from "../../../utils/logger";
 import { appState, setQueue } from "../../../app/services/storage/db";
 
 // reactive signal for live progress updates (queue_entry_id -> max progress 0-1)
@@ -61,7 +62,7 @@ export async function saveProgressToIDB(): Promise<void> {
     
     await setQueue(updatedQueue);
   } catch (err) {
-    console.error("[queueProgress] failed to save progress:", err);
+    errorLog("queue.progress", "save failed:", err);
   }
 }
 

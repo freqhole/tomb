@@ -20,7 +20,7 @@ import {
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getPendingRemoteById, getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { queryClient } from "../../../queryClient";
-import { debug } from "../../../utils/logger";
+import { debug, warn } from "../../../utils/logger";
 import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
 import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress, isSongOnDiskEphemeral } from "../download";
@@ -633,7 +633,7 @@ export async function preCacheP2PBlob(
 
     debug("blobResolver", `pre-cached P2P blob: ${blobId.slice(0, 8)}...`);
   } catch (err) {
-    console.error(`failed to pre-cache P2P blob ${blobId}:`, err);
+    warn("blobResolver", `pre-cache failed for p2p blob ${blobId.slice(0, 8)}:`, err);
   } finally {
     if (sha256 && type === "audio") {
       removeFromLoadingSet(sha256);
@@ -840,7 +840,7 @@ export async function preCacheNextP2PSongs(
       } else {
         // sync failed - when sync mode is enabled, we don't fall back to Cache API
         // the song won't be pre-cached but will be fetched on-demand when played
-        console.warn(`failed to sync first P2P song ${firstEntry.sha256}:`, result.error);
+        warn("blobResolver", `sync failed for ${firstEntry.sha256.slice(0, 8)}: ${result.error}`);
       }
     } else if (isCharnelManagedRemoteSync(firstEntry.remoteId)) {
       // charnel-managed local remote: audio is already on disk. rodio
@@ -922,7 +922,7 @@ export async function preCacheNextP2PSongs(
     }
   } catch (err) {
     // log but don't fail the whole pre-cache
-    console.warn(`failed to pre-cache first P2P song ${firstEntry.sha256}:`, err);
+    warn("blobResolver", `sync failed for ${firstEntry.sha256.slice(0, 8)}:`, err);
   }
 
   // sync-mode audio downloads must run sequentially: the wasm iroh-blobs
@@ -992,10 +992,10 @@ export async function preCacheNextP2PSongs(
           } else {
             // sync failed - when sync mode is enabled, we don't fall back to Cache API
             // the song won't be pre-cached but will be fetched on-demand when played
-            console.warn(`failed to sync P2P song ${entry.sha256}:`, result.error);
+            warn("blobResolver", `p2p sync failed for ${entry.sha256.slice(0, 8)}: ${result.error}`);
           }
         } catch (err) {
-          console.warn(`failed to sync P2P song ${entry.sha256}:`, err);
+          warn("blobResolver", `p2p sync threw for ${entry.sha256.slice(0, 8)}:`, err);
         } finally {
           removeFromLoadingSet(entry.sha256);
         }
@@ -1014,7 +1014,7 @@ export async function preCacheNextP2PSongs(
         try {
           await fetchEphemeral(entry.song);
         } catch (err) {
-          console.warn(`failed to pre-fetch ephemeral P2P song ${entry.sha256}:`, err);
+          warn("blobResolver", `p2p ephemeral pre-fetch failed for ${entry.sha256.slice(0, 8)}:`, err);
         } finally {
           removeFromLoadingSet(entry.sha256);
         }

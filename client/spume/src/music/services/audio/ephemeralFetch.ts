@@ -29,6 +29,7 @@
 // cannot delete a file outside `<fetch_dir>/_ephemeral/`.
 
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { debug, warn } from "../../../utils/logger";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import {
   clearEphemeralOnDisk,
@@ -156,8 +157,9 @@ export async function deleteEphemeral(entry: EphemeralEntry): Promise<void> {
       ext: entry.ext,
     });
   } catch (e) {
-    console.warn(
-      `[ephemeralFetch] delete failed for ${entry.blake3.slice(0, 8)}.${entry.ext}:`,
+    warn(
+      "ephemeral",
+      `delete failed for ${entry.blake3.slice(0, 8)}.${entry.ext}:`,
       e,
     );
   }
@@ -175,10 +177,10 @@ export async function purgeEphemeralAll(): Promise<void> {
     const { invoke } = await import("@tauri-apps/api/core");
     const deleted = await invoke<number>("purge_ephemeral_dir");
     if (deleted > 0) {
-      console.info(`[ephemeralFetch] purged ${deleted} stale ephemeral file(s)`);
+      debug("ephemeral", `purged ${deleted} stale files`);
     }
   } catch (e) {
-    console.warn(`[ephemeralFetch] purge failed:`, e);
+    warn("ephemeral", "purge failed:", e);
   }
 }
 
@@ -202,12 +204,13 @@ export async function reconcileEphemeralWithQueue(
     );
     setEphemeralOnDiskBlake3s(result.kept.map((f) => f.blake3));
     if (result.deleted > 0) {
-      console.info(
-        `[ephemeralFetch] reconcile: kept ${result.kept.length}, deleted ${result.deleted}`,
+      debug(
+        "ephemeral",
+        `reconcile: kept ${result.kept.length}, deleted ${result.deleted}`,
       );
     }
   } catch (e) {
-    console.warn(`[ephemeralFetch] reconcile failed:`, e);
+    warn("ephemeral", "reconcile failed:", e);
   }
 }
 
@@ -221,6 +224,6 @@ export async function refreshEphemeralOnDiskFromDisk(): Promise<void> {
     const files = await invoke<EphemeralFileInfo[]>("list_ephemeral_blobs");
     setEphemeralOnDiskBlake3s(files.map((f) => f.blake3));
   } catch (e) {
-    console.warn(`[ephemeralFetch] list failed:`, e);
+    warn("ephemeral", "list failed:", e);
   }
 }

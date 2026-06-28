@@ -4,7 +4,7 @@ import { getCachedBlob, preCacheBlob } from "../cache/blobCache";
 import { addToLoadingSet, updateLoadingProgress, removeFromLoadingSet } from "../download";
 import { readAudioFromOPFS } from "../opfs/helpers";
 import type { Song } from "./types";
-import { debug } from "../../../utils/logger";
+import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
 import type { BlobProgressCallback } from "@freqhole/api-client";
 
@@ -71,7 +71,7 @@ export async function getAudioURL(song: Song): Promise<string> {
       activeBlobURLs.set(song.sha256, { url, remoteId: null, blobId: null });
       return url;
     } catch (error) {
-      console.error(`failed to read from opfs:`, error);
+      errorLog("audioAccess", `opfs read failed for ${song.sha256.slice(0, 8)}:`, error);
       throw new Error(`failed to read audio file from opfs`);
     }
   }
@@ -125,7 +125,7 @@ export async function getAudioURL(song: Song): Promise<string> {
         activeBlobURLs.set(song.sha256, { url, remoteId: song.remote_server_id, blobId });
         return url;
       } catch (error) {
-        console.error(`failed to fetch audio via blobResolver:`, error);
+        errorLog("audioAccess", `blob fetch failed for ${song.sha256.slice(0, 8)} via ${song.remote_server_id}:`, error);
         throw new Error(`failed to fetch audio from remote`);
       } finally {
         removeFromLoadingSet(song.sha256);
@@ -252,7 +252,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
   // local/downloaded: re-read from OPFS
   if (song.source_type === "local" || song.source_type === "downloaded") {
     if (!song.opfs_path) {
-      console.error(`cannot refresh: song has no opfs path: ${song.sha256}`);
+      warn("audioAccess", `cannot refresh: no opfs_path for ${song.sha256.slice(0, 8)} (source=${song.source_type})`);
       return null;
     }
     try {
@@ -262,7 +262,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
       debug("audioAccess", `refreshed blob URL from OPFS: ${song.sha256}`);
       return url;
     } catch (error) {
-      console.error(`failed to refresh from OPFS:`, error);
+      errorLog("audioAccess", `opfs refresh failed for ${song.sha256.slice(0, 8)}:`, error);
       return null;
     }
   }
@@ -278,7 +278,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
         // somehow missing, bail rather than fabricate a doomed call.
         const blobId = song.media_blob_id;
         if (!blobId) {
-          console.warn(`cannot refresh P2P blob: song has no media_blob_id (sha256=${song.sha256})`);
+          warn("audioAccess", `cannot refresh p2p blob: no media_blob_id (sha256=${song.sha256.slice(0, 8)})`);
           return null;
         }
         // pass blake3 for verified streaming via iroh-blobs.
@@ -287,7 +287,7 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
         debug("audioAccess", `refreshed blob URL from P2P: ${song.sha256}`);
         return url;
       } catch (error) {
-        console.error(`failed to refresh P2P blob:`, error);
+        errorLog("audioAccess", `p2p blob refresh failed for ${song.sha256.slice(0, 8)}:`, error);
         return null;
       }
     }
@@ -311,6 +311,6 @@ export async function refreshBlobURL(song: Song): Promise<string | null> {
     }
   }
 
-  console.error(`cannot refresh: unsupported source type: ${song.source_type}`);
+  errorLog("audioAccess", `cannot refresh: unsupported source type "${song.source_type}" for ${song.sha256.slice(0, 8)}`);
   return null;
 }

@@ -22,6 +22,15 @@ export interface AppState {
   local_library_name?: string;
 }
 
+/** graph-view preferences — stored as id: "graph_prefs" in STORE_APP_STATE. */
+export interface GraphPrefs {
+  id: "graph_prefs";
+  /** when false, the explore graph shows all remote hubs but only fans
+   *  out album/artist data for the single remote the user clicks next.
+   *  clicking the root node resets focus. defaults to true. */
+  multi_remote_mode: boolean;
+}
+
 // queue history entry — represents one "add to queue" action
 export type QueueHistorySourceType =
   | "song"

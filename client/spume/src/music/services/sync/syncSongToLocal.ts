@@ -11,7 +11,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
-import { debug, warn } from "../../../utils/logger";
+import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
 import {
   getOrCreateAlbum,
@@ -239,8 +239,9 @@ async function syncSongViaLocalGrimoire(
     };
 
     if (!response.success) {
-      console.error(
-        `[syncSongToLocal] sync_song_by_blake3 failed for ${song.title}:`,
+      errorLog(
+        "sync",
+        `sync_song_by_blake3 failed for "${song.title}":`,
         response.message,
       );
       return { success: false, error: response.message };
@@ -267,7 +268,7 @@ async function syncSongViaLocalGrimoire(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`failed to sync song via local grimoire:`, error);
+    errorLog("sync", "local grimoire sync failed:", error);
     return { success: false, error: message };
   }
 }
@@ -705,7 +706,7 @@ export async function syncSongToLocal(
     return { success: true, localSongId: sha256 };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`failed to sync song ${song.title}:`, error);
+      errorLog("sync", `sync failed for "${song.title}":`, error);
       return { success: false, error: message };
     }
   })();

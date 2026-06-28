@@ -10,6 +10,7 @@ import { useUpdateAlbumMutation } from "../../music/queries/mutations";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { useAlbumQuery, useAlbumSongsQuery } from "../../music/queries/songs";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
+import { error as errorLog } from "../../utils/logger";
 import { confirm } from "../../app/services/confirmState";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -782,7 +783,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       albumQuery.refetch();
       await invalidateAlbumImageQueries(props.albumId, formData().artist_id);
     } catch (err) {
-      console.error("failed to upload image:", err);
+      errorLog("image.upload", "handleImageUpload failed:", err);
       toast.error("failed to upload image");
       setProcessingJob(null);
     }

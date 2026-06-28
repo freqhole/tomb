@@ -4,11 +4,12 @@
 // server progress is song-based (via advanceServerProgress)
 
 import { createSignal } from "solid-js";
+import { error as errorLog } from "../../../utils/logger";
 import { appState } from "../../../app/services/storage/db";
 import { queueHistory, updateHistoryProgress } from "./queueHistory";
 import { advanceServerProgress, reconnectServerSession } from "./serverSession";
-import { saveProgressToIDB } from "./queueProgress";
 import { isPlaying, setVisualPosition } from "../audio/playerState";
+import { saveProgressToIDB } from "./queueProgress";
 import type { Song } from "../storage/types";
 
 // the currently active history entry id being tracked
@@ -172,7 +173,7 @@ async function flushProgress(force = false, skipQueueSave = false): Promise<void
       await saveProgressToIDB();
     }
   } catch (error) {
-    console.error("failed to flush listen progress:", error);
+    errorLog("queue.progress", "failed to flush listen progress:", error);
   }
 }
 

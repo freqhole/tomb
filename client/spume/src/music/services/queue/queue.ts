@@ -19,6 +19,7 @@ import { createServerSession, stopServerSession, updateServerSessionSongs, activ
 import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
+import { debug, error as errorLog } from "../../../utils/logger";
 import { leaveRadio } from "../../../app/services/radio/radioService";
 import { clearCurrentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
@@ -89,10 +90,9 @@ function assertCloneable(songs: Song[], context: string): void {
         }
       }
     }
-    console.error(
-      `[${context}] songs cannot be structured-cloned after unwrapping.`,
-      `\nProblematic properties: ${problemProps.join(", ") || "unknown"}`,
-      `\nThis will cause DataCloneError in Tauri IPC. Update unwrapSongs() to handle these properties.`,
+    errorLog(
+      "queue",
+      `[${context}] songs cannot be structured-cloned; problematic props: ${problemProps.join(", ") || "unknown"} — update unwrapSongs()`,
       e,
     );
   }
@@ -141,7 +141,7 @@ export async function playQueue(
       finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + queueSizeLimit);
       startIndex = startIndex - adjustedStart;
     }
-    console.log(`[playQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimit})`);
+    debug("queue", `playQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimit})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -356,7 +356,7 @@ export async function addToQueue(
   const queueSizeLimitForAdd = getQueueSizeLimit();
   if (unwrappedSongs.length > queueSizeLimitForAdd) {
     finalSongs = unwrappedSongs.slice(0, queueSizeLimitForAdd);
-    console.log(`[addToQueue] truncated ${unwrappedSongs.length} songs to ${finalSongs.length} (limit: ${queueSizeLimitForAdd})`);
+    debug("queue", `addToQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimitForAdd})`);
   }
 
   // mark songs from playlist source to skip album feed events when syncing
@@ -670,8 +670,9 @@ export async function reorderQueue(
 // clears any pending up-next song
 export async function clearQueue(): Promise<void> {
   const state = appState();
-  console.info(
-    `[clearQueue] START len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? "null"}`,
+  debug(
+    "queue",
+    `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_sha256?.slice(0, 8) ?? null}`,
   );
 
   stop();
@@ -706,7 +707,7 @@ export async function clearQueue(): Promise<void> {
   }
 
   await setQueue([]);
-  console.info(`[clearQueue] DONE — setQueue([]) persisted`);
+  debug("queue", "clearQueue complete");
 }
 
 // re-export db helpers that consumers commonly need alongside queue ops

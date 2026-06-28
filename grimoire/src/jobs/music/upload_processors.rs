@@ -67,19 +67,46 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 "converting",
                 Some("converting to webp"),
             );
-            // get original image data from blob_data
-            let data_response = blob_data::get_blob_data(blob_id).await;
-            if !data_response.success {
-                return Err(JobError::ProcessingFailed {
-                    reason: format!("failed to get blob data: {}", data_response.message),
-                });
-            }
-
-            let image_data = data_response
-                .data
-                .ok_or_else(|| JobError::ProcessingFailed {
-                    reason: "no blob data found".to_string(),
-                })?;
+            // get original image data from blob_data; fall back to local_path
+            // if the blob was originally created via the file scanner (which
+            // stores local_path but no binary row in blob_data).
+            let image_data = {
+                let data_response = blob_data::get_blob_data(blob_id).await;
+                if data_response.success {
+                    data_response
+                        .data
+                        .ok_or_else(|| JobError::ProcessingFailed {
+                            reason: "blob_data row exists but data field is empty".to_string(),
+                        })?
+                } else {
+                    // blob_data missing — try reading from local_path on disk
+                    let local = crate::media_blobz::get_media_blob(blob_id)
+                        .await
+                        .ok()
+                        .and_then(|b| b.local_path)
+                        .ok_or_else(|| {
+                            error!(
+                                "ConvertWebp {}: no blob_data and no local_path (db error: {})",
+                                blob_id, data_response.message
+                            );
+                            JobError::ProcessingFailed {
+                                reason: format!(
+                                    "blob data not found and no local_path fallback: {}",
+                                    data_response.message
+                                ),
+                            }
+                        })?;
+                    info!(
+                        "ConvertWebp {}: blob_data missing, reading from local_path={}",
+                        blob_id, local
+                    );
+                    tokio::fs::read(&local)
+                        .await
+                        .map_err(|e| JobError::ProcessingFailed {
+                            reason: format!("failed to read local_path {}: {}", local, e),
+                        })?
+                }
+            };
 
             // convert to WebP (sync function, not async)
             let webp_data = blob_data::convert_to_webp(&image_data).map_err(|e| {

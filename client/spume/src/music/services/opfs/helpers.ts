@@ -1,6 +1,6 @@
 // opfs (origin private file system) helpers for audio storage
 // used as fallback when file system access api is not available
-import { debug } from "../../../utils/logger";
+import { debug, error as errorLog } from "../../../utils/logger";
 
 // opfs directory for audio files
 const AUDIO_DIR = "audio";
@@ -45,7 +45,7 @@ export async function writeAudioToOPFS(
     debug("opfs", `wrote audio file to opfs: ${fileName} (${blob.size} bytes)`);
     return `${AUDIO_DIR}/${fileName}`;
   } catch (error) {
-    console.error("failed to write audio to opfs:", error);
+    errorLog("opfs", "write audio failed:", error);
     throw new Error(`failed to write audio to opfs: ${error}`);
   }
 }
@@ -75,7 +75,7 @@ export async function writeThumbnailToOPFS(
 
     return `${THUMBNAILS_DIR}/${fileName}`;
   } catch (error) {
-    console.error("failed to write thumbnail to opfs:", error);
+    errorLog("opfs", "write thumbnail failed:", error);
     throw new Error(`failed to write thumbnail to opfs: ${error}`);
   }
 }
@@ -97,7 +97,7 @@ export async function readAudioFromOPFS(path: string): Promise<File> {
     debug("opfs", `read audio file from opfs: ${fileName} (${file.size} bytes)`);
     return file;
   } catch (error) {
-    console.error(`failed to read audio from opfs (${path}):`, error);
+    errorLog("opfs", `read audio failed (${path}):`, error);
     throw new Error(`failed to read audio from opfs: ${error}`);
   }
 }
@@ -118,7 +118,7 @@ export async function readThumbnailFromOPFS(path: string): Promise<File> {
 
     return file;
   } catch (error) {
-    console.error(`failed to read thumbnail from opfs (${path}):`, error);
+    errorLog("opfs", `read thumbnail failed (${path}):`, error);
     throw new Error(`failed to read thumbnail from opfs: ${error}`);
   }
 }
@@ -137,7 +137,7 @@ export async function deleteAudioFromOPFS(path: string): Promise<void> {
 
     debug("opfs", `deleted audio file from opfs: ${fileName}`);
   } catch (error) {
-    console.error(`failed to delete audio from opfs (${path}):`, error);
+    errorLog("opfs", `delete audio failed (${path}):`, error);
     throw new Error(`failed to delete audio from opfs: ${error}`);
   }
 }
@@ -164,7 +164,7 @@ export async function deleteThumbnailFromOPFS(blobId: string): Promise<void> {
       // file doesn't exist, that's fine
     }
   } catch (error) {
-    console.error(`failed to delete thumbnail from opfs (${blobId}):`, error);
+    errorLog("opfs", `delete thumbnail failed (${blobId}):`, error);
     throw new Error(`failed to delete thumbnail from opfs: ${error}`);
   }
 }
@@ -181,7 +181,7 @@ export async function getOPFSUsage(): Promise<{
       quota: estimate.quota || 0,
     };
   } catch (error) {
-    console.error("failed to get opfs usage:", error);
+    errorLog("opfs", "get usage failed:", error);
     return { usage: 0, quota: 0 };
   }
 }

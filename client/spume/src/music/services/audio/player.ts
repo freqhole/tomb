@@ -42,22 +42,22 @@ import {
   isPlaying as isPlayingSignal,
   setPendingUpNextSha256,
 } from "./playerState";
-import { resolveSongOrId } from "./facadeHelpers";
+import { debug, warn } from "../../../utils/logger";
 import { appState } from "../../../app/services/storage/db";
 import { canGoNext, markPlaybackEnded } from "../queue/queueState";
 import { stopServerSession } from "../queue/serverSession";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
-import type { Song } from "../storage/types";
+import { resolveSongOrId } from "./facadeHelpers";
 
-// retry budget for `playNext` — caps how many times the queue will
+import type { Song } from "../storage/types";
 // auto-advance past unplayable songs before giving up.
 const PLAY_NEXT_MAX_ATTEMPTS = 5;
 // per-song setup timeout for `playNext`.
 const PLAY_SONG_TIMEOUT_MS = 20_000;
 
-// unified facade-level pause gate. when `true`, programmatic
+// retry budget for `playNext` — caps how many times the queue will
 // (non-userInitiated) `playSong` calls land but the resulting
 // playback is paused immediately (or never started, via
 // `autoPlay: false` on the backend) so any auto-load/up-next path
@@ -138,7 +138,7 @@ function bindAutoAdvance(backend: PlayerBackend): void {
   }
   autoAdvanceUnsubscribe = backend.subscribe((event) => {
     if (event.kind === "ended") {
-      console.info(`[player] backend "${backend.kind}" reported ended — advancing queue`);
+      debug("player", `backend "${backend.kind}" ended — advancing queue`);
       void playNext();
       return;
     }
@@ -146,9 +146,9 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       // playback errors are treated as "skip + try the next track" —
       // `playNext` has its own retry budget so a string of bad tracks
       // doesn't loop forever.
-      console.warn(
-        `[player] backend "${backend.kind}" reported error — advancing queue:`,
-        event.detail,
+      warn(
+        "player",
+        `backend "${backend.kind}" error — advancing queue: ${event.detail?.detail ?? event.detail?.title ?? "unknown"}`,
       );
       void playNext();
       return;
@@ -160,7 +160,7 @@ bindActiveBackend(activeBackend);
 bindAutoAdvance(activeBackend);
 
 if (typeof console !== "undefined") {
-  console.info(`[player] facade init: active backend = ${activeBackend.kind}`);
+  debug("player", `facade init: active backend = ${activeBackend.kind}`);
 }
 
 /**
@@ -188,8 +188,9 @@ export async function swapPlayerBackend(): Promise<void> {
     return;
   }
 
-  console.info(
-    `[player] backend swap: ${activeBackend.kind} -> ${next.kind}`,
+  debug(
+    "player",
+    `backend swap: ${activeBackend.kind} -> ${next.kind}`,
   );
 
   // STOP whatever the previous backend was doing. without this,
@@ -284,9 +285,9 @@ export async function playSong(
       // would require multiplexing playerStateSync across both
       // backends and quickly spirals into the kind of complexity
       // this refactor is trying to avoid. phase 5 may revisit.
-      console.warn(
-        `[player] rodio cannot play "${song.title}" — blob has no local path. ` +
-          `disable the rodio toggle in settings to stream remote files.`,
+      warn(
+        "player",
+        `rodio cannot play "${song.title}" (${song.sha256.slice(0, 8)}) — no local path; disable rodio in settings to stream remote files`,
       );
     }
     // make sure the pending-up-next spinner doesn't get stuck.
@@ -323,9 +324,10 @@ export async function togglePlayback(
       await activeBackend.send({ kind: "play" });
       return;
     } catch (e) {
-      console.warn(
-        "[player] togglePlayback: resume failed, falling back to load:",
-        e,
+      warn(
+        "player",
+        "resume failed, falling back to full load:",
+        e instanceof Error ? e.message : e,
       );
     }
   }
@@ -334,7 +336,7 @@ export async function togglePlayback(
   // or queue head, and route through `playSong` which handles loading.
   const state = appState();
   if (!state) {
-    console.warn("[player] togglePlayback: no app state, bailing");
+    warn("player", "togglePlayback: no app state");
     return;
   }
   const { queue, current_sha256 } = state;
@@ -356,7 +358,7 @@ export async function togglePlayback(
     await playSong(queue[0], { userInitiated: true });
     return;
   }
-  console.warn("[player] togglePlayback: nothing to play (queue empty)");
+  warn("player", "togglePlayback: nothing to play (queue empty)");
 }
 
 export function pause(): void {
@@ -423,19 +425,12 @@ export async function playNext(): Promise<void> {
   // if this fires with queue.length=0 around an admin skip, the
   // facade auto-advance is racing the radio adapter.
   const _dbgState = appState();
-  console.info(
-    "[radio-skip-debug] playNext entry",
-    "queueLen=", _dbgState?.queue.length ?? null,
-    "currentSha256=", _dbgState?.current_sha256?.slice(0, 16) ?? null,
-    "canGoNext=", canGoNext(),
-    "t=", Date.now(),
+  debug(
+    "player",
+    `playNext: queueLen=${_dbgState?.queue.length ?? 0} current=${_dbgState?.current_sha256?.slice(0, 8) ?? null} canGoNext=${canGoNext()}`,
   );
   if (!canGoNext()) {
-    // [radio-skip-debug] #4 — confirm we hit the empty-queue stop branch.
-    console.info(
-      "[radio-skip-debug] playNext markPlaybackEnded (empty queue)",
-      "t=", Date.now(),
-    );
+    debug("player", "playNext: queue empty — marking playback ended");
     markPlaybackEnded();
     void stopServerSession("completed");
     return;
@@ -472,23 +467,22 @@ export async function playNext(): Promise<void> {
       ]);
       return;
     } catch (err) {
-      console.warn(
-        `[player] playNext: failed to play "${nextSong?.title}" at index ${nextIdx} (attempt ${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}):`,
-        err instanceof Error ? err.message : err,
+      warn(
+        "player",
+        `playNext: failed "${nextSong?.title}" idx=${nextIdx} attempt=${attempts}/${PLAY_NEXT_MAX_ATTEMPTS}: ${err instanceof Error ? err.message : err}`,
       );
       currentIdx = nextIdx;
       if (nextIdx >= queue.length - 1) {
-        console.error(
-          "[player] playNext: reached end of queue, no playable songs found",
-        );
+        warn("player", "playNext: end of queue, no playable songs found");
         markPlaybackEnded();
         void stopServerSession("completed");
         return;
       }
     }
   }
-  console.error(
-    `[player] playNext: exceeded max attempts (${PLAY_NEXT_MAX_ATTEMPTS}) to find a playable song`,
+  warn(
+    "player",
+    `playNext: exceeded retry budget (${PLAY_NEXT_MAX_ATTEMPTS}) — no playable song found`,
   );
 }
 

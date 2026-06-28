@@ -42,6 +42,7 @@ import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessio
 import { appState } from "../../../../app/services/storage/db";
 import { createEffect, createRoot } from "solid-js";
 import type { Song } from "../../storage/types";
+import { debug, error as errorLog } from "../../../../utils/logger";
 
 // matches `PLAYER_EVENT` in client/charnel/src-tauri/src/player_commands.rs.
 // keep these two strings in sync — there's no shared header to lean on.
@@ -103,7 +104,7 @@ export class RodioBackend implements PlayerBackend {
     if (this.disposed) {
       throw new Error("rodio backend: send called after dispose");
     }
-    console.info(`[player] rodio send:`, cmd.kind, cmd);
+    debug("player.rodio", `send: ${cmd.kind}`);
     const { invoke } = await import("@tauri-apps/api/core");
     // tauri serializes the second arg as a json object; we need the
     // host-side `cmd: PlayerCommand` parameter name to match.
@@ -208,8 +209,9 @@ export class RodioBackend implements PlayerBackend {
         const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
 
         if (!alreadyOnDisk) {
-          console.info(
-            `[player] rodio loadAndPlay: "${song.title}" not on disk yet — fetching ephemerally (sync_queue_to_local=off)`,
+          debug(
+            "player.rodio",
+            `"${song.title}" not on disk — fetching ephemerally`,
           );
           // light up the queue/playerbar spinner for this song while
           // we fetch. mirrors what other audio fetch paths do (see
@@ -236,8 +238,9 @@ export class RodioBackend implements PlayerBackend {
         // current song in app state for the UI.
         bridgeClearExternal();
         await setCurrentSong(song.sha256);
-        console.info(
-          `[player] rodio loadAndPlay (ephemeral): "${song.title}" (${song.sha256.slice(0, 8)}...) -> ${path}`,
+        debug(
+          "player.rodio",
+          `ephemeral load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`,
         );
         await this.send({ kind: "load", paths: [path] });
         await this.send({ kind: "play" });
@@ -245,8 +248,9 @@ export class RodioBackend implements PlayerBackend {
         return;
       }
 
-      console.info(
-        `[player] rodio loadAndPlay: "${song.title}" not on disk yet — syncing remote song before play`,
+      debug(
+        "player.rodio",
+        `"${song.title}" not on disk — syncing before play`,
       );
       // light up the queue/playerbar spinner. paired with
       // `removeFromLoadingSet` after the sync resolves (success or
@@ -321,8 +325,9 @@ export class RodioBackend implements PlayerBackend {
     bridgeClearExternal();
     await setCurrentSong(song.sha256);
 
-    console.info(
-      `[player] rodio loadAndPlay: "${song.title}" (${song.sha256.slice(0, 8)}...) -> ${path}`,
+    debug(
+      "player.rodio",
+      `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`,
     );
 
     await this.send({ kind: "load", paths: [path] });
@@ -489,7 +494,7 @@ export class RodioBackend implements PlayerBackend {
       try {
         l(event);
       } catch (e) {
-        console.error("[rodio backend] listener threw:", e);
+        errorLog("player.rodio", "event listener threw:", e);
       }
     }
   }

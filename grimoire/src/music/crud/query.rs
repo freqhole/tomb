@@ -1389,69 +1389,84 @@ pub async fn query_artists(
     let limit = params.limit.unwrap_or(50).min(1000);
     let offset = params.offset.unwrap_or(0);
 
+    // helper: apply all WHERE filters to a query (used for both count + data
+    // queries to keep them in sync).
+    let apply_filters = |q: &mut SelectStatement| {
+        if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
+            let pattern = format!("%{}%", search_term);
+            q.cond_where(
+                Cond::any()
+                    .add(Expr::col(ArtistView::ArtistName).like(pattern.clone()))
+                    .add(Expr::col(ArtistView::ArtistBio).like(pattern)),
+            );
+        }
+
+        if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
+            q.and_where(Expr::col(ArtistView::ArtistId).eq(artist_id));
+        }
+
+        if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
+            let ids: Vec<String> = artist_ids
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !ids.is_empty() {
+                q.and_where(Expr::col(ArtistView::ArtistId).is_in(ids));
+            }
+        }
+
+        if let Some(artist_names) = params
+            .filters
+            .get("artist_names")
+            .and_then(|v| v.as_array())
+        {
+            let names: Vec<String> = artist_names
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !names.is_empty() {
+                q.and_where(Expr::col(ArtistView::ArtistName).is_in(names));
+            }
+        }
+
+        if let Some(starts_with) = params.filters.get("starts_with").and_then(|v| v.as_str()) {
+            if starts_with == "#" {
+                q.and_where(Expr::cust(
+                    "SUBSTR(UPPER(artist_name), 1, 1) NOT BETWEEN 'A' AND 'Z'",
+                ));
+            } else {
+                let starts_pattern = format!("{}%", starts_with.to_uppercase());
+                q.and_where(Expr::col(ArtistView::ArtistName).like(starts_pattern));
+            }
+        }
+    };
+
+    // ── count query (same WHERE, no LIMIT/OFFSET/ORDER BY) ──────────────────
+    let mut count_q = Query::select();
+    count_q.expr(Expr::cust("COUNT(*)")).from(ArtistView::Table);
+    apply_filters(&mut count_q);
+    let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
+    let mut count_sqlx = sqlx::query_scalar::<_, i64>(&count_sql);
+    for v in count_values.0 {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                count_sqlx = count_sqlx.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                count_sqlx = count_sqlx.bind(i as i64);
+            }
+            _ => {}
+        }
+    }
+    let total_count = count_sqlx.fetch_one(&pool).await.unwrap_or(0);
+
+    // ── data query ───────────────────────────────────────────────────────────
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(ArtistView::Table);
-
-    // Artist-specific search filter (search name and bio)
-    if let Some(search_term) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
-        let pattern = format!("%{}%", search_term);
-        query.cond_where(
-            Cond::any()
-                .add(Expr::col(ArtistView::ArtistName).like(pattern.clone()))
-                .add(Expr::col(ArtistView::ArtistBio).like(pattern)),
-        );
-    }
-
-    // Handle artist_id filter for querying specific artist
-    if let Some(artist_id) = params.filters.get("artist_id").and_then(|v| v.as_str()) {
-        query.and_where(Expr::col(ArtistView::ArtistId).eq(artist_id));
-    }
-
-    // Batch variant: artist_ids = [..]. used by the graph viz
-    // artist-walk expansion to load multiple artist payloads in one
-    // request (phase 3, 2026-05-26).
-    if let Some(artist_ids) = params.filters.get("artist_ids").and_then(|v| v.as_array()) {
-        let ids: Vec<String> = artist_ids
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        if !ids.is_empty() {
-            query.and_where(Expr::col(ArtistView::ArtistId).is_in(ids));
-        }
-    }
-
-    // Name-based batch filter for cross-remote lookups, where artist_ids
-    // are remote-local and not shared. matches on artist_name exactly
-    // (case-sensitive — clients should normalize beforehand if they
-    // want a slug match). silently ignores non-string entries; empty
-    // array is a no-op.
-    if let Some(artist_names) = params
-        .filters
-        .get("artist_names")
-        .and_then(|v| v.as_array())
-    {
-        let names: Vec<String> = artist_names
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        if !names.is_empty() {
-            query.and_where(Expr::col(ArtistView::ArtistName).is_in(names));
-        }
-    }
-
-    // Handle starts_with filter for artists
-    if let Some(starts_with) = params.filters.get("starts_with").and_then(|v| v.as_str()) {
-        if starts_with == "#" {
-            // Non-alphabetic characters
-            query.and_where(Expr::cust(
-                "SUBSTR(UPPER(artist_name), 1, 1) NOT BETWEEN 'A' AND 'Z'",
-            ));
-        } else {
-            // Artists starting with specific letter
-            let starts_pattern = format!("{}%", starts_with.to_uppercase());
-            query.and_where(Expr::col(ArtistView::ArtistName).like(starts_pattern));
-        }
-    }
+    apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {
         Some("desc") => Order::Desc,
@@ -1527,8 +1542,8 @@ pub async fn query_artists(
         format!("Found {} artist(s)", artist_count),
         QueryResult {
             items: artists,
-            total_count: artist_count as i64,
-            has_more: artist_count == limit as usize,
+            total_count,
+            has_more: (offset as i64 + artist_count as i64) < total_count,
             limit: limit as i64,
             offset: offset as i64,
             query_time_ms: Some(start_time.elapsed().as_millis() as u64),

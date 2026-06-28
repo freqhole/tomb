@@ -1,6 +1,6 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { MusicIcon } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
@@ -28,6 +28,7 @@ import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
@@ -158,6 +159,9 @@ export function ArtistsView(props: ArtistsViewProps) {
   // favorite mutation
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
+  // full Remote record for ShareButton (resolves from currentRemote signal)
+  const currentRemoteFull = createCurrentRemoteFull();
+
   // reset virtual list when query param changes
   createEffect(() => {
     // track query param changes to reset list
@@ -167,22 +171,16 @@ export function ArtistsView(props: ArtistsViewProps) {
     setTimeout(() => setIsResetting(false), 0);
   });
 
-  // auto-fetch next page when query becomes idle and has more data
-  createEffect(
-    on(
-      () => ({
-        hasNextPage: artistsQuery.hasNextPage,
-        isFetchingNextPage: artistsQuery.isFetchingNextPage,
-        isFetching: artistsQuery.isFetching,
-      }),
-      (state) => {
-        // automatically load more if there's more data and we're not already fetching
-        if (state.hasNextPage && !state.isFetchingNextPage && !state.isFetching) {
-          artistsQuery.fetchNextPage();
-        }
-      }
-    )
-  );
+  // auto-fetch next page when query becomes idle and has more data.
+  // written as a plain createEffect (not on()) to avoid creating a new object
+  // reference on every tick — solid's on() uses === comparison, and a new
+  // object always looks "changed", causing needless handler invocations during
+  // rapid page-load bursts on large libraries.
+  createEffect(() => {
+    if (artistsQuery.hasNextPage && !artistsQuery.isFetchingNextPage && !artistsQuery.isFetching) {
+      artistsQuery.fetchNextPage();
+    }
+  });
 
   // flatten all pages of artists
   const artistsData = createMemo(() => {
@@ -807,6 +805,8 @@ export function ArtistsView(props: ArtistsViewProps) {
           onGenreClick={handleGenreClick}
           showBackButton={isNarrow() && showingDetailOnNarrow()}
           onBack={handleBack}
+          remote={currentRemoteFull}
+          isLoadingSongs={artistSongsQuery.isPending}
         />
       )}
     </Show>

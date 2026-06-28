@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
-use tracing::info;
+use tracing::{error, info};
 
 /// global FsStore instance
 static BLOBS_STORE: OnceCell<FsStore> = OnceCell::const_new();
@@ -79,13 +79,16 @@ pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
         mode: ImportMode::TryReference,
     };
 
-    let tag =
-        store
-            .add_path_with_opts(options)
-            .await
-            .map_err(|e| GrimoireError::ProcessingFailed {
-                message: format!("failed to add file to blobs store: {}", e),
-            })?;
+    let tag = store.add_path_with_opts(options).await.map_err(|e| {
+        error!(
+            path = ?canonical,
+            error = %e,
+            "[blobs] failed to add file to blobs store"
+        );
+        GrimoireError::ProcessingFailed {
+            message: format!("failed to add file to blobs store: {}", e),
+        }
+    })?;
 
     info!(
         "added file {:?} to blobs store (reference mode), hash: {}",
@@ -106,8 +109,11 @@ pub async fn add_bytes_to_store(data: &[u8]) -> GrimoireResult<Hash> {
         .blobs()
         .add_bytes(bytes::Bytes::copy_from_slice(data))
         .await
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to add bytes to blobs store: {}", e),
+        .map_err(|e| {
+            error!(bytes = data.len(), error = %e, "[blobs] failed to add bytes to blobs store");
+            GrimoireError::ProcessingFailed {
+                message: format!("failed to add bytes to blobs store: {}", e),
+            }
         })?;
 
     info!(

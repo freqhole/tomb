@@ -5,7 +5,8 @@ import MediaImage from "../../../components/media/MediaImage";
 import { toast } from "../../../components/feedback/Toast";
 import { getDataSource, getCurrentRemote } from "../../data";
 import { getRemoteMediaUrl } from "../../../utils/urls";
-import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
+import { pollJobWithDetails } from "../../../app/services/jobs/jobService";
+import { error as errorLog } from "../../../utils/logger";
 import type { ImageMetadata } from "../../services/storage/types";
 import { useQueryClient } from "@tanstack/solid-query";
 
@@ -56,12 +57,13 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
       // poll for job completion if remote
       const remote = getCurrentRemote();
       if (remote && job_id) {
-        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000);
-        if (pollResult === "failed") {
-          toast.error("image processing failed");
+        const pollResult = await pollJobWithDetails(remote, job_id, 60_000);
+        if (pollResult.status === "failed") {
+          errorLog("image.upload", "image processing job failed:", pollResult.errorMessage);
+          toast.error(pollResult.errorMessage || "image processing failed");
           return;
         }
-        if (pollResult === "timeout") {
+        if (pollResult.status === "timeout") {
           toast.info("image processing taking a long time — check back later", {
             title: "processing queued",
           });
@@ -101,7 +103,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
         queryKey: ["playlists"],
       });
     } catch (error) {
-      console.error("failed to upload image:", error);
+      errorLog("image.upload", "playlist image upload failed:", error);
       toast.error("failed to upload image");
     } finally {
       setUploadingImage(false);
@@ -121,7 +123,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
     try {
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (err) {
-      console.error("failed to update primary image:", err);
+      errorLog("image.primary", "failed to update primary image:", err);
       toast.error("failed to update primary image");
     }
   };
@@ -139,7 +141,7 @@ export function PlaylistImageManager(props: PlaylistImageManagerProps) {
     try {
       await queryClient.invalidateQueries({ queryKey: ["playlists"] });
     } catch (err) {
-      console.error("failed to remove image:", err);
+      errorLog("image.remove", "failed to remove image:", err);
       toast.error("failed to remove image");
     }
   };
