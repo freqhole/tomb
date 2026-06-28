@@ -160,6 +160,9 @@ export interface ArtistDetailPanelProps {
   /** full remote record for the share button — pass `createCurrentRemoteFull()`
    *  from the parent view. omitting it hides the share button. */
   remote?: Accessor<Remote | null>;
+  /** true while the artist's songs/albums are being fetched for the first time.
+   *  when set, the albums area shows a spinner instead of "no albums found". */
+  isLoadingSongs?: boolean;
   /** additional css classes */
   class?: string;
 }
@@ -728,74 +731,84 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         {/* albums list with songs */}
         <div class="flex-1 px-4 wide:px-6 py-3 wide:py-4">
           <Show
-            when={albumGroups().length > 0}
-            fallback={<p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>}
+            when={!props.isLoadingSongs}
+            fallback={
+              <div class="flex items-center gap-2 text-[var(--color-text-tertiary)] text-sm">
+                <span class="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+                loading albums...
+              </div>
+            }
           >
-            <div class="space-y-6">
-              <Index each={albumGroups()}>
-                {(album) => (
-                  <AlbumSection
-                    albumId={album().albumId}
-                    albumTitle={album().albumTitle}
-                    year={album().year}
-                    songs={album().songs}
-                    totalDuration={album().totalDuration}
-                    images={album().images}
-                    artworkUrl={album().artworkUrl}
-                    blobId={album().blobId}
-                    isFavorite={album().isFavorite}
-                    rating={album().rating}
-                    genre={album().genre}
-                    genres={album().genres}
-                    taxons={album().taxons}
-                    tags={album().tags}
-                    onRatingChange={(rating) =>
-                      props.onAlbumRatingChange?.(album().albumId, rating)
-                    }
-                    onFavoriteToggle={(isFavorite) =>
-                      props.onAlbumFavoriteToggle?.(album().albumId, isFavorite)
-                    }
-                    playingSongId={props.playingSongId}
-                    onAlbumClick={props.onAlbumClick}
-                    onPlayAlbum={() => props.onPlayAlbum?.(album().albumId)}
-                    onAddToQueue={() => props.onAddAlbumToQueue?.(album().albumId)}
-                    onSongDoubleClick={(song) =>
-                      props.onSongDoubleClick?.(song.id, album().albumId)
-                    }
-                    onSongRatingChange={(songId, rating) =>
-                      props.onSongRatingChange?.(songId, rating)
-                    }
-                    onSongFavoriteToggle={(songId, isFavorite) =>
-                      props.onSongFavoriteToggle?.(songId, isFavorite)
-                    }
-                    getAlbumContextMenuActions={() => {
-                      // get favorite status from any song in the album
-                      return useAlbumContextMenu(
-                        {
-                          id: album().albumId,
-                          title: album().albumTitle,
-                          artist_name: props.artist.name,
-                          artist_id: props.artist.artist_id,
-                          song_count: album().songs.length,
-                        },
-                        {
+            <Show
+              when={albumGroups().length > 0}
+              fallback={<p class="text-[var(--color-text-tertiary)] text-sm">no albums found</p>}
+            >
+              <div class="space-y-6">
+                <Index each={albumGroups()}>
+                  {(album) => (
+                    <AlbumSection
+                      albumId={album().albumId}
+                      albumTitle={album().albumTitle}
+                      year={album().year}
+                      songs={album().songs}
+                      totalDuration={album().totalDuration}
+                      images={album().images}
+                      artworkUrl={album().artworkUrl}
+                      blobId={album().blobId}
+                      isFavorite={album().isFavorite}
+                      rating={album().rating}
+                      genre={album().genre}
+                      genres={album().genres}
+                      taxons={album().taxons}
+                      tags={album().tags}
+                      onRatingChange={(rating) =>
+                        props.onAlbumRatingChange?.(album().albumId, rating)
+                      }
+                      onFavoriteToggle={(isFavorite) =>
+                        props.onAlbumFavoriteToggle?.(album().albumId, isFavorite)
+                      }
+                      playingSongId={props.playingSongId}
+                      onAlbumClick={props.onAlbumClick}
+                      onPlayAlbum={() => props.onPlayAlbum?.(album().albumId)}
+                      onAddToQueue={() => props.onAddAlbumToQueue?.(album().albumId)}
+                      onSongDoubleClick={(song) =>
+                        props.onSongDoubleClick?.(song.id, album().albumId)
+                      }
+                      onSongRatingChange={(songId, rating) =>
+                        props.onSongRatingChange?.(songId, rating)
+                      }
+                      onSongFavoriteToggle={(songId, isFavorite) =>
+                        props.onSongFavoriteToggle?.(songId, isFavorite)
+                      }
+                      getAlbumContextMenuActions={() => {
+                        // get favorite status from any song in the album
+                        return useAlbumContextMenu(
+                          {
+                            id: album().albumId,
+                            title: album().albumTitle,
+                            artist_name: props.artist.name,
+                            artist_id: props.artist.artist_id,
+                            song_count: album().songs.length,
+                          },
+                          {
+                            showPlayActions: true,
+                            isFavorite: false, // album-level favorites not yet implemented on frontend
+                          }
+                        );
+                      }}
+                      getSongContextMenuActions={(song) => {
+                        const songData = props.getSongData?.(song.id);
+                        if (!songData) return [];
+                        return useSongContextMenu(songData, {
                           showPlayActions: true,
-                          isFavorite: false, // album-level favorites not yet implemented on frontend
-                        }
-                      );
-                    }}
-                    getSongContextMenuActions={(song) => {
-                      const songData = props.getSongData?.(song.id);
-                      if (!songData) return [];
-                      return useSongContextMenu(songData, {
-                        showPlayActions: true,
-                        isFavorite: songData.is_favorite ?? false,
-                      });
-                    }}
-                  />
-                )}
-              </Index>
-            </div>
+                          isFavorite: songData.is_favorite ?? false,
+                        });
+                      }}
+                    />
+                  )}
+                </Index>
+              </div>
+            </Show>
           </Show>
         </div>
       </div>

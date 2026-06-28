@@ -1,6 +1,6 @@
 // artists view - displays all artists in a two-column layout with A-Z navigation
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { MusicIcon } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
@@ -171,22 +171,16 @@ export function ArtistsView(props: ArtistsViewProps) {
     setTimeout(() => setIsResetting(false), 0);
   });
 
-  // auto-fetch next page when query becomes idle and has more data
-  createEffect(
-    on(
-      () => ({
-        hasNextPage: artistsQuery.hasNextPage,
-        isFetchingNextPage: artistsQuery.isFetchingNextPage,
-        isFetching: artistsQuery.isFetching,
-      }),
-      (state) => {
-        // automatically load more if there's more data and we're not already fetching
-        if (state.hasNextPage && !state.isFetchingNextPage && !state.isFetching) {
-          artistsQuery.fetchNextPage();
-        }
-      }
-    )
-  );
+  // auto-fetch next page when query becomes idle and has more data.
+  // written as a plain createEffect (not on()) to avoid creating a new object
+  // reference on every tick — solid's on() uses === comparison, and a new
+  // object always looks "changed", causing needless handler invocations during
+  // rapid page-load bursts on large libraries.
+  createEffect(() => {
+    if (artistsQuery.hasNextPage && !artistsQuery.isFetchingNextPage && !artistsQuery.isFetching) {
+      artistsQuery.fetchNextPage();
+    }
+  });
 
   // flatten all pages of artists
   const artistsData = createMemo(() => {
@@ -812,6 +806,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           showBackButton={isNarrow() && showingDetailOnNarrow()}
           onBack={handleBack}
           remote={currentRemoteFull}
+          isLoadingSongs={artistSongsQuery.isPending}
         />
       )}
     </Show>
