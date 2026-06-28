@@ -2,4 +2,4 @@
 "freqhole-release": patch
 ---
 
-notify remotes are added when a peer has accepted knock access request
+notify AppLayout (and any other listener) so the remotez list in the top nav refreshez without requiring a page reload
