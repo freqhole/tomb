@@ -25,6 +25,9 @@ import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { getCurrentRemote } from "../../music/data";
+import { ShareButton } from "../buttons/ShareButton";
+import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { Accessor } from "solid-js";
 
 // approx visible-character budget for the collapsed bio. bios from
 // last.fm / audiodb are often 1-3k chars; this gives ~6 lines of body
@@ -154,6 +157,9 @@ export interface ArtistDetailPanelProps {
   showBackButton?: boolean;
   /** callback when back button clicked */
   onBack?: () => void;
+  /** full remote record for the share button — pass `createCurrentRemoteFull()`
+   *  from the parent view. omitting it hides the share button. */
+  remote?: Accessor<Remote | null>;
   /** additional css classes */
   class?: string;
 }
@@ -467,6 +473,16 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}
                 />
+                <Show when={props.remote}>
+                  <ShareButton
+                    target={{
+                      kind: "artist",
+                      id: props.artist.artist_id,
+                      displayTitle: props.artist.name,
+                    }}
+                    source={() => props.remote!()}
+                  />
+                </Show>
                 <Rating
                   rating={props.artist.user_rating ?? 0}
                   size="md"
@@ -644,6 +660,16 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   isFavorite={props.artist.is_favorite ?? false}
                   onToggle={props.onFavoriteToggle}
                 />
+                <Show when={props.remote}>
+                  <ShareButton
+                    target={{
+                      kind: "artist",
+                      id: props.artist.artist_id,
+                      displayTitle: props.artist.name,
+                    }}
+                    source={() => props.remote!()}
+                  />
+                </Show>
                 <Rating
                   rating={props.artist.user_rating ?? 0}
                   size="md"

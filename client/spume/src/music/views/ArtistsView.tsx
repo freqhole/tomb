@@ -28,6 +28,7 @@ import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
@@ -157,6 +158,9 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // favorite mutation
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // full Remote record for ShareButton (resolves from currentRemote signal)
+  const currentRemoteFull = createCurrentRemoteFull();
 
   // reset virtual list when query param changes
   createEffect(() => {
@@ -807,6 +811,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           onGenreClick={handleGenreClick}
           showBackButton={isNarrow() && showingDetailOnNarrow()}
           onBack={handleBack}
+          remote={currentRemoteFull}
         />
       )}
     </Show>
