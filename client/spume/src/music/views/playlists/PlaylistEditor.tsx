@@ -9,7 +9,8 @@ import { queryKeys } from "../../queries/queryKeys";
 import { getDataSource, getCurrentRemote } from "../../data";
 import { getRemoteMediaUrl } from "../../../utils/urls";
 import { canUpdatePlaylist, canDeletePlaylist } from "../../data/permissions";
-import { pollJobUntilComplete } from "../../../app/services/jobs/jobService";
+import { pollJobWithDetails } from "../../../app/services/jobs/jobService";
+import { error as errorLog } from "../../../utils/logger";
 import type { Playlist, ImageMetadata } from "../../services/storage/types";
 import { EntityImages } from "../../../components/layout/EntityImages";
 import { EntityUrlz, type EntityUrlFormItem } from "../../../components/forms/EntityUrlz";
@@ -72,12 +73,13 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       // poll for job completion
       const remote = getCurrentRemote();
       if (remote) {
-        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000);
-        if (pollResult === "failed") {
-          toast.error("image processing failed");
+        const pollResult = await pollJobWithDetails(remote, job_id, 60_000);
+        if (pollResult.status === "failed") {
+          errorLog("image.upload", "image processing job failed:", pollResult.errorMessage);
+          toast.error(pollResult.errorMessage || "image processing failed");
           return;
         }
-        if (pollResult === "timeout") {
+        if (pollResult.status === "timeout") {
           toast.info("image processing taking a long time — check back later", {
             title: "processing queued",
           });
@@ -118,7 +120,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (error) {
-      console.error("failed to upload image:", error);
+      errorLog("image.upload", "playlist image upload failed:", error);
       toast.error("failed to upload image");
     } finally {
       setUploadingImage(false);
@@ -152,7 +154,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (err) {
-      console.error("failed to update primary image:", err);
+      errorLog("image.primary", "failed to update primary image:", err);
       toast.error("failed to update primary image");
     }
   };
@@ -186,7 +188,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
       await queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
       await queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
     } catch (err) {
-      console.error("failed to remove image:", err);
+      errorLog("image.remove", "failed to remove image:", err);
       toast.error("failed to remove image");
     }
   };
@@ -222,7 +224,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
       props.onSaved?.();
     } catch (error) {
-      console.error("failed to update playlist:", error);
+      errorLog("playlist.save", "failed to update playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to save changes", {
         title: "save failed",
       });
@@ -255,7 +257,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
 
       props.onDeleted?.(playlistId);
     } catch (error) {
-      console.error("failed to delete playlist:", error);
+      errorLog("playlist.delete", "failed to delete playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to delete playlist", {
         title: "delete failed",
       });

@@ -138,6 +138,36 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         existing_with_metadata.metadata =
             serde_json::from_str(existing_with_metadata.metadata.as_str().unwrap_or("{}"))
                 .unwrap_or_default();
+
+        // backfill blob_data if the caller provided binary data and the
+        // existing blob has none stored. this covers the case where a blob
+        // was originally created via the file scanner (local_path only, no
+        // binary data written) and is now being re-uploaded — without this,
+        // the ConvertWebp job fails every time with "blob data not found"
+        // creating a permanent loop.
+        if let Some(data) = req.data {
+            let exists_resp = crate::blob_data::blob_data_exists(&existing_with_metadata.id).await;
+            let has_data = exists_resp.success && exists_resp.data.unwrap_or(false);
+            if !has_data {
+                tracing::info!(
+                    "create_blob: backfilling missing blob_data for dedup blob_id={}",
+                    existing_with_metadata.id
+                );
+                match crate::blob_data::store_blob_data(&existing_with_metadata.id, data.into())
+                    .await
+                {
+                    r if r.success => {}
+                    r => {
+                        tracing::warn!(
+                            "create_blob: failed to backfill blob_data for {}: {}",
+                            existing_with_metadata.id,
+                            r.message
+                        );
+                    }
+                }
+            }
+        }
+
         return Ok(existing_with_metadata);
     }
 
