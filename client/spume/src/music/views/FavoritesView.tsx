@@ -1,22 +1,13 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  on,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, on, onCleanup, Show } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
 } from "../../components/layout/FavoritesLayout";
-import { RemotePicker } from "../../components/forms/RemotePicker";
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
-import { getDataSource, RemoteOfflineError, getCurrentRemote } from "../data";
+import { getDataSource, RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
 import type {
   FavoriteItem,
@@ -35,10 +26,6 @@ import {
 } from "../hooks/contextMenu";
 import { routes } from "../utils/routing";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
-import { getAllRemotes } from "../../app/services/remotes/remoteManager";
-import { connectToRemote } from "../../app/services/remotes/connectionProgress";
-import { queryClient } from "../../queryClient";
-import { queryKeys } from "../queries/queryKeys";
 
 export interface FavoritesViewProps {
   onAddMusic: () => void;
@@ -53,38 +40,6 @@ export function FavoritesView(props: FavoritesViewProps) {
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
   const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
-
-  // 9c: view-local remote picker.
-  // initialized from the current global remote so the picker shows the
-  // right selection on mount without triggering an unwanted switch.
-  const [remotes] = createResource(getAllRemotes);
-  const [selectedRemoteIds, setSelectedRemoteIds] = createSignal<Set<string>>(
-    (() => {
-      const cur = getCurrentRemote();
-      return cur?.remote_id ? new Set([cur.remote_id]) : new Set<string>();
-    })()
-  );
-
-  // when the user picks a different remote, switch the global data source
-  // (favorites uses getDataSource() globally) and re-fetch.
-  createEffect(
-    on(
-      selectedRemoteIds,
-      async (ids, prevIds) => {
-        const newId = [...ids][0];
-        const prevId = prevIds ? [...prevIds][0] : null;
-        if (!newId || newId === prevId) return;
-        const result = await connectToRemote(newId);
-        if (!result.success && !result.cancelled) {
-          // remote offline — revert picker to previous selection
-          setSelectedRemoteIds(prevIds ?? new Set<string>());
-        } else if (result.success) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.favorites.infinite({}) });
-        }
-      },
-      { defer: true } // skip initial run — don't auto-switch on mount
-    )
-  );
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({
@@ -351,19 +306,6 @@ export function FavoritesView(props: FavoritesViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* 9c: remote picker — lets users switch remotes without leaving favorites */}
-      <Show when={(remotes() ?? []).length > 1}>
-        <div class="flex items-center justify-end gap-3 px-4 pt-2 pb-1">
-          <RemotePicker
-            remotes={remotes() ?? []}
-            value={selectedRemoteIds()}
-            onChange={setSelectedRemoteIds}
-            mode="single"
-            layout="inline"
-          />
-        </div>
-      </Show>
-
       <Show
         when={!favoritesQuery.isError}
         fallback={

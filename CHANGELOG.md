@@ -1,5 +1,16 @@
 # freqhole-release
 
+## 0.1.35
+
+### Patch Changes
+
+- 204447a: try to fix infinite loading loop in artist detail view
+- 0d23498: add share button to artist detail view
+- 05219fe: try to improve error + warning logging for playback issuez
+- ad10adb: add multi-remote toggle button in explore view to control if one, or all (enabled) remotes' data is shown in the graph viz
+- 721f0a7: try to improve image upload and add more error handling + logging
+- 76945ae: notify AppLayout (and any other listener) so the remotez list in the top nav refreshez without requiring a page reload
+
 ## 0.1.34
 
 ### Patch Changes

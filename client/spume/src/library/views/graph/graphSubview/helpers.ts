@@ -3,6 +3,8 @@ import type { Remote } from "../../../../app/services/storage/schemas/remote";
 import { resolveBlobUrl } from "../../../../music/services/storage/blobResolver";
 import { usesBlobResolver } from "../../../../music/services/storage/transportCache";
 import { resolveLocalBlobUrl } from "../../../../music/utils/images";
+import { RemoteMusicDataSource, RemoteOfflineError } from "../../../../music/data/remote/remoteSource";
+import { probeRemote } from "../../../../app/services/remotes/remoteHealth";
 
 // pick the "best" artist image for avatar/glyph display. priority:
 //   1. is_primary === true (user/server flagged as featured)
@@ -59,9 +61,28 @@ export async function buildImageUrls(
   return urls;
 }
 
+/**
+ * fetch the songs for an album from a specific remote.
+ *
+ * on a transient RemoteOfflineError (P2P connection not yet established,
+ * brief network blip) we defer to the existing health infrastructure:
+ * probeRemote performs a real connectivity check, marks the remote online
+ * if it succeeds, and returns a boolean. if the probe confirms the remote
+ * is reachable we retry once; otherwise we re-throw so the caller can
+ * surface a meaningful message.
+ */
 export async function fetchAlbumSongs(remote: Remote, albumId: string) {
-  const { RemoteMusicDataSource } = await import("../../../../music/data/remote/remoteSource");
-  const ds = new RemoteMusicDataSource(remote);
-  const resp = await ds.getAlbumSongs(albumId);
-  return resp.items;
+  try {
+    const ds = new RemoteMusicDataSource(remote);
+    return (await ds.getAlbumSongs(albumId)).items;
+  } catch (err) {
+    if (!(err instanceof RemoteOfflineError)) throw err;
+    // transient offline — run the central health probe (handles backoff,
+    // dedup, marks the remote online when reachable).
+    const isOnline = await probeRemote(remote, { force: true });
+    if (!isOnline) throw err;
+    // remote confirmed online: retry once with a fresh data-source instance.
+    const ds = new RemoteMusicDataSource(remote);
+    return (await ds.getAlbumSongs(albumId)).items;
+  }
 }

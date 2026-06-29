@@ -48,6 +48,9 @@ export interface AlbumDetailPopoverProps {
   onPlay?: (album: AlbumNodeData) => void;
   onShuffle?: (album: AlbumNodeData) => void;
   onAddToQueue?: (album: AlbumNodeData) => void;
+  /** when true, the play/shuffle/queue buttons are disabled and show a
+   *  loading indicator — used while songs are being fetched from the remote. */
+  isLoadingPlay?: boolean;
   onViewAlbum?: (album: AlbumNodeData, remoteId?: string) => void;
   onViewArtist?: (album: AlbumNodeData, remoteId?: string) => void;
   /** when supplied, the artist name in the header becomes a clickable
@@ -196,23 +199,26 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
           <div class="px-3 pb-2 flex flex-wrap gap-1">
             <Show when={props.onPlay}>
               <ActionButton
-                icon={IconNames.play}
-                label="play"
-                onClick={() => props.onPlay?.(album()!)}
+                icon={props.isLoadingPlay ? IconNames.loader : IconNames.play}
+                label={props.isLoadingPlay ? "loading..." : "play"}
+                onClick={() => !props.isLoadingPlay && props.onPlay?.(album()!)}
+                disabled={props.isLoadingPlay}
               />
             </Show>
             <Show when={props.onShuffle}>
               <ActionButton
                 icon={IconNames.shuffle}
                 label="shuffle"
-                onClick={() => props.onShuffle?.(album()!)}
+                onClick={() => !props.isLoadingPlay && props.onShuffle?.(album()!)}
+                disabled={props.isLoadingPlay}
               />
             </Show>
             <Show when={props.onAddToQueue}>
               <ActionButton
                 icon={IconNames.queue}
                 label="queue"
-                onClick={() => props.onAddToQueue?.(album()!)}
+                onClick={() => !props.isLoadingPlay && props.onAddToQueue?.(album()!)}
+                disabled={props.isLoadingPlay}
               />
             </Show>
             <Show when={props.onToggleFavorite}>
@@ -450,15 +456,17 @@ function ActionButton(props: {
   label: string;
   onClick: () => void;
   accent?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      class="flex items-center gap-1 px-2 py-1 rounded border border-white/10 text-[11px] text-white/80 hover:text-white hover:bg-white/5 hover:border-white/20 transition-colors"
+      class="flex items-center gap-1 px-2 py-1 rounded border border-white/10 text-[11px] text-white/80 hover:text-white hover:bg-white/5 hover:border-white/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       classList={{
         "text-[var(--color-accent-500,#ff1a9e)] border-[var(--color-accent-500,#ff1a9e)]/40":
           props.accent,
       }}
+      disabled={props.disabled}
       onClick={(e) => {
         e.stopPropagation();
         props.onClick();
