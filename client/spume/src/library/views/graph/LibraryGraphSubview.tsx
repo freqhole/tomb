@@ -1114,6 +1114,9 @@ function Inner(props: {
   // ---- selection state -----------------------------------------------
 
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  // tracks an in-flight play/shuffle/queue fetch so buttons disable while
+  // songs are loading and a second click can't queue the same album twice.
+  const [playingAlbumId, setPlayingAlbumId] = createSignal<string | null>(null);
 
   // taxon selection state — populated async when a value/group node is clicked.
   // for relation hubs, taxonId is null and the popover renders kind-level info only.
@@ -3465,45 +3468,57 @@ function Inner(props: {
               contributingRemotes={
                 selectedAlbum() ? contributingRemotesForAlbum(selectedAlbum()!) : undefined
               }
+              isLoadingPlay={playingAlbumId() !== null}
               onPlay={async (album) => {
+                const id = bareAlbumId(album);
+                if (playingAlbumId() !== null) return;
                 const r = remoteForNode(album);
                 if (!r) return;
+                setPlayingAlbumId(id);
                 try {
-                  const songs = await fetchAlbumSongs(r, bareAlbumId(album));
+                  const songs = await fetchAlbumSongs(r, id);
                   await playQueue(songs, {
-                    source: { type: "album", label: album.title, entity_id: bareAlbumId(album) },
+                    source: { type: "album", label: album.title, entity_id: id },
                   });
                 } catch (err) {
                   toast.error(`failed to play album: ${(err as Error).message}`);
+                } finally {
+                  setPlayingAlbumId(null);
                 }
               }}
               onShuffle={async (album) => {
+                if (playingAlbumId() !== null) return;
+                const id = bareAlbumId(album);
                 const r = remoteForNode(album);
                 if (!r) return;
+                setPlayingAlbumId(id);
                 try {
-                  const songs = await fetchAlbumSongs(r, bareAlbumId(album));
+                  const songs = await fetchAlbumSongs(r, id);
                   const shuffled = [...songs].sort(() => Math.random() - 0.5);
                   await playQueue(shuffled, {
-                    source: {
-                      type: "shuffle",
-                      label: album.title,
-                      entity_id: bareAlbumId(album),
-                    },
+                    source: { type: "shuffle", label: album.title, entity_id: id },
                   });
                 } catch (err) {
                   toast.error(`failed to shuffle album: ${(err as Error).message}`);
+                } finally {
+                  setPlayingAlbumId(null);
                 }
               }}
               onAddToQueue={async (album) => {
+                if (playingAlbumId() !== null) return;
+                const id = bareAlbumId(album);
                 const r = remoteForNode(album);
                 if (!r) return;
+                setPlayingAlbumId(id);
                 try {
-                  const songs = await fetchAlbumSongs(r, bareAlbumId(album));
+                  const songs = await fetchAlbumSongs(r, id);
                   await addToQueue(songs, {
-                    source: { type: "album", label: album.title, entity_id: bareAlbumId(album) },
+                    source: { type: "album", label: album.title, entity_id: id },
                   });
                 } catch (err) {
                   toast.error(`failed to enqueue album: ${(err as Error).message}`);
+                } finally {
+                  setPlayingAlbumId(null);
                 }
               }}
               onViewAlbum={(album, pickedRemoteId) => {

@@ -378,6 +378,9 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("failed to query album songs");
     }
 
+    // clear offline status on a successful album-songs fetch
+    await this.handleSuccessfulRequest();
+
     return {
       items: result.data.items.map((item) =>
         adaptSongFromAPI(item, this.baseUrl, this.remoteId),
