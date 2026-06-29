@@ -28,7 +28,7 @@ import { QueueSidebar } from "../src/components/player/QueueSidebar";
 import { VirtualAlbumGrid } from "../src/components/virtualized/VirtualAlbumGrid";
 import { VirtualFeedList } from "../src/components/virtualized/VirtualFeedList";
 import { VirtualSongList } from "../src/components/virtualized/VirtualSongList";
-import WalkCanvas from "../src/components/graph/WalkCanvas";
+import WalkCanvas, { type WalkApi } from "../src/components/graph/WalkCanvas";
 import { createWalkerDriver } from "../src/components/graph/drivers/GraphDriver";
 import { MOCK_GRAPH } from "../src/components/graph/mockData";
 import type { Song as DomainSong } from "../src/music/data/types";
@@ -328,6 +328,60 @@ export function FullAppDemoBody() {
   // rendered with explicit pixel dims (its default is position:fixed which
   // escapes the SuperStory layout entirely).
   const [libGraphSize, setLibGraphSize] = createSignal({ w: 0, h: 0 });
+  // captured from WalkCanvas.onReady — the only way to call fit() which
+  // is a viewport operation owned by the canvas, not the worker driver.
+  let libWalkApi: WalkApi | null = null;
+  // cancel token for any pending fit subscription.
+  let cancelFitOnSettle: (() => void) | null = null;
+  // per-step viewport config for the coach demo walk.
+  // kMin/kMax: zoom floor/ceiling. txShift/tyShift: fractional canvas offsets
+  // applied after centering on nodes (positive txShift = content right on screen,
+  // positive tyShift = content up on screen).
+  const STEP_VIEW_CONFIG: Record<
+    number,
+    { kMin: number; kMax: number; txShift: number; tyShift: number }
+  > = {
+    [-1]: { kMin: 0.6, kMax: 0.75, txShift: 0, tyShift: 0.15 }, // root
+    [0]: { kMin: 0.6, kMax: 0.75, txShift: 0, tyShift: 0.15 }, // remote::local
+    [1]: { kMin: 0.45, kMax: 0.6, txShift: 0.15, tyShift: 0.15 }, // genres - shift right
+    [2]: { kMin: 0.45, kMax: 0.6, txShift: 0, tyShift: 0.45 }, // electronic - move up
+    [3]: { kMin: 0.45, kMax: 0.6, txShift: 0, tyShift: 0.5 }, // artist - move up more
+  };
+  // wait for `count` topology changes from the worker, then apply the
+  // per-step viewport config. skips intermediate topologies when multiple
+  // repivots are queued (e.g. root reset + forward walk).
+  const fitAfterTopologies = (count: number) => {
+    cancelFitOnSettle?.();
+    const step = lastLibWalkStep;
+    let remaining = count;
+    const unsub = superStoryDriver.onTopology(() => {
+      remaining--;
+      if (remaining > 0) return;
+      unsub();
+      cancelFitOnSettle = null;
+      const cfg = STEP_VIEW_CONFIG[step] ?? { kMin: 0.3, kMax: 0.5, txShift: 0, tyShift: 0 };
+      const W = libGraphSize().w;
+      const H = libGraphSize().h;
+      if (!W || !H || !libWalkApi) return;
+      void superStoryDriver.getBounds().then((bounds) => {
+        if (!bounds || !libWalkApi) return;
+        const FIT_MARGIN = 40;
+        const rangeX = bounds.maxX - bounds.minX;
+        const rangeY = bounds.maxY - bounds.minY;
+        const cx = (bounds.minX + bounds.maxX) / 2;
+        const cy = (bounds.minY + bounds.maxY) / 2;
+        const kFit =
+          rangeX > 0 && rangeY > 0
+            ? Math.min((W - 2 * FIT_MARGIN) / rangeX, (H - 2 * FIT_MARGIN) / rangeY)
+            : cfg.kMin;
+        const k = Math.max(cfg.kMin, Math.min(cfg.kMax, kFit));
+        const tx = W / 2 - cx * k + cfg.txShift * W;
+        const ty = H / 2 - cy * k - cfg.tyShift * H;
+        libWalkApi.applyView({ k, tx, ty });
+      });
+    });
+    cancelFitOnSettle = unsub;
+  };
   // selected node id for the library graph detail popover overlay.
   const [libGraphSelectedId, setLibGraphSelectedId] = createSignal<string | null>(null);
   // scripted walk path used by coach `walkLibraryGraph` (local -> genres ->
@@ -786,20 +840,26 @@ export function FullAppDemoBody() {
             superStoryDriver.repivot("root", true);
             setLibGraphSelectedId(null);
             lastLibWalkStep = -1;
+            fitAfterTopologies(1);
           }
           return;
         }
         if (target === lastLibWalkStep) return;
         // when scrubbing backwards, repivot from root then walk forward to
-        // the target to keep the breadcrumb consistent.
+        // the target to keep the breadcrumb consistent. count each repivot
+        // so fitAfterTopologies waits for the last topology change.
+        let repivotCount = 0;
         if (target < lastLibWalkStep) {
           superStoryDriver.repivot("root", true);
+          repivotCount++;
           for (let i = 0; i <= target; i++) {
             superStoryDriver.repivot(LIB_WALK_PATH[i].pivot);
+            repivotCount++;
           }
         } else {
           for (let i = lastLibWalkStep + 1; i <= target; i++) {
             superStoryDriver.repivot(LIB_WALK_PATH[i].pivot);
+            repivotCount++;
           }
         }
         lastLibWalkStep = target;
@@ -807,6 +867,8 @@ export function FullAppDemoBody() {
         setLibGraphSelectedId(
           target === LIB_WALK_PATH.length - 1 ? LIB_WALK_PATH[LIB_WALK_PATH.length - 1].pivot : null
         );
+        // fit after all repivots have committed their topology.
+        fitAfterTopologies(repivotCount);
       },
     };
     registerCoachContext(ctx);
@@ -1711,66 +1773,68 @@ export function FullAppDemoBody() {
   // determine which view to show
   const ROUTES_WITH_LIBRARY: Route[] = ["songs", "albums", "artists", "playlists", "favorites"];
   const emptyLibraryView = () => (
-    <div class="flex h-full w-full items-center justify-center p-6">
-      <div class="text-center max-w-md">
-        <div class="mb-6 flex justify-center">
-          <Icon name="freqhole" size={160} color="var(--color-accent-500)" />
-        </div>
-        <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">
-          welcome to freqhole
-        </h1>
-        <p class="text-[var(--color-text-secondary)] mb-5 leading-snug">
-          get started by adding music, connecting to a remote server, or tuning into a radio
-          station.
-        </p>
-        <div class="flex gap-3 justify-center flex-wrap">
-          <button
-            type="button"
-            data-coach-anchor="addMusicButton"
-            class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
-            onClick={() => runFakeLibraryScan({ durationMs: 1500 })}
-          >
-            add music
-          </button>
-          <button
-            type="button"
-            data-coach-anchor="addRemoteButton"
-            class="px-4 py-2 text-sm rounded-md bg-[var(--color-accent-500,#d63384)] text-white hover:opacity-90"
-            onClick={() => setActiveModal("add-remote")}
-          >
-            add remote
-          </button>
-          <button
-            type="button"
-            class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
-            onClick={() => navigateTo("radio")}
-          >
-            listen to radio
-          </button>
-        </div>
-        <div class="mt-4 text-sm text-[var(--color-text-muted)] italic">...or go to settings</div>
-        <Show when={fakeScanRunning() || fakeScanProgress() >= 1}>
-          <div class="mt-6 mx-auto max-w-xs">
-            <div class="text-xs text-[var(--color-text-secondary)] mb-1.5 text-left">
-              <Show
-                when={fakeScanRunning()}
-                fallback={
-                  <span class="text-[var(--color-accent-500,#d63384)]">
-                    scan complete · 247 songs added
-                  </span>
-                }
-              >
-                scanning local files… {Math.round(fakeScanProgress() * 100)}%
-              </Show>
-            </div>
-            <div class="h-1.5 w-full rounded-full bg-[var(--color-bg-secondary)] overflow-hidden">
-              <div
-                class="h-full bg-[var(--color-accent-500,#d63384)] transition-[width]"
-                style={{ width: `${Math.round(fakeScanProgress() * 100)}%` }}
-              />
-            </div>
+    <div class="h-full w-full overflow-y-auto">
+      <div class="flex min-h-full flex-col items-center p-3 wide:p-6">
+        <div class="text-center max-w-md">
+          <div class="mb-6 flex justify-center">
+            <Icon name="freqhole" size={160} color="var(--color-accent-500)" />
           </div>
-        </Show>
+          <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">
+            welcome to freqhole
+          </h1>
+          <p class="text-[var(--color-text-secondary)] mb-5 leading-snug">
+            get started by adding music, connecting to a remote server, or tuning into a radio
+            station.
+          </p>
+          <div class="flex gap-3 justify-center flex-wrap">
+            <button
+              type="button"
+              data-coach-anchor="addMusicButton"
+              class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
+              onClick={() => runFakeLibraryScan({ durationMs: 1500 })}
+            >
+              add music
+            </button>
+            <button
+              type="button"
+              data-coach-anchor="addRemoteButton"
+              class="px-4 py-2 text-sm rounded-md bg-[var(--color-accent-500,#d63384)] text-white hover:opacity-90"
+              onClick={() => setActiveModal("add-remote")}
+            >
+              add remote
+            </button>
+            <button
+              type="button"
+              class="px-4 py-2 text-sm rounded-md bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border-default)]"
+              onClick={() => navigateTo("radio")}
+            >
+              listen to radio
+            </button>
+          </div>
+          <div class="mt-4 text-sm text-[var(--color-text-muted)] italic">...or go to settings</div>
+          <Show when={fakeScanRunning() || fakeScanProgress() >= 1}>
+            <div class="mt-6 mx-auto max-w-xs">
+              <div class="text-xs text-[var(--color-text-secondary)] mb-1.5 text-left">
+                <Show
+                  when={fakeScanRunning()}
+                  fallback={
+                    <span class="text-[var(--color-accent-500,#d63384)]">
+                      scan complete · 247 songs added
+                    </span>
+                  }
+                >
+                  scanning local files… {Math.round(fakeScanProgress() * 100)}%
+                </Show>
+              </div>
+              <div class="h-1.5 w-full rounded-full bg-[var(--color-bg-secondary)] overflow-hidden">
+                <div
+                  class="h-full bg-[var(--color-accent-500,#d63384)] transition-[width]"
+                  style={{ width: `${Math.round(fakeScanProgress() * 100)}%` }}
+                />
+              </div>
+            </div>
+          </Show>
+        </div>
       </div>
     </div>
   );
@@ -2453,6 +2517,9 @@ export function FullAppDemoBody() {
               height={libGraphSize().h}
               selectedId={libGraphSelectedId()}
               onSelect={(id) => setLibGraphSelectedId(id)}
+              onReady={(api) => {
+                libWalkApi = api;
+              }}
             />
             <Show when={libGraphSelectedId()}>
               {(id) => {

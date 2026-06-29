@@ -12,8 +12,13 @@ import { nodeDisplayRadius as sharedNodeDisplayRadius } from "./nodeRadius";
 
 /** imperative api for controlling the walk canvas from outside. obtained via onReady prop. */
 export interface WalkApi {
-  /** fit all visible nodes into the viewport with a margin. no-op if no visible nodes. */
-  fit(): void;
+  /** fit all visible nodes into the viewport with a margin.
+   *  `maxScale` caps the resulting zoom so a sparse graph doesn't over-zoom;
+   *  `minScale` floors the zoom so a wide graph doesn't shrink nodes to nothing.
+   *  both default to 8 / 0.1 (effectively uncapped). no-op if no visible nodes. */
+  fit(maxScale?: number, minScale?: number): void;
+  /** directly set the viewport transform. clears the user-panned latch. */
+  applyView(view: { k: number; tx: number; ty: number }): void;
   /** reset viewport to origin (tx=0, ty=0, k=1), clears auto-follow latch. does not touch worker state. */
   resetView(): void;
   /** repivot to the initial pivot with breadcrumb reset, then reset viewport. */
@@ -892,7 +897,7 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     // S24: getBounds returns node centers; pad by 40px to keep largest nodes in frame.
     const FIT_MARGIN = 40;
     const api: WalkApi = {
-      fit() {
+      fit(maxScale = 8, minScale = 0.1) {
         void client.getBounds().then((bounds) => {
           if (!bounds) return;
           const W = w();
@@ -900,15 +905,23 @@ export default function WalkCanvas(props: WalkCanvasProps) {
           const rangeX = bounds.maxX - bounds.minX;
           const rangeY = bounds.maxY - bounds.minY;
           if (rangeX <= 0 || rangeY <= 0) return;
-          const k = Math.min(
-            Math.max(0.1, Math.min(8, (W - 2 * FIT_MARGIN) / rangeX)),
-            Math.max(0.1, Math.min(8, (H - 2 * FIT_MARGIN) / rangeY))
+          const k = Math.max(
+            minScale,
+            Math.min(
+              maxScale,
+              Math.max(0.1, Math.min(8, (W - 2 * FIT_MARGIN) / rangeX)),
+              Math.max(0.1, Math.min(8, (H - 2 * FIT_MARGIN) / rangeY))
+            )
           );
           const cx = (bounds.minX + bounds.maxX) / 2;
           const cy = (bounds.minY + bounds.maxY) / 2;
           setView({ k, tx: W / 2 - cx * k, ty: H / 2 - cy * k });
           userPanned = false;
         });
+      },
+      applyView(v) {
+        setView(v);
+        userPanned = false;
       },
       resetView() {
         setView({ tx: 0, ty: 0, k: 1 });
