@@ -59,6 +59,7 @@ import { createBulkHandlers } from "./graphSubview/bulkHandlers";
 import { addToQueue, playQueue } from "../../../music/services/queue/queue";
 import { routes, getDefaultRoute } from "../../../music/utils/routing";
 import { useToggleFavoriteMutation } from "../../../music/queries/favorites";
+import { queryKeys } from "../../../music/queries/queryKeys";
 import { toast } from "../../../components/feedback/Toast";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
@@ -1117,6 +1118,30 @@ function Inner(props: {
   // tracks an in-flight play/shuffle/queue fetch so buttons disable while
   // songs are loading and a second click can't queue the same album twice.
   const [playingAlbumId, setPlayingAlbumId] = createSignal<string | null>(null);
+
+  // patch album isFavorite in nodesByRemote + extraNodesById in place.
+  // used for optimistic favorite updates since the graph nodes are
+  // decoupled from the tanstack query cache that useToggleFavoriteMutation
+  // updates.
+  const patchAlbumFavorite = (albumId: string, isFavorite: boolean) => {
+    for (const [remoteId, list] of nodesByRemote()) {
+      const idx = list.findIndex((a) => bareAlbumId(a) === albumId);
+      if (idx < 0) continue;
+      const updated = [...list];
+      updated[idx] = { ...updated[idx], isFavorite };
+      setNodesFor(remoteId, updated);
+    }
+    setExtraNodesById((prev) => {
+      const next = new Map(prev);
+      for (const [id, node] of next) {
+        if ("artistId" in node) continue; // skip artist nodes
+        if (bareAlbumId(node as AlbumNodeData) === albumId) {
+          next.set(id, { ...(node as AlbumNodeData), isFavorite });
+        }
+      }
+      return next;
+    });
+  };
 
   // taxon selection state — populated async when a value/group node is clicked.
   // for relation hubs, taxonId is null and the popover renders kind-level info only.
@@ -3548,16 +3573,22 @@ function Inner(props: {
                 pivotKeepingPanel(valueNodeId(remoteId, kind as RelationKind, slug(label)));
               }}
               onToggleFavorite={(album) => {
+                const id = bareAlbumId(album);
                 const r = remoteForNode(album);
+                const nextFav = !(album.isFavorite ?? false);
+                // optimistic update: patch the node data immediately so the
+                // heart flips without waiting for a query refetch.
+                patchAlbumFavorite(id, nextFav);
                 favoriteMutation.mutate(
                   {
                     targetType: "album",
-                    targetId: bareAlbumId(album),
-                    isFavorite: !(album.isFavorite ?? false),
+                    targetId: id,
+                    isFavorite: nextFav,
                     remote: r,
                   },
                   {
                     onError: (err) => {
+                      patchAlbumFavorite(id, !nextFav); // revert
                       toast.error(`failed to toggle favorite: ${(err as Error).message}`);
                     },
                   }
@@ -3657,10 +3688,23 @@ function Inner(props: {
                   : undefined
               }
               onToggleFavorite={(artist, next) => {
+                const r = remoteForArtist(artist);
+                // optimistic update: patch the artist detail query cache
+                // directly using the remote-scoped key that artistQuery uses,
+                // since updateArtistInCache only writes the unscoped key.
+                queryClient.setQueryData(
+                  queryKeys.artists.detail(artist.artistId, r?.remote_id),
+                  (old: any) => (old ? { ...old, is_favorite: next } : old)
+                );
                 favoriteMutation.mutate(
-                  { targetType: "artist", targetId: artist.artistId, isFavorite: next },
+                  { targetType: "artist", targetId: artist.artistId, isFavorite: next, remote: r },
                   {
                     onError: (err) => {
+                      // revert optimistic update
+                      queryClient.setQueryData(
+                        queryKeys.artists.detail(artist.artistId, r?.remote_id),
+                        (old: any) => (old ? { ...old, is_favorite: !next } : old)
+                      );
                       toast.error(`failed to toggle favorite: ${(err as Error).message}`);
                     },
                   }
