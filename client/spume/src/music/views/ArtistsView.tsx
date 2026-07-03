@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { MusicIcon } from "../../components/icons/registry";
-import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
+import { LoadingState } from "../../components/feedback";
 import { appState } from "../../app/services/storage/db";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -171,16 +171,19 @@ export function ArtistsView(props: ArtistsViewProps) {
     setTimeout(() => setIsResetting(false), 0);
   });
 
-  // auto-fetch next page when query becomes idle and has more data.
-  // written as a plain createEffect (not on()) to avoid creating a new object
-  // reference on every tick — solid's on() uses === comparison, and a new
-  // object always looks "changed", causing needless handler invocations during
-  // rapid page-load bursts on large libraries.
-  createEffect(() => {
-    if (artistsQuery.hasNextPage && !artistsQuery.isFetchingNextPage && !artistsQuery.isFetching) {
+  // only fetch next page when user scrolls near the bottom of the list.
+  // this avoids loading all artists just to reach a specific letter.
+  // the demand-fetch effect (for letter clicks) handles targeted jumps.
+  const handleListEndReached = () => {
+    if (
+      artistsListEnabled() &&
+      artistsQuery.hasNextPage &&
+      !artistsQuery.isFetchingNextPage &&
+      !artistsQuery.isFetching
+    ) {
       artistsQuery.fetchNextPage();
     }
-  });
+  };
 
   // flatten all pages of artists
   const artistsData = createMemo(() => {
@@ -266,35 +269,60 @@ export function ArtistsView(props: ArtistsViewProps) {
     }));
   });
 
-  // calculate disabled letters for alphabet nav (only when sorted by name)
-  const disabledLetters = createMemo(() => {
+  // lazily discover empty letters: a letter is only disabled once we've
+  // loaded artists up to or past it (confirming its absence). letters not
+  // yet loaded remain enabled — clicking them triggers a demand fetch.
+  const confirmedEmptyLetters = createMemo(() => {
     if (sortBy() !== "name") return new Set<string>();
-
     const artists = sortedArtists();
     if (artists.length === 0) return new Set<string>();
+    // find the highest first-letter covered by loaded data
+    let highestLetter = "!";
+    if (!artistsQuery.hasNextPage) {
+      highestLetter = "Z";
+    } else {
+      const lastArtist = artists[artists.length - 1];
+      const c = lastArtist.name[0]?.toUpperCase() ?? "";
+      if (/[A-Z]/.test(c)) highestLetter = c;
+    }
+    const present = new Set<string>();
+    for (const a of artists) {
+      const c = a.name[0]?.toUpperCase() ?? "";
+      if (/[A-Z]/.test(c)) present.add(c);
+      else present.add("#");
+    }
+    const empty = new Set<string>();
+    for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")) {
+      if (letter <= highestLetter && !present.has(letter)) empty.add(letter);
+    }
+    return empty;
+  });
 
-    const disabledSet = new Set<string>();
-    const allLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split("");
+  // all letters enabled by default; only disable confirmed-empty ones.
+  const disabledLetters = confirmedEmptyLetters;
 
-    // build set of letters that DO have artists
-    const enabledLetters = new Set<string>();
-    artists.forEach((artist) => {
-      const firstChar = artist.name[0]?.toUpperCase() || "";
-      if (/[A-Z]/.test(firstChar)) {
-        enabledLetters.add(firstChar);
-      } else {
-        enabledLetters.add("#");
-      }
-    });
+  // the letter the user wants to jump to; cleared once we've scrolled there.
+  const [targetLetter, setTargetLetter] = createSignal<string | null>(null);
 
-    // disable letters that are NOT in the enabled set
-    allLetters.forEach((letter) => {
-      if (!enabledLetters.has(letter)) {
-        disabledSet.add(letter);
-      }
-    });
-
-    return disabledSet;
+  // demand fetch: when a target letter is set and we haven't loaded that far
+  // yet, keep fetching pages until we cover it, then scroll to it.
+  createEffect(() => {
+    const target = targetLetter();
+    if (!target) return;
+    const artists = sortedArtists();
+    if (artists.length === 0) return;
+    const allLoaded = !artistsQuery.hasNextPage;
+    const lastLetter = artists[artists.length - 1].name[0]?.toUpperCase() ?? "";
+    const covered = allLoaded || lastLetter >= target;
+    if (covered) {
+      setTargetLetter(null);
+      const index = letterToIndexMap().get(target);
+      if (index !== undefined) scrollToIndex()?.(index);
+      return;
+    }
+    if (artistsQuery.hasNextPage && !artistsQuery.isFetchingNextPage && !artistsQuery.isFetching) {
+      artistsQuery.fetchNextPage();
+    }
   });
 
   // calculate index for each letter (for A-Z navigation)
@@ -729,7 +757,6 @@ export function ArtistsView(props: ArtistsViewProps) {
                   selectedId={selectedArtistId()}
                   scrollPaddingTop={100}
                   onItemClick={(item) => {
-                    setIsLocalClick(true);
                     // show detail on narrow viewport
                     if (isNarrow()) {
                       setShowingDetailOnNarrow(true);
@@ -750,9 +777,15 @@ export function ArtistsView(props: ArtistsViewProps) {
                     }
                   }}
                   getContextMenuActions={getContextMenuActions}
+                  onEndReached={handleListEndReached}
                   height={listHeight()}
                 />
-                <LoadingMoreIndicator isLoading={artistsQuery.isFetchingNextPage} />
+                <Show when={artistsQuery.isFetchingNextPage}>
+                  <div class="px-6 py-2 text-xs text-[var(--color-text-tertiary)] flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full border border-[var(--color-text-tertiary)] border-t-transparent animate-spin" />
+                    loading more artists…
+                  </div>
+                </Show>
               </>
             </Show>
           </Show>
@@ -822,11 +855,13 @@ export function ArtistsView(props: ArtistsViewProps) {
           setCurrentLetter(letter);
           const index = letterToIndexMap().get(letter);
           if (index !== undefined) {
-            const scroll = scrollToIndex();
-            if (scroll) {
-              scroll(index);
-            }
+            // letter is already in loaded data — scroll immediately
+            scrollToIndex()?.(index);
+          } else if (!confirmedEmptyLetters().has(letter)) {
+            // not yet loaded and not confirmed empty — demand-fetch until found
+            setTargetLetter(letter);
           }
+          // confirmed-empty letters are visually disabled; clicks are no-ops
         }}
         sortDirection={sortDirection()}
       />
