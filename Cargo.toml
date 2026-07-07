@@ -88,8 +88,8 @@ walkdir = "2.4"
 inquire = "0.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
-iroh = "0.98"
-iroh-blobs = "0.100"
+iroh = "1.0.1"
+iroh-blobs = "0.103"
 blake3 = "1.5"
 
 # release profile optimizations for smaller binaries
