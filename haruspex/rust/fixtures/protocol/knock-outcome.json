@@ -1,0 +1,11 @@
+{
+    "v": 1,
+    "type": "knock-outcome",
+    "knockId": "knock-1",
+    "status": "accepted",
+    "grantedRole": "member",
+    "grantedResourceIds": [
+        "doc-1"
+    ],
+    "byNodeId": "node-admin789"
+}

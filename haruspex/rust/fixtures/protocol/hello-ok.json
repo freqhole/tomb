@@ -1,0 +1,9 @@
+{
+    "v": 1,
+    "type": "hello-ok",
+    "nodeId": "node-hub456",
+    "username": "hub",
+    "capabilities": {
+        "browse": "public"
+    }
+}

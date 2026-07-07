@@ -1,0 +1,13 @@
+{
+    "v": 1,
+    "type": "knock-request",
+    "knockId": "knock-1",
+    "nodeId": "node-stranger",
+    "username": "stranger",
+    "message": "let me in, i know alice",
+    "scope": {
+        "kind": "resource",
+        "resourceId": "doc-1",
+        "requestedRole": "member"
+    }
+}

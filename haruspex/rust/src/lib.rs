@@ -8,13 +8,16 @@
 //! (`stores`) every app-facing api sits behind, sqlite implementations of
 //! all of them (`sqlite`), the acl evaluator (`acl`) - `effective_role`,
 //! the `RoleResolver` seam, `Caller`, and the `on_access_changed` revocation
-//! hook - and the knock accept side-effect seam (`knock`) - `KnockOutcome`
-//! and the `KnockPolicy` trait.
+//! hook - the knock accept side-effect seam (`knock`) - `KnockOutcome` and
+//! the `KnockPolicy` trait - and the friendz wire protocol (`protocol`),
+//! which covers message types, codec, the transport-agnostic
+//! `FriendzService`, and gossip digest computation/merge logic.
 
 pub mod acl;
 pub mod error;
 pub mod identity;
 pub mod knock;
+pub mod protocol;
 pub mod sqlite;
 pub mod stores;
 

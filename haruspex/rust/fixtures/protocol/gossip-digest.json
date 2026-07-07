@@ -1,0 +1,30 @@
+{
+    "v": 1,
+    "type": "gossip-digest",
+    "pendingKnocks": [
+        {
+            "knockId": "knock-1",
+            "nodeId": "node-stranger",
+            "username": "stranger",
+            "message": "let me in",
+            "scope": {
+                "kind": "browse"
+            },
+            "knockedAt": "2026-07-01T00:00:00Z"
+        }
+    ],
+    "profiles": [
+        {
+            "peerNodeId": "node-abc123",
+            "profileDocId": "doc-profile-alice",
+            "updatedAt": "2026-07-01T12:00:00Z"
+        }
+    ],
+    "appPayload": {
+        "skein": {
+            "sharedCanvasIds": [
+                "doc-canvas-1"
+            ]
+        }
+    }
+}

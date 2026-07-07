@@ -1,0 +1,7 @@
+{
+    "v": 1,
+    "type": "identity-update",
+    "nodeId": "node-abc123",
+    "username": "alice-2",
+    "avatarDataUrl": "data:image/png;base64,def456"
+}
