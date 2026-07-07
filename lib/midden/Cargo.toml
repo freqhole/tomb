@@ -26,15 +26,36 @@ iroh = { version = "1.0", default-features = false, features = ["tls-ring"] }
 iroh-blobs = { version = "0.103", default-features = false }
 js-sys = "0.3"
 n0-future = "0.3"
+range-collections = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde-wasm-bindgen = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-subscriber-wasm = "0.1"
-tokio = { version = "1", default-features = false, features = ["io-util"] }
+# io-util: AsyncReadExt for the chunked BlobReader loop in
+# download_verified_streaming. sync: mpsc/oneshot channels backing
+# ImportSession's chunked add_stream import. both wasm-safe (no runtime).
+tokio = { version = "1", default-features = false, features = [
+    "io-util",
+    "sync",
+] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+# OPFS bindings for the opfs_store module (worker-only sync access handles)
+web-sys = { version = "0.3", features = [
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemReadWriteOptions",
+    "FileSystemSyncAccessHandle",
+    "Navigator",
+    "StorageManager",
+    "Window",
+    "WorkerGlobalScope",
+    "WorkerNavigator",
+] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["--enable-nontrapping-float-to-int", "--enable-bulk-memory"]

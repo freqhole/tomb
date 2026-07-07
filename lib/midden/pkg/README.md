@@ -2,6 +2,13 @@
 
 browser WASM client for freqhole P2P federation.
 
+part of the [xl-refactor plan](https://github.com/freqhole/tomb/blob/main/docs/xl-refactor/OVERVIEW.md).
+see [PHASE_1_MIDDEN_UNIFICATION.md](https://github.com/freqhole/tomb/blob/main/docs/xl-refactor/PHASE_1_MIDDEN_UNIFICATION.md)
+for the full design and extraction plan. this repo is `tomb/client/midden` relocated here as
+the base, absorbing `skein/midden`'s capabilities (opfs-backed persistent blob storage,
+cancel/resume, chunked import sessions); both app-local copies retire once loam and spume are
+repointed at this package.
+
 ## what it does
 
 midden provides a `MiddenNode` class that lets browsers connect to freqhole peers over iroh P2P. just need the peer's node_id (public key) to connect - iroh handles discovery via relay.

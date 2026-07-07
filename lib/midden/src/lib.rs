@@ -9,6 +9,10 @@
 
 use bao_tree::ChunkRanges;
 use indexmap::IndexMap;
+// the opfs store backs the wasm build; on native it is only exercised by
+// the unit tests (via the in-memory storage shim)
+#[cfg(any(target_arch = "wasm32", test))]
+mod opfs_store;
 use iroh::endpoint::presets;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::ProtocolHandler;
@@ -16,12 +20,16 @@ use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use iroh_blobs::api::downloader::Downloader;
 use iroh_blobs::api::Store;
 use iroh_blobs::api::TempTag;
+use iroh_blobs::provider::events::{
+    AbortReason, ConnectMode, EventMask, EventSender, ProviderMessage, RequestMode,
+};
 use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
 use iroh_blobs::{BlobsProtocol, Hash, HashAndFormat};
 use js_sys::{Function as JsFunction, Uint8Array};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info, warn};
@@ -440,6 +448,145 @@ pub fn hash_blake3(data: &[u8]) -> String {
     blake3::hash(data).to_hex().to_string()
 }
 
+/// opfs store selftest — runs the full import/export round trip against
+/// real OPFS through the real iroh-blobs api. worker context required
+/// (sync access handles). wasm-only debug helper, used for manual
+/// debugging from the blob worker, not from automated tests.
+#[cfg(target_family = "wasm")]
+#[wasm_bindgen]
+pub async fn opfs_store_selftest() -> Result<String, JsError> {
+    opfs_store::selftest().await.map_err(|e| JsError::new(&e))
+}
+
+/// persistence selftest: blobs + tags survive a store shutdown/reopen over
+/// the same OPFS directory. worker context required. wasm-only debug
+/// helper, used for manual debugging from the blob worker.
+#[cfg(target_family = "wasm")]
+#[wasm_bindgen]
+pub async fn opfs_store_selftest_persistence() -> Result<String, JsError> {
+    opfs_store::selftest_persistence()
+        .await
+        .map_err(|e| JsError::new(&e))
+}
+
+/// incremental blake3 hasher for streaming uploads — feed fixed-size chunks
+/// via update() and read the final hex hash from finalize(). lets JS hash a
+/// File while streaming it (file.stream() reader loop) instead of holding
+/// the whole payload in memory for a one-shot hash_blake3().
+#[wasm_bindgen]
+pub struct Blake3Hasher {
+    inner: blake3::Hasher,
+}
+
+#[wasm_bindgen]
+impl Blake3Hasher {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Blake3Hasher {
+        Blake3Hasher {
+            inner: blake3::Hasher::new(),
+        }
+    }
+
+    /// absorb the next chunk of data.
+    pub fn update(&mut self, chunk: &[u8]) {
+        self.inner.update(chunk);
+    }
+
+    /// finish and return the hash as a 64-char hex string. the hasher can
+    /// keep absorbing after this (blake3 finalize is non-destructive), but
+    /// callers should treat the session as done.
+    pub fn finalize(&self) -> String {
+        self.inner.finalize().to_hex().to_string()
+    }
+}
+
+impl Default for Blake3Hasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// adapter: tokio mpsc receiver -> Stream, for feeding add_stream.
+/// (tokio_stream::wrappers::ReceiverStream without the extra dependency.)
+struct ReceiverStream<T>(tokio::sync::mpsc::Receiver<T>);
+
+impl<T> n0_future::Stream for ReceiverStream<T> {
+    type Item = T;
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<T>> {
+        self.get_mut().0.poll_recv(cx)
+    }
+}
+
+/// chunked import session — the streaming counterpart to import_blob.
+///
+/// created via MiddenNode::start_import(). JS feeds fixed-size chunks with
+/// push() (backpressured: the promise resolves only once the chunk is
+/// queued), then finish() completes the import and returns the blake3 hash.
+/// the wasm boundary never sees the whole payload at once; the store's
+/// ImportByteStream machinery computes the bao tree incrementally.
+///
+/// the finished blob is pinned in the node's active_tags (same as
+/// import_blob) until release_blob() is called.
+#[wasm_bindgen]
+pub struct ImportSession {
+    sender: RefCell<Option<tokio::sync::mpsc::Sender<std::io::Result<bytes::Bytes>>>>,
+    result_rx: RefCell<Option<tokio::sync::oneshot::Receiver<Result<TempTag, String>>>>,
+    active_tags: Arc<Mutex<IndexMap<Hash, TempTag>>>,
+}
+
+#[wasm_bindgen]
+impl ImportSession {
+    /// queue the next chunk. resolves once the chunk has been accepted by
+    /// the import stream (bounded channel — this is the backpressure point).
+    pub async fn push(&self, chunk: &[u8]) -> Result<(), JsError> {
+        // clone the sender out of the RefCell so no borrow is held across await
+        let sender = self
+            .sender
+            .borrow()
+            .clone()
+            .ok_or_else(|| JsError::new("import session already finished or aborted"))?;
+        sender
+            .send(Ok(bytes::Bytes::copy_from_slice(chunk)))
+            .await
+            .map_err(|_| JsError::new("import task ended unexpectedly"))?;
+        Ok(())
+    }
+
+    /// signal end-of-stream, wait for the import to complete, pin the
+    /// resulting blob, and return its blake3 hash as a hex string.
+    pub async fn finish(&self) -> Result<String, JsError> {
+        // drop the sender — end-of-stream for the import task
+        self.sender.borrow_mut().take();
+        let rx = self
+            .result_rx
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| JsError::new("finish already called or session aborted"))?;
+        let tt = rx
+            .await
+            .map_err(|_| JsError::new("import task dropped before completing"))?
+            .map_err(|e| JsError::new(&e))?;
+        let hash = tt.hash();
+        if let Ok(mut tags) = self.active_tags.lock() {
+            tags.insert(hash, tt);
+        }
+        Ok(hash.to_hex().to_string())
+    }
+
+    /// abort the import. any partially-imported data is left to GC.
+    pub fn abort(&self) {
+        if let Some(tx) = self.sender.borrow_mut().take() {
+            // best-effort: fail the import stream fast instead of letting it
+            // complete as a truncated-but-valid blob
+            let _ = tx.try_send(Err(std::io::Error::other("import aborted")));
+        }
+        self.result_rx.borrow_mut().take();
+    }
+}
+
 /// parse peer address - accepts either:
 /// - plain node_id (64 hex chars): "13a257b5367d6b5b7ceb67ec6246c3dafbe886af8ed429408cd7619c7a4787b1"
 /// - full endpoint JSON: {"id":"...","addrs":[{"Relay":"..."},{"Ip":"..."}]}
@@ -461,6 +608,112 @@ fn parse_peer_addr(peer_addr: &str) -> Result<EndpointAddr, String> {
     Ok(EndpointAddr::from_parts(node_id, []))
 }
 
+/// per-hash allow-list for blob gets: maps a blob's blake3 hash to the set of
+/// peer node ids (hex strings) allowed to fetch it. a hash with no entry in
+/// this map is unrestricted (served to anyone) — this keeps default behavior
+/// unchanged unless a hash is explicitly restricted.
+///
+/// PROTOTYPE NOTE: this is a stopgap, hardcoded allow-list plumbed in from
+/// JS via `MiddenNode::restrict_blob_to_peers`. it is NOT the real canvas-ACL
+/// integration.
+type BlobAcl = Rc<RefCell<HashMap<Hash, HashSet<String>>>>;
+
+/// true if `peer` (already resolved to a hex node id string, or `None` if we
+/// couldn't identify the requester) may fetch `hash` under `acl`.
+fn blob_request_allowed(acl: &BlobAcl, hash: &Hash, peer: Option<&str>) -> bool {
+    match acl.borrow().get(hash) {
+        // no ACL entry for this hash at all: unrestricted (matches the
+        // permissive default — see BlobAcl's doc comment above).
+        None => true,
+        Some(allowed) => match peer {
+            Some(peer) => allowed.contains(peer),
+            // request came in on a connection whose endpoint id we never
+            // resolved (shouldn't happen in practice, since iroh
+            // authenticates the remote endpoint id at the QUIC/TLS layer
+            // before any application data flows) — fail closed.
+            None => false,
+        },
+    }
+}
+
+/// build an `EventSender` that intercepts `iroh_blobs`' connect/get/get_many
+/// events and gates them against `acl`.
+///
+/// this is the extension point `iroh_blobs::BlobsProtocol::new(&store, events)`
+/// exposes for exactly this purpose (see `examples/limit.rs` in the
+/// `iroh-blobs` crate for the upstream reference implementation this
+/// mirrors). a connection is never rejected outright here — we only learn
+/// which hash is being requested once a get/get_many request comes in, so
+/// gating happens per-request, keyed by the requester's endpoint id
+/// (recorded from the `ClientConnected` event and looked up by connection id).
+fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
+    let mask = EventMask {
+        connected: ConnectMode::Intercept,
+        get: RequestMode::Intercept,
+        get_many: RequestMode::Intercept,
+        ..EventMask::DEFAULT
+    };
+    let (tx, mut rx) = EventSender::channel(32, mask);
+    let connections: Rc<RefCell<HashMap<u64, String>>> = Rc::new(RefCell::new(HashMap::new()));
+
+    wasm_bindgen_futures::spawn_local(async move {
+        while let Some(msg) = rx.recv().await {
+            match msg {
+                ProviderMessage::ClientConnected(msg) => {
+                    if let Some(endpoint_id) = msg.endpoint_id {
+                        connections
+                            .borrow_mut()
+                            .insert(msg.connection_id, endpoint_id.to_string());
+                    }
+                    // always accept the connection itself — gating happens
+                    // per-request below, once we know which hash is asked for.
+                    msg.tx.send(Ok(())).await.ok();
+                }
+                ProviderMessage::ConnectionClosed(msg) => {
+                    connections.borrow_mut().remove(&msg.connection_id);
+                }
+                ProviderMessage::GetRequestReceived(msg) => {
+                    let peer = connections.borrow().get(&msg.connection_id).cloned();
+                    let hash = msg.request.hash;
+                    let allowed = blob_request_allowed(&acl, &hash, peer.as_deref());
+                    if !allowed {
+                        warn!(
+                            "blob-acl: denied get request for {} from peer {:?}",
+                            hash, peer
+                        );
+                    }
+                    let res = if allowed {
+                        Ok(())
+                    } else {
+                        Err(AbortReason::Permission)
+                    };
+                    msg.tx.send(res).await.ok();
+                }
+                ProviderMessage::GetManyRequestReceived(msg) => {
+                    let peer = connections.borrow().get(&msg.connection_id).cloned();
+                    let allowed = msg
+                        .request
+                        .hashes
+                        .iter()
+                        .all(|hash| blob_request_allowed(&acl, hash, peer.as_deref()));
+                    if !allowed {
+                        warn!("blob-acl: denied get_many request from peer {:?}", peer);
+                    }
+                    let res = if allowed {
+                        Ok(())
+                    } else {
+                        Err(AbortReason::Permission)
+                    };
+                    msg.tx.send(res).await.ok();
+                }
+                _ => {}
+            }
+        }
+    });
+
+    tx
+}
+
 /// browser P2P node for freqhole federation
 ///
 /// supports two protocols:
@@ -474,15 +727,23 @@ pub struct MiddenNode {
     blobs_store: Store,
     blobs_downloader: Downloader,
     blobs_protocol: BlobsProtocol,
-    /// active TempTags keyed by blob hash — prevents GC of imported blobs.
-    /// capped at 3 entries; oldest evicted when full.
+    /// active TempTags keyed by blob hash — prevents GC of imported blobs
+    /// until release_blob() drops the tag. Arc<Mutex> so ImportSession and
+    /// the gc protect callback (Send + Sync required) can share it. no
+    /// eviction cap: gc protection (protected_hashes + active_tags via the
+    /// protect callback) covers in-flight downloads, and imported blobs
+    /// stay pinned until release_blob() is called.
     #[wasm_bindgen(skip)]
-    pub active_tags: RefCell<IndexMap<Hash, TempTag>>,
+    pub active_tags: Arc<Mutex<IndexMap<Hash, TempTag>>>,
     /// hashes currently being downloaded/streamed; protected from GC sweeps.
     /// downloader does not auto-create TempTags, so without this an in-flight
     /// download can be wiped by the periodic GC between download-stream-end
     /// and reader.read, leaving an empty bitfield and a hung await_completion.
     protected_hashes: Arc<Mutex<HashSet<Hash>>>,
+    /// per-hash blob-get allow-list, see `BlobAcl`'s doc comment. PROTOTYPE:
+    /// a stopgap gate, not the real canvas-ACL integration.
+    #[wasm_bindgen(skip)]
+    pub blob_acl: BlobAcl,
     /// guards against starting the blob server accept loop more than once
     blob_server_running: RefCell<bool>,
     /// wall-clock ceiling for a single dial in `open_bi` (see DEFAULT_CONNECT_TIMEOUT).
@@ -501,6 +762,71 @@ fn make_gc_config(protected_hashes: Arc<Mutex<HashSet<Hash>>>) -> GcConfig {
         interval: std::time::Duration::from_secs(30),
         add_protected: Some(cb),
     }
+}
+
+/// protect callback covering BOTH protection sources: `protected_hashes`
+/// (in-flight downloads, RAII-guarded) and `active_tags` (imported blobs
+/// pinned until release_blob). needed for the opfs store, whose GLOBAL-scope
+/// temp tags are untracked (iroh-blobs' TagDrop is crate-private) — without
+/// this, gc would sweep pinned imports.
+#[cfg(target_family = "wasm")]
+fn make_protect_cb(
+    protected_hashes: Arc<Mutex<HashSet<Hash>>>,
+    active_tags: Arc<Mutex<IndexMap<Hash, TempTag>>>,
+) -> opfs_store::ProtectCb {
+    Arc::new(move |live: &mut HashSet<Hash>| {
+        if let Ok(set) = protected_hashes.lock() {
+            live.extend(set.iter().copied());
+        }
+        if let Ok(tags) = active_tags.lock() {
+            live.extend(tags.keys().copied());
+        }
+        Box::pin(async move { opfs_store::ProtectOutcome::Continue })
+    })
+}
+
+/// build the node's blob store: persistent OPFS-backed when a directory is
+/// given and OPFS is available (worker context), otherwise in-memory. both
+/// get gc with the combined protect callback (in-flight downloads + pinned
+/// imports).
+async fn build_blobs_store(
+    opfs_store_dir: Option<String>,
+    protected_hashes: Arc<Mutex<HashSet<Hash>>>,
+    active_tags: Arc<Mutex<IndexMap<Hash, TempTag>>>,
+) -> Store {
+    #[cfg(target_family = "wasm")]
+    if let Some(dir) = &opfs_store_dir {
+        match opfs_store::OpfsStore::new(
+            dir,
+            Some(opfs_store::GcOptions {
+                interval: std::time::Duration::from_secs(30),
+                add_protected: Some(make_protect_cb(
+                    protected_hashes.clone(),
+                    active_tags.clone(),
+                )),
+            }),
+        )
+        .await
+        {
+            Ok(store) => {
+                info!("using persistent opfs blob store: {dir}");
+                return store.clone_store();
+            }
+            Err(e) => {
+                warn!("opfs blob store unavailable ({e}), falling back to in-memory");
+            }
+        }
+    }
+    #[cfg(not(target_family = "wasm"))]
+    let _ = &opfs_store_dir;
+
+    // in-memory fallback: same protection sources via the mem gc config
+    let _ = &active_tags; // mem store pins via TempTags natively; keep the combined cb anyway
+    let mem_store =
+        iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
+            gc_config: Some(make_gc_config(protected_hashes)),
+        });
+    mem_store.as_ref().clone()
 }
 
 /// RAII guard: inserts a hash into the protected set on construction,
@@ -528,23 +854,195 @@ impl Drop for ProtectGuard {
     }
 }
 
+/// cooperative cancellation for in-flight downloads (pause/cancel from JS).
+/// the download loops select on `cancelled()` between progress events —
+/// cancellation takes effect at the next event boundary, and the partial
+/// data stays in the store, so a later download of the same hash resumes
+/// from the persisted bitfield (only missing ranges transfer).
+#[wasm_bindgen]
+pub struct CancelToken {
+    flag: Arc<std::sync::atomic::AtomicBool>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+#[wasm_bindgen]
+impl CancelToken {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> CancelToken {
+        CancelToken {
+            flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            notify: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    /// request cancellation. idempotent.
+    pub fn cancel(&self) {
+        self.flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// return a new CancelToken sharing the same cancellation state.
+    /// needed because passing a wasm class by value consumes the JS handle —
+    /// callers keep the original and pass a clone into download calls.
+    pub fn clone_token(&self) -> CancelToken {
+        CancelToken {
+            flag: self.flag.clone(),
+            notify: self.notify.clone(),
+        }
+    }
+}
+
+impl Default for CancelToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CancelToken {
+    /// resolves when cancel() is called (or immediately if already cancelled)
+    async fn cancelled(&self) {
+        while !self.is_cancelled() {
+            self.notify.notified().await;
+        }
+    }
+}
+
+/// error message used for cancelled downloads — JS matches on this to
+/// distinguish a deliberate pause from a genuine failure.
+const DOWNLOAD_CANCELLED_MSG: &str = "download cancelled";
+
+/// options bag for `MiddenNode::create_with_options`, the single canonical
+/// constructor. build one, set whichever fields are needed, and pass it in:
+///
+/// ```js
+/// const opts = new MiddenNodeOptions();
+/// opts.opfs_store_dir = "midden-blob-store";
+/// opts.connect_timeout_ms = 5000;
+/// const node = await MiddenNode.create_with_options(opts);
+/// ```
+///
+/// `create`/`create_from_key`/`create_with_alpns` remain as deprecated
+/// wrappers over this constructor for existing callers (spume, playlistz).
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct MiddenNodeOptions {
+    #[wasm_bindgen(skip)]
+    pub secret_key: Option<Vec<u8>>,
+    #[wasm_bindgen(skip)]
+    pub extra_alpns: Option<Vec<String>>,
+    #[wasm_bindgen(skip)]
+    pub opfs_store_dir: Option<String>,
+    #[wasm_bindgen(skip)]
+    pub connect_timeout_ms: Option<u32>,
+}
+
+#[wasm_bindgen]
+impl MiddenNodeOptions {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> MiddenNodeOptions {
+        Self::default()
+    }
+
+    /// the node's secret key (32 raw bytes). omit (or pass null/undefined)
+    /// to generate a random identity.
+    #[wasm_bindgen(getter = secret_key)]
+    pub fn get_secret_key(&self) -> Option<Uint8Array> {
+        self.secret_key.as_deref().map(Uint8Array::from)
+    }
+
+    #[wasm_bindgen(setter = secret_key)]
+    pub fn set_secret_key(&mut self, key: Option<Uint8Array>) {
+        self.secret_key = key.map(|k| k.to_vec());
+    }
+
+    /// additional ALPN protocols to register beyond the default set.
+    #[wasm_bindgen(getter = extra_alpns)]
+    pub fn get_extra_alpns(&self) -> Option<Vec<String>> {
+        self.extra_alpns.clone()
+    }
+
+    #[wasm_bindgen(setter = extra_alpns)]
+    pub fn set_extra_alpns(&mut self, alpns: Option<Vec<String>>) {
+        self.extra_alpns = alpns;
+    }
+
+    /// when given, blobs persist in an OPFS-backed store under this
+    /// directory (worker context required); otherwise (or when OPFS is
+    /// unavailable) an in-memory store is used.
+    #[wasm_bindgen(getter = opfs_store_dir)]
+    pub fn get_opfs_store_dir(&self) -> Option<String> {
+        self.opfs_store_dir.clone()
+    }
+
+    #[wasm_bindgen(setter = opfs_store_dir)]
+    pub fn set_opfs_store_dir(&mut self, dir: Option<String>) {
+        self.opfs_store_dir = dir;
+    }
+
+    /// per-dial timeout (ms) for `open_bi`/`connect` (defaults to 10s).
+    #[wasm_bindgen(getter = connect_timeout_ms)]
+    pub fn get_connect_timeout_ms(&self) -> Option<u32> {
+        self.connect_timeout_ms
+    }
+
+    #[wasm_bindgen(setter = connect_timeout_ms)]
+    pub fn set_connect_timeout_ms(&mut self, ms: Option<u32>) {
+        self.connect_timeout_ms = ms;
+    }
+}
+
 #[wasm_bindgen]
 impl MiddenNode {
-    /// create a new node with random identity
-    /// waits for relay connection before returning.
+    /// create a node from an options bag. this is the single canonical
+    /// constructor — `create`/`create_from_key`/`create_with_alpns` below
+    /// are deprecated wrappers kept for existing callers (spume, playlistz).
+    pub async fn create_with_options(options: MiddenNodeOptions) -> Result<MiddenNode, JsError> {
+        let bytes = match options.secret_key {
+            Some(key) => {
+                if key.len() != 32 {
+                    return Err(JsError::new("secret key must be exactly 32 bytes"));
+                }
+                let mut b = [0u8; 32];
+                b.copy_from_slice(&key);
+                b
+            }
+            None => {
+                let mut b = [0u8; 32];
+                getrandom::getrandom(&mut b).map_err(|e| JsError::new(&e.to_string()))?;
+                b
+            }
+        };
+
+        Self::create_with_secret_key(
+            bytes,
+            options.extra_alpns.unwrap_or_default(),
+            options.opfs_store_dir,
+            options.connect_timeout_ms,
+        )
+        .await
+    }
+
+    /// create a new node with random identity, an in-memory blob store, and
+    /// the default ALPN set. waits for relay connection before returning.
+    ///
+    /// deprecated: use `create_with_options` instead.
     ///
     /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
     /// (defaults to 10s when omitted/undefined).
     pub async fn create(connect_timeout_ms: Option<u32>) -> Result<MiddenNode, JsError> {
-        // generate random secret key
-        let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).map_err(|e| JsError::new(&e.to_string()))?;
-
-        Self::create_with_secret_key(bytes, connect_timeout_ms).await
+        let mut options = MiddenNodeOptions::new();
+        options.connect_timeout_ms = connect_timeout_ms;
+        Self::create_with_options(options).await
     }
 
     /// create a node from existing secret key bytes (for persistence)
     /// key_bytes must be exactly 32 bytes.
+    ///
+    /// deprecated: use `create_with_options` instead.
     ///
     /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
     /// (defaults to 10s when omitted/undefined).
@@ -556,45 +1054,97 @@ impl MiddenNode {
             return Err(JsError::new("secret key must be exactly 32 bytes"));
         }
 
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(key_bytes);
-
-        Self::create_with_secret_key(bytes, connect_timeout_ms).await
+        let mut options = MiddenNodeOptions::new();
+        options.secret_key = Some(key_bytes.to_vec());
+        options.connect_timeout_ms = connect_timeout_ms;
+        Self::create_with_options(options).await
     }
 
-    /// internal: create node with given secret key bytes
+    /// create a node from existing secret key with additional ALPN protocols.
+    ///
+    /// deprecated: use `create_with_options` instead.
+    ///
+    /// `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
+    /// the node always registers the default ALPN set plus whatever extra ALPNs are given.
+    ///
+    /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
+    /// (defaults to 10s when omitted/undefined).
+    pub async fn create_with_alpns(
+        key_bytes: &[u8],
+        extra_alpns: &js_sys::Array,
+        connect_timeout_ms: Option<u32>,
+    ) -> Result<MiddenNode, JsError> {
+        if key_bytes.len() != 32 {
+            return Err(JsError::new("secret key must be exactly 32 bytes"));
+        }
+
+        // collect extra ALPNs from JS array
+        let mut alpns = Vec::new();
+        for i in 0..extra_alpns.length() {
+            let alpn_str = extra_alpns
+                .get(i)
+                .as_string()
+                .ok_or_else(|| JsError::new("each ALPN must be a string"))?;
+            alpns.push(alpn_str);
+        }
+
+        let mut options = MiddenNodeOptions::new();
+        options.secret_key = Some(key_bytes.to_vec());
+        options.extra_alpns = Some(alpns);
+        options.connect_timeout_ms = connect_timeout_ms;
+        Self::create_with_options(options).await
+    }
+
+    /// internal: create node with given secret key bytes, extra ALPNs, an
+    /// optional blob-store directory, and an optional connect timeout.
     async fn create_with_secret_key(
         bytes: [u8; 32],
+        extra_alpns: Vec<String>,
+        opfs_store_dir: Option<String>,
         connect_timeout_ms: Option<u32>,
     ) -> Result<MiddenNode, JsError> {
         let secret_key = SecretKey::from_bytes(&bytes);
 
+        // default registered ALPN set stays the base set; skein-specific
+        // ALPNs are never registered by default, only via extra_alpns.
+        let mut alpns = vec![
+            FREQHOLE_ALPN.to_vec(),
+            AUTOMERGE_ALPN.to_vec(),
+            FRIENDZ_ALPN.to_vec(),
+            ADMIN_ALPN.to_vec(),
+            EVENTS_ALPN.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
+        ];
+        for alpn in extra_alpns {
+            alpns.push(alpn.into_bytes());
+        }
+
         // use N0 preset for relay + DNS discovery (peers can find each other)
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(secret_key)
-            .alpns(vec![
-                FREQHOLE_ALPN.to_vec(),
-                AUTOMERGE_ALPN.to_vec(),
-                FRIENDZ_ALPN.to_vec(),
-                ADMIN_ALPN.to_vec(),
-                EVENTS_ALPN.to_vec(),
-                iroh_blobs::ALPN.to_vec(),
-            ])
+            .alpns(alpns)
             .bind()
             .await
             .map_err(to_js_err)?;
 
-        // setup iroh-blobs with MemStore + GC. periodic GC keeps memory bounded;
-        // a protect callback (fed by `protected_hashes`) keeps in-flight downloads
-        // alive until the read phase has drained them.
+        // setup iroh-blobs store + gc. periodic gc keeps memory bounded; the
+        // combined protect callback (protected_hashes + active_tags) keeps
+        // in-flight downloads and pinned imports alive.
         let protected_hashes = Arc::new(Mutex::new(HashSet::new()));
-        let mem_store =
-            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
-                gc_config: Some(make_gc_config(protected_hashes.clone())),
-            });
-        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
-        let blobs_store = mem_store.as_ref().clone();
-        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
+        let active_tags: Arc<Mutex<IndexMap<Hash, TempTag>>> =
+            Arc::new(Mutex::new(IndexMap::new()));
+        let blobs_store = build_blobs_store(
+            opfs_store_dir,
+            protected_hashes.clone(),
+            active_tags.clone(),
+        )
+        .await;
+        let blobs_downloader = Downloader::new(&blobs_store, &endpoint);
+        let blob_acl: BlobAcl = Rc::new(RefCell::new(HashMap::new()));
+        let blobs_protocol = BlobsProtocol::new(
+            &blobs_store,
+            Some(build_gated_blobs_events(blob_acl.clone())),
+        );
 
         // wait for relay connection
         endpoint.online().await;
@@ -608,8 +1158,9 @@ impl MiddenNode {
             blobs_store,
             blobs_downloader,
             blobs_protocol,
-            active_tags: RefCell::new(IndexMap::new()),
+            active_tags,
             protected_hashes,
+            blob_acl,
             blob_server_running: RefCell::new(false),
             connect_timeout: resolve_connect_timeout(connect_timeout_ms),
         })
@@ -637,75 +1188,45 @@ impl MiddenNode {
         serde_json::to_string(&self.endpoint.addr()).map_err(to_js_err)
     }
 
-    /// create a node from existing secret key with additional ALPN protocols.
+    /// PROTOTYPE: restrict a blob (by blake3 hex hash) so only the given
+    /// peer node ids may fetch it over the `iroh-blobs/*` ALPN. a hash with
+    /// no restriction registered is served to anyone (today's default
+    /// behavior, unchanged) — calling this is what opts a specific hash
+    /// into gating.
     ///
-    /// `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
-    /// the node always registers "freqhole/1" plus whatever extra ALPNs are given.
-    ///
-    /// `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
-    /// (defaults to 10s when omitted/undefined).
-    pub async fn create_with_alpns(
-        key_bytes: &[u8],
-        extra_alpns: &js_sys::Array,
-        connect_timeout_ms: Option<u32>,
-    ) -> Result<MiddenNode, JsError> {
-        if key_bytes.len() != 32 {
-            return Err(JsError::new("secret key must be exactly 32 bytes"));
-        }
+    /// this is a stopgap/demo hook, not the real canvas-ACL integration: it
+    /// has to be called explicitly, from JS, with an already-resolved list
+    /// of allowed peer node ids for this one hash.
+    pub fn restrict_blob_to_peers(
+        &self,
+        blake3_hash: &str,
+        peer_node_ids: &js_sys::Array,
+    ) -> Result<(), JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
 
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(key_bytes);
-
-        // collect extra ALPNs from JS array
-        let mut alpns = vec![
-            FREQHOLE_ALPN.to_vec(),
-            AUTOMERGE_ALPN.to_vec(),
-            FRIENDZ_ALPN.to_vec(),
-            EVENTS_ALPN.to_vec(),
-            iroh_blobs::ALPN.to_vec(),
-        ];
-        for i in 0..extra_alpns.length() {
-            let alpn_str = extra_alpns
+        let mut allowed = HashSet::new();
+        for i in 0..peer_node_ids.length() {
+            let peer_id = peer_node_ids
                 .get(i)
                 .as_string()
-                .ok_or_else(|| JsError::new("each ALPN must be a string"))?;
-            alpns.push(alpn_str.into_bytes());
+                .ok_or_else(|| JsError::new("each peer node id must be a string"))?;
+            allowed.insert(peer_id);
         }
 
-        let secret_key = SecretKey::from_bytes(&bytes);
+        self.blob_acl.borrow_mut().insert(hash, allowed);
+        Ok(())
+    }
 
-        let endpoint = Endpoint::builder(presets::N0)
-            .secret_key(secret_key)
-            .alpns(alpns)
-            .bind()
-            .await
-            .map_err(to_js_err)?;
-
-        let protected_hashes = Arc::new(Mutex::new(HashSet::new()));
-        let mem_store =
-            iroh_blobs::store::mem::MemStore::new_with_opts(iroh_blobs::store::mem::Options {
-                gc_config: Some(make_gc_config(protected_hashes.clone())),
-            });
-        let blobs_downloader = Downloader::new(&mem_store, &endpoint);
-        let blobs_store = mem_store.as_ref().clone();
-        let blobs_protocol = BlobsProtocol::new(&blobs_store, None);
-
-        endpoint.online().await;
-
-        let node_id = endpoint.secret_key().public().to_string();
-        info!("midden node ready (with extra ALPNs): {}", &node_id[..16]);
-
-        Ok(MiddenNode {
-            endpoint,
-            secret_key_bytes: bytes,
-            blobs_store,
-            blobs_downloader,
-            blobs_protocol,
-            active_tags: RefCell::new(IndexMap::new()),
-            protected_hashes,
-            blob_server_running: RefCell::new(false),
-            connect_timeout: resolve_connect_timeout(connect_timeout_ms),
-        })
+    /// PROTOTYPE: remove a hash's restriction, returning it to the default
+    /// (served to anyone) state.
+    pub fn clear_blob_restriction(&self, blake3_hash: &str) -> Result<(), JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+        self.blob_acl.borrow_mut().remove(&hash);
+        Ok(())
     }
 
     /// open a bidirectional stream to a peer on a specific ALPN.
@@ -1101,6 +1622,9 @@ impl MiddenNode {
             .parse()
             .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
 
+        // protect from gc for the whole download+read lifecycle
+        let _guard = ProtectGuard::new(self.protected_hashes.clone(), hash);
+
         // create hash_and_format for download
         let hash_and_format = HashAndFormat::raw(hash);
 
@@ -1158,6 +1682,99 @@ impl MiddenNode {
         Ok(array)
     }
 
+    /// download a blob with progress reporting via JS callback
+    ///
+    /// same as download_verified but calls on_progress(fraction) where
+    /// fraction is bytes_received / total_size (0.0 to 1.0).
+    /// total_size should come from the caller's known size field.
+    /// `cancel`: optional cooperative cancellation (pause) — see
+    /// download_verified_streaming for the semantics.
+    pub async fn download_verified_with_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+        cancel: Option<CancelToken>,
+    ) -> Result<Uint8Array, JsError> {
+        let addr = parse_peer_addr(peer_addr).map_err(|e| JsError::new(&e))?;
+
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+
+        // protect from gc for the whole download+read lifecycle
+        let _guard = ProtectGuard::new(self.protected_hashes.clone(), hash);
+
+        let hash_and_format = HashAndFormat::raw(hash);
+        let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
+
+        use iroh_blobs::api::downloader::DownloadProgressItem;
+        use n0_future::StreamExt;
+
+        let mut stream = progress
+            .stream()
+            .await
+            .map_err(|e| JsError::new(&format!("download stream failed: {}", e)))?;
+
+        let mut had_error = false;
+        let mut last_error: Option<String> = None;
+
+        loop {
+            // cooperative cancellation between progress events. the partial
+            // stays in the store and the hash is pinned so gc won't sweep it
+            // before a resume.
+            let event = if let Some(token) = &cancel {
+                tokio::select! {
+                    event = stream.next() => event,
+                    _ = token.cancelled() => {
+                        if let Ok(mut set) = self.protected_hashes.lock() {
+                            set.insert(hash);
+                        }
+                        return Err(JsError::new(DOWNLOAD_CANCELLED_MSG));
+                    }
+                }
+            } else {
+                stream.next().await
+            };
+            let Some(event) = event else { break };
+            match &event {
+                DownloadProgressItem::Progress(bytes) => {
+                    if total_size > 0.0 {
+                        let fraction = (*bytes as f64 / total_size).min(1.0);
+                        let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(fraction));
+                    }
+                }
+                DownloadProgressItem::Error(e) => {
+                    had_error = true;
+                    last_error = Some(format!("{:?}", e));
+                }
+                DownloadProgressItem::DownloadError => {
+                    had_error = true;
+                    last_error = Some("download error".to_string());
+                }
+                _ => {}
+            }
+        }
+
+        if had_error {
+            return Err(JsError::new(&format!(
+                "download failed: {}",
+                last_error.unwrap_or_else(|| "unknown error".to_string())
+            )));
+        }
+
+        let bytes = self
+            .blobs_store
+            .get_bytes(hash)
+            .await
+            .map_err(|e| JsError::new(&format!("failed to read blob from store: {}", e)))?;
+
+        let array = Uint8Array::new_with_length(bytes.len() as u32);
+        array.copy_from(&bytes);
+        Ok(array)
+    }
+
     /// download a verified blob and stream chunks to JS via callback
     ///
     /// this is the preferred path for large blobs (audio files). instead of
@@ -1183,6 +1800,7 @@ impl MiddenNode {
         total_size: f64,
         on_chunk: &JsFunction,
         on_progress: &JsFunction,
+        cancel: Option<CancelToken>,
     ) -> Result<f64, JsError> {
         use iroh_blobs::api::downloader::DownloadProgressItem;
         use n0_future::StreamExt;
@@ -1207,6 +1825,14 @@ impl MiddenNode {
         // _guard removes the hash on drop (success, error, or panic).
         let _guard = ProtectGuard::new(self.protected_hashes.clone(), hash);
 
+        // on cancellation: keep the partial protected past the guard's drop
+        // so gc can't sweep it before the user resumes
+        let cancel_cleanup = |protected: &Arc<Mutex<HashSet<Hash>>>| {
+            if let Ok(mut set) = protected.lock() {
+                set.insert(hash);
+            }
+        };
+
         // step 1: download into MemStore (verified)
         let hash_and_format = HashAndFormat::raw(hash);
         let progress = self.blobs_downloader.download(hash_and_format, [addr.id]);
@@ -1221,7 +1847,22 @@ impl MiddenNode {
 
         let mut event_count: u64 = 0;
         let mut last_log_bytes: u64 = 0;
-        while let Some(event) = stream.next().await {
+        loop {
+            // cooperative cancellation between progress events. dropping
+            // `stream` stops the downloader task at its next send.
+            let event = if let Some(token) = &cancel {
+                tokio::select! {
+                    event = stream.next() => event,
+                    _ = token.cancelled() => {
+                        debug!("download_verified_streaming: cancelled for {} after {} bytes", short, last_dl_bytes);
+                        cancel_cleanup(&self.protected_hashes);
+                        return Err(JsError::new(DOWNLOAD_CANCELLED_MSG));
+                    }
+                }
+            } else {
+                stream.next().await
+            };
+            let Some(event) = event else { break };
             event_count += 1;
             match &event {
                 DownloadProgressItem::Progress(bytes) => {
@@ -1335,6 +1976,17 @@ impl MiddenNode {
         let mut chunks_sent: u64 = 0;
 
         loop {
+            // pause can land during the read-out phase too
+            if let Some(token) = &cancel {
+                if token.is_cancelled() {
+                    debug!(
+                        "download_verified_streaming: cancelled during read for {} after {} bytes",
+                        short, total_read
+                    );
+                    cancel_cleanup(&self.protected_hashes);
+                    return Err(JsError::new(DOWNLOAD_CANCELLED_MSG));
+                }
+            }
             let n = match reader.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => n,
@@ -1393,7 +2045,8 @@ impl MiddenNode {
 
     /// streaming download with auto ensure+retry. first attempts the streaming
     /// download; if the verified download fails (blob not in peer's store), calls
-    /// ensure_blob to load it, then retries.
+    /// ensure_blob to load it, then retries. a deliberate cancellation is NOT
+    /// retried — it propagates immediately with the "download cancelled" message.
     pub async fn download_verified_streaming_with_ensure(
         &self,
         peer_addr: &str,
@@ -1401,13 +2054,26 @@ impl MiddenNode {
         total_size: f64,
         on_chunk: &JsFunction,
         on_progress: &JsFunction,
+        cancel: Option<CancelToken>,
     ) -> Result<f64, JsError> {
+        let cancel_ref = cancel.as_ref();
         match self
-            .download_verified_streaming(peer_addr, blake3_hash, total_size, on_chunk, on_progress)
+            .download_verified_streaming(
+                peer_addr,
+                blake3_hash,
+                total_size,
+                on_chunk,
+                on_progress,
+                cancel_ref.map(|t| t.clone_token()),
+            )
             .await
         {
             Ok(n) => return Ok(n),
             Err(e) => {
+                // deliberate pause/cancel: do NOT fall into ensure+retry
+                if cancel_ref.map(|t| t.is_cancelled()).unwrap_or(false) {
+                    return Err(e);
+                }
                 // first attempt failed (often: blob not yet in peer's store).
                 // log the cause then retry via ensure_blob so that genuine
                 // failures (bad hash, transport error) aren't silently masked.
@@ -1416,6 +2082,7 @@ impl MiddenNode {
                     &blake3_hash[..16.min(blake3_hash.len())],
                     e
                 );
+                let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(0.0));
             }
         }
 
@@ -1427,8 +2094,15 @@ impl MiddenNode {
             )));
         }
 
-        self.download_verified_streaming(peer_addr, blake3_hash, total_size, on_chunk, on_progress)
-            .await
+        self.download_verified_streaming(
+            peer_addr,
+            blake3_hash,
+            total_size,
+            on_chunk,
+            on_progress,
+            cancel_ref.map(|t| t.clone_token()),
+        )
+        .await
     }
 
     /// ensure a blob is loaded into the peer's FsStore by blake3 hash
@@ -1506,6 +2180,105 @@ impl MiddenNode {
 
         // retry verified download
         self.download_verified(peer_addr, blake3_hash).await
+    }
+
+    /// download with ensure + retry and progress reporting.
+    ///
+    /// tries download first; if blob not in peer's FsStore, calls ensure_blob
+    /// then retries. progress callback receives fraction (0.0 to 1.0).
+    /// `cancel`: optional cooperative cancellation (pause) — a deliberate
+    /// cancellation is NOT retried, it propagates immediately.
+    ///
+    /// NOTE: any failure on the first attempt triggers this same
+    /// ensure-then-retry fallback, not just the "blob not in FsStore yet"
+    /// case the fallback was designed for. for a large blob, the first
+    /// attempt can stream a substantial fraction of the bytes (driving
+    /// `on_progress` most/all of the way to 1.0) before failing late, so the
+    /// caller-visible symptom is a full 0->100% progress cycle that silently
+    /// restarts from 0 for a second full cycle. logging the first attempt's
+    /// error and explicitly resetting progress to 0 here makes this restart
+    /// visible/diagnosable instead of looking like a silent glitch.
+    pub async fn download_verified_with_ensure_progress(
+        &self,
+        peer_addr: &str,
+        blake3_hash: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+        cancel: Option<CancelToken>,
+    ) -> Result<Uint8Array, JsError> {
+        let cancel_ref = cancel.as_ref();
+        // first attempt
+        match self
+            .download_verified_with_progress(
+                peer_addr,
+                blake3_hash,
+                total_size,
+                on_progress,
+                cancel_ref.map(|t| t.clone_token()),
+            )
+            .await
+        {
+            Ok(data) => return Ok(data),
+            Err(e) => {
+                // deliberate pause/cancel: do NOT fall into ensure+retry
+                if cancel_ref.map(|t| t.is_cancelled()).unwrap_or(false) {
+                    return Err(e);
+                }
+                // retry with ensure_blob (normal for first download, but
+                // also the fallback for a late failure after a partial or
+                // full transfer — see the doc comment above).
+                warn!(
+                    "first download_verified attempt for {} failed ({:?}), \
+                     retrying after ensure_blob (progress will restart from 0)",
+                    &blake3_hash[..16.min(blake3_hash.len())],
+                    e
+                );
+                let _ = on_progress.call1(&JsValue::NULL, &JsValue::from_f64(0.0));
+            }
+        }
+
+        // ensure blob is loaded into FsStore
+        let available = self.ensure_blob(peer_addr, blake3_hash).await?;
+        if !available {
+            return Err(JsError::new(&format!(
+                "blob {} not available on peer",
+                &blake3_hash[..16.min(blake3_hash.len())]
+            )));
+        }
+
+        // retry verified download with progress
+        self.download_verified_with_progress(
+            peer_addr,
+            blake3_hash,
+            total_size,
+            on_progress,
+            cancel_ref.map(|t| t.clone_token()),
+        )
+        .await
+    }
+
+    /// pin a hash so gc won't sweep it (e.g. a paused partial download).
+    /// idempotent. pair with unprotect_blob when the partial is resumed to
+    /// completion or discarded.
+    pub fn protect_blob(&self, blake3_hash: &str) -> Result<(), JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+        if let Ok(mut set) = self.protected_hashes.lock() {
+            set.insert(hash);
+        }
+        Ok(())
+    }
+
+    /// remove a gc pin added by protect_blob (or by a cancelled download).
+    pub fn unprotect_blob(&self, blake3_hash: &str) -> Result<(), JsError> {
+        let hash: Hash = blake3_hash
+            .parse()
+            .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
+        if let Ok(mut set) = self.protected_hashes.lock() {
+            set.remove(&hash);
+        }
+        Ok(())
     }
 
     /// compute blake3 hash for a blob on demand
@@ -1589,10 +2362,69 @@ impl MiddenNode {
         Ok(result)
     }
 
+    /// full pipeline from blob_id with progress reporting.
+    ///
+    /// computes blake3 on demand, then uses verified download with progress.
+    /// returns [data: Uint8Array, blake3: string].
+    pub async fn download_verified_by_id_progress(
+        &self,
+        peer_addr: &str,
+        blob_id: &str,
+        total_size: f64,
+        on_progress: &JsFunction,
+    ) -> Result<js_sys::Array, JsError> {
+        let blake3 = self
+            .compute_blake3(peer_addr, blob_id)
+            .await?
+            .ok_or_else(|| JsError::new("blob not found on peer"))?;
+
+        let data = self
+            .download_verified_with_ensure_progress(
+                peer_addr,
+                &blake3,
+                total_size,
+                on_progress,
+                None,
+            )
+            .await?;
+
+        let result = js_sys::Array::new();
+        result.push(&data.into());
+        result.push(&JsValue::from_str(&blake3));
+        Ok(result)
+    }
+
+    /// begin a chunked import — the streaming counterpart to import_blob for
+    /// payloads that shouldn't be materialized as one contiguous &[u8] across
+    /// the wasm boundary. see ImportSession for the push/finish protocol.
+    pub fn start_import(&self) -> ImportSession {
+        // small bound: each queued chunk is typically ~1MB from JS, so the
+        // channel holds at most a few MB while providing real backpressure.
+        let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<bytes::Bytes>>(4);
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<TempTag, String>>();
+
+        let store = self.blobs_store.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let progress = store.blobs().add_stream(ReceiverStream(rx)).await;
+            let res = progress
+                .temp_tag()
+                .await
+                .map_err(|e| format!("chunked import failed: {:?}", e));
+            // receiver dropped (abort) => temp tag dropped => gc reclaims
+            let _ = result_tx.send(res);
+        });
+
+        ImportSession {
+            sender: RefCell::new(Some(tx)),
+            result_rx: RefCell::new(Some(result_rx)),
+            active_tags: self.active_tags.clone(),
+        }
+    }
+
     /// import raw bytes into the iroh-blobs store, returning the blake3 hash.
     /// this makes the blob available for verified download by peers.
     /// the blob stays in the store as long as its TempTag is held in active_tags.
-    /// call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
+    /// call release_blob() to allow GC.
     #[wasm_bindgen]
     pub async fn import_blob(&self, data: &[u8]) -> Result<String, JsError> {
         // check active_tags first to avoid the expensive add_bytes + bao computation
@@ -1600,7 +2432,10 @@ impl MiddenNode {
         let hash = Hash::from_bytes(*hash_bytes.as_bytes());
 
         {
-            let tags = self.active_tags.borrow();
+            let tags = self
+                .active_tags
+                .lock()
+                .map_err(|_| JsError::new("tags lock"))?;
             if tags.contains_key(&hash) {
                 return Ok(hash.to_hex().to_string());
             }
@@ -1615,17 +2450,12 @@ impl MiddenNode {
             .await
             .map_err(|e| JsError::new(&format!("failed to import blob: {}", e)))?;
 
-        let mut tags = self.active_tags.borrow_mut();
-
-        // cap at 3 entries — evict oldest before inserting the 4th.
-        // blobs are served on-demand from OPFS; small cap keeps memory bounded.
-        // GC (30s interval) reclaims MemStore memory after TempTags are dropped.
-        if tags.len() >= 3 {
-            let evict_key = *tags.keys().next().unwrap();
-            tags.shift_remove(&evict_key);
+        // no eviction cap: gc protection (protected_hashes + active_tags via
+        // the protect callback) covers in-flight downloads, and imported
+        // blobs stay pinned until release_blob().
+        if let Ok(mut tags) = self.active_tags.lock() {
+            tags.insert(hash, tt);
         }
-
-        tags.insert(hash, tt);
         Ok(hash.to_hex().to_string())
     }
 
@@ -1660,13 +2490,10 @@ impl MiddenNode {
             .await
             .map_err(|e| JsError::new(&format!("failed to export bao: {}", e)))?;
 
-        // store TempTag (with eviction)
-        let mut tags = self.active_tags.borrow_mut();
-        if tags.len() >= 3 {
-            let evict_key = *tags.keys().next().unwrap();
-            tags.shift_remove(&evict_key);
+        // pin until release_blob() (no eviction cap — see import_blob)
+        if let Ok(mut tags) = self.active_tags.lock() {
+            tags.insert(hash, tt);
         }
-        tags.insert(hash, tt);
 
         // return { hash, bao } to JS
         let bao_array = Uint8Array::new_with_length(bao_bytes.len() as u32);
@@ -1696,7 +2523,10 @@ impl MiddenNode {
 
         // check active_tags first — no need to re-import
         {
-            let tags = self.active_tags.borrow();
+            let tags = self
+                .active_tags
+                .lock()
+                .map_err(|_| JsError::new("tags lock"))?;
             if tags.contains_key(&hash) {
                 return Ok(hash.to_hex().to_string());
             }
@@ -1721,13 +2551,10 @@ impl MiddenNode {
             .await
             .map_err(|e| JsError::new(&format!("failed to create temp tag: {}", e)))?;
 
-        // store TempTag (with eviction)
-        let mut tags = self.active_tags.borrow_mut();
-        if tags.len() >= 3 {
-            let evict_key = *tags.keys().next().unwrap();
-            tags.shift_remove(&evict_key);
+        // pin until release_blob() (no eviction cap — see import_blob)
+        if let Ok(mut tags) = self.active_tags.lock() {
+            tags.insert(hash, tt);
         }
-        tags.insert(hash, tt);
 
         Ok(hash.to_hex().to_string())
     }
@@ -1739,17 +2566,19 @@ impl MiddenNode {
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|_| JsError::new("invalid blake3 hash"))?;
-        self.active_tags.borrow_mut().shift_remove(&hash);
+        if let Ok(mut tags) = self.active_tags.lock() {
+            tags.shift_remove(&hash);
+        }
         Ok(())
     }
 
     /// return the number of blobs currently held in the store via active TempTags.
     #[wasm_bindgen]
     pub fn active_blob_count(&self) -> usize {
-        self.active_tags.borrow().len()
+        self.active_tags.lock().map(|t| t.len()).unwrap_or(0)
     }
 
-    /// check whether a blob with the given blake3 hash is currently held in the MemStore
+    /// check whether a blob with the given blake3 hash is currently held in the store
     /// via an active TempTag. avoids expensive OPFS read + bao recomputation when the
     /// blob is already loaded.
     #[wasm_bindgen]
@@ -1758,7 +2587,26 @@ impl MiddenNode {
             Ok(h) => h,
             Err(_) => return false,
         };
-        self.active_tags.borrow().contains_key(&hash)
+        self.active_tags
+            .lock()
+            .map(|t| t.contains_key(&hash))
+            .unwrap_or(false)
+    }
+
+    /// check whether a COMPLETE blob with this hash exists in the blob store
+    /// itself — with the persistent opfs store this is true across reloads,
+    /// even when no TempTag pins it. lets serving paths skip re-imports
+    /// entirely.
+    #[wasm_bindgen]
+    pub async fn has_complete_blob(&self, blake3_hash: &str) -> bool {
+        let hash: Hash = match blake3_hash.parse() {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        matches!(
+            self.blobs_store.blobs().status(hash).await,
+            Ok(iroh_blobs::api::blobs::BlobStatus::Complete { .. })
+        )
     }
 }
 

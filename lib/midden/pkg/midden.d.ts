@@ -96,6 +96,52 @@ export class BiStream {
 }
 
 /**
+ * incremental blake3 hasher for streaming uploads — feed fixed-size chunks
+ * via update() and read the final hex hash from finalize(). lets JS hash a
+ * File while streaming it (file.stream() reader loop) instead of holding
+ * the whole payload in memory for a one-shot hash_blake3().
+ */
+export class Blake3Hasher {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * finish and return the hash as a 64-char hex string. the hasher can
+     * keep absorbing after this (blake3 finalize is non-destructive), but
+     * callers should treat the session as done.
+     */
+    finalize(): string;
+    constructor();
+    /**
+     * absorb the next chunk of data.
+     */
+    update(chunk: Uint8Array): void;
+}
+
+/**
+ * cooperative cancellation for in-flight downloads (pause/cancel from JS).
+ * the download loops select on `cancelled()` between progress events —
+ * cancellation takes effect at the next event boundary, and the partial
+ * data stays in the store, so a later download of the same hash resumes
+ * from the persisted bitfield (only missing ranges transfer).
+ */
+export class CancelToken {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * request cancellation. idempotent.
+     */
+    cancel(): void;
+    /**
+     * return a new CancelToken sharing the same cancellation state.
+     * needed because passing a wasm class by value consumes the JS handle —
+     * callers keep the original and pass a clone into download calls.
+     */
+    clone_token(): CancelToken;
+    is_cancelled(): boolean;
+    constructor();
+}
+
+/**
  * result from fetching the server hello image from a peer
  */
 export class HelloImageResult {
@@ -104,6 +150,38 @@ export class HelloImageResult {
     [Symbol.dispose](): void;
     readonly content_type: string | undefined;
     readonly data: Uint8Array;
+}
+
+/**
+ * chunked import session — the streaming counterpart to import_blob.
+ *
+ * created via MiddenNode::start_import(). JS feeds fixed-size chunks with
+ * push() (backpressured: the promise resolves only once the chunk is
+ * queued), then finish() completes the import and returns the blake3 hash.
+ * the wasm boundary never sees the whole payload at once; the store's
+ * ImportByteStream machinery computes the bao tree incrementally.
+ *
+ * the finished blob is pinned in the node's active_tags (same as
+ * import_blob) until release_blob() is called.
+ */
+export class ImportSession {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * abort the import. any partially-imported data is left to GC.
+     */
+    abort(): void;
+    /**
+     * signal end-of-stream, wait for the import to complete, pin the
+     * resulting blob, and return its blake3 hash as a hex string.
+     */
+    finish(): Promise<string>;
+    /**
+     * queue the next chunk. resolves once the chunk has been accepted by
+     * the import stream (bounded channel — this is the backpressure point).
+     */
+    push(chunk: Uint8Array): Promise<void>;
 }
 
 export class IntoUnderlyingByteSource {
@@ -162,6 +240,11 @@ export class MiddenNode {
      */
     active_blob_count(): number;
     /**
+     * PROTOTYPE: remove a hash's restriction, returning it to the default
+     * (served to anyone) state.
+     */
+    clear_blob_restriction(blake3_hash: string): void;
+    /**
      * compute blake3 hash for a blob on demand
      *
      * use this when the client doesn't have the blake3 hash yet (not in API response).
@@ -172,8 +255,10 @@ export class MiddenNode {
      */
     compute_blake3(peer_addr: string, blob_id: string): Promise<string | undefined>;
     /**
-     * create a new node with random identity
-     * waits for relay connection before returning.
+     * create a new node with random identity, an in-memory blob store, and
+     * the default ALPN set. waits for relay connection before returning.
+     *
+     * deprecated: use `create_with_options` instead.
      *
      * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
      * (defaults to 10s when omitted/undefined).
@@ -183,6 +268,8 @@ export class MiddenNode {
      * create a node from existing secret key bytes (for persistence)
      * key_bytes must be exactly 32 bytes.
      *
+     * deprecated: use `create_with_options` instead.
+     *
      * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
      * (defaults to 10s when omitted/undefined).
      */
@@ -190,13 +277,21 @@ export class MiddenNode {
     /**
      * create a node from existing secret key with additional ALPN protocols.
      *
+     * deprecated: use `create_with_options` instead.
+     *
      * `extra_alpns` is a JS array of strings (e.g. ["iroh/automerge-repo/1"]).
-     * the node always registers "freqhole/1" plus whatever extra ALPNs are given.
+     * the node always registers the default ALPN set plus whatever extra ALPNs are given.
      *
      * `connect_timeout_ms` is an optional per-dial timeout for `open_bi`
      * (defaults to 10s when omitted/undefined).
      */
     static create_with_alpns(key_bytes: Uint8Array, extra_alpns: Array<any>, connect_timeout_ms?: number | null): Promise<MiddenNode>;
+    /**
+     * create a node from an options bag. this is the single canonical
+     * constructor — `create`/`create_from_key`/`create_with_alpns` below
+     * are deprecated wrappers kept for existing callers (spume, playlistz).
+     */
+    static create_with_options(options: MiddenNodeOptions): Promise<MiddenNode>;
     /**
      * download a blob using iroh-blobs verified streaming
      *
@@ -219,6 +314,13 @@ export class MiddenNode {
      */
     download_verified_by_id(peer_addr: string, blob_id: string): Promise<Array<any>>;
     /**
+     * full pipeline from blob_id with progress reporting.
+     *
+     * computes blake3 on demand, then uses verified download with progress.
+     * returns [data: Uint8Array, blake3: string].
+     */
+    download_verified_by_id_progress(peer_addr: string, blob_id: string, total_size: number, on_progress: Function): Promise<Array<any>>;
+    /**
      * download a verified blob and stream chunks to JS via callback
      *
      * this is the preferred path for large blobs (audio files). instead of
@@ -238,13 +340,14 @@ export class MiddenNode {
      *
      * returns total bytes streamed.
      */
-    download_verified_streaming(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
+    download_verified_streaming(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function, cancel?: CancelToken | null): Promise<number>;
     /**
      * streaming download with auto ensure+retry. first attempts the streaming
      * download; if the verified download fails (blob not in peer's store), calls
-     * ensure_blob to load it, then retries.
+     * ensure_blob to load it, then retries. a deliberate cancellation is NOT
+     * retried — it propagates immediately with the "download cancelled" message.
      */
-    download_verified_streaming_with_ensure(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function): Promise<number>;
+    download_verified_streaming_with_ensure(peer_addr: string, blake3_hash: string, total_size: number, on_chunk: Function, on_progress: Function, cancel?: CancelToken | null): Promise<number>;
     /**
      * download a blob using iroh-blobs with automatic ensure + retry
      *
@@ -252,6 +355,35 @@ export class MiddenNode {
      * calls ensure_blob to load it, then retries.
      */
     download_verified_with_ensure(peer_addr: string, blake3_hash: string): Promise<Uint8Array>;
+    /**
+     * download with ensure + retry and progress reporting.
+     *
+     * tries download first; if blob not in peer's FsStore, calls ensure_blob
+     * then retries. progress callback receives fraction (0.0 to 1.0).
+     * `cancel`: optional cooperative cancellation (pause) — a deliberate
+     * cancellation is NOT retried, it propagates immediately.
+     *
+     * NOTE: any failure on the first attempt triggers this same
+     * ensure-then-retry fallback, not just the "blob not in FsStore yet"
+     * case the fallback was designed for. for a large blob, the first
+     * attempt can stream a substantial fraction of the bytes (driving
+     * `on_progress` most/all of the way to 1.0) before failing late, so the
+     * caller-visible symptom is a full 0->100% progress cycle that silently
+     * restarts from 0 for a second full cycle. logging the first attempt's
+     * error and explicitly resetting progress to 0 here makes this restart
+     * visible/diagnosable instead of looking like a silent glitch.
+     */
+    download_verified_with_ensure_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function, cancel?: CancelToken | null): Promise<Uint8Array>;
+    /**
+     * download a blob with progress reporting via JS callback
+     *
+     * same as download_verified but calls on_progress(fraction) where
+     * fraction is bytes_received / total_size (0.0 to 1.0).
+     * total_size should come from the caller's known size field.
+     * `cancel`: optional cooperative cancellation (pause) — see
+     * download_verified_streaming for the semantics.
+     */
+    download_verified_with_progress(peer_addr: string, blake3_hash: string, total_size: number, on_progress: Function, cancel?: CancelToken | null): Promise<Uint8Array>;
     /**
      * ensure a blob is loaded into the peer's FsStore by blake3 hash
      *
@@ -268,11 +400,18 @@ export class MiddenNode {
      */
     fetch_hello_image(peer_addr: string): Promise<HelloImageResult>;
     /**
-     * check whether a blob with the given blake3 hash is currently held in the MemStore
+     * check whether a blob with the given blake3 hash is currently held in the store
      * via an active TempTag. avoids expensive OPFS read + bao recomputation when the
      * blob is already loaded.
      */
     has_active_blob(blake3_hash: string): boolean;
+    /**
+     * check whether a COMPLETE blob with this hash exists in the blob store
+     * itself — with the persistent opfs store this is true across reloads,
+     * even when no TempTag pins it. lets serving paths skip re-imports
+     * entirely.
+     */
+    has_complete_blob(blake3_hash: string): Promise<boolean>;
     /**
      * import a blob from its pre-computed bao-encoded bytes, skipping the
      * expensive bao tree computation. `blake3_hash` is the 64-char hex hash,
@@ -288,7 +427,7 @@ export class MiddenNode {
      * import raw bytes into the iroh-blobs store, returning the blake3 hash.
      * this makes the blob available for verified download by peers.
      * the blob stays in the store as long as its TempTag is held in active_tags.
-     * call release_blob() to allow GC, or it will be evicted when the map exceeds 3 entries.
+     * call release_blob() to allow GC.
      */
     import_blob(data: Uint8Array): Promise<string>;
     /**
@@ -324,6 +463,12 @@ export class MiddenNode {
      */
     open_bi(peer_addr: string, alpn: string): Promise<BiStream>;
     /**
+     * pin a hash so gc won't sweep it (e.g. a paused partial download).
+     * idempotent. pair with unprotect_blob when the partial is resumed to
+     * completion or discarded.
+     */
+    protect_blob(blake3_hash: string): void;
+    /**
      * dispatch a typed admin command to a peer over the freqhole-admin/1 ALPN.
      *
      * `args` is a JSON string (the literal `"null"` is accepted for no-payload
@@ -342,6 +487,18 @@ export class MiddenNode {
      * blake3_hash should be the 64-char hex string returned by import_blob.
      */
     release_blob(blake3_hash: string): void;
+    /**
+     * PROTOTYPE: restrict a blob (by blake3 hex hash) so only the given
+     * peer node ids may fetch it over the `iroh-blobs/*` ALPN. a hash with
+     * no restriction registered is served to anyone (today's default
+     * behavior, unchanged) — calling this is what opts a specific hash
+     * into gating.
+     *
+     * this is a stopgap/demo hook, not the real canvas-ACL integration: it
+     * has to be called explicitly, from JS, with an already-resolved list
+     * of allowed peer node ids for this one hash.
+     */
+    restrict_blob_to_peers(blake3_hash: string, peer_node_ids: Array<any>): void;
     /**
      * get the secret key bytes for persistence (32 bytes)
      * store this in IndexedDB to maintain the same identity across sessions
@@ -366,6 +523,12 @@ export class MiddenNode {
      */
     start_blob_server(): void;
     /**
+     * begin a chunked import — the streaming counterpart to import_blob for
+     * payloads that shouldn't be materialized as one contiguous &[u8] across
+     * the wasm boundary. see ImportSession for the push/finish protocol.
+     */
+    start_import(): ImportSession;
+    /**
      * connect to a freqhole radio broadcaster.
      *
      * callbacks (all called from JS land):
@@ -381,6 +544,53 @@ export class MiddenNode {
      * playback and closes the iroh connection.
      */
     tune_radio(peer_addr: string, station_id: string | null | undefined, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
+    /**
+     * remove a gc pin added by protect_blob (or by a cancelled download).
+     */
+    unprotect_blob(blake3_hash: string): void;
+}
+
+/**
+ * options bag for `MiddenNode::create_with_options`, the single canonical
+ * constructor. build one, set whichever fields are needed, and pass it in:
+ *
+ * ```js
+ * const opts = new MiddenNodeOptions();
+ * opts.opfs_store_dir = "midden-blob-store";
+ * opts.connect_timeout_ms = 5000;
+ * const node = await MiddenNode.create_with_options(opts);
+ * ```
+ *
+ * `create`/`create_from_key`/`create_with_alpns` remain as deprecated
+ * wrappers over this constructor for existing callers (spume, playlistz).
+ */
+export class MiddenNodeOptions {
+    free(): void;
+    [Symbol.dispose](): void;
+    constructor();
+    /**
+     * per-dial timeout (ms) for `open_bi`/`connect` (defaults to 10s).
+     */
+    get connect_timeout_ms(): number | undefined;
+    set connect_timeout_ms(value: number | null | undefined);
+    /**
+     * additional ALPN protocols to register beyond the default set.
+     */
+    get extra_alpns(): string[] | undefined;
+    set extra_alpns(value: string[] | null | undefined);
+    /**
+     * when given, blobs persist in an OPFS-backed store under this
+     * directory (worker context required); otherwise (or when OPFS is
+     * unavailable) an in-memory store is used.
+     */
+    get opfs_store_dir(): string | undefined;
+    set opfs_store_dir(value: string | null | undefined);
+    /**
+     * the node's secret key (32 raw bytes). omit (or pass null/undefined)
+     * to generate a random identity.
+     */
+    get secret_key(): Uint8Array | undefined;
+    set secret_key(value: Uint8Array | null | undefined);
 }
 
 /**
@@ -403,5 +613,20 @@ export class RadioHandle {
  * this runs entirely in the browser — no network call needed.
  */
 export function hash_blake3(data: Uint8Array): string;
+
+/**
+ * opfs store selftest — runs the full import/export round trip against
+ * real OPFS through the real iroh-blobs api. worker context required
+ * (sync access handles). wasm-only debug helper, used for manual
+ * debugging from the blob worker, not from automated tests.
+ */
+export function opfs_store_selftest(): Promise<string>;
+
+/**
+ * persistence selftest: blobs + tags survive a store shutdown/reopen over
+ * the same OPFS directory. worker context required. wasm-only debug
+ * helper, used for manual debugging from the blob worker.
+ */
+export function opfs_store_selftest_persistence(): Promise<string>;
 
 export function start(): void;
