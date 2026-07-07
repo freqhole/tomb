@@ -1,0 +1,64 @@
+{
+    "name": "@freqhole/haruspex",
+    "version": "0.1.0",
+    "private": false,
+    "type": "module",
+    "description": "auth domain for the freqhole family: identity, webauthn, knock + friendz protocols, permissions",
+    "license": "UNLICENSED",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./identity": {
+            "types": "./dist/identity/index.d.ts",
+            "import": "./dist/identity/index.js"
+        },
+        "./webauthn": {
+            "types": "./dist/webauthn/index.d.ts",
+            "import": "./dist/webauthn/index.js"
+        },
+        "./knock": {
+            "types": "./dist/knock/index.d.ts",
+            "import": "./dist/knock/index.js"
+        },
+        "./share": {
+            "types": "./dist/share/index.d.ts",
+            "import": "./dist/share/index.js"
+        },
+        "./permissions": {
+            "types": "./dist/permissions/index.d.ts",
+            "import": "./dist/permissions/index.js"
+        },
+        "./protocol": {
+            "types": "./dist/protocol/index.d.ts",
+            "import": "./dist/protocol/index.js"
+        },
+        "./solid": {
+            "types": "./dist/solid/index.d.ts",
+            "import": "./dist/solid/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "import": "./dist/testing/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "peerDependencies": {
+        "solid-js": "^1.9.0"
+    },
+    "peerDependenciesMeta": {
+        "solid-js": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "fake-indexeddb": "^6.0.0",
+        "typescript": "^5.6.0",
+        "vitest": "^2.1.0"
+    }
+}

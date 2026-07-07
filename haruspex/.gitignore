@@ -1,0 +1,7 @@
+/target
+/haruspex.db
+/haruspex.db-*
+Cargo.lock
+node_modules/
+dist/
+.DS_Store
