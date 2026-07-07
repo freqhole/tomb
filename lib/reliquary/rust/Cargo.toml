@@ -1,0 +1,35 @@
+[package]
+name = "reliquary"
+version.workspace = true
+edition.workspace = true
+description = "media blob storage domain for the freqhole family: content-addressed blob stores, iroh-blobs wrappers, snatch replication, blob acl gating, media helpers"
+repository = "https://github.com/freqhole/reliquary"
+
+[lib]
+name = "reliquary"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+blake3 = { workspace = true }
+iroh = { workspace = true }
+iroh-blobs = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+# thumbnail/resize helpers, off by default (phase 2 fills these in).
+media = []
+# in-process fixtures + fake stores for consumer test suites, exported under
+# reliquary::testing. no functional code yet (phase 0 skeleton).
+test-utils = []

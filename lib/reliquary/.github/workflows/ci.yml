@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  DATABASE_URL: sqlite:reliquary.db
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: rust (fmt + clippy + test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: cache cargo + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
+
+      - name: set up dev database
+        run: make db-setup
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  ts:
+    name: ts (typecheck + vitest)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: install deps
+        run: npm install
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: test
+        run: npm test

@@ -1,0 +1,60 @@
+{
+    "name": "@freqhole/reliquary",
+    "version": "0.1.0",
+    "private": false,
+    "type": "module",
+    "description": "media blob storage domain for the freqhole family: content-addressed blobs, transfer, worker, solid helpers",
+    "license": "UNLICENSED",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./blobs": {
+            "types": "./dist/blobs/index.d.ts",
+            "import": "./dist/blobs/index.js"
+        },
+        "./transfer": {
+            "types": "./dist/transfer/index.d.ts",
+            "import": "./dist/transfer/index.js"
+        },
+        "./automerge": {
+            "types": "./dist/automerge/index.d.ts",
+            "import": "./dist/automerge/index.js"
+        },
+        "./worker": {
+            "types": "./dist/worker/index.d.ts",
+            "import": "./dist/worker/index.js"
+        },
+        "./utils": {
+            "types": "./dist/utils/index.d.ts",
+            "import": "./dist/utils/index.js"
+        },
+        "./solid": {
+            "types": "./dist/solid/index.d.ts",
+            "import": "./dist/solid/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "import": "./dist/testing/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "peerDependencies": {
+        "solid-js": "^1.9.0"
+    },
+    "peerDependenciesMeta": {
+        "solid-js": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "fake-indexeddb": "^6.0.0",
+        "typescript": "^5.6.0",
+        "vitest": "^2.1.0"
+    }
+}
