@@ -31,3 +31,5 @@ time = { version = "0.3", features = [
 blake3 = "1.5"
 iroh = "1.0.1"
 iroh-blobs = "0.103"
+async-trait = "0.1"
+getrandom = "0.2"
