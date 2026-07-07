@@ -327,3 +327,80 @@ impl FederationEndpoint {
         self.endpoint.close().await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::RelayModeConfig;
+
+    fn fed(relay_mode: RelayModeConfig, relay_url: Option<&str>) -> FederationConfig {
+        FederationConfig {
+            relay_mode,
+            relay_url: relay_url.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn relay_mode_default_leaves_preset_untouched() {
+        // no federation config at all: no override.
+        assert!(resolve_relay_mode(None).unwrap().is_none());
+
+        // federation config present but relay_mode left at its default: still no override.
+        let cfg = fed(RelayModeConfig::Default, None);
+        assert!(resolve_relay_mode(Some(&cfg)).unwrap().is_none());
+    }
+
+    #[test]
+    fn relay_mode_custom_only_routes_through_custom_relay_alone() {
+        let cfg = fed(
+            RelayModeConfig::CustomOnly,
+            Some("https://relay.example.com"),
+        );
+        let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
+        let url: RelayUrl = "https://relay.example.com".parse().unwrap();
+
+        match mode {
+            RelayMode::Custom(map) => {
+                assert!(map.contains(&url));
+                assert_eq!(
+                    map.len(),
+                    1,
+                    "custom_only must not include the public relays"
+                );
+            }
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn relay_mode_prefer_custom_includes_public_fallback() {
+        let cfg = fed(
+            RelayModeConfig::PreferCustom,
+            Some("https://relay.example.com"),
+        );
+        let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
+        let custom_url: RelayUrl = "https://relay.example.com".parse().unwrap();
+        let public_map = RelayMode::Default.relay_map();
+
+        match mode {
+            RelayMode::Custom(map) => {
+                assert!(map.contains(&custom_url), "custom relay must be present");
+                assert!(
+                    map.len() > public_map.len(),
+                    "prefer_custom must include the public relays alongside the custom one"
+                );
+            }
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn relay_mode_custom_requires_a_relay_url() {
+        let cfg = fed(RelayModeConfig::CustomOnly, None);
+        assert!(resolve_relay_mode(Some(&cfg)).is_err());
+
+        let cfg = fed(RelayModeConfig::PreferCustom, Some("   "));
+        assert!(resolve_relay_mode(Some(&cfg)).is_err());
+    }
+}

@@ -92,9 +92,18 @@ impl TestContext {
 
         let output = self.run_cli(&json_args);
         serde_json::from_str(&output.stdout).unwrap_or_else(|e| {
+            let hint = output
+                .stderr
+                .contains("was previously applied but has been modified")
+                .then_some(
+                    "\n\nhint: a migration under migrations/ was edited after already being \
+                     applied to data/test.db - see cli/tests/README.md#fixing-migration-n-was-\
+                     previously-applied-but-has-been-modified",
+                )
+                .unwrap_or_default();
             panic!(
-                "Invalid JSON response:\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\nError: {}",
-                output.stdout, output.stderr, e
+                "Invalid JSON response:\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\nError: {}{}",
+                output.stdout, output.stderr, e, hint
             )
         })
     }

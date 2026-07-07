@@ -126,7 +126,7 @@ make test-cli-coverage
 make test-cli-list
 ```
 
-**Testing pattern**: CLI tests use `TestContext::from_snapshot()` which copies `fixtures/test.db` to temp location and provides `run_cli()` / `run_json()` helpers.
+**Testing pattern**: CLI tests use `TestContext::from_snapshot()`, which points at the shared snapshot db `data/test.db` directly (no per-test copy - tests share and mutate it, hence `--test-threads=1`) and provides `run_cli()` / `run_json()` helpers. see [cli/tests/README.md](../cli/tests/README.md) for how to regenerate the snapshot or fix a poisoned migration checksum.
 
 ### Client Development
 
