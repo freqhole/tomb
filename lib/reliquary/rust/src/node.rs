@@ -1,0 +1,509 @@
+//! StorageNode: the reusable iroh-blobs `FsStore` + gc-protect + downloader
+//! bundle.
+//!
+//! distilled from skein's `service.rs` and skein/tauri's fs-store wiring
+//! (both independently built the same FsStore/protect-callback/downloader
+//! bundle - see the xl-refactor phase 2 doc's "StorageNode builder"
+//! section). app wiring stays out of this module: endpoint construction,
+//! ALPN registration, router building, which access gate to use, and
+//! snatch engine startup are all consumer concerns.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
+use std::time::Duration;
+
+use iroh::Endpoint;
+use iroh_blobs::api::blobs::{AddPathOptions, ExportMode, ExportOptions, ImportMode};
+use iroh_blobs::api::downloader::Downloader;
+use iroh_blobs::provider::events::EventSender;
+use iroh_blobs::store::fs::{options::Options, FsStore};
+use iroh_blobs::store::{GcConfig, ProtectCb, ProtectOutcome};
+use iroh_blobs::{BlobFormat, BlobsProtocol, Hash};
+
+use crate::blobz::{BlobStore, BlobStoreError};
+
+const DEFAULT_GC_INTERVAL: Duration = Duration::from_secs(3600);
+const PROTECT_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
+
+#[derive(Debug, thiserror::Error)]
+pub enum NodeError {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("fs store error: {0}")]
+    FsStore(String),
+
+    #[error("blob store error: {0}")]
+    BlobStore(#[from] BlobStoreError),
+}
+
+/// options controlling [`StorageNode::init`].
+#[derive(Debug, Clone)]
+pub struct StorageNodeOptions {
+    /// enable the background gc cycle (protect-callback + periodic sweep).
+    /// tests typically disable this (see `testing::make_storage_node`).
+    pub gc_enabled: bool,
+    /// how often the gc sweep runs, when enabled.
+    pub gc_interval: Duration,
+    /// on init, `add_path` every existing blobz row into the iroh-blobs
+    /// store so it's immediately servable over `iroh-blobs/*`, without
+    /// waiting for a peer to first trigger an ensure/ingest.
+    pub prewarm: bool,
+}
+
+impl Default for StorageNodeOptions {
+    fn default() -> Self {
+        Self {
+            gc_enabled: true,
+            gc_interval: DEFAULT_GC_INTERVAL,
+            prewarm: false,
+        }
+    }
+}
+
+/// the reusable iroh-blobs storage bundle: `FsStore` + gc protection +
+/// downloader. holds `Arc<dyn BlobStore>` (never a concrete store type) so
+/// it composes with any `BlobStore` implementation.
+pub struct StorageNode {
+    /// the iroh-blobs native store. `'static` because `BlobsProtocol` and
+    /// `Downloader` both want it - each `StorageNode::init` call leaks one
+    /// `Box<FsStore>` (fine: one per long-running process, or one per test
+    /// tempdir).
+    pub fs_store: &'static FsStore,
+    /// the blobz metadata + canonical-file store this node exports
+    /// downloaded blobs into.
+    pub blobz: Arc<dyn BlobStore>,
+    /// iroh-blobs downloader for verified transfers from peers.
+    pub downloader: Downloader,
+    /// hashes currently mid-download. shared with the gc protect callback
+    /// so an in-progress download is never swept before it's exported into
+    /// `blobz`. also shared with `snatch::SnatchEngine` for the same reason.
+    pub in_flight: Arc<StdMutex<HashSet<Hash>>>,
+    protect_refresh: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StorageNode {
+    /// boot a storage node: load (or create) the iroh-blobs `FsStore` under
+    /// `<data_dir>/iroh-blobs/`, wire up gc protection (if enabled), build a
+    /// downloader bound to `endpoint`, and optionally pre-warm the store
+    /// with every existing blobz row.
+    pub async fn init(
+        data_dir: &Path,
+        blobz: Arc<dyn BlobStore>,
+        endpoint: &Endpoint,
+        opts: StorageNodeOptions,
+    ) -> Result<Self, NodeError> {
+        let path = data_dir.join("iroh-blobs");
+        tokio::fs::create_dir_all(&path).await?;
+
+        let in_flight: Arc<StdMutex<HashSet<Hash>>> = Arc::new(StdMutex::new(HashSet::new()));
+
+        let mut store_opts = Options::new(&path);
+        let mut protect_refresh = None;
+
+        if opts.gc_enabled {
+            // protected-hash cache: refreshed periodically by a background
+            // task. None = never refreshed yet -> the callback aborts the gc
+            // cycle rather than sweeping blind.
+            let protected: Arc<RwLock<Option<HashSet<Hash>>>> = Arc::new(RwLock::new(None));
+
+            let protected_bg = Arc::clone(&protected);
+            let blobz_bg = Arc::clone(&blobz);
+            protect_refresh = Some(tokio::spawn(async move {
+                loop {
+                    match blobz_bg.list_all_iroh_hashes().await {
+                        Ok(hex_hashes) => {
+                            let mut set = HashSet::new();
+                            for hex in &hex_hashes {
+                                if let Ok(h) = hex.parse::<Hash>() {
+                                    set.insert(h);
+                                }
+                            }
+                            if let Ok(mut guard) = protected_bg.write() {
+                                *guard = Some(set);
+                            }
+                            tracing::debug!(
+                                count = hex_hashes.len(),
+                                "gc protect: refreshed protected hashes from blobz"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "gc protect: failed to refresh protected hashes from blobz"
+                            );
+                        }
+                    }
+                    tokio::time::sleep(PROTECT_REFRESH_INTERVAL).await;
+                }
+            }));
+
+            let in_flight_cb = Arc::clone(&in_flight);
+            let protect_cb: ProtectCb = Arc::new(move |live: &mut HashSet<Hash>| {
+                let p = Arc::clone(&protected);
+                let inf = Arc::clone(&in_flight_cb);
+                Box::pin(async move {
+                    match p.read() {
+                        Ok(guard) => match guard.as_ref() {
+                            None => {
+                                tracing::debug!(
+                                    "gc protect: protected set not yet initialized, aborting cycle"
+                                );
+                                return ProtectOutcome::Abort;
+                            }
+                            Some(set) => {
+                                live.extend(set.iter().cloned());
+                            }
+                        },
+                        Err(_) => return ProtectOutcome::Abort,
+                    }
+                    // also protect blobs that are mid-download.
+                    if let Ok(inf_guard) = inf.lock() {
+                        live.extend(inf_guard.iter().cloned());
+                    }
+                    ProtectOutcome::Continue
+                })
+            });
+
+            store_opts.gc = Some(GcConfig {
+                interval: opts.gc_interval,
+                add_protected: Some(protect_cb),
+            });
+        }
+
+        let fs_store: &'static FsStore = Box::leak(Box::new(
+            FsStore::load_with_opts(path.join("blobs.db"), store_opts)
+                .await
+                .map_err(|e| NodeError::FsStore(e.to_string()))?,
+        ));
+
+        let downloader = Downloader::new(fs_store, endpoint);
+
+        let node = Self {
+            fs_store,
+            blobz,
+            downloader,
+            in_flight,
+            protect_refresh,
+        };
+
+        if opts.prewarm {
+            node.prewarm().await?;
+        }
+
+        Ok(node)
+    }
+
+    /// `add_path` every existing (non-soft-deleted) blobz row into the
+    /// iroh-blobs store, so it's immediately servable over `iroh-blobs/*`
+    /// without waiting for a peer to trigger an ensure/ingest first.
+    async fn prewarm(&self) -> Result<(), NodeError> {
+        const PAGE_SIZE: i64 = 200;
+        let mut offset: i64 = 0;
+        loop {
+            let (records, total) = self.blobz.list(PAGE_SIZE, offset).await?;
+            if records.is_empty() {
+                break;
+            }
+            let fetched = records.len() as i64;
+            for record in &records {
+                let path = self.blobz.path_for(record);
+                if let Err(e) = self.fs_store.blobs().add_path(path.clone()).await {
+                    tracing::warn!(
+                        blake3 = %record.blake3,
+                        path = %path.display(),
+                        error = %e,
+                        "prewarm: failed to add existing blob to iroh-blobs store"
+                    );
+                }
+            }
+            offset += fetched;
+            if (offset as u64) >= total {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// build a `BlobsProtocol` handler for `iroh-blobs/*`, optionally gated
+    /// via an `EventSender` (see `crate::gate::build_gated_blobs_events`).
+    pub fn blobs_protocol(&self, events: Option<EventSender>) -> BlobsProtocol {
+        BlobsProtocol::new(self.fs_store, events)
+    }
+
+    /// raii guard: inserts `hash` into the in-flight set on construction,
+    /// removes it on drop. share this between the gc protect callback and
+    /// anything mid-download (the snatch engine, an ensure handler, ...) so
+    /// a blob is never swept while it's being fetched.
+    pub fn in_flight_guard(&self, hash: Hash) -> InFlightGuard {
+        InFlightGuard::new(Arc::clone(&self.in_flight), hash)
+    }
+}
+
+impl Drop for StorageNode {
+    fn drop(&mut self) {
+        if let Some(handle) = self.protect_refresh.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// raii guard that inserts a hash into an in-flight set on construction and
+/// removes it when dropped. ensures a gc protect callback never sweeps a
+/// blob that is mid-download, regardless of which exit path the download
+/// takes (success, error, or cancellation).
+pub struct InFlightGuard {
+    set: Arc<StdMutex<HashSet<Hash>>>,
+    hash: Hash,
+}
+
+impl InFlightGuard {
+    pub fn new(set: Arc<StdMutex<HashSet<Hash>>>, hash: Hash) -> Self {
+        if let Ok(mut guard) = set.lock() {
+            guard.insert(hash);
+        }
+        Self { set, hash }
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.set.lock() {
+            guard.remove(&self.hash);
+        }
+    }
+}
+
+/// export a hash from `fs_store`'s internal storage to `blobz`'s canonical
+/// content-addressed path by reference (rename when possible; `TryReference`
+/// falls back to a copy across filesystem boundaries, e.g. `EXDEV`). the
+/// fs store keeps tracking the file (now `DataLocation::External`) and
+/// continues serving it for P2P; only the outboard tree stays duplicated.
+///
+/// returns the canonical path the bytes now live at. callers still need to
+/// call `blobz.register_ingested(...)` to record the metadata row.
+pub async fn export_try_reference(
+    fs_store: &FsStore,
+    hash: Hash,
+    blobz: &Arc<dyn BlobStore>,
+) -> Result<PathBuf, NodeError> {
+    let blake3_hex = hash.to_string();
+    let target = blobz.prepare_canonical_path(&blake3_hex).await?;
+    fs_store
+        .blobs()
+        .export_with_opts(ExportOptions {
+            hash,
+            mode: ExportMode::TryReference,
+            target: target.clone(),
+        })
+        .await
+        .map_err(|e| NodeError::FsStore(format!("export to blobz path: {e}")))?;
+    Ok(target)
+}
+
+/// import a file already on disk (e.g. a blobz-managed canonical file) into
+/// `fs_store` by reference (no copy) so it becomes servable over
+/// `iroh-blobs/*`. the inverse of [`export_try_reference`].
+pub async fn import_try_reference(fs_store: &FsStore, path: &Path) -> Result<Hash, NodeError> {
+    let tag_info = fs_store
+        .blobs()
+        .add_path_with_opts(AddPathOptions {
+            path: path.to_path_buf(),
+            format: BlobFormat::Raw,
+            mode: ImportMode::TryReference,
+        })
+        .await
+        .map_err(|e| NodeError::FsStore(format!("import by reference: {e}")))?;
+    Ok(tag_info.hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blobz::{NewBlobMeta, SqliteBlobStore};
+
+    async fn test_endpoint() -> Endpoint {
+        Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .bind()
+            .await
+            .expect("bind test endpoint")
+    }
+
+    async fn test_blobz(data_dir: &Path) -> Arc<dyn BlobStore> {
+        let pool = crate::db::open_in_memory().await;
+        Arc::new(SqliteBlobStore::new(pool, data_dir))
+    }
+
+    #[tokio::test]
+    async fn init_with_gc_disabled_boots_a_usable_store() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let endpoint = test_endpoint().await;
+
+        let node = StorageNode::init(
+            tmp.path(),
+            blobz,
+            &endpoint,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init storage node");
+
+        let tag = node
+            .fs_store
+            .blobs()
+            .add_bytes(b"hello storage node".to_vec())
+            .await
+            .expect("add bytes");
+        let bytes = node
+            .fs_store
+            .blobs()
+            .get_bytes(tag.hash)
+            .await
+            .expect("get bytes");
+        assert_eq!(&bytes[..], b"hello storage node");
+
+        assert!(tmp.path().join("iroh-blobs").exists());
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn in_flight_guard_tracks_and_releases_hash() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let endpoint = test_endpoint().await;
+
+        let node = StorageNode::init(
+            tmp.path(),
+            blobz,
+            &endpoint,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init storage node");
+
+        let hash = Hash::new(b"some content");
+        {
+            let _guard = node.in_flight_guard(hash);
+            assert!(node.in_flight.lock().unwrap().contains(&hash));
+        }
+        assert!(!node.in_flight.lock().unwrap().contains(&hash));
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn prewarm_adds_every_existing_blobz_row_to_the_fs_store() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        blobz
+            .insert(b"blob one", NewBlobMeta::default())
+            .await
+            .expect("insert blob one");
+        blobz
+            .insert(b"blob two", NewBlobMeta::default())
+            .await
+            .expect("insert blob two");
+
+        let endpoint = test_endpoint().await;
+        let node = StorageNode::init(
+            tmp.path(),
+            blobz,
+            &endpoint,
+            StorageNodeOptions {
+                gc_enabled: false,
+                prewarm: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init storage node with prewarm");
+
+        let hash_one = Hash::new(b"blob one");
+        let hash_two = Hash::new(b"blob two");
+        assert!(node.fs_store.blobs().has(hash_one).await.unwrap());
+        assert!(node.fs_store.blobs().has(hash_two).await.unwrap());
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn export_try_reference_round_trips_into_blobz() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let endpoint = test_endpoint().await;
+
+        let node = StorageNode::init(
+            tmp.path(),
+            Arc::clone(&blobz),
+            &endpoint,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init storage node");
+
+        let payload = b"exported via try-reference".to_vec();
+        let tag = node
+            .fs_store
+            .blobs()
+            .add_bytes(payload.clone())
+            .await
+            .expect("add bytes to fs store");
+
+        let target = export_try_reference(node.fs_store, tag.hash, &blobz)
+            .await
+            .expect("export_try_reference");
+        assert!(target.exists());
+
+        let record = blobz
+            .register_ingested(&tag.hash.to_string(), NewBlobMeta::default())
+            .await
+            .expect("register_ingested");
+        assert_eq!(record.size, payload.len() as u64);
+
+        let on_disk = tokio::fs::read(&target).await.expect("read exported file");
+        assert_eq!(on_disk, payload);
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn import_try_reference_makes_an_external_file_servable() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let endpoint = test_endpoint().await;
+
+        let node = StorageNode::init(
+            tmp.path(),
+            blobz,
+            &endpoint,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init storage node");
+
+        let src_dir = tempfile::tempdir().expect("src tempdir");
+        let src_path = src_dir.path().join("external.bin");
+        let payload = b"already on disk elsewhere".to_vec();
+        tokio::fs::write(&src_path, &payload).await.unwrap();
+
+        let hash = import_try_reference(node.fs_store, &src_path)
+            .await
+            .expect("import_try_reference");
+        assert!(node.fs_store.blobs().has(hash).await.unwrap());
+        let bytes = node.fs_store.blobs().get_bytes(hash).await.unwrap();
+        assert_eq!(&bytes[..], &payload[..]);
+        endpoint.close().await;
+    }
+}
