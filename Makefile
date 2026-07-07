@@ -478,10 +478,8 @@ bump-version:
 		echo "bumping version to $(NEW_VERSION)..."; \
 		echo "  updating Cargo.toml..."; \
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak; \
-		echo "  updating client/midden/Cargo.toml..."; \
-		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' client/midden/Cargo.toml && rm -f client/midden/Cargo.toml.bak; \
 		echo "  updating Cargo.lock (workspace member versions)..."; \
-		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen|midden)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
+		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
 		echo "  updating tauri.conf.json..."; \
 		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
