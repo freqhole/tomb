@@ -13,7 +13,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::error::StoreError;
-use crate::stores::knock_store::{KnockDecision, KnockDirection, KnockRecord, KnockScope, KnockStatus};
+use crate::stores::knock_store::{
+    KnockDecision, KnockDirection, KnockRecord, KnockScope, KnockStatus,
+};
 use crate::stores::KnockStore;
 
 pub struct SqliteKnockStore {
@@ -52,8 +54,9 @@ impl TryFrom<KnockRow> for KnockRecord {
             })?,
             scope: serde_json::from_str::<KnockScope>(&row.scope_json)?,
             message: row.message,
-            status: KnockStatus::parse(&row.status)
-                .ok_or_else(|| StoreError::Conflict(format!("invalid knock status: {}", row.status)))?,
+            status: KnockStatus::parse(&row.status).ok_or_else(|| {
+                StoreError::Conflict(format!("invalid knock status: {}", row.status))
+            })?,
             created_at: row.created_at,
             processed_at: row.processed_at,
             processed_by: row.processed_by,
@@ -200,6 +203,7 @@ impl KnockStore for SqliteKnockStore {
 mod tests {
     use super::*;
     use crate::sqlite::test_pool;
+    use crate::stores::grant_store::Role;
 
     async fn store() -> SqliteKnockStore {
         SqliteKnockStore::new(test_pool().await)
@@ -208,7 +212,7 @@ mod tests {
     fn resource_scope(resource_id: &str) -> KnockScope {
         KnockScope::Resource {
             resource_id: resource_id.to_string(),
-            requested_role: Some("member".to_string()),
+            requested_role: Some(Role::Member),
         }
     }
 

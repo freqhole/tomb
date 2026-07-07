@@ -91,10 +91,7 @@ impl CredentialStore for SqliteCredentialStore {
         row.try_into()
     }
 
-    async fn get_credential(
-        &self,
-        credential_id: &[u8],
-    ) -> Result<Option<Credential>, StoreError> {
+    async fn get_credential(&self, credential_id: &[u8]) -> Result<Option<Credential>, StoreError> {
         let row = sqlx::query_as!(
             CredentialRow,
             r#"
@@ -164,8 +161,23 @@ mod tests {
     use crate::sqlite::test_pool;
     use serde_json::json;
 
-    async fn store() -> SqliteCredentialStore {
-        SqliteCredentialStore::new(test_pool().await)
+    async fn store() -> (SqliteCredentialStore, SqlitePool) {
+        let pool = test_pool().await;
+        (SqliteCredentialStore::new(pool.clone()), pool)
+    }
+
+    async fn seed_identity(pool: &SqlitePool) -> Uuid {
+        let id = Uuid::new_v4();
+        let id_str = id.to_string();
+        sqlx::query!(
+            "INSERT INTO identityz (id, created_at) VALUES (?1, ?2)",
+            id_str,
+            100,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        id
     }
 
     fn credential(identity_id: Uuid, credential_id: &[u8]) -> Credential {
@@ -183,8 +195,8 @@ mod tests {
 
     #[tokio::test]
     async fn add_then_get_round_trips() {
-        let store = store().await;
-        let identity_id = Uuid::new_v4();
+        let (store, pool) = store().await;
+        let identity_id = seed_identity(&pool).await;
         let added = store
             .add_credential(credential(identity_id, b"cred-a"))
             .await
@@ -197,14 +209,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_credential_missing_returns_none() {
-        let store = store().await;
+        let (store, _pool) = store().await;
         assert!(store.get_credential(b"missing").await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn add_credential_rejects_duplicate_credential_id() {
-        let store = store().await;
-        let identity_id = Uuid::new_v4();
+        let (store, pool) = store().await;
+        let identity_id = seed_identity(&pool).await;
         store
             .add_credential(credential(identity_id, b"cred-a"))
             .await
@@ -219,8 +231,8 @@ mod tests {
 
     #[tokio::test]
     async fn list_for_identity_orders_newest_first_and_excludes_removed() {
-        let store = store().await;
-        let identity_id = Uuid::new_v4();
+        let (store, pool) = store().await;
+        let identity_id = seed_identity(&pool).await;
         store
             .add_credential(Credential {
                 created_at: 100,
@@ -248,8 +260,8 @@ mod tests {
 
     #[tokio::test]
     async fn touch_last_used_updates_the_timestamp() {
-        let store = store().await;
-        let identity_id = Uuid::new_v4();
+        let (store, pool) = store().await;
+        let identity_id = seed_identity(&pool).await;
         store
             .add_credential(credential(identity_id, b"cred-a"))
             .await
@@ -262,8 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn remove_credential_soft_deletes_it() {
-        let store = store().await;
-        let identity_id = Uuid::new_v4();
+        let (store, pool) = store().await;
+        let identity_id = seed_identity(&pool).await;
         store
             .add_credential(credential(identity_id, b"cred-a"))
             .await

@@ -74,9 +74,7 @@ pub struct FriendEdge {
 pub trait FriendStore: Send + Sync {
     async fn upsert_edge(&self, edge: FriendEdge) -> Result<FriendEdge, StoreError>;
     async fn get_edge(&self, node_id: &str) -> Result<Option<FriendEdge>, StoreError>;
-    async fn list_edges(
-        &self,
-        status: Option<FriendStatus>,
-    ) -> Result<Vec<FriendEdge>, StoreError>;
+    async fn list_edges(&self, status: Option<FriendStatus>)
+        -> Result<Vec<FriendEdge>, StoreError>;
     async fn remove_edge(&self, node_id: &str) -> Result<(), StoreError>;
 }

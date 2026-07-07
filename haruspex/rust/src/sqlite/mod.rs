@@ -1,16 +1,19 @@
 //! sqlite implementations of the store traits, plus the migration runner.
-//!
-//! `GrantStore` has no sqlite implementation here - its real backing depends
-//! on the acl evaluator's resource-ancestry model, a separate, larger task.
 
+pub mod challenge_store;
 pub mod credential_store;
 pub mod friend_store;
+pub mod grant_store;
+pub mod group_store;
 pub mod identity_store;
 pub mod knock_store;
 pub mod peer_directory;
 
+pub use challenge_store::SqliteChallengeStore;
 pub use credential_store::SqliteCredentialStore;
 pub use friend_store::SqliteFriendStore;
+pub use grant_store::SqliteGrantStore;
+pub use group_store::SqliteGroupStore;
 pub use identity_store::SqliteIdentityStore;
 pub use knock_store::SqliteKnockStore;
 pub use peer_directory::SqlitePeerDirectory;

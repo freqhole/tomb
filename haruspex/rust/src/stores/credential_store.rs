@@ -25,10 +25,7 @@ pub struct Credential {
 #[async_trait]
 pub trait CredentialStore: Send + Sync {
     async fn add_credential(&self, credential: Credential) -> Result<Credential, StoreError>;
-    async fn get_credential(
-        &self,
-        credential_id: &[u8],
-    ) -> Result<Option<Credential>, StoreError>;
+    async fn get_credential(&self, credential_id: &[u8]) -> Result<Option<Credential>, StoreError>;
     /// active (non-deleted) credentials for an identity, most recent first.
     async fn list_for_identity(&self, identity_id: Uuid) -> Result<Vec<Credential>, StoreError>;
     async fn touch_last_used(

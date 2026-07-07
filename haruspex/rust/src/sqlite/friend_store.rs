@@ -33,8 +33,9 @@ impl TryFrom<FriendRow> for FriendEdge {
     fn try_from(row: FriendRow) -> Result<Self, Self::Error> {
         Ok(FriendEdge {
             node_id: row.node_id,
-            status: FriendStatus::parse(&row.status)
-                .ok_or_else(|| StoreError::Conflict(format!("invalid friend status: {}", row.status)))?,
+            status: FriendStatus::parse(&row.status).ok_or_else(|| {
+                StoreError::Conflict(format!("invalid friend status: {}", row.status))
+            })?,
             direction: FriendDirection::parse(&row.direction).ok_or_else(|| {
                 StoreError::Conflict(format!("invalid friend direction: {}", row.direction))
             })?,
@@ -175,7 +176,10 @@ mod tests {
     #[tokio::test]
     async fn upsert_edge_updates_status_but_keeps_created_at() {
         let store = store().await;
-        store.upsert_edge(edge("node-a", FriendStatus::Pending)).await.unwrap();
+        store
+            .upsert_edge(edge("node-a", FriendStatus::Pending))
+            .await
+            .unwrap();
         store
             .upsert_edge(FriendEdge {
                 updated_at: 5,
@@ -199,8 +203,14 @@ mod tests {
     #[tokio::test]
     async fn list_edges_filters_by_status() {
         let store = store().await;
-        store.upsert_edge(edge("node-a", FriendStatus::Pending)).await.unwrap();
-        store.upsert_edge(edge("node-b", FriendStatus::Accepted)).await.unwrap();
+        store
+            .upsert_edge(edge("node-a", FriendStatus::Pending))
+            .await
+            .unwrap();
+        store
+            .upsert_edge(edge("node-b", FriendStatus::Accepted))
+            .await
+            .unwrap();
 
         let pending = store.list_edges(Some(FriendStatus::Pending)).await.unwrap();
         assert_eq!(pending.len(), 1);
@@ -213,7 +223,10 @@ mod tests {
     #[tokio::test]
     async fn remove_edge_deletes_it() {
         let store = store().await;
-        store.upsert_edge(edge("node-a", FriendStatus::Pending)).await.unwrap();
+        store
+            .upsert_edge(edge("node-a", FriendStatus::Pending))
+            .await
+            .unwrap();
         store.remove_edge("node-a").await.unwrap();
         assert!(store.get_edge("node-a").await.unwrap().is_none());
     }

@@ -1,15 +1,15 @@
 //! the unified knock (access-request) record.
 //!
 //! this module owns the record shape, dedup rule, and last-decision-wins
-//! resolution semantics only - not the `KnockPolicy` trait or `KnockOutcome`
-//! the accept side-effect produces (both are a separate, later task per
-//! PHASE_4_HARUSPEX_RUST.md).
+//! resolution semantics - the `KnockPolicy` trait and `KnockOutcome` the
+//! accept side-effect produces live in `crate::knock`.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::StoreError;
+use crate::stores::grant_store::Role;
 
 /// who initiated the knock: a peer knocking on us (`Inbound`) or us knocking
 /// on a peer (`Outbound`).
@@ -50,7 +50,7 @@ pub enum KnockScope {
     /// skein canvas / playlistz doc_access: access to one resource.
     Resource {
         resource_id: String,
-        requested_role: Option<String>,
+        requested_role: Option<Role>,
     },
 }
 
