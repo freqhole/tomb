@@ -1,0 +1,65 @@
+name: npm publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-midden:
+    name: publish @freqhole/midden
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
+      - name: build npm package
+        run: make build-release-npm
+
+      - name: verify package version matches tag
+        if: github.ref_type == 'tag'
+        working-directory: pkg
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "package version $PKG_VERSION does not match tag $TAG_VERSION"
+            exit 1
+          fi
+
+      - name: skip if version already published
+        id: midden_exists
+        working-directory: pkg
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: publish
+        if: steps.midden_exists.outputs.published == 'false'
+        working-directory: pkg
+        run: npm publish --access public --provenance
