@@ -48,14 +48,20 @@
         "comlink": "^4.4.2"
     },
     "peerDependencies": {
+        "@automerge/automerge-repo": "^2.5.6",
         "solid-js": "^1.9.0"
     },
     "peerDependenciesMeta": {
+        "@automerge/automerge-repo": {
+            "optional": true
+        },
         "solid-js": {
             "optional": true
         }
     },
     "devDependencies": {
+        "@automerge/automerge": "^3.2.6",
+        "@automerge/automerge-repo": "^2.5.6",
         "fake-indexeddb": "^6.0.0",
         "happy-dom": "^20.10.6",
         "typescript": "^5.6.0",
