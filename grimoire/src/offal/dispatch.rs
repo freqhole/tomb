@@ -4,12 +4,45 @@
 //! domain-level dispatch functions handle route matching within their domain.
 
 use super::caller::Caller;
-use crate::api_registry::Method;
+use crate::api_registry::{Method, RouteAuth};
 use crate::error::ErrorDetail;
 use crate::jobs::job_events::CloseReason;
 use crate::response::GrimoireResponse;
 use futures_util::stream::BoxStream;
 use serde_json::Value as JsonValue;
+
+/// look up the auth requirement for a route by path (and optionally method).
+/// returns None if the path is not in the route registry (e.g. handled outside
+/// offal dispatch, like blob streaming).
+fn find_route_auth(path: &str, method: Option<Method>) -> Option<RouteAuth> {
+    let routes = super::all_routes();
+    let mut path_match: Option<RouteAuth> = None;
+    for route in &routes {
+        if route.path == path {
+            if let Some(m) = method {
+                if route.method == m {
+                    return Some(route.auth);
+                }
+            }
+            if path_match.is_none() {
+                path_match = Some(route.auth);
+            }
+        }
+    }
+    path_match
+}
+
+/// standard forbidden response used when a caller's role is insufficient.
+fn forbidden_response() -> GrimoireResponse<JsonValue> {
+    GrimoireResponse::failure(
+        "forbidden",
+        vec![ErrorDetail::new(
+            "forbidden",
+            "forbidden",
+            "insufficient role",
+        )],
+    )
+}
 
 /// a server-pushed event stream. items are pre-serialized to
 /// `JsonValue` so transports (ws, sse, iroh, tauri) can frame them
@@ -36,6 +69,18 @@ pub async fn dispatch(
 ) -> GrimoireResponse<JsonValue> {
     // normalize path (strip trailing slash)
     let path = path.trim_end_matches('/');
+
+    // enforce route-level role requirements before reaching any handler.
+    // Public and Authenticated variants need no check here (middleware already
+    // ensures the caller is populated for authenticated routes, and Public routes
+    // are open to everyone). Owner and OwnerOr cannot be checked centrally because
+    // they require knowledge of the resource's owner; those remain the handler's
+    // responsibility - see the allowlist test in this module's test section.
+    if let Some(RouteAuth::Role(required)) = find_route_auth(path, method) {
+        if !caller.role.has_privilege(required) {
+            return forbidden_response();
+        }
+    }
 
     // try each domain dispatcher in turn
     // domains return Some(response) if they handle the path, None otherwise
@@ -166,5 +211,138 @@ mod tests {
             .expect("close reason");
         assert_eq!(item["kind"], "status_changed");
         assert_eq!(item["created_by"], user_id);
+    }
+
+    // --- role enforcement tests ---
+    //
+    // the route used for admin-gate tests is /api/taxonomy/kinds/create (Role(Admin)).
+    // the route used for member-gate tests is /api/analytics/sessions (Role(Member)).
+    // the route used for public tests is /health (Public).
+
+    #[tokio::test]
+    async fn test_role_check_viewer_forbidden_on_admin_route() {
+        let caller = Caller::new("u1", "viewer", UserRole::Viewer);
+        let resp = dispatch("/api/taxonomy/kinds/create", &caller, JsonValue::Null, None).await;
+        assert!(!resp.success);
+        assert_eq!(resp.errors.len(), 1);
+        assert_eq!(resp.errors[0].error_type, "forbidden");
+    }
+
+    #[tokio::test]
+    async fn test_role_check_member_forbidden_on_admin_route() {
+        let caller = Caller::new("u2", "member", UserRole::Member);
+        let resp = dispatch("/api/taxonomy/kinds/create", &caller, JsonValue::Null, None).await;
+        assert!(!resp.success);
+        assert_eq!(resp.errors.len(), 1);
+        assert_eq!(resp.errors[0].error_type, "forbidden");
+    }
+
+    #[tokio::test]
+    async fn test_role_check_admin_reaches_handler_on_admin_route() {
+        // admin has Role(Admin) privilege - the auth gate passes.
+        // the handler receives a null body and returns bad_request (not forbidden).
+        let caller = Caller::new("u3", "admin", UserRole::Admin);
+        let resp = dispatch("/api/taxonomy/kinds/create", &caller, JsonValue::Null, None).await;
+        // any error other than "forbidden" proves the gate was passed
+        let is_forbidden = resp.errors.iter().any(|e| e.error_type == "forbidden");
+        assert!(
+            !is_forbidden,
+            "admin should not be forbidden on admin route"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_role_check_viewer_forbidden_on_member_route() {
+        let caller = Caller::new("u4", "viewer", UserRole::Viewer);
+        let resp = dispatch("/api/analytics/sessions", &caller, JsonValue::Null, None).await;
+        assert!(!resp.success);
+        assert_eq!(resp.errors.len(), 1);
+        assert_eq!(resp.errors[0].error_type, "forbidden");
+    }
+
+    #[tokio::test]
+    async fn test_role_check_public_route_no_check() {
+        // a Viewer-role anonymous caller can reach a Public route without restriction.
+        // /api/internal/device-linked is Public and returns success even with a null body.
+        let caller = Caller::new("anonymous", "anonymous", UserRole::Viewer);
+        let resp = dispatch(
+            "/api/internal/device-linked",
+            &caller,
+            JsonValue::Null,
+            None,
+        )
+        .await;
+        assert!(resp.success, "public route must be reachable by any caller");
+    }
+
+    // --- owner-route allowlist meta-test ---
+    //
+    // Owner and OwnerOr routes cannot be checked centrally (they require knowing
+    // which user owns the resource). each such route MUST have its own handler-
+    // level ownership check. this test asserts that the set of Owner/OwnerOr
+    // routes in the registry exactly matches this allowlist, so any new Owner
+    // route fails the test until it is reviewed and added here.
+    //
+    // before adding a route: verify the handler actually checks ownership.
+    // passkey routes (list/delete/link-node): queries are scoped to caller.user_id.
+    // session progress/songs/status: repository functions accept caller.user_id and
+    //   scope the update to rows owned by that user.
+    // session delete: handler checks session.user_id != caller.user_id && !is_admin().
+    // playlist mutate routes: handler checks created_by_id != caller.user_id && !is_admin().
+    #[test]
+    fn test_owner_routes_match_allowlist() {
+        use crate::api_registry::RouteAuth;
+        use std::collections::HashSet;
+
+        const HANDLER_ENFORCED_OWNER_ROUTES: &[&str] = &[
+            // passkey management - always scoped to caller.user_id
+            "list_passkeys",
+            "delete_passkey",
+            "link_node",
+            // listen session writes - repository functions scope to caller.user_id
+            "update_listen_session_progress",
+            "update_listen_session_songs",
+            "update_listen_session_status",
+            // listen session delete - handler checks owner or admin
+            "delete_listen_session",
+            // playlist mutations - handler checks owner or admin
+            "update_playlist",
+            "delete_playlist",
+            "add_songs_to_playlist",
+            "remove_songs_from_playlist",
+            "reorder_playlist_songs",
+        ];
+
+        let allowlist: HashSet<&str> = HANDLER_ENFORCED_OWNER_ROUTES.iter().copied().collect();
+
+        let in_registry: HashSet<&str> = crate::offal::all_routes()
+            .iter()
+            .filter(|r| matches!(r.auth, RouteAuth::Owner | RouteAuth::OwnerOr(_)))
+            .map(|r| r.name)
+            .collect();
+
+        let missing_from_allowlist: Vec<&&str> = in_registry
+            .iter()
+            .filter(|name| !allowlist.contains(*name))
+            .collect();
+
+        let missing_from_registry: Vec<&&str> = allowlist
+            .iter()
+            .filter(|name| !in_registry.contains(*name))
+            .collect();
+
+        assert!(
+            missing_from_allowlist.is_empty(),
+            "new Owner/OwnerOr routes found in registry but not in the allowlist - \
+             verify the handler checks ownership, then add to HANDLER_ENFORCED_OWNER_ROUTES: \
+             {:?}",
+            missing_from_allowlist
+        );
+        assert!(
+            missing_from_registry.is_empty(),
+            "allowlist contains route names not found in the registry - \
+             remove stale entries from HANDLER_ENFORCED_OWNER_ROUTES: {:?}",
+            missing_from_registry
+        );
     }
 }

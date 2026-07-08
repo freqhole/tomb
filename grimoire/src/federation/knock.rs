@@ -16,7 +16,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 use crate::events::{emit, GrimoireEvent};
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
-use haruspex::knock::{KnockOutcome, KnockPolicy};
+use haruspex::knock::{KnockOutcome, KnockPolicy, PolicyError};
 use haruspex::sqlite::{SqliteIdentityStore, SqliteKnockStore};
 use haruspex::stores::knock_store::{
     KnockDecision, KnockDirection, KnockRecord as HaruspexKnockRecord, KnockScope,
@@ -25,7 +25,6 @@ use haruspex::stores::knock_store::{
 use haruspex::stores::{IdentityStore, KnockStore as HaruspexKnockStore};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::sync::Mutex;
 use time::OffsetDateTime;
 use uuid::Uuid;
 use zod_gen::ZodSchema;
@@ -144,16 +143,10 @@ pub struct KnockStatusResponse {
 /// `GrantOnAcceptPolicy` reference implementation uses for its
 /// `default_role`/`granted_by` fields. a fresh instance is built for each
 /// acceptance.
-///
-/// `on_accept` can only report failure through `KnockOutcome::status`
-/// (`Denied`, with no attached detail) - `error` captures the actual
-/// reason so the caller can surface something more useful than a generic
-/// "denied" message.
 struct GrimoireKnockPolicy {
     role: UserRole,
     username_override: Option<String>,
     existing_user_id: Option<String>,
-    error: Mutex<Option<String>>,
 }
 
 impl GrimoireKnockPolicy {
@@ -166,37 +159,20 @@ impl GrimoireKnockPolicy {
             role,
             username_override,
             existing_user_id,
-            error: Mutex::new(None),
-        }
-    }
-
-    /// the failure reason from the most recent `on_accept` call that
-    /// denied, if any.
-    fn take_error(&self) -> Option<String> {
-        self.error.lock().unwrap().take()
-    }
-
-    fn deny(&self, message: impl Into<String>) -> KnockOutcome {
-        *self.error.lock().unwrap() = Some(message.into());
-        KnockOutcome {
-            status: HaruspexKnockStatus::Denied,
-            granted_role: None,
-            granted_resource_ids: None,
-            account: None,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl KnockPolicy for GrimoireKnockPolicy {
-    async fn on_accept(&self, knock: &HaruspexKnockRecord) -> KnockOutcome {
+    async fn on_accept(&self, knock: &HaruspexKnockRecord) -> Result<KnockOutcome, PolicyError> {
         let requested_username = match &knock.scope {
             KnockScope::Account { requested_username } => requested_username.clone(),
             // grimoire only ever creates Account-scoped knocks (see
             // `create_knock`); anything else reaching here would be a bug
             // elsewhere in this module, not a legitimate acceptance.
             KnockScope::Browse | KnockScope::Resource { .. } => {
-                return self.deny("knock scope is not an account request");
+                return Err(PolicyError::new("knock scope is not an account request"));
             }
         };
         let username = self
@@ -205,7 +181,7 @@ impl KnockPolicy for GrimoireKnockPolicy {
             .or(requested_username)
             .unwrap_or_default();
         if username.is_empty() {
-            return self.deny("no username available for this knock");
+            return Err(PolicyError::new("no username available for this knock"));
         }
 
         let user_service = crate::users::UserService::new();
@@ -217,7 +193,7 @@ impl KnockPolicy for GrimoireKnockPolicy {
         let user = if let Some(user_id) = &self.existing_user_id {
             match user_service.get_user(user_id).await.data {
                 Some(u) => u,
-                None => return self.deny(format!("user not found: {}", user_id)),
+                None => return Err(PolicyError::new(format!("user not found: {}", user_id))),
             }
         } else {
             match user_service.get_user_by_username(&username).await.data {
@@ -240,14 +216,14 @@ impl KnockPolicy for GrimoireKnockPolicy {
                                 .collect::<Vec<_>>()
                                 .join("; ")
                         };
-                        return self.deny(format!(
+                        return Err(PolicyError::new(format!(
                             "could not create user `{}` from knock: {}",
                             username, details
-                        ));
+                        )));
                     }
                     match result.data {
                         Some(u) => u,
-                        None => return self.deny("user creation returned no data"),
+                        None => return Err(PolicyError::new("user creation returned no data")),
                     }
                 }
             }
@@ -259,20 +235,20 @@ impl KnockPolicy for GrimoireKnockPolicy {
             .add_peer_node(&user.id, &knock.node_id, None)
             .await;
         if !peer_result.success {
-            return self.deny(peer_result.message);
+            return Err(PolicyError::new(peer_result.message));
         }
 
         let identities = match database::connect_haruspex().await {
             Ok(pool) => SqliteIdentityStore::new(pool),
-            Err(e) => return self.deny(format!("database error: {e}")),
+            Err(e) => return Err(PolicyError::new(format!("database error: {e}"))),
         };
         let identity_id = crate::users::haruspex_bridge::identity_id_for_existing_user(&user.id);
         let account = match identities.get_identity(identity_id).await {
             Ok(identity) => identity,
-            Err(e) => return self.deny(format!("failed to load identity: {e}")),
+            Err(e) => return Err(PolicyError::new(format!("failed to load identity: {e}"))),
         };
 
-        KnockOutcome {
+        Ok(KnockOutcome {
             status: HaruspexKnockStatus::Accepted,
             // role assignment already happened via `CreateUserRequest.role`
             // above; wiring grimoire's own role vocabulary onto haruspex's
@@ -281,7 +257,7 @@ impl KnockPolicy for GrimoireKnockPolicy {
             granted_role: None,
             granted_resource_ids: None,
             account,
-        }
+        })
     }
 }
 
@@ -676,14 +652,15 @@ pub async fn accept_knock(
     // stored status: `on_accept` only reads the record's scope/node_id/
     // created_at (not its status), so calling it while the record is
     // still pending is safe, and it means a failure (username clash, db
-    // error) leaves the knock pending for the admin to retry, exactly
-    // like the behavior this replaces.
-    let outcome = policy.on_accept(&record).await;
+    // error) leaves the knock pending for the admin to retry.
+    let outcome = policy
+        .on_accept(&record)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed { message: e.message })?;
     if outcome.status != HaruspexKnockStatus::Accepted {
-        let message = policy
-            .take_error()
-            .unwrap_or_else(|| "failed to accept knock".to_string());
-        return Err(GrimoireError::ProcessingFailed { message });
+        return Err(GrimoireError::ProcessingFailed {
+            message: "failed to accept knock".to_string(),
+        });
     }
 
     let now = OffsetDateTime::now_utc().unix_timestamp();

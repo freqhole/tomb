@@ -1077,6 +1077,7 @@ impl UserRepository {
                 identity_id,
                 node_id: node_id.to_string(),
                 instance_name: instance_name.map(str::to_string),
+                created_at: now,
                 last_seen_at: now,
                 deleted_at: None,
             })
@@ -1142,6 +1143,7 @@ impl UserRepository {
                         identity_id,
                         node_id: node_id.to_string(),
                         instance_name: None,
+                        created_at: device.last_seen_at,
                         last_seen_at: device.last_seen_at,
                         deleted_at: None,
                     })
