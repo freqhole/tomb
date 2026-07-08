@@ -18,6 +18,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 // singleton pools - initialized once, reused for all requests
 static MAIN_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static HARUSPEX_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
 // (drop runs in reverse, create runs forward).
@@ -213,4 +214,26 @@ async fn create_blob_pool() -> GrimoireResult<SqlitePool> {
 
     tracing::debug!("blob_data pool initialized: {}", db_path.display());
     Ok(pool)
+}
+
+/// connect to haruspex's own sqlite database (`haruspex.db`, a sibling of
+/// grimoire's own database file under `data_dir`). haruspex owns this
+/// database's schema and migrations entirely - `haruspex::sqlite::open` runs
+/// them on first connect, so this pool is ready to use as soon as it's
+/// returned. returns a clone of the singleton pool (cheap - just Arc clone).
+pub(crate) async fn connect_haruspex() -> GrimoireResult<SqlitePool> {
+    let pool = HARUSPEX_POOL
+        .get_or_try_init(|| async { create_haruspex_pool().await })
+        .await?;
+    Ok(pool.clone())
+}
+
+/// internal: open (and migrate) haruspex's database under grimoire's data dir
+async fn create_haruspex_pool() -> GrimoireResult<SqlitePool> {
+    let config = get_config();
+    haruspex::sqlite::open(&config.data_dir)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to open haruspex database: {e}"),
+        })
 }

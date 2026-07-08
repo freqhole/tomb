@@ -6,12 +6,13 @@
 //! Music-specific user functionality (favorites, ratings) has been moved
 //! to `music::users` module to maintain clear domain boundaries.
 
-pub mod challenge_store;
 pub mod models;
 pub mod repository;
 pub mod service;
 pub mod webauthn;
 pub mod webauthn_models;
+
+pub(crate) mod haruspex_bridge;
 
 // Re-export commonly used types
 pub use models::{

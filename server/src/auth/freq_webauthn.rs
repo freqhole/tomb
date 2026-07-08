@@ -473,7 +473,9 @@ pub async fn register_finish(
 
     // save the credential
     let webauthn_service = grimoire::users::WebAuthnService::new();
-    let cred_response = webauthn_service.save_credential(&user.id, &passkey).await;
+    let cred_response = webauthn_service
+        .save_credential(&user.id, &user.username, &passkey)
+        .await;
 
     if !cred_response.is_success() {
         return Err(ApiError::Internal("failed to save credential".to_string()));
