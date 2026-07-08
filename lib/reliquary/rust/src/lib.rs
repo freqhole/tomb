@@ -32,6 +32,7 @@ pub mod db;
 pub mod ensure;
 #[cfg(feature = "gate")]
 pub mod gate;
+pub mod hash;
 #[cfg(feature = "identity")]
 pub mod identity;
 #[cfg(feature = "media")]
@@ -51,6 +52,7 @@ pub use db::{DbError, DB_FILENAME};
 pub use ensure::{EnsureBlobHandler, PeerMessage};
 #[cfg(feature = "gate")]
 pub use gate::{build_gated_blobs_events, AccessGate, AllowAll};
+pub use hash::{hash_bytes, hash_file, HashError};
 #[cfg(feature = "identity")]
 pub use identity::{
     generate_keypair, get_identity_info, keypair_path, load_keypair, load_or_generate_keypair,
