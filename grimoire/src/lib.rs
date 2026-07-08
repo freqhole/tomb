@@ -5,6 +5,7 @@
 //! grimoire library
 //! core business logic and database operations
 
+pub(crate) mod acl_bridge;
 pub mod admin_dispatch;
 pub mod analytics;
 pub mod api_registry;
