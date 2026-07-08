@@ -2,13 +2,32 @@
 //!
 //! allows unknown peers to request access by "knocking" with a username and message.
 //! admins can approve or reject requests via CLI or tauri wizard.
+//!
+//! the knock lifecycle itself (dedup, decision log, pending/accepted/denied
+//! status) lives in haruspex's `KnockStore`/`SqliteKnockStore`, backed by
+//! haruspex's own database (see `database::connect_haruspex`). this module
+//! adapts that shared store onto grimoire's wire types (`KnockRequest`,
+//! `KnockStatus`, ...) and supplies grimoire's own account-creation side
+//! effect for knock acceptance via `GrimoireKnockPolicy`, an implementation
+//! of haruspex's `KnockPolicy` seam.
 
 use crate::database;
-use crate::error::GrimoireResult;
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::events::{emit, GrimoireEvent};
 use crate::response::GrimoireResponse;
-use haruspex::stores::IdentityStore;
+use crate::users::UserRole;
+use haruspex::knock::{KnockOutcome, KnockPolicy};
+use haruspex::sqlite::{SqliteIdentityStore, SqliteKnockStore};
+use haruspex::stores::knock_store::{
+    KnockDecision, KnockDirection, KnockRecord as HaruspexKnockRecord, KnockScope,
+    KnockStatus as HaruspexKnockStatus,
+};
+use haruspex::stores::{IdentityStore, KnockStore as HaruspexKnockStore};
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use std::sync::Mutex;
+use time::OffsetDateTime;
+use uuid::Uuid;
 use zod_gen::ZodSchema;
 use zod_gen_derive::ZodSchema;
 
@@ -44,35 +63,6 @@ impl From<String> for KnockStatus {
             "accepted" => KnockStatus::Accepted,
             "rejected" => KnockStatus::Rejected,
             _ => KnockStatus::Pending,
-        }
-    }
-}
-
-/// internal row struct for sqlx mapping
-struct KnockRow {
-    id: String,
-    node_id: String,
-    username: String,
-    message: String,
-    status: String,
-    created_at: i64,
-    processed_at: Option<i64>,
-    processed_by: Option<String>,
-}
-
-impl From<KnockRow> for KnockRequest {
-    fn from(row: KnockRow) -> Self {
-        Self {
-            id: row.id,
-            node_id: row.node_id,
-            username: row.username,
-            message: row.message,
-            status: KnockStatus::from(row.status),
-            created_at: row.created_at,
-            processed_at: row.processed_at,
-            processed_by: row.processed_by,
-            from_deleted_peer: None,
-            deleted_user_username: None,
         }
     }
 }
@@ -142,9 +132,270 @@ pub struct KnockStatusResponse {
     pub processed: bool,
 }
 
+/// grimoire's own account-creation side effect for knock acceptance:
+/// resolves (or creates) the grimoire user the knock's username refers to,
+/// links the knocking node id to it, and reports back the haruspex
+/// identity `KnockOutcome`'s shape expects.
+///
+/// `KnockPolicy::on_accept` only ever receives the `KnockRecord` itself, so
+/// the admin's per-request choices (username override, an explicit
+/// existing user to link, the role to assign) live as fields on the policy
+/// instead of method arguments - the same shape haruspex's own
+/// `GrantOnAcceptPolicy` reference implementation uses for its
+/// `default_role`/`granted_by` fields. a fresh instance is built for each
+/// acceptance.
+///
+/// `on_accept` can only report failure through `KnockOutcome::status`
+/// (`Denied`, with no attached detail) - `error` captures the actual
+/// reason so the caller can surface something more useful than a generic
+/// "denied" message.
+struct GrimoireKnockPolicy {
+    role: UserRole,
+    username_override: Option<String>,
+    existing_user_id: Option<String>,
+    error: Mutex<Option<String>>,
+}
+
+impl GrimoireKnockPolicy {
+    fn new(
+        role: UserRole,
+        username_override: Option<String>,
+        existing_user_id: Option<String>,
+    ) -> Self {
+        Self {
+            role,
+            username_override,
+            existing_user_id,
+            error: Mutex::new(None),
+        }
+    }
+
+    /// the failure reason from the most recent `on_accept` call that
+    /// denied, if any.
+    fn take_error(&self) -> Option<String> {
+        self.error.lock().unwrap().take()
+    }
+
+    fn deny(&self, message: impl Into<String>) -> KnockOutcome {
+        *self.error.lock().unwrap() = Some(message.into());
+        KnockOutcome {
+            status: HaruspexKnockStatus::Denied,
+            granted_role: None,
+            granted_resource_ids: None,
+            account: None,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl KnockPolicy for GrimoireKnockPolicy {
+    async fn on_accept(&self, knock: &HaruspexKnockRecord) -> KnockOutcome {
+        let requested_username = match &knock.scope {
+            KnockScope::Account { requested_username } => requested_username.clone(),
+            // grimoire only ever creates Account-scoped knocks (see
+            // `create_knock`); anything else reaching here would be a bug
+            // elsewhere in this module, not a legitimate acceptance.
+            KnockScope::Browse | KnockScope::Resource { .. } => {
+                return self.deny("knock scope is not an account request");
+            }
+        };
+        let username = self
+            .username_override
+            .clone()
+            .or(requested_username)
+            .unwrap_or_default();
+        if username.is_empty() {
+            return self.deny("no username available for this knock");
+        }
+
+        let user_service = crate::users::UserService::new();
+
+        // resolve the user to link this knock to. preference order:
+        //   1. explicit existing user id (admin picked an existing user)
+        //   2. existing user matching the (typed-or-knock) username
+        //   3. create a new user with that username + role
+        let user = if let Some(user_id) = &self.existing_user_id {
+            match user_service.get_user(user_id).await.data {
+                Some(u) => u,
+                None => return self.deny(format!("user not found: {}", user_id)),
+            }
+        } else {
+            match user_service.get_user_by_username(&username).await.data {
+                Some(existing) => existing,
+                None => {
+                    let create_request = crate::users::CreateUserRequest {
+                        username: username.clone(),
+                        role: Some(self.role),
+                        invite_code: None,
+                    };
+                    let result = user_service.register_user(&create_request).await;
+                    if !result.success {
+                        let details = if result.errors.is_empty() {
+                            result.message.clone()
+                        } else {
+                            result
+                                .errors
+                                .iter()
+                                .map(|e| e.detail.clone())
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        };
+                        return self.deny(format!(
+                            "could not create user `{}` from knock: {}",
+                            username, details
+                        ));
+                    }
+                    match result.data {
+                        Some(u) => u,
+                        None => return self.deny("user creation returned no data"),
+                    }
+                }
+            }
+        };
+
+        // link peer node to user (this is also what ensures a haruspex
+        // identity exists for the user - see `UserRepository::upsert_peer_node`)
+        let peer_result = user_service
+            .add_peer_node(&user.id, &knock.node_id, None)
+            .await;
+        if !peer_result.success {
+            return self.deny(peer_result.message);
+        }
+
+        let identities = match database::connect_haruspex().await {
+            Ok(pool) => SqliteIdentityStore::new(pool),
+            Err(e) => return self.deny(format!("database error: {e}")),
+        };
+        let identity_id = crate::users::haruspex_bridge::identity_id_for_existing_user(&user.id);
+        let account = match identities.get_identity(identity_id).await {
+            Ok(identity) => identity,
+            Err(e) => return self.deny(format!("failed to load identity: {e}")),
+        };
+
+        KnockOutcome {
+            status: HaruspexKnockStatus::Accepted,
+            // role assignment already happened via `CreateUserRequest.role`
+            // above; wiring grimoire's own role vocabulary onto haruspex's
+            // shared grant `Role` is a separate, later cutover pass, not
+            // this one.
+            granted_role: None,
+            granted_resource_ids: None,
+            account,
+        }
+    }
+}
+
+/// raw row shape for the two lookups `KnockStore` has no trait method for:
+/// find-by-node-id (used to replicate grimoire's "one knock ever per
+/// node_id" rule - see `find_latest_knock_row`) and list-everything (used
+/// by `list_knocks`'s `include_all` branch - see `list_all_knock_rows`).
+/// both are documented stopgaps against haruspex's own `knockz` table.
+#[derive(sqlx::FromRow)]
+struct RawKnockRow {
+    id: String,
+    node_id: String,
+    scope_json: String,
+    message: String,
+    status: String,
+    created_at: i64,
+    processed_at: Option<i64>,
+    processed_by: Option<String>,
+}
+
+fn raw_status_to_knock_status(status: &str) -> KnockStatus {
+    match status {
+        "accepted" => KnockStatus::Accepted,
+        "denied" => KnockStatus::Rejected,
+        _ => KnockStatus::Pending,
+    }
+}
+
+fn scope_username(scope: KnockScope) -> String {
+    match scope {
+        KnockScope::Account { requested_username } => requested_username.unwrap_or_default(),
+        KnockScope::Browse | KnockScope::Resource { .. } => String::new(),
+    }
+}
+
+fn raw_row_to_knock_request(row: RawKnockRow) -> Result<KnockRequest, serde_json::Error> {
+    let scope: KnockScope = serde_json::from_str(&row.scope_json)?;
+    Ok(KnockRequest {
+        id: row.id,
+        node_id: row.node_id,
+        username: scope_username(scope),
+        message: row.message,
+        status: raw_status_to_knock_status(&row.status),
+        created_at: row.created_at,
+        processed_at: row.processed_at,
+        processed_by: row.processed_by,
+        from_deleted_peer: None,
+        deleted_user_username: None,
+    })
+}
+
+fn haruspex_record_to_knock_request(record: HaruspexKnockRecord) -> KnockRequest {
+    let status = match record.status {
+        HaruspexKnockStatus::Pending => KnockStatus::Pending,
+        HaruspexKnockStatus::Accepted => KnockStatus::Accepted,
+        HaruspexKnockStatus::Denied => KnockStatus::Rejected,
+    };
+    KnockRequest {
+        id: record.id.to_string(),
+        node_id: record.node_id,
+        username: scope_username(record.scope),
+        message: record.message,
+        status,
+        created_at: record.created_at,
+        processed_at: record.processed_at,
+        processed_by: record.processed_by,
+        from_deleted_peer: None,
+        deleted_user_username: None,
+    }
+}
+
+/// `KnockStore` only enforces dedup against *pending* knocks (one per
+/// node id + scope) - grimoire's original schema had a permanent
+/// `UNIQUE(node_id)` constraint instead, so a node_id that has ever
+/// knocked keeps returning that same knock regardless of its resolved
+/// status until an admin explicitly deletes it. replicated here with a
+/// direct lookup against haruspex's own `knockz` table, since `KnockStore`
+/// has no "find by node_id" method.
+async fn find_latest_knock_row(
+    pool: &SqlitePool,
+    node_id: &str,
+) -> Result<Option<RawKnockRow>, sqlx::Error> {
+    sqlx::query_as::<_, RawKnockRow>(
+        r#"
+        SELECT id, node_id, scope_json, message, status, created_at, processed_at, processed_by
+        FROM knockz
+        WHERE node_id = ?1
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(node_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// `KnockStore::list_pending` only returns pending knocks - there is no
+/// trait method for "list everything" - so `list_knocks`'s `include_all`
+/// branch falls back to a direct query against haruspex's own `knockz`
+/// table.
+async fn list_all_knock_rows(pool: &SqlitePool) -> Result<Vec<RawKnockRow>, sqlx::Error> {
+    sqlx::query_as::<_, RawKnockRow>(
+        r#"
+        SELECT id, node_id, scope_json, message, status, created_at, processed_at, processed_by
+        FROM knockz
+        ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// create a knock request from a peer
-/// returns existing knock if node_id already has one (pending)
-/// silently fails if node_id was previously rejected
+/// returns existing knock if node_id already has one (any status)
 pub async fn create_knock(
     node_id: &str,
     request: CreateKnockRequest,
@@ -158,66 +409,42 @@ pub async fn create_knock(
         return GrimoireResponse::failure("username is required", vec![]);
     }
 
-    let pool = match database::connect().await {
+    let pool = match database::connect_haruspex().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
-    // check if node_id was previously rejected - silently "succeed" without creating
-    let existing = sqlx::query_as!(
-        KnockRow,
-        r#"
-        SELECT id as "id!", node_id as "node_id!", username as "username!",
-               message as "message!", status as "status!", created_at as "created_at!",
-               processed_at, processed_by
-        FROM knock_requestz 
-        WHERE node_id = ?
-        "#,
-        node_id
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap_or(None);
-
-    if let Some(row) = existing {
-        let knock = KnockRequest::from(row);
-        if knock.status == KnockStatus::Rejected {
-            // silently "succeed" - don't reveal rejection
-            return GrimoireResponse::success("knock request received", knock);
+    // a node_id that has ever knocked before keeps returning that same
+    // knock, whatever its status - see `find_latest_knock_row`.
+    match find_latest_knock_row(&pool, node_id).await {
+        Ok(Some(row)) => {
+            return match raw_row_to_knock_request(row) {
+                Ok(existing) => GrimoireResponse::success("existing knock request", existing),
+                Err(e) => GrimoireResponse::failure(format!("corrupt knock record: {}", e), vec![]),
+            };
         }
-        // return existing pending/accepted knock
-        return GrimoireResponse::success("existing knock request", knock);
+        Ok(None) => {}
+        Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     }
 
-    // create new knock request (SQLite generates id via DEFAULT)
-    let result = sqlx::query!(
-        r#"INSERT INTO knock_requestz (node_id, username, message) VALUES (?, ?, ?)"#,
-        node_id,
-        request.username,
-        request.message
-    )
-    .execute(&pool)
-    .await;
+    let store = SqliteKnockStore::new(pool);
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let scope = KnockScope::Account {
+        requested_username: Some(request.username.clone()),
+    };
 
-    match result {
-        Ok(_) => {
-            // fetch the created knock by node_id (unique constraint)
-            let row = sqlx::query_as!(
-                KnockRow,
-                r#"
-                SELECT id as "id!", node_id as "node_id!", username as "username!",
-                       message as "message!", status as "status!", created_at as "created_at!",
-                       processed_at, processed_by
-                FROM knock_requestz 
-                WHERE node_id = ?
-                "#,
-                node_id
-            )
-            .fetch_one(&pool)
-            .await
-            .expect("just inserted");
-
-            let knock = KnockRequest::from(row);
+    match store
+        .create_knock(
+            node_id,
+            KnockDirection::Inbound,
+            scope,
+            request.message.clone(),
+            now,
+        )
+        .await
+    {
+        Ok(record) => {
+            let knock = haruspex_record_to_knock_request(record);
 
             // emit event for real-time notifications
             emit(GrimoireEvent::KnockCreated {
@@ -235,182 +462,138 @@ pub async fn create_knock(
 
 /// get knock status for a node_id (public endpoint for clients to check)
 pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResponse> {
-    let pool = match database::connect().await {
+    let pool = match database::connect_haruspex().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
 
-    let row = sqlx::query!(
-        r#"SELECT status as "status!" FROM knock_requestz WHERE node_id = ?"#,
-        node_id
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap_or(None);
-
-    match row {
-        Some(r) => {
-            let status = KnockStatus::from(r.status);
+    match find_latest_knock_row(&pool, node_id).await {
+        Ok(Some(row)) => {
+            let status = raw_status_to_knock_status(&row.status);
             let processed = status != KnockStatus::Pending;
             GrimoireResponse::success(
                 "knock status found",
                 KnockStatusResponse { status, processed },
             )
         }
-        None => GrimoireResponse::success(
+        Ok(None) => GrimoireResponse::success(
             "no knock found",
             KnockStatusResponse {
                 status: KnockStatus::Pending,
                 processed: false,
             },
         ),
+        Err(e) => GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     }
 }
 
 /// list knock requests (admin only)
 /// by default only shows pending, use include_all to see all.
 ///
-/// also LEFT JOINs the `user_peer_nodez` + `user_accountz` tables to
-/// populate `from_deleted_peer` / `deleted_user_username` so the admin
-/// ui can flag knocks coming from a node_id that was previously linked
-/// to a now-soft-deleted user/peer.
-///
-/// device state has moved to haruspex's own database (see
-/// `UserRepository`'s peer-node methods), so `user_peer_nodez` is no
-/// longer written to for devices added, removed, or touched from here on -
-/// this join only reflects peer state as of the cutover and will not
-/// surface `from_deleted_peer`/`deleted_user_username` for anything after
-/// it. resolving this cleanly needs a device-plus-identity batch lookup
-/// this listing's shape doesn't have a haruspex equivalent for yet
-/// (`identities_for` returns identity-level state, not the specific
-/// device row's `deleted_at`); left as raw sql rather than bolting on a
-/// partial fix, since the real resolution belongs with the knock module's
-/// own cutover pass.
+/// also populates `from_deleted_peer` / `deleted_user_username` so the
+/// admin ui can flag knocks coming from a node_id that was previously
+/// linked to a now-soft-deleted user/peer: haruspex's `IdentityStore`
+/// batch-resolves node ids to identities in one call (`identities_for`),
+/// `resolve_device` reports the device-level `deleted_at` haruspex's
+/// identity model tracks, and the linked grimoire user's own soft-delete
+/// state (haruspex has no notion of it) comes from a lookup against
+/// grimoire's own user table via the existing `haruspex_bridge`/
+/// `UserService`.
 pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest>> {
-    let pool = match database::connect().await {
+    let pool = match database::connect_haruspex().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
+    let store = SqliteKnockStore::new(pool.clone());
+    let identities = SqliteIdentityStore::new(pool.clone());
 
-    struct KnockJoinRow {
-        id: String,
-        node_id: String,
-        username: String,
-        message: String,
-        status: String,
-        created_at: i64,
-        processed_at: Option<i64>,
-        processed_by: Option<String>,
-        peer_deleted_at: Option<i64>,
-        user_deleted_at: Option<i64>,
-        deleted_username: Option<String>,
+    let mut knocks: Vec<KnockRequest> = if include_all {
+        match list_all_knock_rows(&pool).await {
+            Ok(rows) => rows
+                .into_iter()
+                .filter_map(|row| raw_row_to_knock_request(row).ok())
+                .collect(),
+            Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
+        }
+    } else {
+        match store.list_pending().await {
+            Ok(records) => records
+                .into_iter()
+                .map(haruspex_record_to_knock_request)
+                .collect(),
+            Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
+        }
+    };
+    knocks.sort_by_key(|k| std::cmp::Reverse(k.created_at));
+
+    let node_ids: Vec<String> = knocks.iter().map(|k| k.node_id.clone()).collect();
+    let identities_by_node = identities
+        .identities_for(&node_ids)
+        .await
+        .unwrap_or_default();
+    let user_service = crate::users::UserService::new();
+
+    for knock in &mut knocks {
+        let peer_deleted = identities
+            .resolve_device(&knock.node_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|device| device.deleted_at.is_some())
+            .unwrap_or(false);
+
+        let user_state = match identities_by_node.get(&knock.node_id) {
+            Some(identity) => {
+                match crate::users::haruspex_bridge::grimoire_user_id_for_identity(
+                    &identities,
+                    identity.id,
+                )
+                .await
+                {
+                    Ok(Some(grimoire_user_id)) => user_service
+                        .get_user(&grimoire_user_id)
+                        .await
+                        .data
+                        .map(|u| (u.username, u.deleted_at.is_some())),
+                    _ => None,
+                }
+            }
+            None => None,
+        };
+        let user_deleted = user_state
+            .as_ref()
+            .map(|(_, deleted)| *deleted)
+            .unwrap_or(false);
+
+        knock.from_deleted_peer = Some(peer_deleted || user_deleted);
+        knock.deleted_user_username = if peer_deleted || user_deleted {
+            user_state.map(|(username, _)| username)
+        } else {
+            None
+        };
     }
 
-    let rows: Vec<KnockJoinRow> = if include_all {
-        sqlx::query_as!(
-            KnockJoinRow,
-            r#"
-            SELECT
-                k.id as "id!",
-                k.node_id as "node_id!",
-                k.username as "username!",
-                k.message as "message!",
-                k.status as "status!",
-                k.created_at as "created_at!",
-                k.processed_at,
-                k.processed_by,
-                p.deleted_at as "peer_deleted_at",
-                u.deleted_at as "user_deleted_at",
-                u.username as "deleted_username"
-            FROM knock_requestz k
-            LEFT JOIN user_peer_nodez p ON p.node_id = k.node_id
-            LEFT JOIN user_accountz u ON u.id = p.user_id
-            ORDER BY k.created_at DESC
-            "#
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default()
-    } else {
-        sqlx::query_as!(
-            KnockJoinRow,
-            r#"
-            SELECT
-                k.id as "id!",
-                k.node_id as "node_id!",
-                k.username as "username!",
-                k.message as "message!",
-                k.status as "status!",
-                k.created_at as "created_at!",
-                k.processed_at,
-                k.processed_by,
-                p.deleted_at as "peer_deleted_at",
-                u.deleted_at as "user_deleted_at",
-                u.username as "deleted_username"
-            FROM knock_requestz k
-            LEFT JOIN user_peer_nodez p ON p.node_id = k.node_id
-            LEFT JOIN user_accountz u ON u.id = p.user_id
-            WHERE k.status = 'pending'
-            ORDER BY k.created_at DESC
-            "#
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default()
-    };
-
-    let knocks: Vec<KnockRequest> = rows
-        .into_iter()
-        .map(|r| {
-            let from_deleted_peer = r.peer_deleted_at.is_some() || r.user_deleted_at.is_some();
-            let deleted_user_username = if from_deleted_peer {
-                r.deleted_username
-            } else {
-                None
-            };
-            let from_deleted_peer = Some(from_deleted_peer);
-            KnockRequest {
-                id: r.id,
-                node_id: r.node_id,
-                username: r.username,
-                message: r.message,
-                status: KnockStatus::from(r.status),
-                created_at: r.created_at,
-                processed_at: r.processed_at,
-                processed_by: r.processed_by,
-                from_deleted_peer,
-                deleted_user_username,
-            }
-        })
-        .collect();
     GrimoireResponse::success("knock list retrieved", knocks)
 }
 
 /// get a specific knock by id
 pub async fn get_knock(id: &str) -> GrimoireResponse<KnockRequest> {
-    let pool = match database::connect().await {
+    let Ok(knock_uuid) = Uuid::parse_str(id) else {
+        return GrimoireResponse::failure("knock not found", vec![]);
+    };
+
+    let pool = match database::connect_haruspex().await {
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
+    let store = SqliteKnockStore::new(pool);
 
-    let row = sqlx::query_as!(
-        KnockRow,
-        r#"
-        SELECT id as "id!", node_id as "node_id!", username as "username!",
-               message as "message!", status as "status!", created_at as "created_at!",
-               processed_at, processed_by
-        FROM knock_requestz 
-        WHERE id = ?
-        "#,
-        id
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap_or(None);
-
-    match row {
-        Some(r) => GrimoireResponse::success("knock found", KnockRequest::from(r)),
-        None => GrimoireResponse::failure("knock not found", vec![]),
+    match store.get_knock(knock_uuid).await {
+        Ok(Some(record)) => {
+            GrimoireResponse::success("knock found", haruspex_record_to_knock_request(record))
+        }
+        Ok(None) => GrimoireResponse::failure("knock not found", vec![]),
+        Err(e) => GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     }
 }
 
@@ -420,61 +603,46 @@ pub async fn accept_knock(
     request: ProcessKnockRequest,
     admin_user_id: &str,
 ) -> GrimoireResult<KnockRequest> {
-    use crate::users::{CreateUserRequest, UserRole, UserService};
+    let knock_uuid = Uuid::parse_str(knock_id).map_err(|_| GrimoireError::KnockNotFound {
+        id: knock_id.to_string(),
+    })?;
 
-    let pool = database::connect().await?;
+    let pool = database::connect_haruspex().await?;
+    let store = SqliteKnockStore::new(pool.clone());
+    let identities = SqliteIdentityStore::new(pool);
 
-    // get the knock
-    let row = sqlx::query!(
-        r#"
-        SELECT id as "id!", node_id as "node_id!", username as "username!",
-               message as "message!", status as "status!", created_at as "created_at!",
-               processed_at, processed_by
-        FROM knock_requestz 
-        WHERE id = ?
-        "#,
-        knock_id
-    )
-    .fetch_optional(&pool)
-    .await?;
+    let record = store
+        .get_knock(knock_uuid)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| GrimoireError::KnockNotFound {
+            id: knock_id.to_string(),
+        })?;
 
-    let row = match row {
-        Some(r) => r,
-        None => {
-            return Err(crate::error::GrimoireError::KnockNotFound {
-                id: knock_id.to_string(),
-            })
-        }
-    };
-
-    if row.status != "pending" {
-        return Err(crate::error::GrimoireError::KnockAlreadyProcessed {
+    if record.status != HaruspexKnockStatus::Pending {
+        return Err(GrimoireError::KnockAlreadyProcessed {
             id: knock_id.to_string(),
         });
     }
 
     // refuse if this node_id already maps to a soft-deleted peer/user.
     // the admin must explicitly restore the user/peer first so we don't
-    // silently re-link an old device under a new account. device state
-    // now lives in haruspex's own database, so this resolves through its
-    // identity store rather than a local join.
-    let identities =
-        haruspex::sqlite::SqliteIdentityStore::new(database::connect_haruspex().await.map_err(
-            |e| crate::error::GrimoireError::ProcessingFailed {
-                message: e.to_string(),
-            },
-        )?);
-    if let Some(device) = identities.resolve_device(&row.node_id).await.map_err(|e| {
-        crate::error::GrimoireError::ProcessingFailed {
+    // silently re-link an old device under a new account.
+    if let Some(device) = identities
+        .resolve_device(&record.node_id)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
             message: e.to_string(),
-        }
-    })? {
+        })?
+    {
         let grimoire_user_id = crate::users::haruspex_bridge::grimoire_user_id_for_identity(
             &identities,
             device.identity_id,
         )
         .await
-        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+        .map_err(|e| GrimoireError::ProcessingFailed {
             message: e.to_string(),
         })?;
 
@@ -485,7 +653,7 @@ pub async fn accept_knock(
                 .data
             {
                 if device.deleted_at.is_some() || existing_user.deleted_at.is_some() {
-                    return Err(crate::error::GrimoireError::ProcessingFailed {
+                    return Err(GrimoireError::ProcessingFailed {
                         message: format!(
                             "cannot accept knock: node_id is linked to a soft-deleted peer (user '{}'). restore the user/peer first.",
                             existing_user.username
@@ -496,99 +664,48 @@ pub async fn accept_knock(
         }
     }
 
-    let username = request.username.unwrap_or(row.username.clone());
-    let role_str = request.role;
-
-    // parse role
-    let role = match role_str.as_str() {
+    let role = match request.role.as_str() {
         "admin" => UserRole::Admin,
         "viewer" => UserRole::Viewer,
         _ => UserRole::Member,
     };
 
-    let user_service = UserService::new();
+    let policy = GrimoireKnockPolicy::new(role, request.username.clone(), request.user_id.clone());
 
-    // resolve the user to link this knock to. preference order:
-    //   1. explicit `user_id` (admin picked an existing user)
-    //   2. existing user matching the (typed-or-knock) `username`
-    //   3. create a new user with `username` + `role`
-    // this lets the admin just type a username and have it Just Work
-    // whether or not the username already exists.
-    let user = if let Some(user_id) = request.user_id {
-        let user_result = user_service.get_user(&user_id).await;
-        user_result
-            .data
-            .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-                message: format!("user not found: {}", user_id),
-            })?
-    } else {
-        // try to find by username first
-        let lookup = user_service.get_user_by_username(&username).await;
-        if let Some(existing) = lookup.data {
-            existing
-        } else {
-            // not found -> register a fresh user (admin bypasses invite code)
-            let create_request = CreateUserRequest {
-                username: username.clone(),
-                role: Some(role),
-                invite_code: None,
-            };
-            let user_result = user_service.register_user(&create_request).await;
-            if !user_result.success {
-                let details = if user_result.errors.is_empty() {
-                    user_result.message.clone()
-                } else {
-                    user_result
-                        .errors
-                        .iter()
-                        .map(|e| e.detail.clone())
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                };
-                return Err(crate::error::GrimoireError::ProcessingFailed {
-                    message: format!(
-                        "could not create user `{}` from knock: {}",
-                        username, details
-                    ),
-                });
-            }
-            user_result
-                .data
-                .ok_or_else(|| crate::error::GrimoireError::ProcessingFailed {
-                    message: "user creation returned no data".to_string(),
-                })?
-        }
-    };
-
-    // link peer node to user
-    let peer_result = user_service
-        .add_peer_node(&user.id, &row.node_id, None)
-        .await;
-    if !peer_result.success {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
-            message: peer_result.message,
-        });
+    // run the account-creation side effect before advancing the knock's
+    // stored status: `on_accept` only reads the record's scope/node_id/
+    // created_at (not its status), so calling it while the record is
+    // still pending is safe, and it means a failure (username clash, db
+    // error) leaves the knock pending for the admin to retry, exactly
+    // like the behavior this replaces.
+    let outcome = policy.on_accept(&record).await;
+    if outcome.status != HaruspexKnockStatus::Accepted {
+        let message = policy
+            .take_error()
+            .unwrap_or_else(|| "failed to accept knock".to_string());
+        return Err(GrimoireError::ProcessingFailed { message });
     }
 
-    // update knock status and fetch in one query
-    let updated = sqlx::query_as!(
-        KnockRow,
-        r#"
-        UPDATE knock_requestz 
-        SET status = 'accepted', processed_at = unixepoch(), processed_by = ?
-        WHERE id = ?
-        RETURNING id as "id!", node_id as "node_id!", username as "username!",
-                  message as "message!", status as "status!", created_at as "created_at!",
-                  processed_at, processed_by
-        "#,
-        admin_user_id,
-        knock_id
-    )
-    .fetch_one(&pool)
-    .await?;
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let updated = store
+        .record_decision(
+            knock_uuid,
+            KnockDecision {
+                by_node_id: admin_user_id.to_string(),
+                outcome: HaruspexKnockStatus::Accepted,
+                granted_role: None,
+                at: now,
+            },
+        )
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?;
+
+    let knock = haruspex_record_to_knock_request(updated);
 
     // fire-and-forget P2P notification to the requester
-    let requester_node_id = updated.node_id.clone();
+    let requester_node_id = knock.node_id.clone();
     let server_name = crate::config::get_config()
         .server
         .as_ref()
@@ -610,66 +727,68 @@ pub async fn accept_knock(
         }
     });
 
-    Ok(KnockRequest::from(updated))
+    Ok(knock)
 }
 
 /// reject a knock request
 pub async fn reject_knock(knock_id: &str, admin_user_id: &str) -> GrimoireResult<KnockRequest> {
-    let pool = database::connect().await?;
+    let knock_uuid = Uuid::parse_str(knock_id).map_err(|_| GrimoireError::KnockNotFound {
+        id: knock_id.to_string(),
+    })?;
 
-    // check knock exists and is pending
-    let row = sqlx::query!(
-        r#"SELECT status as "status!" FROM knock_requestz WHERE id = ?"#,
-        knock_id
-    )
-    .fetch_optional(&pool)
-    .await?;
+    let pool = database::connect_haruspex().await?;
+    let store = SqliteKnockStore::new(pool);
 
-    let row = match row {
-        Some(r) => r,
-        None => {
-            return Err(crate::error::GrimoireError::KnockNotFound {
-                id: knock_id.to_string(),
-            })
-        }
-    };
+    let record = store
+        .get_knock(knock_uuid)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?
+        .ok_or_else(|| GrimoireError::KnockNotFound {
+            id: knock_id.to_string(),
+        })?;
 
-    if row.status != "pending" {
-        return Err(crate::error::GrimoireError::KnockAlreadyProcessed {
+    if record.status != HaruspexKnockStatus::Pending {
+        return Err(GrimoireError::KnockAlreadyProcessed {
             id: knock_id.to_string(),
         });
     }
 
-    // update knock status and fetch in one query
-    let updated = sqlx::query_as!(
-        KnockRow,
-        r#"
-        UPDATE knock_requestz 
-        SET status = 'rejected', processed_at = unixepoch(), processed_by = ?
-        WHERE id = ?
-        RETURNING id as "id!", node_id as "node_id!", username as "username!",
-                  message as "message!", status as "status!", created_at as "created_at!",
-                  processed_at, processed_by
-        "#,
-        admin_user_id,
-        knock_id
-    )
-    .fetch_one(&pool)
-    .await?;
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let updated = store
+        .record_decision(
+            knock_uuid,
+            KnockDecision {
+                by_node_id: admin_user_id.to_string(),
+                outcome: HaruspexKnockStatus::Denied,
+                granted_role: None,
+                at: now,
+            },
+        )
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?;
 
-    Ok(KnockRequest::from(updated))
+    Ok(haruspex_record_to_knock_request(updated))
 }
 
 /// delete a knock request (allows node to knock again)
 pub async fn delete_knock(knock_id: &str) -> GrimoireResult<()> {
-    let pool = database::connect().await?;
+    let pool = database::connect_haruspex().await?;
 
-    let result = sqlx::query!(r#"DELETE FROM knock_requestz WHERE id = ?"#, knock_id)
+    // `KnockStore` has no delete operation (by design - the store models
+    // create/get/list/decide, not removal); letting an admin free up a
+    // node_id to knock again needs a direct delete against haruspex's own
+    // knockz table.
+    let result = sqlx::query("DELETE FROM knockz WHERE id = ?1")
+        .bind(knock_id)
         .execute(&pool)
         .await?;
 
     if result.rows_affected() == 0 {
-        return Err(crate::error::GrimoireError::KnockNotFound {
+        return Err(GrimoireError::KnockNotFound {
             id: knock_id.to_string(),
         });
     }
@@ -679,18 +798,29 @@ pub async fn delete_knock(knock_id: &str) -> GrimoireResult<()> {
 
 /// reject all pending knocks
 pub async fn reject_all_knocks(admin_user_id: &str) -> GrimoireResult<u64> {
-    let pool = database::connect().await?;
+    let pool = database::connect_haruspex().await?;
+    let store = SqliteKnockStore::new(pool);
 
-    let result = sqlx::query!(
-        r#"
-        UPDATE knock_requestz 
-        SET status = 'rejected', processed_at = unixepoch(), processed_by = ?
-        WHERE status = 'pending'
-        "#,
-        admin_user_id
-    )
-    .execute(&pool)
-    .await?;
+    let pending = store
+        .list_pending()
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?;
 
-    Ok(result.rows_affected())
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let mut rejected = 0u64;
+    for record in pending {
+        let decision = KnockDecision {
+            by_node_id: admin_user_id.to_string(),
+            outcome: HaruspexKnockStatus::Denied,
+            granted_role: None,
+            at: now,
+        };
+        if store.record_decision(record.id, decision).await.is_ok() {
+            rejected += 1;
+        }
+    }
+
+    Ok(rejected)
 }
