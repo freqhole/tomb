@@ -7,6 +7,7 @@ use crate::database;
 use crate::error::GrimoireResult;
 use crate::events::{emit, GrimoireEvent};
 use crate::response::GrimoireResponse;
+use haruspex::stores::IdentityStore;
 use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema;
 use zod_gen_derive::ZodSchema;
@@ -273,6 +274,18 @@ pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResp
 /// populate `from_deleted_peer` / `deleted_user_username` so the admin
 /// ui can flag knocks coming from a node_id that was previously linked
 /// to a now-soft-deleted user/peer.
+///
+/// device state has moved to haruspex's own database (see
+/// `UserRepository`'s peer-node methods), so `user_peer_nodez` is no
+/// longer written to for devices added, removed, or touched from here on -
+/// this join only reflects peer state as of the cutover and will not
+/// surface `from_deleted_peer`/`deleted_user_username` for anything after
+/// it. resolving this cleanly needs a device-plus-identity batch lookup
+/// this listing's shape doesn't have a haruspex equivalent for yet
+/// (`identities_for` returns identity-level state, not the specific
+/// device row's `deleted_at`); left as raw sql rather than bolting on a
+/// partial fix, since the real resolution belongs with the knock module's
+/// own cutover pass.
 pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest>> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -442,28 +455,45 @@ pub async fn accept_knock(
 
     // refuse if this node_id already maps to a soft-deleted peer/user.
     // the admin must explicitly restore the user/peer first so we don't
-    // silently re-link an old device under a new account.
-    let deleted_check = sqlx::query!(
-        r#"
-        SELECT u.username as "username!", u.deleted_at, p.deleted_at as "peer_deleted_at"
-        FROM user_peer_nodez p
-        INNER JOIN user_accountz u ON u.id = p.user_id
-        WHERE p.node_id = ?
-          AND (u.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL)
-        LIMIT 1
-        "#,
-        row.node_id
-    )
-    .fetch_optional(&pool)
-    .await?;
+    // silently re-link an old device under a new account. device state
+    // now lives in haruspex's own database, so this resolves through its
+    // identity store rather than a local join.
+    let identities =
+        haruspex::sqlite::SqliteIdentityStore::new(database::connect_haruspex().await.map_err(
+            |e| crate::error::GrimoireError::ProcessingFailed {
+                message: e.to_string(),
+            },
+        )?);
+    if let Some(device) = identities.resolve_device(&row.node_id).await.map_err(|e| {
+        crate::error::GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        }
+    })? {
+        let grimoire_user_id = crate::users::haruspex_bridge::grimoire_user_id_for_identity(
+            &identities,
+            device.identity_id,
+        )
+        .await
+        .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+            message: e.to_string(),
+        })?;
 
-    if let Some(dc) = deleted_check {
-        return Err(crate::error::GrimoireError::ProcessingFailed {
-            message: format!(
-                "cannot accept knock: node_id is linked to a soft-deleted peer (user '{}'). restore the user/peer first.",
-                dc.username
-            ),
-        });
+        if let Some(grimoire_user_id) = grimoire_user_id {
+            if let Some(existing_user) = crate::users::UserService::new()
+                .get_user(&grimoire_user_id)
+                .await
+                .data
+            {
+                if device.deleted_at.is_some() || existing_user.deleted_at.is_some() {
+                    return Err(crate::error::GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "cannot accept knock: node_id is linked to a soft-deleted peer (user '{}'). restore the user/peer first.",
+                            existing_user.username
+                        ),
+                    });
+                }
+            }
+        }
     }
 
     let username = request.username.unwrap_or(row.username.clone());

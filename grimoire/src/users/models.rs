@@ -434,6 +434,12 @@ impl From<sqlx::Error> for AuthError {
     }
 }
 
+impl From<haruspex::error::StoreError> for AuthError {
+    fn from(err: haruspex::error::StoreError) -> Self {
+        AuthError::Database(err.to_string())
+    }
+}
+
 impl From<crate::error::GrimoireError> for AuthError {
     fn from(err: crate::error::GrimoireError) -> Self {
         AuthError::Database(err.to_string())
