@@ -1,13 +1,11 @@
 //! ensure/blob_proxy protocol handler: lets a peer ask this node to stage a
 //! blob for verified `iroh-blobs/*` transfer.
 //!
-//! ported from skein's `protocol/blob_proxy.rs`. two differences from the
-//! donor: the ALPN is a constructor parameter (skein hardcoded `skein/1`;
-//! tomb and other consumers pass their own), and the friendz-only gate
-//! becomes an injected [`AccessGate`] (see [`crate::gate`]), checked per
-//! request against the specific blake3 being asked for rather than once per
-//! connection - a stranger can open a connection, but every individual
-//! ensure request is still gated.
+//! the ALPN is a constructor parameter (so different consumers can pick
+//! their own), and access control is an injected [`AccessGate`] (see
+//! [`crate::gate`]), checked per request against the specific blake3 being
+//! asked for rather than once per connection - a stranger can open a
+//! connection, but every individual ensure request is still gated.
 
 use std::sync::Arc;
 

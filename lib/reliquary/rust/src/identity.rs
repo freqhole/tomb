@@ -133,8 +133,7 @@ fn save_keypair(path: &Path, secret: &SecretKey) -> Result<(), IdentityError> {
 
     std::fs::write(path, secret.to_bytes())?;
 
-    // restrict to owner read/write only on unix; no windows equivalent here,
-    // matching both donors' behavior.
+    // restrict to owner read/write only on unix; no windows equivalent here.
     #[cfg(unix)]
     {
         let mut perms = std::fs::metadata(path)?.permissions();
@@ -216,9 +215,8 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
     }
 
-    // configurable filename is the delta from both donors (skein hardcodes
-    // "reliquary-identity.key", tomb hardcodes "iroh-identity.key") — cover
-    // it explicitly so a regression back to a hardcoded name is caught.
+    // the keypair filename is configurable rather than hardcoded - cover it
+    // explicitly so a regression back to a hardcoded name is caught.
     #[test]
     fn custom_filename_is_respected_and_independent_of_default() {
         let dir = tempfile::tempdir().unwrap();

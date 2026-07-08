@@ -56,6 +56,15 @@ write comments, documentation, and user-facing messages in lowercase conversatio
 avoid emojis in comments, error messages, or any code. use them only in markdown
 documentation if appropriate.
 
+### comments must be timeless
+
+never reference the extraction/porting process itself in a source comment. no "donor",
+"ported from skein's X", "mirrors both donors' behavior", "skein hardcoded this, we made it
+configurable". write every comment as if the module had always existed standalone here -
+describe what the code does and why in domain terms, never where it came from or what it
+differs from elsewhere. provenance/rationale narration belongs in a phase doc under
+`tomb/docs/xl-refactor/`, never in source comments.
+
 ## conventions
 
 - **naming**: `snake_case` for rust, `camelCase` for typescript

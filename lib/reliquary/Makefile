@@ -3,7 +3,10 @@
 DATABASE_URL ?= sqlite:$(CURDIR)/reliquary.db
 
 .PHONY: db-setup
-db-setup:
+db-setup: db-migrate
+
+.PHONY: db-migrate
+db-migrate:
 	@command -v sqlx >/dev/null 2>&1 || cargo install sqlx-cli --no-default-features --features sqlite,rustls --locked
 	DATABASE_URL=$(DATABASE_URL) sqlx database create
 	DATABASE_URL=$(DATABASE_URL) sqlx migrate run --source rust/migrations

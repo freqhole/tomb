@@ -1,6 +1,0 @@
-[env]
-# sqlx's compile-time query macros (query!, query_as!) check queries against
-# a real database at build time. run `make db-setup` once to create + migrate
-# the local dev db this points at. `force = true` since a shell in this
-# multi-repo workspace may already export DATABASE_URL for a sibling crate.
-DATABASE_URL = { value = "sqlite:reliquary.db", force = true }

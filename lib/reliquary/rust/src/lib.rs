@@ -4,6 +4,26 @@
 //! wrappers, the snatch replication engine, blob acl gating, media helpers. see the repo
 //! README and `docs/xl-refactor/PHASE_2_RELIQUARY_RUST.md` in the tomb repo for the full
 //! design, and `docs/storage-traits.md` for the `BlobStore` contract.
+//!
+//! ## why this crate never uses sqlx's `query!`/`query_as!` macros
+//!
+//! this crate is meant to be embedded as a path or git dependency in host apps (skein,
+//! tumulus, and others to come), each with their own separate sqlite database and schema.
+//! sqlx's compile-time query macros validate sql against whatever database `DATABASE_URL`
+//! points at when the crate is compiled - but `DATABASE_URL` is one process-wide setting per
+//! `cargo` invocation, not something a library crate can scope to itself. the moment a host
+//! app adds this crate as a dependency, compiling the host also expands these macros, and the
+//! host's `DATABASE_URL` points at the host's own unrelated schema - the build breaks for
+//! every consumer, forever, unless every host maintains its own offline query cache just to
+//! satisfy a dependency's internal queries. that's a permanent tax on every consumer for a
+//! benefit (compile-time sql validation) that only this crate's own author needs.
+//!
+//! every query in this crate therefore uses the runtime-checked `sqlx::query`/`query_as`
+//! forms instead, with `.bind(...)` for parameters and `#[derive(sqlx::FromRow)]` structs for
+//! row types. this trades compile-time sql validation for a normal runtime error path,
+//! covered instead by this crate's own test suite. do not reintroduce `query!`/`query_as!`
+//! here - it will silently reattach this crate's compilation to a `DATABASE_URL` that has no
+//! reason to exist in a consuming host app.
 
 #[cfg(feature = "blobz")]
 pub mod blobz;
@@ -44,7 +64,7 @@ pub use snatch::{
     SnatchEngineOptions, SnatchError,
 };
 
-// testing: fixtures + fake stores for consumer test suites (reliquary::testing). not landed
-// yet - same dangling-mod caveat as snatch above; uncomment together with the file.
-// #[cfg(feature = "test-utils")]
-// pub mod testing;
+/// test fixtures + fake stores for consumer test suites, behind the
+/// `test-utils` cargo feature.
+#[cfg(feature = "test-utils")]
+pub mod testing;

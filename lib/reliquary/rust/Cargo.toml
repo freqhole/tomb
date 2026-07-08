@@ -9,6 +9,25 @@ repository = "https://github.com/freqhole/reliquary"
 name = "reliquary"
 path = "src/lib.rs"
 
+# every example needs the testing module's tempdir-backed fixtures, so all
+# of them are gated on "test-utils" - `cargo build/clippy --all-targets`
+# without that feature simply skips them rather than erroring out.
+[[example]]
+name = "blob-round-trip"
+required-features = ["test-utils"]
+
+[[example]]
+name = "two-peer-blob-transfer"
+required-features = ["test-utils"]
+
+[[example]]
+name = "blob-acl-gate"
+required-features = ["test-utils"]
+
+[[example]]
+name = "snatch-engine"
+required-features = ["test-utils"]
+
 [dependencies]
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["io"] }
@@ -35,11 +54,13 @@ image = { version = "0.25", default-features = false, features = [
 webp = { version = "0.3", default-features = false, features = [
     "img",
 ], optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
 testresult = "0.4"
 serial_test = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 default = ["blobz", "identity", "node", "snatch", "ensure", "gate", "media"]
@@ -61,4 +82,4 @@ media = ["dep:image", "dep:webp"]
 thumbnails = ["media"]
 # in-process fixtures + fake stores for consumer test suites, exported under
 # reliquary::testing.
-test-utils = ["node"]
+test-utils = ["node", "dep:tempfile"]

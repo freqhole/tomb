@@ -25,8 +25,8 @@ docs/
 
 ## development
 
-rust: `cargo test` (workspace). the crate owns its own sqlite db (`reliquary.db`); see
-[rust/README.md](rust/README.md) for the local `DATABASE_URL` setup needed by sqlx's
-compile-time query macros.
+rust: `cargo test` (workspace) - no `DATABASE_URL` needed, queries are runtime-checked (see
+[rust/README.md](rust/README.md)). the crate owns its own sqlite db (`reliquary.db`) at
+runtime, separate from any consuming app's db.
 
 ts: `cd ts && npm install && npm test`.

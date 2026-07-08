@@ -327,7 +327,7 @@ impl SqliteBlobStore {
         // `get_any` check above) must not surface a unique-constraint error
         // to either caller - the loser's insert silently no-ops and both
         // callers read back the same canonical row below.
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO blobz (
                 blake3, iroh_hash, filename, mime, size, path, external,
@@ -336,20 +336,20 @@ impl SqliteBlobStore {
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT (blake3) DO NOTHING
             "#,
-            blake3,
-            iroh_hash,
-            meta.filename,
-            meta.mime,
-            size,
-            path,
-            external_flag,
-            blob_type_str,
-            meta.parent_blake3,
-            width,
-            height,
-            metadata_json,
-            created_at,
         )
+        .bind(blake3)
+        .bind(iroh_hash)
+        .bind(meta.filename)
+        .bind(meta.mime)
+        .bind(size)
+        .bind(path)
+        .bind(external_flag)
+        .bind(blob_type_str)
+        .bind(meta.parent_blake3)
+        .bind(width)
+        .bind(height)
+        .bind(metadata_json)
+        .bind(created_at)
         .execute(&self.pool)
         .await?;
 
@@ -471,17 +471,16 @@ impl BlobStore for SqliteBlobStore {
     }
 
     async fn get(&self, blake3: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row = sqlx::query_as!(
-            BlobRow,
+        let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size as "size!", path as "path!", external as "external!",
-                   blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                   created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                   size, path, external,
+                   blob_type, parent_blake3, width, height, metadata,
+                   created_at, soft_deleted_at, soft_deleted_by
             FROM blobz WHERE blake3 = ?1 AND soft_deleted_at IS NULL
             "#,
-            blake3,
         )
+        .bind(blake3)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -489,17 +488,16 @@ impl BlobStore for SqliteBlobStore {
     }
 
     async fn get_any(&self, blake3: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row = sqlx::query_as!(
-            BlobRow,
+        let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size as "size!", path as "path!", external as "external!",
-                   blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                   created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                   size, path, external,
+                   blob_type, parent_blake3, width, height, metadata,
+                   created_at, soft_deleted_at, soft_deleted_by
             FROM blobz WHERE blake3 = ?1
             "#,
-            blake3,
         )
+        .bind(blake3)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -510,17 +508,16 @@ impl BlobStore for SqliteBlobStore {
         &self,
         iroh_hash: &str,
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row = sqlx::query_as!(
-            BlobRow,
+        let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size as "size!", path as "path!", external as "external!",
-                   blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                   created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                   size, path, external,
+                   blob_type, parent_blake3, width, height, metadata,
+                   created_at, soft_deleted_at, soft_deleted_by
             FROM blobz WHERE iroh_hash = ?1
             "#,
-            iroh_hash,
         )
+        .bind(iroh_hash)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -528,17 +525,16 @@ impl BlobStore for SqliteBlobStore {
     }
 
     async fn get_by_sha256(&self, sha256: &str) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row = sqlx::query_as!(
-            BlobRow,
+        let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size as "size!", path as "path!", external as "external!",
-                   blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                   created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                   size, path, external,
+                   blob_type, parent_blake3, width, height, metadata,
+                   created_at, soft_deleted_at, soft_deleted_by
             FROM blobz WHERE sha256 = ?1
             "#,
-            sha256,
         )
+        .bind(sha256)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -549,17 +545,16 @@ impl BlobStore for SqliteBlobStore {
         &self,
         old_grimoire_id: &str,
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
-        let row = sqlx::query_as!(
-            BlobRow,
+        let row: Option<BlobRow> = sqlx::query_as(
             r#"
-            SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                   size as "size!", path as "path!", external as "external!",
-                   blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                   created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                   size, path, external,
+                   blob_type, parent_blake3, width, height, metadata,
+                   created_at, soft_deleted_at, soft_deleted_by
             FROM blobz WHERE old_grimoire_id = ?1
             "#,
-            old_grimoire_id,
         )
+        .bind(old_grimoire_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -627,14 +622,14 @@ impl BlobStore for SqliteBlobStore {
         let mut failed = Vec::new();
 
         for hash in blake3s {
-            let result = sqlx::query!(
+            let result = sqlx::query(
                 r#"UPDATE blobz
                    SET soft_deleted_at = ?1, soft_deleted_by = ?2
                    WHERE blake3 = ?3 AND soft_deleted_at IS NULL"#,
-                now,
-                actor,
-                hash,
             )
+            .bind(now)
+            .bind(actor)
+            .bind(hash)
             .execute(&self.pool)
             .await?;
 
@@ -653,12 +648,12 @@ impl BlobStore for SqliteBlobStore {
         let mut failed = Vec::new();
 
         for hash in blake3s {
-            let result = sqlx::query!(
+            let result = sqlx::query(
                 r#"UPDATE blobz
                    SET soft_deleted_at = NULL, soft_deleted_by = NULL
                    WHERE blake3 = ?1 AND soft_deleted_at IS NOT NULL"#,
-                hash,
             )
+            .bind(hash)
             .execute(&self.pool)
             .await?;
 
@@ -682,16 +677,15 @@ impl BlobStore for SqliteBlobStore {
         if let Some(hashes) = blake3s {
             for hash in hashes {
                 // only qualify rows that ARE soft-deleted.
-                let maybe_row = sqlx::query_as!(
-                    BlobRow,
-                    r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                              size as "size!", path as "path!", external as "external!",
-                              blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                              created_at as "created_at!", soft_deleted_at, soft_deleted_by
+                let maybe_row: Option<BlobRow> = sqlx::query_as(
+                    r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                              size, path, external,
+                              blob_type, parent_blake3, width, height, metadata,
+                              created_at, soft_deleted_at, soft_deleted_by
                        FROM blobz
                        WHERE blake3 = ?1 AND soft_deleted_at IS NOT NULL"#,
-                    hash,
                 )
+                .bind(hash)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -702,7 +696,8 @@ impl BlobStore for SqliteBlobStore {
                         if !record.external {
                             let _ = tokio::fs::remove_file(self.path_for(&record)).await;
                         }
-                        sqlx::query!("DELETE FROM blobz WHERE blake3 = ?1", hash)
+                        sqlx::query("DELETE FROM blobz WHERE blake3 = ?1")
+                            .bind(hash)
                             .execute(&self.pool)
                             .await?;
                         deleted += 1;
@@ -711,12 +706,11 @@ impl BlobStore for SqliteBlobStore {
             }
         } else {
             // purge ALL soft-deleted rows.
-            let rows = sqlx::query_as!(
-                BlobRow,
-                r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                          size as "size!", path as "path!", external as "external!",
-                          blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                          created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            let rows: Vec<BlobRow> = sqlx::query_as(
+                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                          size, path, external,
+                          blob_type, parent_blake3, width, height, metadata,
+                          created_at, soft_deleted_at, soft_deleted_by
                    FROM blobz
                    WHERE soft_deleted_at IS NOT NULL"#,
             )
@@ -728,7 +722,8 @@ impl BlobStore for SqliteBlobStore {
                 if !record.external {
                     let _ = tokio::fs::remove_file(self.path_for(&record)).await;
                 }
-                sqlx::query!("DELETE FROM blobz WHERE blake3 = ?1", record.blake3)
+                sqlx::query("DELETE FROM blobz WHERE blake3 = ?1")
+                    .bind(record.blake3)
                     .execute(&self.pool)
                     .await?;
                 deleted += 1;
@@ -746,26 +741,24 @@ impl BlobStore for SqliteBlobStore {
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<BlobRecord>, u64), BlobStoreError> {
-        let count_row = sqlx::query!(
-            r#"SELECT COUNT(*) as "count!: i64" FROM blobz WHERE soft_deleted_at IS NULL"#
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let total = count_row.count as u64;
+        let total: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM blobz WHERE soft_deleted_at IS NULL"#)
+                .fetch_one(&self.pool)
+                .await?;
+        let total = total as u64;
 
-        let rows = sqlx::query_as!(
-            BlobRow,
-            r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                      size as "size!", path as "path!", external as "external!",
-                      blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                      created_at as "created_at!", soft_deleted_at, soft_deleted_by
+        let rows: Vec<BlobRow> = sqlx::query_as(
+            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                      size, path, external,
+                      blob_type, parent_blake3, width, height, metadata,
+                      created_at, soft_deleted_at, soft_deleted_by
                FROM blobz
                WHERE soft_deleted_at IS NULL
                ORDER BY created_at DESC
                LIMIT ?1 OFFSET ?2"#,
-            limit,
-            offset,
         )
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
 
@@ -777,26 +770,24 @@ impl BlobStore for SqliteBlobStore {
         limit: i64,
         offset: i64,
     ) -> Result<(Vec<BlobRecord>, u64), BlobStoreError> {
-        let count_row = sqlx::query!(
-            r#"SELECT COUNT(*) as "count!: i64" FROM blobz WHERE soft_deleted_at IS NOT NULL"#
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let total = count_row.count as u64;
+        let total: i64 =
+            sqlx::query_scalar(r#"SELECT COUNT(*) FROM blobz WHERE soft_deleted_at IS NOT NULL"#)
+                .fetch_one(&self.pool)
+                .await?;
+        let total = total as u64;
 
-        let rows = sqlx::query_as!(
-            BlobRow,
-            r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                      size as "size!", path as "path!", external as "external!",
-                      blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                      created_at as "created_at!", soft_deleted_at, soft_deleted_by
+        let rows: Vec<BlobRow> = sqlx::query_as(
+            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                      size, path, external,
+                      blob_type, parent_blake3, width, height, metadata,
+                      created_at, soft_deleted_at, soft_deleted_by
                FROM blobz
                WHERE soft_deleted_at IS NOT NULL
                ORDER BY soft_deleted_at DESC
                LIMIT ?1 OFFSET ?2"#,
-            limit,
-            offset,
         )
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
 
@@ -804,18 +795,18 @@ impl BlobStore for SqliteBlobStore {
     }
 
     async fn list_all_iroh_hashes(&self) -> Result<Vec<String>, BlobStoreError> {
-        let rows = sqlx::query!(r#"SELECT blake3 as "blake3!" FROM blobz"#)
+        let rows: Vec<String> = sqlx::query_scalar(r#"SELECT blake3 FROM blobz"#)
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.into_iter().map(|r| r.blake3).collect())
+        Ok(rows)
     }
 
     async fn total_usage(&self) -> Result<UsageStats, BlobStoreError> {
-        let row = sqlx::query!(
-            r#"SELECT COALESCE(SUM(size), 0) as "total_bytes!: i64",
-                      COUNT(*)              as "count!: i64"
+        let row: UsageRow = sqlx::query_as(
+            r#"SELECT COALESCE(SUM(size), 0) as total_bytes,
+                      COUNT(*)              as count
                FROM blobz
-               WHERE soft_deleted_at IS NULL"#
+               WHERE soft_deleted_at IS NULL"#,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -826,11 +817,11 @@ impl BlobStore for SqliteBlobStore {
     }
 
     async fn soft_deleted_usage(&self) -> Result<UsageStats, BlobStoreError> {
-        let row = sqlx::query!(
-            r#"SELECT COALESCE(SUM(size), 0) as "total_bytes!: i64",
-                      COUNT(*)              as "count!: i64"
+        let row: UsageRow = sqlx::query_as(
+            r#"SELECT COALESCE(SUM(size), 0) as total_bytes,
+                      COUNT(*)              as count
                FROM blobz
-               WHERE soft_deleted_at IS NOT NULL"#
+               WHERE soft_deleted_at IS NOT NULL"#,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -845,34 +836,32 @@ impl BlobStore for SqliteBlobStore {
         parent_blake3: &str,
         blob_type: Option<BlobType>,
     ) -> Result<Vec<BlobRecord>, BlobStoreError> {
-        let rows = if let Some(bt) = blob_type {
+        let rows: Vec<BlobRow> = if let Some(bt) = blob_type {
             let bt_str = bt.as_str();
-            sqlx::query_as!(
-                BlobRow,
-                r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                          size as "size!", path as "path!", external as "external!",
-                          blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                          created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            sqlx::query_as(
+                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                          size, path, external,
+                          blob_type, parent_blake3, width, height, metadata,
+                          created_at, soft_deleted_at, soft_deleted_by
                    FROM blobz
                    WHERE parent_blake3 = ?1 AND blob_type = ?2 AND soft_deleted_at IS NULL
                    ORDER BY created_at DESC"#,
-                parent_blake3,
-                bt_str,
             )
+            .bind(parent_blake3)
+            .bind(bt_str)
             .fetch_all(&self.pool)
             .await?
         } else {
-            sqlx::query_as!(
-                BlobRow,
-                r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                          size as "size!", path as "path!", external as "external!",
-                          blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                          created_at as "created_at!", soft_deleted_at, soft_deleted_by
+            sqlx::query_as(
+                r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                          size, path, external,
+                          blob_type, parent_blake3, width, height, metadata,
+                          created_at, soft_deleted_at, soft_deleted_by
                    FROM blobz
                    WHERE parent_blake3 = ?1 AND soft_deleted_at IS NULL
                    ORDER BY created_at DESC"#,
-                parent_blake3,
             )
+            .bind(parent_blake3)
             .fetch_all(&self.pool)
             .await?
         };
@@ -886,24 +875,29 @@ impl BlobStore for SqliteBlobStore {
         blob_type: BlobType,
     ) -> Result<Option<BlobRecord>, BlobStoreError> {
         let bt_str = blob_type.as_str();
-        let row = sqlx::query_as!(
-            BlobRow,
-            r#"SELECT blake3 as "blake3!", iroh_hash, sha256, old_grimoire_id, filename, mime,
-                      size as "size!", path as "path!", external as "external!",
-                      blob_type as "blob_type!", parent_blake3, width, height, metadata,
-                      created_at as "created_at!", soft_deleted_at, soft_deleted_by
+        let row: Option<BlobRow> = sqlx::query_as(
+            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                      size, path, external,
+                      blob_type, parent_blake3, width, height, metadata,
+                      created_at, soft_deleted_at, soft_deleted_by
                FROM blobz
                WHERE parent_blake3 = ?1 AND blob_type = ?2 AND soft_deleted_at IS NULL
                ORDER BY created_at DESC
                LIMIT 1"#,
-            parent_blake3,
-            bt_str,
         )
+        .bind(parent_blake3)
+        .bind(bt_str)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(Into::into))
     }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct UsageRow {
+    total_bytes: i64,
+    count: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -1258,6 +1252,29 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn list_all_iroh_hashes_includes_soft_deleted_rows() {
+        let (store, _pool, _tmp) = make_store().await;
+        let live = store
+            .insert(b"still here", NewBlobMeta::default())
+            .await
+            .unwrap();
+        let gone = store
+            .insert(b"soft deleted", NewBlobMeta::default())
+            .await
+            .unwrap();
+        store
+            .soft_delete(std::slice::from_ref(&gone.blake3), "actor")
+            .await
+            .unwrap();
+
+        let mut hashes = store.list_all_iroh_hashes().await.unwrap();
+        hashes.sort();
+        let mut expected = vec![live.blake3.clone(), gone.blake3.clone()];
+        expected.sort();
+        assert_eq!(hashes, expected);
+    }
+
     // --- soft-delete tests ---
 
     #[tokio::test]
@@ -1432,6 +1449,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hard_delete_soft_deleted_with_no_hashes_purges_every_soft_deleted_row() {
+        let (store, _pool, _tmp) = make_store().await;
+        let live = store
+            .insert(b"stays live", NewBlobMeta::default())
+            .await
+            .unwrap();
+        let a = store
+            .insert(b"purge me a", NewBlobMeta::default())
+            .await
+            .unwrap();
+        let b = store
+            .insert(b"purge me b", NewBlobMeta::default())
+            .await
+            .unwrap();
+
+        store
+            .soft_delete(&[a.blake3.clone(), b.blake3.clone()], "actor")
+            .await
+            .unwrap();
+
+        let outcome = store.hard_delete_soft_deleted(None).await.unwrap();
+        assert_eq!(outcome.affected, 2);
+        assert!(outcome.failed.is_empty());
+        assert!(store.get_any(&a.blake3).await.unwrap().is_none());
+        assert!(store.get_any(&b.blake3).await.unwrap().is_none());
+        // the live (never soft-deleted) row is untouched
+        assert!(store.get(&live.blake3).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn soft_deleted_usage_counts_only_soft_deleted() {
         let (store, _pool, _tmp) = make_store().await;
         let b1 = store
@@ -1470,14 +1517,12 @@ mod tests {
             .await
             .unwrap();
 
-        sqlx::query!(
-            "UPDATE blobz SET sha256 = ?1 WHERE blake3 = ?2",
-            "deadbeef-sha256",
-            blob.blake3,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE blobz SET sha256 = ?1 WHERE blake3 = ?2")
+            .bind("deadbeef-sha256")
+            .bind(&blob.blake3)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let found = store
             .get_by_sha256("deadbeef-sha256")
@@ -1496,14 +1541,12 @@ mod tests {
             .await
             .unwrap();
 
-        sqlx::query!(
-            "UPDATE blobz SET old_grimoire_id = ?1 WHERE blake3 = ?2",
-            "a1b2c3d4",
-            blob.blake3,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE blobz SET old_grimoire_id = ?1 WHERE blake3 = ?2")
+            .bind("a1b2c3d4")
+            .bind(&blob.blake3)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let found = store
             .get_by_old_id("a1b2c3d4")
