@@ -9,6 +9,10 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use thiserror::Error;
 
+/// default filename used by [`open`]. a consuming app that wants a
+/// different name or a db file that isn't a direct child of its data
+/// directory (e.g. sharing one directory across several sqlite files, or
+/// naming it per-profile) should call [`open_at`] directly instead.
 pub const DB_FILENAME: &str = "reliquary.db";
 
 #[derive(Debug, Error)]
@@ -23,14 +27,34 @@ pub enum DbError {
     Io(#[from] std::io::Error),
 }
 
-/// open (creating if needed) the reliquary sqlite db under `data_dir` and run
-/// migrations. returns a cloneable pool.
+/// open (creating if needed) the reliquary sqlite db under
+/// `<data_dir>/reliquary.db` and run migrations. returns a cloneable pool.
+///
+/// this is the common-case entry point: a consuming app picks a data
+/// directory and gets sensible defaults (wal mode, foreign keys on,
+/// migrations applied) for free. call [`open_at`] instead if the app needs
+/// to control the exact db file name or place it somewhere other than a
+/// direct child of `data_dir`.
 pub async fn open(data_dir: &Path) -> Result<SqlitePool, DbError> {
     tokio::fs::create_dir_all(data_dir).await?;
-    let db_path = data_dir.join(DB_FILENAME);
+    open_at(&data_dir.join(DB_FILENAME)).await
+}
+
+/// open (creating if needed) the reliquary sqlite db at the exact path
+/// `db_path` and run migrations. returns a cloneable pool.
+///
+/// unlike [`open`], the caller controls the full file name and location -
+/// useful for apps that want a non-default file name (e.g. per-profile db
+/// files) or that keep reliquary's db file alongside other app-managed
+/// files rather than in its own directory. the parent directory is created
+/// if it doesn't already exist.
+pub async fn open_at(db_path: &Path) -> Result<SqlitePool, DbError> {
+    if let Some(parent) = db_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
 
     let options = SqliteConnectOptions::new()
-        .filename(&db_path)
+        .filename(db_path)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .foreign_keys(true);
@@ -87,6 +111,24 @@ mod tests {
 
         // db file should be on disk under data_dir.
         assert!(tmp.path().join(DB_FILENAME).exists());
+    }
+
+    #[tokio::test]
+    async fn open_at_honors_a_custom_file_name_and_location() {
+        let tmp = tempfile::tempdir().unwrap();
+        // a nested, non-default path - open_at should create the parent dir
+        // and use exactly this file name, not DB_FILENAME.
+        let custom_path = tmp.path().join("profiles/alice/store.sqlite");
+        let pool = open_at(&custom_path).await.expect("open db at custom path");
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM blobz")
+            .fetch_one(&pool)
+            .await
+            .expect("query blobz table");
+        assert_eq!(count.0, 0);
+
+        assert!(custom_path.exists());
+        assert!(!tmp.path().join(DB_FILENAME).exists());
     }
 
     #[tokio::test]
