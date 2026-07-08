@@ -1,6 +1,7 @@
 // application database service (domain-agnostic)
 import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
+import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/haruspex/identity";
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
 import {
@@ -294,25 +295,42 @@ async function saveGraphPrefs(updates: Partial<Omit<GraphPrefs, "id">>): Promise
 
 // ============================================================================
 // P2P identity persistence (midden)
+//
+// backed by the same app_state store as AppState/GraphPrefs (an inline-keyPath
+// store keyed by "id"), so the identity record itself carries an id tag on
+// disk that @freqhole/haruspex's core P2PIdentity type doesn't define - this
+// adapter adds/strips that tag at the storage boundary.
 // ============================================================================
+
+const P2P_IDENTITY_RECORD_ID = "p2p_identity";
+
+const identityStore: IdentityStore = {
+  async get() {
+    const db = await initAppDB();
+    const record = await db.get(STORE_APP_STATE, P2P_IDENTITY_RECORD_ID);
+    if (!record) return null;
+    const { secret_key, node_id, created_at } = record as P2PIdentity;
+    return { secret_key, node_id, created_at };
+  },
+  async set(identity) {
+    const db = await initAppDB();
+    await db.put(STORE_APP_STATE, { id: P2P_IDENTITY_RECORD_ID, ...identity });
+  },
+};
 
 // get stored P2P identity (returns null if not yet created)
 async function getP2PIdentity(): Promise<P2PIdentity | null> {
-  const db = await initAppDB();
-  const identity = await db.get(STORE_APP_STATE, "p2p_identity");
-  return identity ?? null;
+  return resolveIdentity(identityStore);
 }
 
 // save P2P identity to IDB
 async function saveP2PIdentity(secretKey: Uint8Array, nodeId: string): Promise<P2PIdentity> {
-  const db = await initAppDB();
   const identity: P2PIdentity = {
-    id: "p2p_identity",
     secret_key: secretKey,
     node_id: nodeId,
     created_at: Date.now(),
   };
-  await db.put(STORE_APP_STATE, identity);
+  await persistIdentity(identity, identityStore);
   debug("appDB", "saved P2P identity:", nodeId.slice(0, 16) + "...");
   return identity;
 }
@@ -320,7 +338,7 @@ async function saveP2PIdentity(secretKey: Uint8Array, nodeId: string): Promise<P
 // delete P2P identity (for reset/regeneration)
 async function deleteP2PIdentity(): Promise<void> {
   const db = await initAppDB();
-  await db.delete(STORE_APP_STATE, "p2p_identity");
+  await db.delete(STORE_APP_STATE, P2P_IDENTITY_RECORD_ID);
   debug("appDB", "deleted P2P identity");
 }
 
