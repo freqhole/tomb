@@ -1,3 +1,10 @@
-// phase 0 skeleton - filled in during phase 5 (./share: unified token codec +
-// detectShareInput across playlistz/loam/spume/legacy token shapes).
-export {};
+export {
+  extractNodeId,
+  extractNodeIdStrict,
+  isValidNodeId,
+  parsePeerAddress,
+} from "./peer-addr.js";
+export type { PeerTarget } from "./peer-addr.js";
+
+// the unified share-token codec (all supported app + legacy token shapes)
+// and detectShareInput land here alongside these peer-address helpers.

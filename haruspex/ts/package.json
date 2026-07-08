@@ -26,6 +26,10 @@
             "types": "./dist/share/index.d.ts",
             "import": "./dist/share/index.js"
         },
+        "./flows": {
+            "types": "./dist/flows/index.d.ts",
+            "import": "./dist/flows/index.js"
+        },
         "./permissions": {
             "types": "./dist/permissions/index.d.ts",
             "import": "./dist/permissions/index.js"
