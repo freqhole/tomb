@@ -9,7 +9,6 @@ use crate::users::repository::UserRepository;
 use crate::wordlist::{
     generate_word_code, initialize_wordlist, is_initialized, ManagementWordlistConfig,
 };
-use rand::Rng;
 
 /// Service for user-related business operations
 pub struct UserService {
@@ -423,11 +422,11 @@ impl UserService {
 
     /// Generate a cryptographically secure random API key
     ///
-    /// Returns a 64-character hexadecimal string (32 bytes of entropy)
+    /// Returns a 64-character hexadecimal string (32 bytes of entropy).
+    /// delegates to haruspex's own generator (`identity::api_key::generate_api_key`) -
+    /// same shape, one less place implementing the same random-bytes-to-hex logic.
     fn generate_secure_api_key() -> String {
-        let mut rng = rand::thread_rng();
-        let bytes: [u8; 32] = rng.gen();
-        hex::encode(bytes)
+        haruspex::identity::api_key::generate_api_key()
     }
 
     /// Ensure a user has an API key, generating one if missing
@@ -439,21 +438,29 @@ impl UserService {
     /// Used during federation sync to ensure federated users can authenticate
     /// for P2P proxy requests.
     pub async fn ensure_api_key(&self, user: User) -> GrimoireResponse<User> {
-        // check if user already has an API key
-        if user.api_key.as_ref().is_some_and(|k| !k.is_empty()) {
-            return GrimoireResponse::success("user already has api key", user);
-        }
-
-        // generate and set a new API key
-        let api_key = Self::generate_secure_api_key();
-        match self.repository.set_api_key(&user.id, &api_key).await {
-            Ok(updated_user) => {
-                GrimoireResponse::success("api key generated for federated user", updated_user)
+        // the key itself now lives in haruspex's own store, keyed by
+        // identity id rather than as a column on `user`, so checking
+        // `user.api_key` (only ever populated right after a fresh
+        // generate/ensure call) can't tell us whether one already exists -
+        // ask haruspex directly.
+        match self.repository.has_api_key(&user.id).await {
+            Ok(true) => GrimoireResponse::success("user already has api key", user),
+            Ok(false) => {
+                let api_key = Self::generate_secure_api_key();
+                match self.repository.set_api_key(&user.id, &api_key).await {
+                    Ok(updated_user) => GrimoireResponse::success(
+                        "api key generated for federated user",
+                        updated_user,
+                    ),
+                    Err(err) => GrimoireResponse::failure(
+                        "failed to generate api key for federated user",
+                        vec![err.into()],
+                    ),
+                }
             }
-            Err(err) => GrimoireResponse::failure(
-                "failed to generate api key for federated user",
-                vec![err.into()],
-            ),
+            Err(err) => {
+                GrimoireResponse::failure("failed to check for existing api key", vec![err.into()])
+            }
         }
     }
 

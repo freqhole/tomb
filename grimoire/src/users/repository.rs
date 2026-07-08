@@ -6,8 +6,12 @@
 use crate::database;
 use crate::users::haruspex_bridge;
 use crate::users::models::*;
-use haruspex::stores::IdentityStore;
+use haruspex::stores::{
+    IdentityStore, InviteCode as HaruspexInviteCode, InviteCodeType as HaruspexInviteCodeType,
+    InviteStore, Role as HaruspexRole,
+};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 /// Database row struct for user_accountz table
 #[derive(Debug)]
@@ -62,35 +66,124 @@ fn device_to_peer_node(device: haruspex::identity::DeviceNode, user_id: &str) ->
     }
 }
 
-/// Database row struct for invite_codez table
-#[derive(Debug)]
-struct InviteCodeRow {
-    id: String,
-    code: String,
-    created_at: i64,
-    used_at: Option<i64>,
-    used_by_id: Option<String>,
-    is_active: i64,
-    code_type: String,
-    link_for_user_id: Option<String>,
-    link_expires_at: Option<i64>,
-    grants_role: String,
+/// open haruspex's invite store, the same way every other haruspex-backed
+/// store in this crate reports a connection failure.
+async fn invite_store() -> AuthResult<haruspex::sqlite::SqliteInviteStore> {
+    let pool = database::connect_haruspex().await?;
+    Ok(haruspex::sqlite::SqliteInviteStore::new(pool))
 }
 
-impl From<InviteCodeRow> for InviteCode {
-    fn from(row: InviteCodeRow) -> Self {
-        InviteCode {
-            id: row.id,
+fn to_haruspex_role(role: UserRole) -> HaruspexRole {
+    match role {
+        UserRole::Root => HaruspexRole::Root,
+        UserRole::Admin => HaruspexRole::Admin,
+        UserRole::Member => HaruspexRole::Member,
+        UserRole::Viewer => HaruspexRole::Viewer,
+    }
+}
+
+fn from_haruspex_role(role: HaruspexRole) -> UserRole {
+    match role {
+        HaruspexRole::Root => UserRole::Root,
+        HaruspexRole::Admin => UserRole::Admin,
+        HaruspexRole::Member => UserRole::Member,
+        HaruspexRole::Viewer => UserRole::Viewer,
+    }
+}
+
+fn to_haruspex_invite_type(code_type: InviteCodeType) -> HaruspexInviteCodeType {
+    match code_type {
+        InviteCodeType::Invite => HaruspexInviteCodeType::Invite,
+        InviteCodeType::AccountLink => HaruspexInviteCodeType::AccountLink,
+    }
+}
+
+fn from_haruspex_invite_type(code_type: HaruspexInviteCodeType) -> InviteCodeType {
+    match code_type {
+        HaruspexInviteCodeType::Invite => InviteCodeType::Invite,
+        HaruspexInviteCodeType::AccountLink => InviteCodeType::AccountLink,
+    }
+}
+
+/// translate a haruspex invite code back to grimoire's wire shape,
+/// resolving `used_by`/`link_for_user_id` (haruspex identity ids) back to
+/// grimoire user ids via `haruspex_bridge`.
+async fn to_grimoire_invite_code(
+    identities: &dyn IdentityStore,
+    invite: HaruspexInviteCode,
+) -> AuthResult<InviteCode> {
+    let used_by_id = match invite.used_by {
+        Some(identity_id) => {
+            haruspex_bridge::grimoire_user_id_for_identity(identities, identity_id).await?
+        }
+        None => None,
+    };
+    let link_for_user_id = match invite.link_for_user_id {
+        Some(identity_id) => {
+            haruspex_bridge::grimoire_user_id_for_identity(identities, identity_id).await?
+        }
+        None => None,
+    };
+
+    Ok(InviteCode {
+        id: invite.id.to_string(),
+        code: invite.code,
+        created_at: invite.created_at,
+        used_at: invite.used_at,
+        used_by_id,
+        is_active: invite.is_active,
+        code_type: from_haruspex_invite_type(invite.code_type),
+        link_for_user_id,
+        link_expires_at: invite.link_expires_at,
+        grants_role: from_haruspex_role(invite.grants_role),
+    })
+}
+
+/// raw row shape for haruspex's own `invite_codez` table, used only by the
+/// "list every invite code, not just active ones" stopgap below -
+/// `InviteStore` only exposes `list_active`.
+#[derive(sqlx::FromRow)]
+struct RawInviteRow {
+    id: String,
+    code: String,
+    code_type: String,
+    grants_role: String,
+    link_for_user_id: Option<String>,
+    link_expires_at: Option<i64>,
+    created_at: i64,
+    used_at: Option<i64>,
+    used_by: Option<String>,
+    is_active: i64,
+}
+
+impl TryFrom<RawInviteRow> for HaruspexInviteCode {
+    type Error = AuthError;
+
+    fn try_from(row: RawInviteRow) -> Result<Self, Self::Error> {
+        Ok(HaruspexInviteCode {
+            id: Uuid::parse_str(&row.id).map_err(|e| AuthError::Database(e.to_string()))?,
             code: row.code,
+            code_type: HaruspexInviteCodeType::parse(&row.code_type).ok_or_else(|| {
+                AuthError::Database(format!("invalid invite code type: {}", row.code_type))
+            })?,
+            grants_role: HaruspexRole::parse(&row.grants_role).ok_or_else(|| {
+                AuthError::Database(format!("invalid grants_role: {}", row.grants_role))
+            })?,
+            link_for_user_id: row
+                .link_for_user_id
+                .map(|s| Uuid::parse_str(&s))
+                .transpose()
+                .map_err(|e| AuthError::Database(e.to_string()))?,
+            link_expires_at: row.link_expires_at,
             created_at: row.created_at,
             used_at: row.used_at,
-            used_by_id: row.used_by_id,
+            used_by: row
+                .used_by
+                .map(|s| Uuid::parse_str(&s))
+                .transpose()
+                .map_err(|e| AuthError::Database(e.to_string()))?,
             is_active: row.is_active != 0,
-            code_type: InviteCodeType::from(row.code_type),
-            link_for_user_id: row.link_for_user_id,
-            link_expires_at: row.link_expires_at,
-            grants_role: UserRole::from(row.grants_role.as_str()),
-        }
+        })
     }
 }
 
@@ -167,22 +260,31 @@ impl UserRepository {
     }
 
     /// Find a user by API key
+    ///
+    /// api keys live in haruspex's own `api_keyz` table
+    /// (`identity::api_key::validate_api_key`), keyed by identity id rather
+    /// than grimoire's user id - resolved back to a grimoire user through
+    /// `haruspex_bridge`, same as every other identity-keyed lookup here.
     pub async fn find_user_by_api_key(&self, api_key: &str) -> AuthResult<Option<User>> {
-        let pool = database::connect().await?;
+        let identities = identity_store().await?;
+        let identity =
+            match haruspex::identity::api_key::validate_api_key(&identities, api_key).await? {
+                Some(identity) => identity,
+                None => return Ok(None),
+            };
+        let user_id =
+            match haruspex_bridge::grimoire_user_id_for_identity(&identities, identity.id).await? {
+                Some(id) => id,
+                None => return Ok(None),
+            };
 
-        let user = sqlx::query_as!(
-            UserRow,
-            r#"
-            SELECT id as "id!", username as "username!", role as "role!", api_key, created_at as "created_at!", updated_at as "updated_at!", deleted_at, haruspex_user_id, metadata
-            FROM user_accountz
-            WHERE api_key = ?1 AND deleted_at IS NULL
-            "#,
-            api_key
-        )
-        .fetch_optional(&pool)
-        .await?;
-
-        Ok(user.map(User::from))
+        match self.find_user_by_id(&user_id).await? {
+            Some(user) if user.deleted_at.is_none() => Ok(Some(User {
+                api_key: Some(api_key.to_string()),
+                ..user
+            })),
+            _ => Ok(None),
+        }
     }
 
     /// Find the first root user (oldest by created_at)
@@ -272,29 +374,62 @@ impl UserRepository {
             .ok_or(AuthError::UserNotFound)
     }
 
-    /// Set or update a user's API key
+    /// Set or update a user's API key (an empty string revokes it).
+    ///
+    /// the key itself is persisted in haruspex's `api_keyz` table
+    /// (`IdentityStore::set_api_key`, one active key per identity) rather
+    /// than as a column on this user's own row. `user_accountz.updated_at`
+    /// still gets bumped, preserving that side effect for callers keyed
+    /// off it.
     pub async fn set_api_key(&self, user_id: &str, api_key: &str) -> AuthResult<User> {
-        let pool = database::connect().await?;
+        let user = self
+            .find_user_by_id(user_id)
+            .await?
+            .ok_or(AuthError::UserNotFound)?;
 
+        let identities = identity_store().await?;
         let now = OffsetDateTime::now_utc().unix_timestamp();
+        let identity_id =
+            haruspex_bridge::ensure_identity_for_user(&identities, &user.id, &user.username, now)
+                .await?;
 
+        let stored_key = if api_key.is_empty() {
+            None
+        } else {
+            Some(api_key.to_string())
+        };
+        identities
+            .set_api_key(identity_id, stored_key.clone())
+            .await?;
+
+        let pool = database::connect().await?;
         sqlx::query!(
-            r#"
-            UPDATE user_accountz
-            SET api_key = ?1, updated_at = ?2
-            WHERE id = ?3
-            "#,
-            api_key,
+            "UPDATE user_accountz SET updated_at = ?1 WHERE id = ?2",
             now,
             user_id
         )
         .execute(&pool)
         .await?;
 
-        // Return the updated user
-        self.find_user_by_id(user_id)
-            .await?
-            .ok_or(AuthError::UserNotFound)
+        Ok(User {
+            api_key: stored_key,
+            ..user
+        })
+    }
+
+    /// whether `user_id` currently has an active api key. `IdentityStore`
+    /// only exposes issuing/revoking a key and resolving one back to its
+    /// owner, not a direct "does this identity have one" check, so this
+    /// queries haruspex's own `api_keyz` table directly.
+    pub async fn has_api_key(&self, user_id: &str) -> AuthResult<bool> {
+        let pool = database::connect_haruspex().await?;
+        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id).to_string();
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM api_keyz WHERE identity_id = ?1")
+                .bind(&identity_id)
+                .fetch_optional(&pool)
+                .await?;
+        Ok(exists.is_some())
     }
 
     /// Soft delete a user account.
@@ -385,176 +520,192 @@ impl UserRepository {
     }
 
     /// Create an invite code
+    ///
+    /// `code` is generated by the caller (grimoire's own word-based
+    /// `wordlist::management::generate_word_code`) - this only persists it.
+    /// haruspex's `InviteStore` has no code generator of its own; it just
+    /// stores whatever string it's given.
     pub async fn create_invite_code(
         &self,
         code: &str,
         request: &CreateInviteCodeRequest,
     ) -> AuthResult<InviteCode> {
-        let pool = database::connect().await?;
+        let store = invite_store().await?;
+        let identities = identity_store().await?;
 
         let now = OffsetDateTime::now_utc().unix_timestamp();
-        let code_type = request.code_type.unwrap_or_default().to_string();
+        let code_type = request.code_type.unwrap_or_default();
         let expires_at = request
             .expires_hours
             .map(|hours| now + (hours as i64 * 3600));
-        let grants_role = request.grants_role.unwrap_or(UserRole::Member).to_string();
+        let grants_role = request.grants_role.unwrap_or(UserRole::Member);
 
-        let row = sqlx::query_as!(
-            InviteCodeRow,
-            r#"
-            INSERT INTO invite_codez (code, created_at, is_active, code_type, link_for_user_id, link_expires_at, grants_role)
-            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6)
-            RETURNING id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
-            "#,
-            code,
-            now,
-            code_type,
-            request.link_for_user_id,
-            expires_at,
-            grants_role
-        )
-        .fetch_one(&pool)
-        .await?;
+        // account-link codes reference an existing identity via a real FK
+        // (`invite_codez.link_for_user_id REFERENCES identityz(id)`) - make
+        // sure that identity exists before the insert.
+        let link_for_user_id = match &request.link_for_user_id {
+            Some(user_id) => {
+                let user = self
+                    .find_user_by_id(user_id)
+                    .await?
+                    .ok_or(AuthError::UserNotFound)?;
+                Some(
+                    haruspex_bridge::ensure_identity_for_user(
+                        &identities,
+                        &user.id,
+                        &user.username,
+                        now,
+                    )
+                    .await?,
+                )
+            }
+            None => None,
+        };
 
-        Ok(InviteCode::from(row))
+        let created = store
+            .create_invite(HaruspexInviteCode {
+                id: Uuid::new_v4(),
+                code: code.to_string(),
+                code_type: to_haruspex_invite_type(code_type),
+                grants_role: to_haruspex_role(grants_role),
+                link_for_user_id,
+                link_expires_at: expires_at,
+                created_at: now,
+                used_at: None,
+                used_by: None,
+                is_active: true,
+            })
+            .await?;
+
+        to_grimoire_invite_code(&identities, created).await
     }
 
     /// Find an invite code by code string
     pub async fn find_invite_code(&self, code: &str) -> AuthResult<Option<InviteCode>> {
-        let pool = database::connect().await?;
+        let store = invite_store().await?;
+        let identities = identity_store().await?;
 
-        let invite_code = sqlx::query_as!(
-            InviteCodeRow,
-            r#"
-            SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
-            FROM invite_codez
-            WHERE code = ?1
-            "#,
-            code
-        )
-        .fetch_optional(&pool)
-        .await?;
-
-        Ok(invite_code.map(InviteCode::from))
+        match store.find_by_code(code).await? {
+            Some(invite) => Ok(Some(to_grimoire_invite_code(&identities, invite).await?)),
+            None => Ok(None),
+        }
     }
 
     /// Mark an invite code as used
     pub async fn use_invite_code(&self, code: &str, used_by_id: &str) -> AuthResult<()> {
-        let pool = database::connect().await?;
+        let store = invite_store().await?;
+        let identities = identity_store().await?;
 
+        let user = self
+            .find_user_by_id(used_by_id)
+            .await?
+            .ok_or(AuthError::UserNotFound)?;
         let now = OffsetDateTime::now_utc().unix_timestamp();
+        let identity_id =
+            haruspex_bridge::ensure_identity_for_user(&identities, &user.id, &user.username, now)
+                .await?;
 
-        sqlx::query!(
-            r#"
-            UPDATE invite_codez
-            SET used_at = ?1, used_by_id = ?2
-            WHERE code = ?3
-            "#,
-            now,
-            used_by_id,
-            code
-        )
-        .execute(&pool)
-        .await?;
-
+        store.mark_used(code, identity_id, now).await?;
         Ok(())
     }
 
     /// List invite codes with filtering
     pub async fn list_invite_codes(&self, active_only: bool) -> AuthResult<Vec<InviteCode>> {
-        let pool = database::connect().await?;
+        let identities = identity_store().await?;
 
-        let rows = if active_only {
-            sqlx::query_as!(
-                InviteCodeRow,
-                r#"
-                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
-                FROM invite_codez
-                WHERE is_active = 1 AND used_at IS NULL
-                ORDER BY created_at DESC
-                "#
-            ).fetch_all(&pool).await?
+        let haruspex_invites = if active_only {
+            invite_store().await?.list_active().await?
         } else {
-            sqlx::query_as!(
-                InviteCodeRow,
+            // `InviteStore` has no "list everything" method (only
+            // `list_active`) - stopgap: query haruspex's own invite_codez
+            // table directly for the admin "show all" view.
+            let pool = database::connect_haruspex().await?;
+            let rows: Vec<RawInviteRow> = sqlx::query_as(
                 r#"
-                SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
+                SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
+                       created_at, used_at, used_by, is_active
                 FROM invite_codez
                 ORDER BY created_at DESC
-                "#
-            ).fetch_all(&pool).await?
+                "#,
+            )
+            .fetch_all(&pool)
+            .await?;
+            rows.into_iter()
+                .map(TryInto::try_into)
+                .collect::<AuthResult<Vec<_>>>()?
         };
 
-        let invite_codes: Vec<InviteCode> = rows.into_iter().map(InviteCode::from).collect();
+        let mut invite_codes = Vec::with_capacity(haruspex_invites.len());
+        for invite in haruspex_invites {
+            invite_codes.push(to_grimoire_invite_code(&identities, invite).await?);
+        }
 
         Ok(invite_codes)
     }
 
     /// Deactivate an invite code
     pub async fn deactivate_invite_code(&self, code: &str) -> AuthResult<()> {
-        let pool = database::connect().await?;
-
-        sqlx::query!(
-            r#"
-            UPDATE invite_codez
-            SET is_active = 0
-            WHERE code = ?1
-            "#,
-            code
-        )
-        .execute(&pool)
-        .await?;
-
+        invite_store().await?.deactivate(code).await?;
         Ok(())
     }
 
     /// Deactivate an account-link invite code that belongs to a specific user.
     /// used for self-service revocation - only deactivates if link_for_user_id matches.
     pub async fn deactivate_own_invite_code(&self, code: &str, user_id: &str) -> AuthResult<bool> {
-        let pool = database::connect().await?;
-        let rows = sqlx::query!(
-            r#"
-            UPDATE invite_codez
-            SET is_active = 0
-            WHERE code = ?1 AND link_for_user_id = ?2 AND is_active = 1
-            "#,
-            code,
-            user_id,
-        )
-        .execute(&pool)
-        .await?
-        .rows_affected();
-        Ok(rows > 0)
+        let store = invite_store().await?;
+        let identities = identity_store().await?;
+
+        let invite = match store.find_by_code(code).await? {
+            Some(invite) => invite,
+            None => return Ok(false),
+        };
+        if !invite.is_active {
+            return Ok(false);
+        }
+        let owner_matches = match invite.link_for_user_id {
+            Some(identity_id) => {
+                haruspex_bridge::grimoire_user_id_for_identity(&identities, identity_id)
+                    .await?
+                    .as_deref()
+                    == Some(user_id)
+            }
+            None => false,
+        };
+        if !owner_matches {
+            return Ok(false);
+        }
+
+        store.deactivate(code).await?;
+        Ok(true)
     }
 
     /// List active account-link codes belonging to a specific user.
     pub async fn list_own_invite_codes(&self, user_id: &str) -> AuthResult<Vec<InviteCode>> {
-        let pool = database::connect().await?;
-        let rows = sqlx::query_as!(
-            InviteCodeRow,
-            r#"
-            SELECT id as "id!", code as "code!", created_at as "created_at!", used_at, used_by_id, is_active as "is_active!", code_type as "code_type!", link_for_user_id, link_expires_at, grants_role as "grants_role!"
-            FROM invite_codez
-            WHERE link_for_user_id = ?1 AND is_active = 1 AND used_at IS NULL AND code_type = 'account_link'
-            ORDER BY created_at DESC
-            "#,
-            user_id,
-        )
-        .fetch_all(&pool)
-        .await?;
-        Ok(rows.into_iter().map(InviteCode::from).collect())
+        let store = invite_store().await?;
+        let identities = identity_store().await?;
+        let target_identity = haruspex_bridge::identity_id_for_existing_user(user_id);
+
+        let mut own_codes = Vec::new();
+        for invite in store.list_active().await? {
+            if invite.used_at.is_none()
+                && invite.code_type == HaruspexInviteCodeType::AccountLink
+                && invite.link_for_user_id == Some(target_identity)
+            {
+                own_codes.push(to_grimoire_invite_code(&identities, invite).await?);
+            }
+        }
+        own_codes.sort_by_key(|invite| std::cmp::Reverse(invite.created_at));
+        Ok(own_codes)
     }
 
     /// Deactivate all active invite codes that haven't been used
     pub async fn deactivate_all_active_invites(&self) -> AuthResult<u64> {
-        let pool = database::connect().await?;
-
-        let rows_affected = sqlx::query!(
-            r#"
-            UPDATE invite_codez
-            SET is_active = 0
-            WHERE is_active = 1 AND used_by_id IS NULL
-            "#
+        // `InviteStore` has no bulk deactivate-all method - stopgap: raw
+        // sql against haruspex's own table, same predicate the original
+        // grimoire query used (active and never redeemed).
+        let pool = database::connect_haruspex().await?;
+        let rows_affected = sqlx::query(
+            "UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_by IS NULL",
         )
         .execute(&pool)
         .await?
@@ -565,19 +716,17 @@ impl UserRepository {
 
     /// Update the role granted by an invite code
     pub async fn update_invite_role(&self, code: &str, role: &UserRole) -> AuthResult<()> {
-        let pool = database::connect().await?;
+        // `InviteStore` has no update-role method - stopgap: raw sql
+        // against haruspex's own table, scoped the same way the original
+        // query was (only an active, unused code's role can be changed).
+        let pool = database::connect_haruspex().await?;
+        let role_str = to_haruspex_role(*role).as_str();
 
-        let role_str = role.to_string();
-
-        sqlx::query!(
-            r#"
-            UPDATE invite_codez
-            SET grants_role = ?1
-            WHERE code = ?2 AND is_active = 1 AND used_at IS NULL
-            "#,
-            role_str,
-            code
+        sqlx::query(
+            "UPDATE invite_codez SET grants_role = ?1 WHERE code = ?2 AND is_active = 1 AND used_at IS NULL",
         )
+        .bind(role_str)
+        .bind(code)
         .execute(&pool)
         .await?;
 
