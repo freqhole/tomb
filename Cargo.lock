@@ -3433,6 +3433,7 @@ dependencies = [
  "openssl",
  "rand 0.8.6",
  "regex",
+ "reliquary",
  "reqwest 0.12.28",
  "rodio",
  "sea-query 0.30.7",
@@ -7327,6 +7328,29 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "reliquary"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "blake3",
+ "futures",
+ "getrandom 0.2.17",
+ "iroh",
+ "iroh-blobs",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "reqwest"

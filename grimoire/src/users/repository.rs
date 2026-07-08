@@ -139,54 +139,6 @@ async fn to_grimoire_invite_code(
     })
 }
 
-/// raw row shape for haruspex's own `invite_codez` table, used only by the
-/// "list every invite code, not just active ones" stopgap below -
-/// `InviteStore` only exposes `list_active`.
-#[derive(sqlx::FromRow)]
-struct RawInviteRow {
-    id: String,
-    code: String,
-    code_type: String,
-    grants_role: String,
-    link_for_user_id: Option<String>,
-    link_expires_at: Option<i64>,
-    created_at: i64,
-    used_at: Option<i64>,
-    used_by: Option<String>,
-    is_active: i64,
-}
-
-impl TryFrom<RawInviteRow> for HaruspexInviteCode {
-    type Error = AuthError;
-
-    fn try_from(row: RawInviteRow) -> Result<Self, Self::Error> {
-        Ok(HaruspexInviteCode {
-            id: Uuid::parse_str(&row.id).map_err(|e| AuthError::Database(e.to_string()))?,
-            code: row.code,
-            code_type: HaruspexInviteCodeType::parse(&row.code_type).ok_or_else(|| {
-                AuthError::Database(format!("invalid invite code type: {}", row.code_type))
-            })?,
-            grants_role: HaruspexRole::parse(&row.grants_role).ok_or_else(|| {
-                AuthError::Database(format!("invalid grants_role: {}", row.grants_role))
-            })?,
-            link_for_user_id: row
-                .link_for_user_id
-                .map(|s| Uuid::parse_str(&s))
-                .transpose()
-                .map_err(|e| AuthError::Database(e.to_string()))?,
-            link_expires_at: row.link_expires_at,
-            created_at: row.created_at,
-            used_at: row.used_at,
-            used_by: row
-                .used_by
-                .map(|s| Uuid::parse_str(&s))
-                .transpose()
-                .map_err(|e| AuthError::Database(e.to_string()))?,
-            is_active: row.is_active != 0,
-        })
-    }
-}
-
 /// Repository for user-related database operations
 pub(crate) struct UserRepository;
 
@@ -417,19 +369,11 @@ impl UserRepository {
         })
     }
 
-    /// whether `user_id` currently has an active api key. `IdentityStore`
-    /// only exposes issuing/revoking a key and resolving one back to its
-    /// owner, not a direct "does this identity have one" check, so this
-    /// queries haruspex's own `api_keyz` table directly.
+    /// whether `user_id` currently has an active api key.
     pub async fn has_api_key(&self, user_id: &str) -> AuthResult<bool> {
-        let pool = database::connect_haruspex().await?;
-        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id).to_string();
-        let exists: Option<i64> =
-            sqlx::query_scalar("SELECT 1 FROM api_keyz WHERE identity_id = ?1")
-                .bind(&identity_id)
-                .fetch_optional(&pool)
-                .await?;
-        Ok(exists.is_some())
+        let identities = identity_store().await?;
+        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id);
+        Ok(identities.has_api_key(identity_id).await?)
     }
 
     /// Soft delete a user account.
@@ -616,23 +560,7 @@ impl UserRepository {
         let haruspex_invites = if active_only {
             invite_store().await?.list_active().await?
         } else {
-            // `InviteStore` has no "list everything" method (only
-            // `list_active`) - stopgap: query haruspex's own invite_codez
-            // table directly for the admin "show all" view.
-            let pool = database::connect_haruspex().await?;
-            let rows: Vec<RawInviteRow> = sqlx::query_as(
-                r#"
-                SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
-                       created_at, used_at, used_by, is_active
-                FROM invite_codez
-                ORDER BY created_at DESC
-                "#,
-            )
-            .fetch_all(&pool)
-            .await?;
-            rows.into_iter()
-                .map(TryInto::try_into)
-                .collect::<AuthResult<Vec<_>>>()?
+            invite_store().await?.list_all().await?
         };
 
         let mut invite_codes = Vec::with_capacity(haruspex_invites.len());
@@ -700,36 +628,15 @@ impl UserRepository {
 
     /// Deactivate all active invite codes that haven't been used
     pub async fn deactivate_all_active_invites(&self) -> AuthResult<u64> {
-        // `InviteStore` has no bulk deactivate-all method - stopgap: raw
-        // sql against haruspex's own table, same predicate the original
-        // grimoire query used (active and never redeemed).
-        let pool = database::connect_haruspex().await?;
-        let rows_affected = sqlx::query(
-            "UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_by IS NULL",
-        )
-        .execute(&pool)
-        .await?
-        .rows_affected();
-
-        Ok(rows_affected)
+        Ok(invite_store().await?.deactivate_all_unused().await?)
     }
 
     /// Update the role granted by an invite code
     pub async fn update_invite_role(&self, code: &str, role: &UserRole) -> AuthResult<()> {
-        // `InviteStore` has no update-role method - stopgap: raw sql
-        // against haruspex's own table, scoped the same way the original
-        // query was (only an active, unused code's role can be changed).
-        let pool = database::connect_haruspex().await?;
-        let role_str = to_haruspex_role(*role).as_str();
-
-        sqlx::query(
-            "UPDATE invite_codez SET grants_role = ?1 WHERE code = ?2 AND is_active = 1 AND used_at IS NULL",
-        )
-        .bind(role_str)
-        .bind(code)
-        .execute(&pool)
-        .await?;
-
+        invite_store()
+            .await?
+            .update_grants_role(code, to_haruspex_role(*role))
+            .await?;
         Ok(())
     }
 
@@ -913,17 +820,12 @@ impl UserRepository {
         // haruspex owns its own database, so the identity + everything
         // hanging off it (devices, credentials, api keys) isn't reachable
         // through grimoire's own foreign keys - purge it directly.
-        // `IdentityStore` has no hard-delete-identity method, so this
-        // reaches past the trait the same way the peer-node hard-delete
-        // stopgaps below do; haruspex's own cascading FKs (`device_nodez`,
-        // `credentialz`, `api_keyz` all reference `identityz(id) ON DELETE
-        // CASCADE`) take care of the rest in one statement.
-        let haruspex_pool = database::connect_haruspex().await?;
-        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id).to_string();
-        sqlx::query("DELETE FROM identityz WHERE id = ?1")
-            .bind(&identity_id)
-            .execute(&haruspex_pool)
-            .await?;
+        // haruspex's own cascading FKs (`device_nodez`, `credentialz`,
+        // `api_keyz` all reference `identityz(id) ON DELETE CASCADE`) take
+        // care of the rest in one call.
+        let identities = identity_store().await?;
+        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id);
+        identities.hard_delete_identity(identity_id).await?;
 
         Ok(())
     }
@@ -1154,55 +1056,39 @@ impl UserRepository {
         Ok(())
     }
 
-    /// Permanently delete a peer node row (hard DELETE).
+    /// Permanently delete a peer node row (hard delete).
     ///
     /// reserved for cleanup tooling — the normal admin ui uses
     /// `remove_peer_node` (soft) so the node_id stays reserved and the
     /// row remains visible behind the "show deleted" toggle.
-    ///
-    /// `IdentityStore` has no hard-delete-device method (only the soft
-    /// `remove_device`), so this reaches past the trait and deletes the
-    /// row directly out of haruspex's own `device_nodez` table - a
-    /// stopgap until haruspex grows a real hard-delete operation (the
-    /// same kind of gap as `CredentialStore`'s missing rename method from
-    /// the webauthn cutover).
     pub async fn hard_delete_peer_node(&self, user_id: &str, node_id: &str) -> AuthResult<()> {
-        let pool = database::connect_haruspex().await?;
-        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id).to_string();
+        let identities = identity_store().await?;
+        let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id);
 
-        sqlx::query("DELETE FROM device_nodez WHERE identity_id = ?1 AND node_id = ?2")
-            .bind(&identity_id)
-            .bind(node_id)
-            .execute(&pool)
-            .await?;
+        if let Some(device) = identities.resolve_device(node_id).await? {
+            if device.identity_id == identity_id {
+                identities.hard_delete_device(node_id).await?;
+            }
+        }
 
         Ok(())
     }
 
     /// Permanently delete every peer-node row for the given node id,
     /// regardless of user ownership. returns rows deleted.
-    ///
-    /// same trait-gap stopgap as `hard_delete_peer_node`.
     pub async fn hard_delete_peer_node_by_node_id(&self, node_id: &str) -> AuthResult<u64> {
-        let pool = database::connect_haruspex().await?;
+        let identities = identity_store().await?;
 
-        let result = sqlx::query("DELETE FROM device_nodez WHERE node_id = ?1")
-            .bind(node_id)
-            .execute(&pool)
-            .await?;
-
-        Ok(result.rows_affected())
+        if identities.resolve_device(node_id).await?.is_some() {
+            identities.hard_delete_device(node_id).await?;
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     /// Move a peer-node mapping to a different user and clear any
     /// soft-delete marker on that peer row.
-    ///
-    /// `IdentityStore::add_device` enforces the opposite of what a
-    /// reassign needs - it refuses to move a node id onto a different
-    /// identity - so this deliberately bypasses the trait and updates
-    /// haruspex's own `device_nodez` row directly, the same stopgap
-    /// pattern as `hard_delete_peer_node`. ensures the target user has a
-    /// haruspex identity first, since the row's foreign key requires one.
     pub async fn reassign_peer_node_user(&self, node_id: &str, user_id: &str) -> AuthResult<()> {
         let user = self
             .find_user_by_id(user_id)
@@ -1215,20 +1101,11 @@ impl UserRepository {
             haruspex_bridge::ensure_identity_for_user(&identities, &user.id, &user.username, now)
                 .await?;
 
-        let pool = database::connect_haruspex().await?;
-        let result = sqlx::query(
-            "UPDATE device_nodez SET identity_id = ?1, deleted_at = NULL WHERE node_id = ?2",
-        )
-        .bind(identity_id.to_string())
-        .bind(node_id)
-        .execute(&pool)
-        .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(AuthError::UserNotFound);
+        match identities.force_reassign_device(node_id, identity_id).await {
+            Ok(()) => Ok(()),
+            Err(haruspex::error::StoreError::NotFound) => Err(AuthError::UserNotFound),
+            Err(e) => Err(e.into()),
         }
-
-        Ok(())
     }
 
     /// Update last_seen_at for a peer node (for tracking active connections).

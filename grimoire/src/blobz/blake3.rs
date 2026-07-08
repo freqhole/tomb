@@ -11,44 +11,20 @@ use futures_util::stream::{self, StreamExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
 
 /// compute blake3 hash of a file
 /// returns hex-encoded hash string
 pub async fn compute_blake3_hash(path: &Path) -> GrimoireResult<String> {
-    let file = File::open(path)
+    reliquary::hash_file(path)
         .await
         .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to open file for blake3 hashing: {}", e),
-        })?;
-
-    let mut reader = BufReader::new(file);
-    let mut hasher = blake3::Hasher::new();
-    let mut buffer = vec![0u8; 64 * 1024]; // 64KB chunks
-
-    loop {
-        let bytes_read =
-            reader
-                .read(&mut buffer)
-                .await
-                .map_err(|e| GrimoireError::ProcessingFailed {
-                    message: format!("failed to read file for blake3 hashing: {}", e),
-                })?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(hasher.finalize().to_hex().to_string())
+            message: format!("failed to compute blake3 hash: {}", e),
+        })
 }
 
 /// compute blake3 hash from bytes
 pub fn compute_blake3_from_bytes(data: &[u8]) -> String {
-    blake3::hash(data).to_hex().to_string()
+    reliquary::hash_bytes(data)
 }
 
 /// compute and store blake3 hash for a blob

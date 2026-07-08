@@ -14,7 +14,6 @@ use crate::database;
 use crate::response::GrimoireResponse;
 use crate::users::haruspex_bridge;
 use crate::users::models::WebAuthnCredential;
-use haruspex::error::StoreError;
 use haruspex::sqlite::SqliteCredentialStore;
 use haruspex::stores::{Credential, CredentialStore};
 use time::OffsetDateTime;
@@ -224,15 +223,6 @@ impl WebAuthnService {
     }
 
     /// update the name on a passkey, scoped to the owning user.
-    ///
-    /// note: haruspex's `CredentialStore` trait has no rename/update-name
-    /// operation (only add/get/list/touch_last_used/remove), so this
-    /// reaches past the trait directly into haruspex's own `credentialz`
-    /// table as a stopgap after confirming ownership through the trait's
-    /// own `list_for_identity`. a real fix is adding a
-    /// `rename_credential`/generalized `update_credential` method to
-    /// haruspex's `CredentialStore` trait - flagged for follow-up rather
-    /// than made unilaterally in this pass.
     pub async fn update_passkey_name(
         &self,
         credential_row_id: &str,
@@ -244,7 +234,7 @@ impl WebAuthnService {
             Err(e) => return GrimoireResponse::failure("failed to update passkey name", vec![e]),
         };
         let identity_id = haruspex_bridge::identity_id_for_existing_user(user_id);
-        let credentials = SqliteCredentialStore::new(pool.clone());
+        let credentials = SqliteCredentialStore::new(pool);
         let owns_row = match credentials.list_for_identity(identity_id).await {
             Ok(rows) => rows.iter().any(|c| c.id == credential_row_id),
             Err(e) => {
@@ -255,18 +245,12 @@ impl WebAuthnService {
             return GrimoireResponse::success("passkey name updated", ());
         }
 
-        let result = sqlx::query("UPDATE credentialz SET name = ?1 WHERE id = ?2")
-            .bind(name)
-            .bind(credential_row_id)
-            .execute(&pool)
-            .await;
-
-        match result {
-            Ok(_) => GrimoireResponse::success("passkey name updated", ()),
-            Err(e) => GrimoireResponse::failure(
-                "failed to update passkey name",
-                vec![StoreError::from(e).into()],
-            ),
+        match credentials
+            .rename_credential(credential_row_id, name.map(str::to_string))
+            .await
+        {
+            Ok(()) => GrimoireResponse::success("passkey name updated", ()),
+            Err(e) => GrimoireResponse::failure("failed to update passkey name", vec![e.into()]),
         }
     }
 

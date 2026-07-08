@@ -24,7 +24,6 @@ use haruspex::stores::knock_store::{
 };
 use haruspex::stores::{IdentityStore, KnockStore as HaruspexKnockStore};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use time::OffsetDateTime;
 use uuid::Uuid;
 use zod_gen::ZodSchema;
@@ -261,52 +260,11 @@ impl KnockPolicy for GrimoireKnockPolicy {
     }
 }
 
-/// raw row shape for the two lookups `KnockStore` has no trait method for:
-/// find-by-node-id (used to replicate grimoire's "one knock ever per
-/// node_id" rule - see `find_latest_knock_row`) and list-everything (used
-/// by `list_knocks`'s `include_all` branch - see `list_all_knock_rows`).
-/// both are documented stopgaps against haruspex's own `knockz` table.
-#[derive(sqlx::FromRow)]
-struct RawKnockRow {
-    id: String,
-    node_id: String,
-    scope_json: String,
-    message: String,
-    status: String,
-    created_at: i64,
-    processed_at: Option<i64>,
-    processed_by: Option<String>,
-}
-
-fn raw_status_to_knock_status(status: &str) -> KnockStatus {
-    match status {
-        "accepted" => KnockStatus::Accepted,
-        "denied" => KnockStatus::Rejected,
-        _ => KnockStatus::Pending,
-    }
-}
-
 fn scope_username(scope: KnockScope) -> String {
     match scope {
         KnockScope::Account { requested_username } => requested_username.unwrap_or_default(),
         KnockScope::Browse | KnockScope::Resource { .. } => String::new(),
     }
-}
-
-fn raw_row_to_knock_request(row: RawKnockRow) -> Result<KnockRequest, serde_json::Error> {
-    let scope: KnockScope = serde_json::from_str(&row.scope_json)?;
-    Ok(KnockRequest {
-        id: row.id,
-        node_id: row.node_id,
-        username: scope_username(scope),
-        message: row.message,
-        status: raw_status_to_knock_status(&row.status),
-        created_at: row.created_at,
-        processed_at: row.processed_at,
-        processed_by: row.processed_by,
-        from_deleted_peer: None,
-        deleted_user_username: None,
-    })
 }
 
 fn haruspex_record_to_knock_request(record: HaruspexKnockRecord) -> KnockRequest {
@@ -329,47 +287,6 @@ fn haruspex_record_to_knock_request(record: HaruspexKnockRecord) -> KnockRequest
     }
 }
 
-/// `KnockStore` only enforces dedup against *pending* knocks (one per
-/// node id + scope) - grimoire's original schema had a permanent
-/// `UNIQUE(node_id)` constraint instead, so a node_id that has ever
-/// knocked keeps returning that same knock regardless of its resolved
-/// status until an admin explicitly deletes it. replicated here with a
-/// direct lookup against haruspex's own `knockz` table, since `KnockStore`
-/// has no "find by node_id" method.
-async fn find_latest_knock_row(
-    pool: &SqlitePool,
-    node_id: &str,
-) -> Result<Option<RawKnockRow>, sqlx::Error> {
-    sqlx::query_as::<_, RawKnockRow>(
-        r#"
-        SELECT id, node_id, scope_json, message, status, created_at, processed_at, processed_by
-        FROM knockz
-        WHERE node_id = ?1
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(node_id)
-    .fetch_optional(pool)
-    .await
-}
-
-/// `KnockStore::list_pending` only returns pending knocks - there is no
-/// trait method for "list everything" - so `list_knocks`'s `include_all`
-/// branch falls back to a direct query against haruspex's own `knockz`
-/// table.
-async fn list_all_knock_rows(pool: &SqlitePool) -> Result<Vec<RawKnockRow>, sqlx::Error> {
-    sqlx::query_as::<_, RawKnockRow>(
-        r#"
-        SELECT id, node_id, scope_json, message, status, created_at, processed_at, processed_by
-        FROM knockz
-        ORDER BY created_at DESC
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-}
-
 /// create a knock request from a peer
 /// returns existing knock if node_id already has one (any status)
 pub async fn create_knock(
@@ -389,21 +306,20 @@ pub async fn create_knock(
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
+    let store = SqliteKnockStore::new(pool);
 
     // a node_id that has ever knocked before keeps returning that same
-    // knock, whatever its status - see `find_latest_knock_row`.
-    match find_latest_knock_row(&pool, node_id).await {
-        Ok(Some(row)) => {
-            return match raw_row_to_knock_request(row) {
-                Ok(existing) => GrimoireResponse::success("existing knock request", existing),
-                Err(e) => GrimoireResponse::failure(format!("corrupt knock record: {}", e), vec![]),
-            };
+    // knock, whatever its status.
+    match store.find_by_node_id(node_id).await {
+        Ok(Some(record)) => {
+            return GrimoireResponse::success(
+                "existing knock request",
+                haruspex_record_to_knock_request(record),
+            );
         }
         Ok(None) => {}
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     }
-
-    let store = SqliteKnockStore::new(pool);
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let scope = KnockScope::Account {
         requested_username: Some(request.username.clone()),
@@ -442,14 +358,18 @@ pub async fn get_knock_status(node_id: &str) -> GrimoireResponse<KnockStatusResp
         Ok(p) => p,
         Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
     };
+    let store = SqliteKnockStore::new(pool);
 
-    match find_latest_knock_row(&pool, node_id).await {
-        Ok(Some(row)) => {
-            let status = raw_status_to_knock_status(&row.status);
-            let processed = status != KnockStatus::Pending;
+    match store.find_by_node_id(node_id).await {
+        Ok(Some(record)) => {
+            let knock = haruspex_record_to_knock_request(record);
+            let processed = knock.status != KnockStatus::Pending;
             GrimoireResponse::success(
                 "knock status found",
-                KnockStatusResponse { status, processed },
+                KnockStatusResponse {
+                    status: knock.status,
+                    processed,
+                },
             )
         }
         Ok(None) => GrimoireResponse::success(
@@ -484,10 +404,10 @@ pub async fn list_knocks(include_all: bool) -> GrimoireResponse<Vec<KnockRequest
     let identities = SqliteIdentityStore::new(pool.clone());
 
     let mut knocks: Vec<KnockRequest> = if include_all {
-        match list_all_knock_rows(&pool).await {
-            Ok(rows) => rows
+        match store.list_all().await {
+            Ok(records) => records
                 .into_iter()
-                .filter_map(|row| raw_row_to_knock_request(row).ok())
+                .map(haruspex_record_to_knock_request)
                 .collect(),
             Err(e) => return GrimoireResponse::failure(format!("database error: {}", e), vec![]),
         }
@@ -753,24 +673,19 @@ pub async fn reject_knock(knock_id: &str, admin_user_id: &str) -> GrimoireResult
 
 /// delete a knock request (allows node to knock again)
 pub async fn delete_knock(knock_id: &str) -> GrimoireResult<()> {
+    let knock_uuid = Uuid::parse_str(knock_id).map_err(|_| GrimoireError::KnockNotFound {
+        id: knock_id.to_string(),
+    })?;
+
     let pool = database::connect_haruspex().await?;
+    let store = SqliteKnockStore::new(pool);
 
-    // `KnockStore` has no delete operation (by design - the store models
-    // create/get/list/decide, not removal); letting an admin free up a
-    // node_id to knock again needs a direct delete against haruspex's own
-    // knockz table.
-    let result = sqlx::query("DELETE FROM knockz WHERE id = ?1")
-        .bind(knock_id)
-        .execute(&pool)
-        .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(GrimoireError::KnockNotFound {
+    store
+        .delete_knock(knock_uuid)
+        .await
+        .map_err(|_| GrimoireError::KnockNotFound {
             id: knock_id.to_string(),
-        });
-    }
-
-    Ok(())
+        })
 }
 
 /// reject all pending knocks
