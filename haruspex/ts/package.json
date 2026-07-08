@@ -49,7 +49,8 @@
         "test": "vitest run"
     },
     "peerDependencies": {
-        "solid-js": "^1.9.0"
+        "solid-js": "^1.9.0",
+        "zod": "^4.3.5"
     },
     "peerDependenciesMeta": {
         "solid-js": {
@@ -59,6 +60,7 @@
     "devDependencies": {
         "fake-indexeddb": "^6.0.0",
         "typescript": "^5.6.0",
-        "vitest": "^2.1.0"
+        "vitest": "^2.1.0",
+        "zod": "^4.3.5"
     }
 }
