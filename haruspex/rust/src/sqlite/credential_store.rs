@@ -23,6 +23,7 @@ impl SqliteCredentialStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct CredentialRow {
     id: String,
     identity_id: String,
@@ -59,22 +60,20 @@ impl CredentialStore for SqliteCredentialStore {
         let identity_id = credential.identity_id.to_string();
         let credential_data = serde_json::to_string(&credential.credential_data)?;
 
-        let result = sqlx::query_as!(
-            CredentialRow,
+        let result: Result<CredentialRow, sqlx::Error> = sqlx::query_as(
             r#"
             INSERT INTO credentialz (id, identity_id, credential_id, credential_data, name, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            RETURNING id as "id!", identity_id as "identity_id!", credential_id as "credential_id!",
-                      credential_data as "credential_data!", name, created_at as "created_at!",
+            RETURNING id, identity_id, credential_id, credential_data, name, created_at,
                       last_used_at, deleted_at
             "#,
-            id,
-            identity_id,
-            credential.credential_id,
-            credential_data,
-            credential.name,
-            credential.created_at,
         )
+        .bind(&id)
+        .bind(&identity_id)
+        .bind(&credential.credential_id)
+        .bind(&credential_data)
+        .bind(&credential.name)
+        .bind(credential.created_at)
         .fetch_one(&self.pool)
         .await;
 
@@ -92,16 +91,14 @@ impl CredentialStore for SqliteCredentialStore {
     }
 
     async fn get_credential(&self, credential_id: &[u8]) -> Result<Option<Credential>, StoreError> {
-        let row = sqlx::query_as!(
-            CredentialRow,
+        let row: Option<CredentialRow> = sqlx::query_as(
             r#"
-            SELECT id as "id!", identity_id as "identity_id!", credential_id as "credential_id!",
-                   credential_data as "credential_data!", name, created_at as "created_at!",
+            SELECT id, identity_id, credential_id, credential_data, name, created_at,
                    last_used_at, deleted_at
             FROM credentialz WHERE credential_id = ?1 AND deleted_at IS NULL
             "#,
-            credential_id,
         )
+        .bind(credential_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -110,17 +107,15 @@ impl CredentialStore for SqliteCredentialStore {
 
     async fn list_for_identity(&self, identity_id: Uuid) -> Result<Vec<Credential>, StoreError> {
         let identity_id = identity_id.to_string();
-        let rows = sqlx::query_as!(
-            CredentialRow,
+        let rows: Vec<CredentialRow> = sqlx::query_as(
             r#"
-            SELECT id as "id!", identity_id as "identity_id!", credential_id as "credential_id!",
-                   credential_data as "credential_data!", name, created_at as "created_at!",
+            SELECT id, identity_id, credential_id, credential_data, name, created_at,
                    last_used_at, deleted_at
             FROM credentialz WHERE identity_id = ?1 AND deleted_at IS NULL
             ORDER BY created_at DESC
             "#,
-            identity_id,
         )
+        .bind(&identity_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -132,23 +127,21 @@ impl CredentialStore for SqliteCredentialStore {
         credential_id: &[u8],
         last_used_at: i64,
     ) -> Result<(), StoreError> {
-        sqlx::query!(
-            "UPDATE credentialz SET last_used_at = ?1 WHERE credential_id = ?2",
-            last_used_at,
-            credential_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE credentialz SET last_used_at = ?1 WHERE credential_id = ?2")
+            .bind(last_used_at)
+            .bind(credential_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn remove_credential(&self, credential_id: &[u8]) -> Result<(), StoreError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
-        sqlx::query!(
+        sqlx::query(
             "UPDATE credentialz SET deleted_at = ?1 WHERE credential_id = ?2 AND deleted_at IS NULL",
-            now,
-            credential_id,
         )
+        .bind(now)
+        .bind(credential_id)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -169,14 +162,12 @@ mod tests {
     async fn seed_identity(pool: &SqlitePool) -> Uuid {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
-        sqlx::query!(
-            "INSERT INTO identityz (id, created_at) VALUES (?1, ?2)",
-            id_str,
-            100,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO identityz (id, created_at) VALUES (?1, ?2)")
+            .bind(&id_str)
+            .bind(100)
+            .execute(pool)
+            .await
+            .unwrap();
         id
     }
 

@@ -26,6 +26,7 @@ impl SqliteIdentityStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct IdentityRow {
     id: String,
     username: Option<String>,
@@ -49,6 +50,7 @@ impl TryFrom<IdentityRow> for Identity {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct DeviceRow {
     identity_id: String,
     node_id: String,
@@ -82,8 +84,7 @@ impl IdentityStore for SqliteIdentityStore {
             .map(serde_json::to_string)
             .transpose()?;
 
-        let row = sqlx::query_as!(
-            IdentityRow,
+        let row: IdentityRow = sqlx::query_as(
             r#"
             INSERT INTO identityz (id, username, created_at, metadata, deleted_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -91,14 +92,14 @@ impl IdentityStore for SqliteIdentityStore {
                 username = excluded.username,
                 metadata = excluded.metadata,
                 deleted_at = excluded.deleted_at
-            RETURNING id as "id!", username, created_at as "created_at!", metadata, deleted_at
+            RETURNING id, username, created_at, metadata, deleted_at
             "#,
-            id,
-            identity.username,
-            identity.created_at,
-            metadata,
-            identity.deleted_at,
         )
+        .bind(&id)
+        .bind(&identity.username)
+        .bind(identity.created_at)
+        .bind(&metadata)
+        .bind(identity.deleted_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -107,14 +108,13 @@ impl IdentityStore for SqliteIdentityStore {
 
     async fn get_identity(&self, identity_id: Uuid) -> Result<Option<Identity>, StoreError> {
         let id = identity_id.to_string();
-        let row = sqlx::query_as!(
-            IdentityRow,
+        let row: Option<IdentityRow> = sqlx::query_as(
             r#"
-            SELECT id as "id!", username, created_at as "created_at!", metadata, deleted_at
+            SELECT id, username, created_at, metadata, deleted_at
             FROM identityz WHERE id = ?1
             "#,
-            id,
         )
+        .bind(&id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -158,21 +158,20 @@ impl IdentityStore for SqliteIdentityStore {
         let mut tx = self.pool.begin().await?;
         let identity_id = device.identity_id.to_string();
 
-        let existing = sqlx::query!(
-            r#"SELECT identity_id as "identity_id!" FROM device_nodez WHERE node_id = ?1"#,
-            device.node_id,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+        let existing: Option<String> =
+            sqlx::query_scalar(r#"SELECT identity_id FROM device_nodez WHERE node_id = ?1"#)
+                .bind(&device.node_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if let Some(existing) = existing {
-            if existing.identity_id != identity_id {
+            if existing != identity_id {
                 return Err(StoreError::Conflict(format!(
                     "node id {} is already registered to a different identity",
                     device.node_id
                 )));
             }
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 UPDATE device_nodez
                 SET instance_name = COALESCE(?1, instance_name),
@@ -180,24 +179,24 @@ impl IdentityStore for SqliteIdentityStore {
                     deleted_at = NULL
                 WHERE node_id = ?3
                 "#,
-                device.instance_name,
-                device.last_seen_at,
-                device.node_id,
             )
+            .bind(&device.instance_name)
+            .bind(device.last_seen_at)
+            .bind(&device.node_id)
             .execute(&mut *tx)
             .await?;
         } else {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 INSERT INTO device_nodez (identity_id, node_id, instance_name, last_seen_at, deleted_at)
                 VALUES (?1, ?2, ?3, ?4, ?5)
                 "#,
-                identity_id,
-                device.node_id,
-                device.instance_name,
-                device.last_seen_at,
-                device.deleted_at,
             )
+            .bind(&identity_id)
+            .bind(&device.node_id)
+            .bind(&device.instance_name)
+            .bind(device.last_seen_at)
+            .bind(device.deleted_at)
             .execute(&mut *tx)
             .await?;
         }
@@ -210,15 +209,13 @@ impl IdentityStore for SqliteIdentityStore {
     }
 
     async fn resolve_device(&self, node_id: &str) -> Result<Option<DeviceNode>, StoreError> {
-        let row = sqlx::query_as!(
-            DeviceRow,
+        let row: Option<DeviceRow> = sqlx::query_as(
             r#"
-            SELECT identity_id as "identity_id!", node_id as "node_id!", instance_name,
-                   last_seen_at as "last_seen_at!", deleted_at
+            SELECT identity_id, node_id, instance_name, last_seen_at, deleted_at
             FROM device_nodez WHERE node_id = ?1
             "#,
-            node_id,
         )
+        .bind(node_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -226,23 +223,21 @@ impl IdentityStore for SqliteIdentityStore {
     }
 
     async fn touch_device(&self, node_id: &str, last_seen_at: i64) -> Result<(), StoreError> {
-        sqlx::query!(
-            "UPDATE device_nodez SET last_seen_at = ?1 WHERE node_id = ?2",
-            last_seen_at,
-            node_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE device_nodez SET last_seen_at = ?1 WHERE node_id = ?2")
+            .bind(last_seen_at)
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn remove_device(&self, node_id: &str) -> Result<(), StoreError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
-        sqlx::query!(
+        sqlx::query(
             "UPDATE device_nodez SET deleted_at = ?1 WHERE node_id = ?2 AND deleted_at IS NULL",
-            now,
-            node_id,
         )
+        .bind(now)
+        .bind(node_id)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -250,16 +245,14 @@ impl IdentityStore for SqliteIdentityStore {
 
     async fn devices_for_identity(&self, identity_id: Uuid) -> Result<Vec<DeviceNode>, StoreError> {
         let id = identity_id.to_string();
-        let rows = sqlx::query_as!(
-            DeviceRow,
+        let rows: Vec<DeviceRow> = sqlx::query_as(
             r#"
-            SELECT identity_id as "identity_id!", node_id as "node_id!", instance_name,
-                   last_seen_at as "last_seen_at!", deleted_at
+            SELECT identity_id, node_id, instance_name, last_seen_at, deleted_at
             FROM device_nodez WHERE identity_id = ?1
             ORDER BY last_seen_at DESC
             "#,
-            id,
         )
+        .bind(&id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -311,6 +304,66 @@ impl IdentityStore for SqliteIdentityStore {
             result.insert(row.node_id, identity);
         }
         Ok(result)
+    }
+
+    async fn set_api_key(
+        &self,
+        identity_id: Uuid,
+        api_key: Option<String>,
+    ) -> Result<(), StoreError> {
+        let id = identity_id.to_string();
+
+        match api_key {
+            Some(key) => {
+                let now = time::OffsetDateTime::now_utc().unix_timestamp();
+                let result = sqlx::query(
+                    r#"
+                    INSERT INTO api_keyz (identity_id, api_key, issued_at)
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT(identity_id) DO UPDATE SET
+                        api_key = excluded.api_key,
+                        issued_at = excluded.issued_at
+                    "#,
+                )
+                .bind(&id)
+                .bind(&key)
+                .bind(now)
+                .execute(&self.pool)
+                .await;
+
+                match result {
+                    Ok(_) => Ok(()),
+                    Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+                        Err(StoreError::Conflict(
+                            "api key already issued to a different identity".to_string(),
+                        ))
+                    }
+                    Err(e) => Err(e.into()),
+                }
+            }
+            None => {
+                sqlx::query("DELETE FROM api_keyz WHERE identity_id = ?1")
+                    .bind(&id)
+                    .execute(&self.pool)
+                    .await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn find_by_api_key(&self, api_key: &str) -> Result<Option<Identity>, StoreError> {
+        let row: Option<IdentityRow> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.username, i.created_at, i.metadata, i.deleted_at
+            FROM api_keyz k JOIN identityz i ON i.id = k.identity_id
+            WHERE k.api_key = ?1
+            "#,
+        )
+        .bind(api_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(TryInto::try_into).transpose()
     }
 }
 
@@ -572,5 +625,81 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result.get("node-a").unwrap().id, a.id);
+    }
+
+    #[tokio::test]
+    async fn set_api_key_then_find_by_api_key_round_trips() {
+        let store = store().await;
+        let a = new_identity(Some("alice"));
+        store.upsert_identity(a.clone()).await.unwrap();
+
+        store
+            .set_api_key(a.id, Some("secret-key".to_string()))
+            .await
+            .unwrap();
+
+        let found = store.find_by_api_key("secret-key").await.unwrap().unwrap();
+        assert_eq!(found.id, a.id);
+    }
+
+    #[tokio::test]
+    async fn find_by_api_key_missing_returns_none() {
+        let store = store().await;
+        assert!(store.find_by_api_key("nope").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn set_api_key_replaces_a_prior_key_for_the_same_identity() {
+        let store = store().await;
+        let a = new_identity(None);
+        store.upsert_identity(a.clone()).await.unwrap();
+
+        store
+            .set_api_key(a.id, Some("first-key".to_string()))
+            .await
+            .unwrap();
+        store
+            .set_api_key(a.id, Some("second-key".to_string()))
+            .await
+            .unwrap();
+
+        assert!(store.find_by_api_key("first-key").await.unwrap().is_none());
+        let found = store.find_by_api_key("second-key").await.unwrap().unwrap();
+        assert_eq!(found.id, a.id);
+    }
+
+    #[tokio::test]
+    async fn set_api_key_none_revokes_it() {
+        let store = store().await;
+        let a = new_identity(None);
+        store.upsert_identity(a.clone()).await.unwrap();
+        store
+            .set_api_key(a.id, Some("secret-key".to_string()))
+            .await
+            .unwrap();
+
+        store.set_api_key(a.id, None).await.unwrap();
+
+        assert!(store.find_by_api_key("secret-key").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn set_api_key_rejects_a_key_already_issued_elsewhere() {
+        let store = store().await;
+        let a = new_identity(None);
+        let b = new_identity(None);
+        store.upsert_identity(a.clone()).await.unwrap();
+        store.upsert_identity(b.clone()).await.unwrap();
+
+        store
+            .set_api_key(a.id, Some("shared-key".to_string()))
+            .await
+            .unwrap();
+
+        let err = store
+            .set_api_key(b.id, Some("shared-key".to_string()))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Conflict(_)));
     }
 }

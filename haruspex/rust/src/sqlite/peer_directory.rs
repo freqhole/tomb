@@ -22,6 +22,7 @@ impl SqlitePeerDirectory {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct PeerRow {
     node_id: String,
     display_name: Option<String>,
@@ -58,8 +59,7 @@ impl PeerDirectory for SqlitePeerDirectory {
         let is_self = profile.is_self as i64;
         let is_hub = profile.is_hub as i64;
 
-        let row = sqlx::query_as!(
-            PeerRow,
+        let row: PeerRow = sqlx::query_as(
             r#"
             INSERT INTO peerz (node_id, display_name, alias, bio, avatar_blake3, accent_color, is_self, is_hub, first_seen, last_seen)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -72,21 +72,20 @@ impl PeerDirectory for SqlitePeerDirectory {
                 is_self       = MAX(excluded.is_self, peerz.is_self),
                 is_hub        = MAX(excluded.is_hub, peerz.is_hub),
                 last_seen     = excluded.last_seen
-            RETURNING node_id as "node_id!", display_name, alias, bio, avatar_blake3, accent_color,
-                      is_self as "is_self!", is_hub as "is_hub!",
-                      first_seen as "first_seen!", last_seen as "last_seen!"
+            RETURNING node_id, display_name, alias, bio, avatar_blake3, accent_color,
+                      is_self, is_hub, first_seen, last_seen
             "#,
-            profile.node_id,
-            profile.display_name,
-            profile.alias,
-            profile.bio,
-            profile.avatar_blake3,
-            profile.accent_color,
-            is_self,
-            is_hub,
-            profile.first_seen,
-            profile.last_seen,
         )
+        .bind(&profile.node_id)
+        .bind(&profile.display_name)
+        .bind(&profile.alias)
+        .bind(&profile.bio)
+        .bind(&profile.avatar_blake3)
+        .bind(&profile.accent_color)
+        .bind(is_self)
+        .bind(is_hub)
+        .bind(profile.first_seen)
+        .bind(profile.last_seen)
         .fetch_one(&self.pool)
         .await?;
 
@@ -94,46 +93,44 @@ impl PeerDirectory for SqlitePeerDirectory {
     }
 
     async fn touch(&self, node_id: &str, last_seen: i64) -> Result<(), StoreError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO peerz (node_id, first_seen, last_seen, is_self, is_hub)
             VALUES (?1, ?2, ?2, 0, 0)
             ON CONFLICT(node_id) DO UPDATE SET last_seen = excluded.last_seen
             "#,
-            node_id,
-            last_seen,
         )
+        .bind(node_id)
+        .bind(last_seen)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     async fn mark_as_hub(&self, node_id: &str, last_seen: i64) -> Result<(), StoreError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO peerz (node_id, first_seen, last_seen, is_self, is_hub)
             VALUES (?1, ?2, ?2, 0, 1)
             ON CONFLICT(node_id) DO UPDATE SET is_hub = 1
             "#,
-            node_id,
-            last_seen,
         )
+        .bind(node_id)
+        .bind(last_seen)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     async fn get_profile(&self, node_id: &str) -> Result<Option<PeerProfile>, StoreError> {
-        let row = sqlx::query_as!(
-            PeerRow,
+        let row: Option<PeerRow> = sqlx::query_as(
             r#"
-            SELECT node_id as "node_id!", display_name, alias, bio, avatar_blake3, accent_color,
-                   is_self as "is_self!", is_hub as "is_hub!",
-                   first_seen as "first_seen!", last_seen as "last_seen!"
+            SELECT node_id, display_name, alias, bio, avatar_blake3, accent_color,
+                   is_self, is_hub, first_seen, last_seen
             FROM peerz WHERE node_id = ?1
             "#,
-            node_id,
         )
+        .bind(node_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -141,12 +138,10 @@ impl PeerDirectory for SqlitePeerDirectory {
     }
 
     async fn get_self(&self) -> Result<Option<PeerProfile>, StoreError> {
-        let row = sqlx::query_as!(
-            PeerRow,
+        let row: Option<PeerRow> = sqlx::query_as(
             r#"
-            SELECT node_id as "node_id!", display_name, alias, bio, avatar_blake3, accent_color,
-                   is_self as "is_self!", is_hub as "is_hub!",
-                   first_seen as "first_seen!", last_seen as "last_seen!"
+            SELECT node_id, display_name, alias, bio, avatar_blake3, accent_color,
+                   is_self, is_hub, first_seen, last_seen
             FROM peerz WHERE is_self = 1 LIMIT 1
             "#,
         )
@@ -157,12 +152,10 @@ impl PeerDirectory for SqlitePeerDirectory {
     }
 
     async fn list_profiles(&self) -> Result<Vec<PeerProfile>, StoreError> {
-        let rows = sqlx::query_as!(
-            PeerRow,
+        let rows: Vec<PeerRow> = sqlx::query_as(
             r#"
-            SELECT node_id as "node_id!", display_name, alias, bio, avatar_blake3, accent_color,
-                   is_self as "is_self!", is_hub as "is_hub!",
-                   first_seen as "first_seen!", last_seen as "last_seen!"
+            SELECT node_id, display_name, alias, bio, avatar_blake3, accent_color,
+                   is_self, is_hub, first_seen, last_seen
             FROM peerz ORDER BY last_seen DESC
             "#,
         )

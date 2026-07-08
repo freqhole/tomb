@@ -1,32 +1,29 @@
 //! the four webauthn ceremony handlers, as plain transport-free functions -
-//! no cookie session, no http/p2p framing. ported from grimoire's real
-//! `offal/auth/webauthn_p2p.rs` (read-only research), which is exactly this
-//! logic wrapped in p2p request/response bodies; that wrapping is a later,
-//! transport-adapter task (deferred per PHASE_4_HARUSPEX_RUST.md), not this
-//! module's job.
+//! no cookie session, no http/p2p framing. wrapping these in p2p
+//! request/response bodies is a later, transport-adapter task (deferred per
+//! PHASE_4_HARUSPEX_RUST.md), not this module's job.
 //!
 //! # invite-code / account-link linkage
 //!
-//! grimoire's donor resolves an invite code to a target user (or checks a
-//! username is free) BEFORE calling into the webauthn ceremony, using its
-//! own invite-code service; this crate has no `InviteStore` yet (that store
-//! is a separate, later task per the module map). so `register_start` here
+//! resolving an invite code to a target user (or checking a username is
+//! free) happens BEFORE calling into the webauthn ceremony, using an
+//! app-level invite-code service - this crate's own `InviteStore` is a
+//! separate concern from the ceremony itself. so `register_start` here
 //! takes an already-resolved `identity_id` (the identity the new passkey
 //! will belong to - freshly created by the caller for a brand-new
 //! registration, or an existing one for an account-link) plus
 //! `is_account_link`/`invite_code` purely as pass-through fields: they ride
-//! along in the `ChallengeStore` row across the nonce round-trip (the real
-//! mechanism grimoire uses, ported directly) so `register_finish`'s caller
-//! can act on them afterward (e.g. mark the invite code redeemed) - this
-//! module never validates or redeems a code itself.
+//! along in the `ChallengeStore` row across the nonce round-trip so
+//! `register_finish`'s caller can act on them afterward (e.g. mark the
+//! invite code redeemed) - this module never validates or redeems a code
+//! itself.
 //!
 //! # node linking
 //!
 //! on success, `register_finish`/`login_finish` link the caller-supplied
 //! `node_id` to the authenticated identity via `IdentityStore::add_device`
-//! when one is given, mirroring the donor's `add_peer_node` calls ("the key
-//! p2p auth payoff: subsequent requests from this node are auto-
-//! authenticated without a passkey").
+//! when one is given - the key p2p auth payoff: subsequent requests from
+//! this node are auto-authenticated without a passkey.
 
 use serde_json::Value as JsonValue;
 use thiserror::Error;
@@ -305,9 +302,9 @@ impl<'a> WebauthnCeremony<'a> {
     }
 
     /// finish passkey authentication, handling both the targeted and
-    /// discoverable flows transparently (mirrors the donor exactly: it
-    /// tries both challenge kinds under the same nonce since the caller
-    /// does not know which flow produced it). on success, links `node_id`
+    /// discoverable flows transparently: it tries both challenge kinds
+    /// under the same nonce since the caller does not know which flow
+    /// produced it. on success, links `node_id`
     /// (if given) to the authenticated identity.
     pub async fn login_finish(
         &self,
@@ -336,7 +333,7 @@ impl<'a> WebauthnCeremony<'a> {
         let identity_id = if challenge.kind == ChallengeKind::DiscoverableAuthentication {
             // identify the owning identity from the credential's raw id
             // directly, rather than trusting a user handle the authenticator
-            // may not have sent (same reasoning as the donor).
+            // may not have sent.
             let cred_id = auth_credential.get_credential_id();
             let stored = self
                 .credentials

@@ -30,6 +30,27 @@ pub enum Role {
     Root,
 }
 
+impl Role {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Viewer => "viewer",
+            Role::Member => "member",
+            Role::Admin => "admin",
+            Role::Root => "root",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "viewer" => Some(Role::Viewer),
+            "member" => Some(Role::Member),
+            "admin" => Some(Role::Admin),
+            "root" => Some(Role::Root),
+            _ => None,
+        }
+    }
+}
+
 /// who a grant applies to: a single identity, every live member of a group,
 /// or every caller (`Everyone`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

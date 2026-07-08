@@ -1,13 +1,9 @@
-//! thin wrapper over `webauthn_rs::Webauthn`.
+//! thin wrapper over `webauthn_rs::Webauthn`, shared so http and p2p
+//! transports use one implementation.
 //!
-//! ported from grimoire's real `GrimoireWebAuthn` (read-only research against
-//! `grimoire/src/users/webauthn.rs`), which itself mirrors
-//! `server/src/auth/freq_webauthn.rs`'s `FreqWebauthn` so http and p2p share
-//! one implementation. the only behavioral change from the donor: passkey
-//! registration takes the identity's own `Uuid` directly as webauthn-rs's
-//! `user_unique_id` - the donor derives a `Uuid::new_v5` from a string user
-//! id because tomb's user ids are strings; haruspex's `Identity::id` is
-//! already a `Uuid`, so no derivation step is needed.
+//! passkey registration takes the identity's own `Uuid` directly as
+//! webauthn-rs's `user_unique_id` - `Identity::id` is already a `Uuid`, so
+//! no derivation step is needed.
 
 use uuid::Uuid;
 use webauthn_rs::prelude::{
@@ -18,7 +14,7 @@ use webauthn_rs::prelude::{
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 
 /// a relying party wrapper scoped to one `(rp_id, rp_name)` pair. cheap to
-/// construct - build a fresh one per request, same as the donor.
+/// construct - build a fresh one per request.
 pub struct PasskeyRp {
     rp_id: String,
     rp_name: String,
@@ -107,8 +103,8 @@ impl PasskeyRp {
     /// challenge and the specific credentials belonging to the identity
     /// already identified from the credential response's raw id (see
     /// `ceremony::login_finish` - it looks the identity up via
-    /// `CredentialStore::get_credential` rather than trusting a user handle,
-    /// same as the donor).
+    /// `CredentialStore::get_credential` rather than trusting a user
+    /// handle).
     pub fn finish_discoverable_authentication(
         &self,
         origin: &str,

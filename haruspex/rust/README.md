@@ -8,13 +8,16 @@ no functional code yet (phase 0 skeleton).
 
 ## local dev database
 
-sqlx's compile-time query macros (`query!`, `query_as!`) check queries against a real database
-at build time. this crate owns its own db file (`haruspex.db`), separate from grimoire's
-`grimoire.db` and reliquary's `reliquary.db` - each library crate carries its own
-`DATABASE_URL`.
+this crate uses sqlx's runtime-checked query api (`query`/`query_as`/`query_scalar`), never
+the compile-time `query!`/`query_as!` macros - see the doc comment on `rust/src/sqlite/mod.rs`
+for why. compiling the crate needs no database and no `DATABASE_URL` at all.
+
+a real sqlite db is still needed at runtime to run tests, examples, or anything else that
+actually connects to a database (this crate owns its own db file, `haruspex.db`, separate from
+grimoire's `grimoire.db` and reliquary's `reliquary.db`):
 
 ```bash
-# one-time: create + migrate a local dev db for the macros
+# one-time: create + migrate a local dev db
 make db-setup
 
 # or by hand:
@@ -23,5 +26,4 @@ cargo sqlx database create
 cargo sqlx migrate run --source rust/migrations
 ```
 
-migrations live under `rust/migrations/` (empty for now - phase 4 adds the first real one;
-`sqlx migrate run` against zero migrations is a no-op, so `make db-setup` works fine as-is).
+migrations live under `rust/migrations/`.

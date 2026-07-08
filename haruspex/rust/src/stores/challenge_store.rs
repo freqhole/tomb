@@ -1,12 +1,11 @@
 //! webauthn challenge (nonce) storage - the p2p-friendly replacement for
 //! cookie-based challenge sessions.
 //!
-//! ported from grimoire's real `ChallengeStore` (read-only research against
-//! `grimoire/src/users/challenge_store.rs`): http transport can stash a
-//! webauthn challenge in a cookie session between the ceremony's start and
-//! finish calls, but p2p has no cookie, so the challenge is persisted here
-//! instead, keyed by a short-lived nonce the client echoes back on finish.
-//! single-use (deleted on read) and ttl-bounded, same as the donor.
+//! http transport can stash a webauthn challenge in a cookie session
+//! between the ceremony's start and finish calls, but p2p has no cookie, so
+//! the challenge is persisted here instead, keyed by a short-lived nonce the
+//! client echoes back on finish. single-use (deleted on read) and
+//! ttl-bounded.
 //!
 //! this store is not behind the `webauthn` feature - it stores an opaque
 //! `challenge_json` blob and has no dependency on `webauthn-rs` itself; only
@@ -92,8 +91,8 @@ pub trait ChallengeStore: Send + Sync {
     /// retrieves and atomically deletes the challenge for `nonce` (single
     /// use), provided it matches `expected_kind` and has not expired as of
     /// `now`. returns `None` for a missing, expired, or kind-mismatched
-    /// nonce - all three are indistinguishable to the caller on purpose (the
-    /// donor's same behavior: don't leak which case occurred).
+    /// nonce - all three are indistinguishable to the caller on purpose, so
+    /// a failed lookup never leaks which case occurred.
     async fn take(
         &self,
         nonce: &str,

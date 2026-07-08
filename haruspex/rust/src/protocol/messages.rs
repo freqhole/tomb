@@ -1,20 +1,16 @@
-//! the unified friendz protocol message set.
-//!
-//! ported + unified from skein's `reliquary/src/protocol/messages.rs` (the
-//! richest p2p protocol), loam's `src/p2p/friends-protocol.ts` (22 message
-//! types, field-level source of truth for casing), and playlistz's
-//! `src/types/playlistz/protocol.ts` (hello/hello_ok, knock, identity_update,
-//! error - promoted to core). see PHASE_4_HARUSPEX_RUST.md's "wire-message
-//! mapping" section (in the tomb repo's xl-refactor plan) for the full
-//! normative table this implements.
+//! the unified friendz protocol message set - the normative wire-message
+//! table for peer-to-peer presence, friend requests, knocks, and identity
+//! updates. see PHASE_4_HARUSPEX_RUST.md's "wire-message mapping" section
+//! (in the tomb repo's xl-refactor plan) for the full normative table this
+//! implements.
 //!
 //! # normalization rules applied here
 //!
-//! 1. discriminants are kebab-case (skein's convention wins).
+//! 1. discriminants are kebab-case.
 //! 2. fields are camelCase everywhere.
-//! 3. every message carries `v: 1` (playlistz's convention wins; missing `v`
-//!    is still accepted on deserialize via `#[serde(default)]`, since a
-//!    transition window where not every peer sends it is expected).
+//! 3. every message carries `v: 1`; missing `v` is still accepted on
+//!    deserialize via `#[serde(default)]`, since a transition window where
+//!    not every peer sends it is expected.
 //! 4. identity naming: `nodeId` everywhere; `username` for handle-like
 //!    names; avatars use a blob-id reference (`avatarBlobId`) on handshakes
 //!    (hello/hello-ok) and an inline data url (`avatarDataUrl`) is allowed
@@ -24,15 +20,13 @@
 //! 6. optionality style: every `Option<T>` field is
 //!    `skip_serializing_if = "Option::is_none"` and every `Vec<T>` field is
 //!    `#[serde(default, skip_serializing_if = "Vec::is_empty")]` - applied
-//!    uniformly across the whole message set (this is bug-fix #2 from the
-//!    phase doc's "known divergences to fix": the donor rust code omitted
-//!    empty `sharedCanvasIds` but always wrote `"pendingKnocks": []`).
+//!    uniformly across the whole message set, so an empty `sharedCanvasIds`
+//!    and an empty `pendingKnocks` serialize the same way.
 //!
-//! # known divergence fixed here (bug-fix #1)
+//! # profile-response fields
 //!
-//! skein's rust `ProfileResponse` variant silently drops `profileDocId` and
-//! `profileUpdatedAt` - both exist on the ts side
-//! (`GossipDigestProfileEntry`-adjacent fields on `ProfileResponseMessage`)
+//! the `ProfileResponse` variant carries `profileDocId` and
+//! `profileUpdatedAt` alongside the rest of the profile fields
 //! but were never added to the rust enum. both fields are present below.
 //!
 //! # app extension mechanism (decision Q6)

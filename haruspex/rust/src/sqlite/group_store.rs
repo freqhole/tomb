@@ -18,6 +18,7 @@ impl SqliteGroupStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct GroupRow {
     id: String,
     name: String,
@@ -43,18 +44,17 @@ impl TryFrom<GroupRow> for Group {
 impl GroupStore for SqliteGroupStore {
     async fn create_group(&self, group: Group) -> Result<Group, StoreError> {
         let id = group.id.to_string();
-        let row = sqlx::query_as!(
-            GroupRow,
+        let row: GroupRow = sqlx::query_as(
             r#"
             INSERT INTO groupz (id, name, color, created_at)
             VALUES (?1, ?2, ?3, ?4)
-            RETURNING id as "id!", name as "name!", color, created_at as "created_at!"
+            RETURNING id, name, color, created_at
             "#,
-            id,
-            group.name,
-            group.color,
-            group.created_at,
         )
+        .bind(&id)
+        .bind(&group.name)
+        .bind(&group.color)
+        .bind(group.created_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -63,21 +63,18 @@ impl GroupStore for SqliteGroupStore {
 
     async fn get_group(&self, group_id: Uuid) -> Result<Option<Group>, StoreError> {
         let id = group_id.to_string();
-        let row = sqlx::query_as!(
-            GroupRow,
-            r#"SELECT id as "id!", name as "name!", color, created_at as "created_at!" FROM groupz WHERE id = ?1"#,
-            id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<GroupRow> =
+            sqlx::query_as(r#"SELECT id, name, color, created_at FROM groupz WHERE id = ?1"#)
+                .bind(&id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         row.map(TryInto::try_into).transpose()
     }
 
     async fn list_groups(&self) -> Result<Vec<Group>, StoreError> {
-        let rows = sqlx::query_as!(
-            GroupRow,
-            r#"SELECT id as "id!", name as "name!", color, created_at as "created_at!" FROM groupz ORDER BY created_at ASC"#,
+        let rows: Vec<GroupRow> = sqlx::query_as(
+            r#"SELECT id, name, color, created_at FROM groupz ORDER BY created_at ASC"#,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -87,7 +84,8 @@ impl GroupStore for SqliteGroupStore {
 
     async fn delete_group(&self, group_id: Uuid) -> Result<(), StoreError> {
         let id = group_id.to_string();
-        sqlx::query!("DELETE FROM groupz WHERE id = ?1", id)
+        sqlx::query("DELETE FROM groupz WHERE id = ?1")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -102,16 +100,16 @@ impl GroupStore for SqliteGroupStore {
         let group_id_str = group_id.to_string();
         let identity_id_str = identity_id.to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO membershipz (group_id, identity_id, added_at)
             VALUES (?1, ?2, ?3)
             ON CONFLICT(group_id, identity_id) DO UPDATE SET added_at = excluded.added_at
             "#,
-            group_id_str,
-            identity_id_str,
-            added_at,
         )
+        .bind(&group_id_str)
+        .bind(&identity_id_str)
+        .bind(added_at)
         .execute(&self.pool)
         .await?;
 
@@ -125,28 +123,25 @@ impl GroupStore for SqliteGroupStore {
     async fn remove_member(&self, group_id: Uuid, identity_id: Uuid) -> Result<(), StoreError> {
         let group_id_str = group_id.to_string();
         let identity_id_str = identity_id.to_string();
-        sqlx::query!(
-            "DELETE FROM membershipz WHERE group_id = ?1 AND identity_id = ?2",
-            group_id_str,
-            identity_id_str,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM membershipz WHERE group_id = ?1 AND identity_id = ?2")
+            .bind(&group_id_str)
+            .bind(&identity_id_str)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn members_of(&self, group_id: Uuid) -> Result<Vec<Uuid>, StoreError> {
         let group_id_str = group_id.to_string();
-        let rows = sqlx::query!(
-            r#"SELECT identity_id as "identity_id!" FROM membershipz WHERE group_id = ?1"#,
-            group_id_str,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<String> =
+            sqlx::query_scalar(r#"SELECT identity_id FROM membershipz WHERE group_id = ?1"#)
+                .bind(&group_id_str)
+                .fetch_all(&self.pool)
+                .await?;
 
         rows.into_iter()
-            .map(|r| {
-                Uuid::parse_str(&r.identity_id)
+            .map(|id| {
+                Uuid::parse_str(&id)
                     .map_err(|e| StoreError::Conflict(format!("invalid identity id: {e}")))
             })
             .collect()
@@ -154,16 +149,15 @@ impl GroupStore for SqliteGroupStore {
 
     async fn groups_for(&self, identity_id: Uuid) -> Result<Vec<Uuid>, StoreError> {
         let identity_id_str = identity_id.to_string();
-        let rows = sqlx::query!(
-            r#"SELECT group_id as "group_id!" FROM membershipz WHERE identity_id = ?1"#,
-            identity_id_str,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<String> =
+            sqlx::query_scalar(r#"SELECT group_id FROM membershipz WHERE identity_id = ?1"#)
+                .bind(&identity_id_str)
+                .fetch_all(&self.pool)
+                .await?;
 
         rows.into_iter()
-            .map(|r| {
-                Uuid::parse_str(&r.group_id)
+            .map(|id| {
+                Uuid::parse_str(&id)
                     .map_err(|e| StoreError::Conflict(format!("invalid group id: {e}")))
             })
             .collect()
@@ -191,14 +185,12 @@ mod tests {
 
     async fn seed_identity(pool: &SqlitePool, id: Uuid) {
         let id_str = id.to_string();
-        sqlx::query!(
-            "INSERT INTO identityz (id, created_at) VALUES (?1, ?2)",
-            id_str,
-            100,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO identityz (id, created_at) VALUES (?1, ?2)")
+            .bind(&id_str)
+            .bind(100)
+            .execute(pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

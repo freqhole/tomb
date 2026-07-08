@@ -1,12 +1,10 @@
 //! plumbing-level tests for `WebauthnCeremony` that don't require a real
 //! webauthn authenticator ceremony (no virtual/software authenticator crate
-//! is a dependency here, matching the donor - grimoire's own webauthn tests
-//! are exercised manually via a browser, not a simulated authenticator; see
-//! `tomb/client-codegen/freqhole-api-client/auth-test.html`). these tests
-//! cover everything around the crypto boundary: challenge persistence and
-//! its fields, nonce single-use/expiry/kind-checking as seen through the
-//! ceremony layer, and the error paths that don't require a valid signed
-//! credential response.
+//! is a dependency here - a real passkey ceremony is exercised manually via
+//! a browser, not a simulated authenticator). these tests cover everything
+//! around the crypto boundary: challenge persistence and its fields, nonce
+//! single-use/expiry/kind-checking as seen through the ceremony layer, and
+//! the error paths that don't require a valid signed credential response.
 
 use uuid::Uuid;
 

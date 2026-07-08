@@ -171,14 +171,12 @@ mod tests {
     async fn seed_identity(pool: &SqlitePool) -> Uuid {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
-        sqlx::query!(
-            "INSERT INTO identityz (id, created_at) VALUES (?1, ?2)",
-            id_str,
-            100,
-        )
-        .execute(pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO identityz (id, created_at) VALUES (?1, ?2)")
+            .bind(&id_str)
+            .bind(100)
+            .execute(pool)
+            .await
+            .unwrap();
         id
     }
 

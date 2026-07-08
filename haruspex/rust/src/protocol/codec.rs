@@ -1,12 +1,10 @@
 //! length-delimited json codec for friendz protocol messages.
 //!
 //! messages are framed with a 4-byte big-endian u32 length prefix followed
-//! by a json-encoded utf-8 payload. ported near-verbatim from skein's
-//! `reliquary/src/protocol/codec.rs` - this file is generic over
-//! `tokio::io::{AsyncRead, AsyncWrite}` in the donor already, so it carries
-//! zero iroh types and needs no feature gate: any transport (iroh streams,
-//! a tokio TCP socket, an in-memory duplex pair used in tests) works
-//! unchanged.
+//! by a json-encoded utf-8 payload. generic over
+//! `tokio::io::{AsyncRead, AsyncWrite}`, so it carries zero iroh types and
+//! needs no feature gate: any transport (iroh streams, a tokio TCP socket,
+//! an in-memory duplex pair used in tests) works unchanged.
 
 use super::messages::FriendzMessage;
 

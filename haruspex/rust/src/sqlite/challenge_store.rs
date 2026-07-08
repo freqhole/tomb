@@ -18,6 +18,18 @@ impl SqliteChallengeStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct ChallengeRow {
+    nonce: String,
+    kind: String,
+    challenge_json: String,
+    identity_id: Option<String>,
+    username: Option<String>,
+    is_account_link: i64,
+    invite_code: Option<String>,
+    expires_at: i64,
+}
+
 #[async_trait]
 impl ChallengeStore for SqliteChallengeStore {
     async fn save(&self, args: SaveChallengeArgs) -> Result<String, StoreError> {
@@ -26,22 +38,22 @@ impl ChallengeStore for SqliteChallengeStore {
         let identity_id = args.identity_id.map(|id| id.to_string());
         let is_account_link = args.is_account_link as i64;
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO webauthn_challengez
                 (nonce, kind, challenge_json, identity_id, username, is_account_link, invite_code, created_at, expires_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
-            nonce,
-            kind,
-            args.challenge_json,
-            identity_id,
-            args.username,
-            is_account_link,
-            args.invite_code,
-            args.created_at,
-            args.expires_at,
         )
+        .bind(&nonce)
+        .bind(kind)
+        .bind(&args.challenge_json)
+        .bind(&identity_id)
+        .bind(&args.username)
+        .bind(is_account_link)
+        .bind(&args.invite_code)
+        .bind(args.created_at)
+        .bind(args.expires_at)
         .execute(&self.pool)
         .await?;
 
@@ -56,24 +68,20 @@ impl ChallengeStore for SqliteChallengeStore {
     ) -> Result<Option<Challenge>, StoreError> {
         let mut tx = self.pool.begin().await?;
 
-        // lazily purge every expired row while we're here (best-effort,
-        // mirrors the donor's behavior).
-        sqlx::query!(
-            "DELETE FROM webauthn_challengez WHERE expires_at <= ?1",
-            now
-        )
-        .execute(&mut *tx)
-        .await?;
+        // lazily purge every expired row while we're here (best-effort).
+        sqlx::query("DELETE FROM webauthn_challengez WHERE expires_at <= ?1")
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
 
-        let row = sqlx::query!(
+        let row: Option<ChallengeRow> = sqlx::query_as(
             r#"
-            SELECT nonce as "nonce!", kind as "kind!", challenge_json as "challenge_json!",
-                   identity_id, username, is_account_link as "is_account_link!: i64",
-                   invite_code, expires_at as "expires_at!"
+            SELECT nonce, kind, challenge_json, identity_id, username, is_account_link,
+                   invite_code, expires_at
             FROM webauthn_challengez WHERE nonce = ?1
             "#,
-            nonce,
         )
+        .bind(nonce)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -95,7 +103,8 @@ impl ChallengeStore for SqliteChallengeStore {
             return Ok(None);
         }
 
-        sqlx::query!("DELETE FROM webauthn_challengez WHERE nonce = ?1", nonce)
+        sqlx::query("DELETE FROM webauthn_challengez WHERE nonce = ?1")
+            .bind(nonce)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;

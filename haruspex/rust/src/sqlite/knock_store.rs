@@ -28,6 +28,7 @@ impl SqliteKnockStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct KnockRow {
     id: String,
     node_id: String,
@@ -86,21 +87,21 @@ impl KnockStore for SqliteKnockStore {
         let status = KnockStatus::Pending.as_str();
         let decisions_json = "[]";
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             INSERT INTO knockz (id, node_id, direction, scope_key, scope_json, message, status, created_at, decisions_json)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
-            id_str,
-            node_id,
-            direction_str,
-            scope_key,
-            scope_json,
-            message,
-            status,
-            created_at,
-            decisions_json,
         )
+        .bind(&id_str)
+        .bind(node_id)
+        .bind(direction_str)
+        .bind(&scope_key)
+        .bind(&scope_json)
+        .bind(&message)
+        .bind(status)
+        .bind(created_at)
+        .bind(decisions_json)
         .execute(&self.pool)
         .await;
 
@@ -119,17 +120,14 @@ impl KnockStore for SqliteKnockStore {
 
     async fn get_knock(&self, knock_id: Uuid) -> Result<Option<KnockRecord>, StoreError> {
         let id = knock_id.to_string();
-        let row = sqlx::query_as!(
-            KnockRow,
+        let row: Option<KnockRow> = sqlx::query_as(
             r#"
-            SELECT id as "id!", node_id as "node_id!", direction as "direction!",
-                   scope_json as "scope_json!", message as "message!", status as "status!",
-                   created_at as "created_at!", processed_at, processed_by,
-                   decisions_json as "decisions_json!"
+            SELECT id, node_id, direction, scope_json, message, status, created_at,
+                   processed_at, processed_by, decisions_json
             FROM knockz WHERE id = ?1
             "#,
-            id,
         )
+        .bind(&id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -137,13 +135,10 @@ impl KnockStore for SqliteKnockStore {
     }
 
     async fn list_pending(&self) -> Result<Vec<KnockRecord>, StoreError> {
-        let rows = sqlx::query_as!(
-            KnockRow,
+        let rows: Vec<KnockRow> = sqlx::query_as(
             r#"
-            SELECT id as "id!", node_id as "node_id!", direction as "direction!",
-                   scope_json as "scope_json!", message as "message!", status as "status!",
-                   created_at as "created_at!", processed_at, processed_by,
-                   decisions_json as "decisions_json!"
+            SELECT id, node_id, direction, scope_json, message, status, created_at,
+                   processed_at, processed_by, decisions_json
             FROM knockz WHERE status = 'pending'
             ORDER BY created_at ASC
             "#,
@@ -162,15 +157,14 @@ impl KnockStore for SqliteKnockStore {
         let id_str = knock_id.to_string();
         let mut tx = self.pool.begin().await?;
 
-        let existing = sqlx::query!(
-            r#"SELECT decisions_json as "decisions_json!" FROM knockz WHERE id = ?1"#,
-            id_str,
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or(StoreError::NotFound)?;
+        let existing: Option<String> =
+            sqlx::query_scalar(r#"SELECT decisions_json FROM knockz WHERE id = ?1"#)
+                .bind(&id_str)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let existing = existing.ok_or(StoreError::NotFound)?;
 
-        let mut decisions: Vec<KnockDecision> = serde_json::from_str(&existing.decisions_json)?;
+        let mut decisions: Vec<KnockDecision> = serde_json::from_str(&existing)?;
         decisions.push(decision.clone());
         let decisions_json = serde_json::to_string(&decisions)?;
         // single-responder assumption: whichever decision arrives becomes the
@@ -178,18 +172,18 @@ impl KnockStore for SqliteKnockStore {
         // reconcile here (see module docs).
         let status = decision.outcome.as_str();
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE knockz
             SET status = ?1, processed_at = ?2, processed_by = ?3, decisions_json = ?4
             WHERE id = ?5
             "#,
-            status,
-            decision.at,
-            decision.by_node_id,
-            decisions_json,
-            id_str,
         )
+        .bind(status)
+        .bind(decision.at)
+        .bind(&decision.by_node_id)
+        .bind(&decisions_json)
+        .bind(&id_str)
         .execute(&mut *tx)
         .await?;
 

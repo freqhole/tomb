@@ -55,5 +55,11 @@ documentation if appropriate.
 - **naming**: `snake_case` for rust, `camelCase` for typescript
 - **no work-in-progress or dated tags in code comments** (no "phase 4" markers in code).
   comments describe what the code does; plan-doc references belong in docs only.
+- **comments must be timeless**: never reference the extraction/porting process itself. no
+  "donor", "ported from tomb's X", "mirrors the original behavior", "this crate doesn't ship the
+  wordlist asset the donor used". write every comment as if the module had always existed
+  standalone here - describe what the code does and why in domain terms, never where it came
+  from or what it differs from elsewhere. provenance/rationale narration belongs in a phase doc
+  under `tomb/docs/xl-refactor/`, never in source comments.
 - **plan docs**: this repo doesn't hold its own copy of the xl-refactor plan - it lives in
   `tomb/docs/xl-refactor/`. link to it, don't duplicate it.

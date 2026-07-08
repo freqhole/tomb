@@ -44,4 +44,18 @@ pub trait IdentityStore: Send + Sync {
         &self,
         node_ids: &[String],
     ) -> Result<HashMap<String, Identity>, StoreError>;
+
+    /// issue or revoke an identity's api key: `Some(key)` replaces any
+    /// existing key with `key` (rejecting it with `StoreError::Conflict` if
+    /// `key` is already issued to a different identity); `None` revokes
+    /// whatever key the identity currently has, a no-op if it has none. one
+    /// active key per identity at a time - see `crate::identity::api_key`
+    /// for the issue/revoke/validate helpers built on top of this.
+    async fn set_api_key(
+        &self,
+        identity_id: Uuid,
+        api_key: Option<String>,
+    ) -> Result<(), StoreError>;
+    /// resolve an api key back to the identity it was issued to.
+    async fn find_by_api_key(&self, api_key: &str) -> Result<Option<Identity>, StoreError>;
 }

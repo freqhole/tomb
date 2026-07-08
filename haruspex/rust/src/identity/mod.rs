@@ -6,6 +6,7 @@
 //! file management does NOT live here - reliquary::identity owns the key
 //! file; haruspex only ever consumes node ids as plain strings.
 
+pub mod api_key;
 pub mod attestation;
 
 pub use attestation::{

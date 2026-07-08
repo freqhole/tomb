@@ -9,12 +9,15 @@
 //! all of them (`sqlite`), the acl evaluator (`acl`) - `effective_role`,
 //! the `RoleResolver` seam, `Caller`, and the `on_access_changed` revocation
 //! hook - the knock accept side-effect seam (`knock`) - `KnockOutcome` and
-//! the `KnockPolicy` trait - and the friendz wire protocol (`protocol`),
+//! the `KnockPolicy` trait - the friendz wire protocol (`protocol`),
 //! which covers message types, codec, the transport-agnostic
-//! `FriendzService`, and gossip digest computation/merge logic.
+//! `FriendzService`, and gossip digest computation/merge logic - and the
+//! auth-flavored subset of the hub admin protocol (`hub_admin`) - friend
+//! crud, admin promote/demote, and profile get/set over the stores above.
 
 pub mod acl;
 pub mod error;
+pub mod hub_admin;
 pub mod identity;
 pub mod knock;
 pub mod protocol;
@@ -28,7 +31,4 @@ pub mod stores;
 pub mod webauthn;
 
 #[cfg(feature = "test-utils")]
-pub mod testing {
-    //! fixtures and fake stores for consumer test suites.
-    //! filled in alongside the rest of the crate in phase 4.
-}
+pub mod testing;

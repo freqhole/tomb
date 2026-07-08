@@ -1,15 +1,12 @@
 //! `FriendzService` - the presence/heartbeat/dispatch engine.
 //!
-//! ported from skein's `reliquary/src/protocol/handler.rs`, restructured to
-//! satisfy PHASE_4_HARUSPEX_RUST.md's transport-agnostic design tenet: the
-//! donor's `FriendzHandler` holds live iroh send streams directly inside its
-//! state and implements `iroh::protocol::ProtocolHandler` itself. this
-//! module holds none of that - `FriendzService` only tracks presence
-//! (who's online, when they were last seen) and local identity/profile
-//! data, and [`dispatch`] is a plain function that takes a caller identity
-//! and a parsed message and returns what (if anything) to send back. it has
-//! zero knowledge of iroh, streams, or connections - a transport (the
-//! `iroh` feature's `FriendzProtocolHandler`, or a hypothetical http/
+//! built to satisfy PHASE_4_HARUSPEX_RUST.md's transport-agnostic design
+//! tenet: `FriendzService` only tracks presence (who's online, when they
+//! were last seen) and local identity/profile data, and [`dispatch`] is a
+//! plain function that takes a caller identity and a parsed message and
+//! returns what (if anything) to send back. it has zero knowledge of iroh,
+//! streams, or connections - a transport (the `iroh` feature's
+//! `FriendzProtocolHandler`, or a hypothetical http/
 //! websocket binding) is a thin shell around `dispatch` that does nothing
 //! but framing + identity extraction, per the design tenet.
 //!

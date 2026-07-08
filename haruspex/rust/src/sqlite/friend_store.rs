@@ -17,6 +17,7 @@ impl SqliteFriendStore {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct FriendRow {
     node_id: String,
     status: String,
@@ -53,8 +54,7 @@ impl FriendStore for SqliteFriendStore {
         let status = edge.status.as_str();
         let direction = edge.direction.as_str();
 
-        let row = sqlx::query_as!(
-            FriendRow,
+        let row: FriendRow = sqlx::query_as(
             r#"
             INSERT INTO friendz (node_id, status, direction, alias, group_name, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
@@ -64,16 +64,15 @@ impl FriendStore for SqliteFriendStore {
                 alias = excluded.alias,
                 group_name = excluded.group_name,
                 updated_at = excluded.updated_at
-            RETURNING node_id as "node_id!", status as "status!", direction as "direction!",
-                      alias, group_name, created_at as "created_at!", updated_at as "updated_at!"
+            RETURNING node_id, status, direction, alias, group_name, created_at, updated_at
             "#,
-            edge.node_id,
-            status,
-            direction,
-            edge.alias,
-            edge.group_name,
-            edge.updated_at,
         )
+        .bind(&edge.node_id)
+        .bind(status)
+        .bind(direction)
+        .bind(&edge.alias)
+        .bind(&edge.group_name)
+        .bind(edge.updated_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -81,15 +80,13 @@ impl FriendStore for SqliteFriendStore {
     }
 
     async fn get_edge(&self, node_id: &str) -> Result<Option<FriendEdge>, StoreError> {
-        let row = sqlx::query_as!(
-            FriendRow,
+        let row: Option<FriendRow> = sqlx::query_as(
             r#"
-            SELECT node_id as "node_id!", status as "status!", direction as "direction!",
-                   alias, group_name, created_at as "created_at!", updated_at as "updated_at!"
+            SELECT node_id, status, direction, alias, group_name, created_at, updated_at
             FROM friendz WHERE node_id = ?1
             "#,
-            node_id,
         )
+        .bind(node_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -100,28 +97,24 @@ impl FriendStore for SqliteFriendStore {
         &self,
         status: Option<FriendStatus>,
     ) -> Result<Vec<FriendEdge>, StoreError> {
-        let rows = match status {
+        let rows: Vec<FriendRow> = match status {
             Some(status) => {
                 let status = status.as_str();
-                sqlx::query_as!(
-                    FriendRow,
+                sqlx::query_as(
                     r#"
-                    SELECT node_id as "node_id!", status as "status!", direction as "direction!",
-                           alias, group_name, created_at as "created_at!", updated_at as "updated_at!"
+                    SELECT node_id, status, direction, alias, group_name, created_at, updated_at
                     FROM friendz WHERE status = ?1
                     ORDER BY updated_at DESC
                     "#,
-                    status,
                 )
+                .bind(status)
                 .fetch_all(&self.pool)
                 .await?
             }
             None => {
-                sqlx::query_as!(
-                    FriendRow,
+                sqlx::query_as(
                     r#"
-                    SELECT node_id as "node_id!", status as "status!", direction as "direction!",
-                           alias, group_name, created_at as "created_at!", updated_at as "updated_at!"
+                    SELECT node_id, status, direction, alias, group_name, created_at, updated_at
                     FROM friendz
                     ORDER BY updated_at DESC
                     "#,
@@ -135,7 +128,8 @@ impl FriendStore for SqliteFriendStore {
     }
 
     async fn remove_edge(&self, node_id: &str) -> Result<(), StoreError> {
-        sqlx::query!("DELETE FROM friendz WHERE node_id = ?1", node_id)
+        sqlx::query("DELETE FROM friendz WHERE node_id = ?1")
+            .bind(node_id)
             .execute(&self.pool)
             .await?;
         Ok(())

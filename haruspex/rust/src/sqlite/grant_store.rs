@@ -70,6 +70,7 @@ fn role_from_str(s: &str) -> Result<Role, StoreError> {
     }
 }
 
+#[derive(sqlx::FromRow)]
 struct GrantRow {
     subject_kind: String,
     subject_id: String,
@@ -106,8 +107,7 @@ impl GrantStore for SqliteGrantStore {
         let (subject_kind, subject_id) = subject_columns(&grant.subject);
         let role = role_as_str(grant.role);
 
-        let row = sqlx::query_as!(
-            GrantRow,
+        let row: GrantRow = sqlx::query_as(
             r#"
             INSERT INTO role_grantz
                 (id, subject_kind, subject_id, resource_kind, resource_id, role, granted_by, granted_at, expires_at)
@@ -117,21 +117,19 @@ impl GrantStore for SqliteGrantStore {
                 granted_by = excluded.granted_by,
                 granted_at = excluded.granted_at,
                 expires_at = excluded.expires_at
-            RETURNING subject_kind as "subject_kind!", subject_id as "subject_id!",
-                      resource_kind as "resource_kind!", resource_id as "resource_id!",
-                      role as "role!", granted_by as "granted_by!",
-                      granted_at as "granted_at!", expires_at
+            RETURNING subject_kind, subject_id, resource_kind, resource_id, role, granted_by,
+                      granted_at, expires_at
             "#,
-            id,
-            subject_kind,
-            subject_id,
-            grant.resource.kind,
-            grant.resource.id,
-            role,
-            grant.granted_by,
-            grant.granted_at,
-            grant.expires_at,
         )
+        .bind(&id)
+        .bind(subject_kind)
+        .bind(&subject_id)
+        .bind(&grant.resource.kind)
+        .bind(&grant.resource.id)
+        .bind(role)
+        .bind(&grant.granted_by)
+        .bind(grant.granted_at)
+        .bind(grant.expires_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -140,16 +138,16 @@ impl GrantStore for SqliteGrantStore {
 
     async fn revoke(&self, subject: Subject, resource: Resource) -> Result<(), StoreError> {
         let (subject_kind, subject_id) = subject_columns(&subject);
-        sqlx::query!(
+        sqlx::query(
             r#"
             DELETE FROM role_grantz
             WHERE subject_kind = ?1 AND subject_id = ?2 AND resource_kind = ?3 AND resource_id = ?4
             "#,
-            subject_kind,
-            subject_id,
-            resource.kind,
-            resource.id,
         )
+        .bind(subject_kind)
+        .bind(&subject_id)
+        .bind(&resource.kind)
+        .bind(&resource.id)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -157,18 +155,15 @@ impl GrantStore for SqliteGrantStore {
 
     async fn grants_for(&self, subject: Subject) -> Result<Vec<RoleGrant>, StoreError> {
         let (subject_kind, subject_id) = subject_columns(&subject);
-        let rows = sqlx::query_as!(
-            GrantRow,
+        let rows: Vec<GrantRow> = sqlx::query_as(
             r#"
-            SELECT subject_kind as "subject_kind!", subject_id as "subject_id!",
-                   resource_kind as "resource_kind!", resource_id as "resource_id!",
-                   role as "role!", granted_by as "granted_by!",
-                   granted_at as "granted_at!", expires_at
+            SELECT subject_kind, subject_id, resource_kind, resource_id, role, granted_by,
+                   granted_at, expires_at
             FROM role_grantz WHERE subject_kind = ?1 AND subject_id = ?2
             "#,
-            subject_kind,
-            subject_id,
         )
+        .bind(subject_kind)
+        .bind(&subject_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -176,18 +171,15 @@ impl GrantStore for SqliteGrantStore {
     }
 
     async fn grants_on(&self, resource: Resource) -> Result<Vec<RoleGrant>, StoreError> {
-        let rows = sqlx::query_as!(
-            GrantRow,
+        let rows: Vec<GrantRow> = sqlx::query_as(
             r#"
-            SELECT subject_kind as "subject_kind!", subject_id as "subject_id!",
-                   resource_kind as "resource_kind!", resource_id as "resource_id!",
-                   role as "role!", granted_by as "granted_by!",
-                   granted_at as "granted_at!", expires_at
+            SELECT subject_kind, subject_id, resource_kind, resource_id, role, granted_by,
+                   granted_at, expires_at
             FROM role_grantz WHERE resource_kind = ?1 AND resource_id = ?2
             "#,
-            resource.kind,
-            resource.id,
         )
+        .bind(&resource.kind)
+        .bind(&resource.id)
         .fetch_all(&self.pool)
         .await?;
 

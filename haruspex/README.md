@@ -25,7 +25,8 @@ docs/
 ## development
 
 rust: `cargo test` (workspace). the crate owns its own sqlite db (`haruspex.db`); see
-[rust/README.md](rust/README.md) for the local `DATABASE_URL` setup needed by sqlx's
-compile-time query macros.
+[rust/README.md](rust/README.md) for the local `DATABASE_URL` setup needed to run tests and
+examples against a real database (compiling the crate itself needs no database at all - see
+`rust/src/sqlite/mod.rs`).
 
 ts: `cd ts && npm install && npm test`.
