@@ -57,10 +57,11 @@ pub async fn make_blobz_store() -> (SqliteBlobStore, TempDir) {
 
 /// a tempdir-backed `StorageNode` with gc disabled by default.
 ///
-/// binds its own localhost iroh endpoint (relay disabled) since
-/// `StorageNode::init` needs one to build its downloader; the endpoint is
-/// dropped when this function returns, but stays alive in practice because
-/// the downloader holds its own clone.
+/// binds its own localhost iroh endpoint (relay disabled) and attaches it,
+/// since most tests want a fully-wired node; the endpoint is dropped when
+/// this function returns, but stays alive in practice because the attached
+/// downloader holds its own clone. use [`make_local_storage_node`] instead
+/// for a node with no endpoint attached at all.
 pub async fn make_storage_node() -> (StorageNode, TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let pool = open_in_memory().await;
@@ -83,6 +84,29 @@ pub async fn make_storage_node() -> (StorageNode, TempDir) {
     )
     .await
     .expect("init storage node");
+
+    (node, tmp)
+}
+
+/// a tempdir-backed `StorageNode` with no endpoint attached at all, for
+/// tests that specifically want to exercise the local-only, no-downloader
+/// state (e.g. before a consuming app has any identity/keypair set up).
+/// call `node.attach_endpoint(...)` to bind one later in the test.
+pub async fn make_local_storage_node() -> (StorageNode, TempDir) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let pool = open_in_memory().await;
+    let blobz: Arc<dyn BlobStore> = Arc::new(SqliteBlobStore::new(pool, tmp.path()));
+
+    let node = StorageNode::init_local(
+        tmp.path(),
+        blobz,
+        StorageNodeOptions {
+            gc_enabled: false,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("init_local storage node");
 
     (node, tmp)
 }
@@ -139,6 +163,10 @@ mod tests {
     async fn make_storage_node_boots_with_gc_disabled() {
         let (node, tmp) = make_storage_node().await;
         assert!(tmp.path().join("iroh-blobs").exists());
+        assert!(
+            node.downloader().is_some(),
+            "make_storage_node attaches an endpoint"
+        );
 
         let tag = node
             .fs_store
@@ -153,6 +181,30 @@ mod tests {
             .await
             .expect("get bytes");
         assert_eq!(&bytes[..], b"hello from testing::make_storage_node");
+    }
+
+    #[tokio::test]
+    async fn make_local_storage_node_has_no_downloader_attached() {
+        let (node, tmp) = make_local_storage_node().await;
+        assert!(tmp.path().join("iroh-blobs").exists());
+        assert!(
+            node.downloader().is_none(),
+            "make_local_storage_node attaches no endpoint"
+        );
+
+        let tag = node
+            .fs_store
+            .blobs()
+            .add_bytes(b"hello from testing::make_local_storage_node".to_vec())
+            .await
+            .expect("add bytes works offline");
+        let bytes = node
+            .fs_store
+            .blobs()
+            .get_bytes(tag.hash)
+            .await
+            .expect("get bytes works offline");
+        assert_eq!(&bytes[..], b"hello from testing::make_local_storage_node");
     }
 
     #[test]

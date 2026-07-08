@@ -1,5 +1,5 @@
 export type { ProcessedBlob, ResizeImageOptions } from "./blob-worker-logic.js";
-export { BLOB_WORKER_READY_MESSAGE } from "./blob-worker-logic.js";
+export { BLOB_WORKER_READY_MESSAGE, OPFS_DIR as BLOB_OPFS_DIR } from "./blob-worker-logic.js";
 
 export type { BlobWorkerApi } from "./blob-worker.js";
 

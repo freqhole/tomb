@@ -20,8 +20,11 @@ import { loadMiddenBlake3 } from "./midden-blake3.js";
  *  listener - see `blob-worker.ts` for why the ordering matters. */
 export const BLOB_WORKER_READY_MESSAGE = "blob-worker-ready";
 
-/** directory name for the on-disk (OPFS) blob store. */
-const OPFS_DIR = "reliquary-blobs";
+/** directory name for the on-disk (OPFS) blob store. exported so callers
+ *  reading bytes back directly (bypassing the worker's write path, e.g.
+ *  `./blobs`'s main-thread OPFS reads) always agree with the worker on
+ *  where the bytes actually live. */
+export const OPFS_DIR = "reliquary-blobs";
 
 /**
  * compute blake3 hash of a Uint8Array via the embedding app's midden

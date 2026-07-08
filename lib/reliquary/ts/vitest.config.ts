@@ -7,6 +7,8 @@ export default defineConfig({
       ["src/utils/image-utils.test.ts", "happy-dom"],
       ["src/worker/blob-worker-logic.test.ts", "happy-dom"],
       ["src/worker/blob-worker-client.test.ts", "happy-dom"],
+      ["src/blobs/bytes-backend.test.ts", "happy-dom"],
+      ["src/blobs/store.test.ts", "happy-dom"],
     ],
     include: ["src/**/*.test.ts"],
   },

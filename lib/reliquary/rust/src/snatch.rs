@@ -22,7 +22,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -139,6 +139,9 @@ pub enum SnatchError {
 
     #[error("failed to ingest blob: {0}")]
     Ingest(String),
+
+    #[error("no downloader attached: the node has no live endpoint right now")]
+    NoDownloader,
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +190,12 @@ impl Default for SnatchEngineOptions {
 /// [`PeerProbeTransport`] impls.
 pub struct SnatchEngine<S: BlobRefSource, T: PeerProbeTransport> {
     blobz: Arc<dyn BlobStore>,
-    downloader: Downloader,
+    /// shared with whatever attaches/detaches endpoints on the engine's
+    /// owning `StorageNode` (see `crate::node::StorageNode::attach_endpoint`/
+    /// `detach_endpoint`) so a `SnatchEngine` built once keeps working
+    /// across the node's endpoint being stopped and restarted, rather than
+    /// going stale. `None` means no live endpoint right now.
+    downloader: Arc<RwLock<Option<Downloader>>>,
     fs_store: &'static FsStore,
     /// shared with [`crate::node::StorageNode`]'s gc-protect callback (pass
     /// the same `Arc` to both) so a blob mid-download is never swept before
@@ -210,7 +218,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         blobz: Arc<dyn BlobStore>,
-        downloader: Downloader,
+        downloader: Arc<RwLock<Option<Downloader>>>,
         fs_store: &'static FsStore,
         in_flight: Arc<StdMutex<HashSet<Hash>>>,
         local_node_id: impl Into<String>,
@@ -517,6 +525,15 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         blake3_hash: &str,
         provider_node_id: &str,
     ) -> Result<(), SnatchError> {
+        // check first: no live endpoint means no point parsing the hash or
+        // reserving a semaphore slot.
+        let downloader = self
+            .downloader
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or(SnatchError::NoDownloader)?;
+
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|e| SnatchError::InvalidHash(format!("{e}")))?;
@@ -537,7 +554,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             .await
             .map_err(|_| SnatchError::DownloadFailed("peer semaphore closed".into()))?;
 
-        let progress = self.downloader.download(hash_and_format, [node_id]);
+        let progress = downloader.download(hash_and_format, [node_id]);
         let stream = progress
             .stream()
             .await
@@ -868,7 +885,7 @@ mod tests {
 
     struct EngineDeps {
         blobz: Arc<dyn BlobStore>,
-        downloader: Downloader,
+        downloader: Arc<RwLock<Option<Downloader>>>,
         fs_store: &'static FsStore,
         endpoint: iroh::Endpoint,
     }
@@ -888,7 +905,7 @@ mod tests {
 
         EngineDeps {
             blobz,
-            downloader,
+            downloader: Arc::new(RwLock::new(Some(downloader))),
             fs_store,
             endpoint,
         }
@@ -1137,6 +1154,44 @@ mod tests {
         let result = engine.snatch_descriptor(&d).await;
         assert!(matches!(result, Err(SnatchError::NoPeers)));
         assert_eq!(transport.call_count(), 0);
+
+        deps.endpoint.close().await;
+    }
+
+    // -- no downloader attached ---------------------------------------------
+
+    #[tokio::test]
+    async fn snatch_without_an_attached_downloader_surfaces_no_downloader_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deps = engine_deps(tmp.path()).await;
+        // simulate the owning StorageNode's endpoint having been detached
+        // (e.g. the user stopped it) after this engine was constructed.
+        *deps.downloader.write().unwrap() = None;
+
+        let source = MockSource::new();
+        let transport = MockTransport::new();
+        transport.set("peer-a", ProbeOutcome::Available);
+
+        let engine = SnatchEngine::new(
+            deps.blobz,
+            deps.downloader,
+            deps.fs_store,
+            Arc::new(StdMutex::new(HashSet::new())),
+            "local-node",
+            source,
+            transport,
+            short_options(),
+        );
+
+        let d = descriptor(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            &["peer-a"],
+        );
+        let result = engine.snatch_descriptor(&d).await;
+        assert!(
+            matches!(result, Err(SnatchError::NoDownloader)),
+            "expected NoDownloader, got {result:?}"
+        );
 
         deps.endpoint.close().await;
     }

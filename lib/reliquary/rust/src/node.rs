@@ -63,19 +63,31 @@ impl Default for StorageNodeOptions {
 }
 
 /// the reusable iroh-blobs storage bundle: `FsStore` + gc protection +
-/// downloader. holds `Arc<dyn BlobStore>` (never a concrete store type) so
-/// it composes with any `BlobStore` implementation.
+/// an attachable downloader. holds `Arc<dyn BlobStore>` (never a concrete
+/// store type) so it composes with any `BlobStore` implementation.
+///
+/// local blob storage (`fs_store`, `blobz`) works with no endpoint at all -
+/// [`StorageNode::init_local`] boots a node fully offline, or before a
+/// consuming app has any identity/keypair yet. a downloader is bound (or
+/// rebound) separately via [`StorageNode::attach_endpoint`], any number of
+/// times over the node's life, so a consuming app can stop and restart its
+/// endpoint without ever needing a new `StorageNode`.
 pub struct StorageNode {
     /// the iroh-blobs native store. `'static` because `BlobsProtocol` and
-    /// `Downloader` both want it - each `StorageNode::init` call leaks one
-    /// `Box<FsStore>` (fine: one per long-running process, or one per test
-    /// tempdir).
+    /// `Downloader` both want it - each `StorageNode::init_local` call
+    /// leaks one `Box<FsStore>` (fine: one per long-running process, or one
+    /// per test tempdir).
     pub fs_store: &'static FsStore,
     /// the blobz metadata + canonical-file store this node exports
     /// downloaded blobs into.
     pub blobz: Arc<dyn BlobStore>,
-    /// iroh-blobs downloader for verified transfers from peers.
-    pub downloader: Downloader,
+    /// iroh-blobs downloader for verified transfers from peers, if a live
+    /// endpoint is currently attached. `None` before any endpoint has ever
+    /// been attached, or after [`StorageNode::detach_endpoint`]. use
+    /// [`StorageNode::downloader`] to read the current value and
+    /// [`StorageNode::attach_endpoint`]/[`StorageNode::detach_endpoint`] to
+    /// change it.
+    downloader: Arc<RwLock<Option<Downloader>>>,
     /// hashes currently mid-download. shared with the gc protect callback
     /// so an in-progress download is never swept before it's exported into
     /// `blobz`. also shared with `snatch::SnatchEngine` for the same reason.
@@ -84,14 +96,16 @@ pub struct StorageNode {
 }
 
 impl StorageNode {
-    /// boot a storage node: load (or create) the iroh-blobs `FsStore` under
-    /// `<data_dir>/iroh-blobs/`, wire up gc protection (if enabled), build a
-    /// downloader bound to `endpoint`, and optionally pre-warm the store
-    /// with every existing blobz row.
-    pub async fn init(
+    /// boot the local-only half of a storage node: load (or create) the
+    /// iroh-blobs `FsStore` under `<data_dir>/iroh-blobs/`, wire up gc
+    /// protection (if enabled), and optionally pre-warm the store with
+    /// every existing blobz row. no downloader is attached yet, so this
+    /// works fully offline or before a consuming app has any
+    /// identity/endpoint at all - call [`StorageNode::attach_endpoint`]
+    /// once a live endpoint becomes available.
+    pub async fn init_local(
         data_dir: &Path,
         blobz: Arc<dyn BlobStore>,
-        endpoint: &Endpoint,
         opts: StorageNodeOptions,
     ) -> Result<Self, NodeError> {
         let path = data_dir.join("iroh-blobs");
@@ -178,12 +192,10 @@ impl StorageNode {
                 .map_err(|e| NodeError::FsStore(e.to_string()))?,
         ));
 
-        let downloader = Downloader::new(fs_store, endpoint);
-
         let node = Self {
             fs_store,
             blobz,
-            downloader,
+            downloader: Arc::new(RwLock::new(None)),
             in_flight,
             protect_refresh,
         };
@@ -192,6 +204,46 @@ impl StorageNode {
             node.prewarm().await?;
         }
 
+        Ok(node)
+    }
+
+    /// bind (or rebind) a downloader to a live endpoint. safe to call
+    /// repeatedly over the node's lifetime - e.g. after a consuming app's
+    /// user stops and restarts their endpoint/identity - and replaces
+    /// whatever downloader was previously attached, if any.
+    pub fn attach_endpoint(&self, endpoint: &Endpoint) {
+        let new_downloader = Downloader::new(self.fs_store, endpoint);
+        *self.downloader.write().unwrap() = Some(new_downloader);
+    }
+
+    /// detach the current downloader (e.g. the endpoint was stopped). local
+    /// blob storage keeps working; anything needing a downloader should
+    /// treat [`StorageNode::downloader`] returning `None` as "no live
+    /// endpoint right now".
+    pub fn detach_endpoint(&self) {
+        *self.downloader.write().unwrap() = None;
+    }
+
+    /// the current downloader, if an endpoint is attached right now.
+    /// `Downloader` is a cheap, cloneable handle - call this fresh at point
+    /// of use rather than caching the result across a potential
+    /// attach/detach/reattach cycle.
+    pub fn downloader(&self) -> Option<Downloader> {
+        self.downloader.read().unwrap().clone()
+    }
+
+    /// convenience for callers who always have an endpoint at construction
+    /// time and never stop/restart it (e.g. a headless daemon): exactly
+    /// [`StorageNode::init_local`] followed immediately by
+    /// [`StorageNode::attach_endpoint`].
+    pub async fn init(
+        data_dir: &Path,
+        blobz: Arc<dyn BlobStore>,
+        endpoint: &Endpoint,
+        opts: StorageNodeOptions,
+    ) -> Result<Self, NodeError> {
+        let node = Self::init_local(data_dir, blobz, opts).await?;
+        node.attach_endpoint(endpoint);
         Ok(node)
     }
 
@@ -505,5 +557,195 @@ mod tests {
         let bytes = node.fs_store.blobs().get_bytes(hash).await.unwrap();
         assert_eq!(&bytes[..], &payload[..]);
         endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn init_local_works_fully_offline_with_no_endpoint_attached() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+
+        let node = StorageNode::init_local(
+            tmp.path(),
+            blobz,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local storage node");
+
+        assert!(
+            node.downloader().is_none(),
+            "no endpoint has been attached yet"
+        );
+
+        // local blob storage keeps working with no endpoint at all.
+        let tag = node
+            .fs_store
+            .blobs()
+            .add_bytes(b"local storage, no endpoint yet".to_vec())
+            .await
+            .expect("add bytes works offline");
+        let bytes = node
+            .fs_store
+            .blobs()
+            .get_bytes(tag.hash)
+            .await
+            .expect("get bytes works offline");
+        assert_eq!(&bytes[..], b"local storage, no endpoint yet");
+    }
+
+    /// proves the scenario motivating the attach/detach api: a `StorageNode`
+    /// built via `init_local` (no endpoint yet), then attached to a real
+    /// endpoint for a real transfer, detached (endpoint stopped), and
+    /// reattached to a *brand new* endpoint for another real transfer -
+    /// exactly the stop/restart cycle a consuming app's user can trigger.
+    #[tokio::test]
+    #[serial_test::serial(iroh_net)]
+    async fn detach_and_reattach_endpoint_survives_across_a_brand_new_endpoint() {
+        use iroh::address_lookup::MemoryLookup;
+        use iroh::protocol::Router;
+        use iroh_blobs::HashAndFormat;
+
+        // peer a: a full storage node serving iroh-blobs/* on a real,
+        // long-lived localhost endpoint. only peer b's endpoint gets
+        // stopped and restarted in this test.
+        let tmp_a = tempfile::tempdir().expect("tempdir");
+        let blobz_a = test_blobz(tmp_a.path()).await;
+        let endpoint_a = test_endpoint().await;
+        let node_a = StorageNode::init(
+            tmp_a.path(),
+            blobz_a,
+            &endpoint_a,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init peer a");
+
+        let tag_one = node_a
+            .fs_store
+            .blobs()
+            .add_bytes(b"first payload, downloaded before detach".to_vec())
+            .await
+            .expect("add bytes one on peer a");
+
+        let router_a = Router::builder(endpoint_a)
+            .accept(iroh_blobs::ALPN, node_a.blobs_protocol(None))
+            .spawn();
+        let addr_a = router_a.endpoint().addr();
+
+        // peer b: the node under test. built with init_local, no endpoint
+        // at all yet - the scenario of an app with local storage but no
+        // identity/keypair set up.
+        let tmp_b = tempfile::tempdir().expect("tempdir");
+        let blobz_b = test_blobz(tmp_b.path()).await;
+        let node_b = StorageNode::init_local(
+            tmp_b.path(),
+            blobz_b,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local peer b");
+
+        assert!(
+            node_b.downloader().is_none(),
+            "peer b has no endpoint attached yet"
+        );
+
+        // local storage already works before any endpoint exists.
+        let local_tag = node_b
+            .fs_store
+            .blobs()
+            .add_bytes(b"peer b's own local blob, no endpoint needed".to_vec())
+            .await
+            .expect("local add_bytes works before any endpoint");
+        assert!(node_b.fs_store.blobs().has(local_tag.hash).await.unwrap());
+
+        // first attach: bind a real endpoint and confirm a real transfer
+        // from peer a succeeds.
+        let discovery_b1 = MemoryLookup::new();
+        discovery_b1.add_endpoint_info(addr_a.clone());
+        let endpoint_b1 = Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .address_lookup(discovery_b1)
+            .bind()
+            .await
+            .expect("bind endpoint b1");
+
+        node_b.attach_endpoint(&endpoint_b1);
+        assert!(
+            node_b.downloader().is_some(),
+            "downloader present after first attach"
+        );
+
+        node_b
+            .downloader()
+            .expect("downloader attached")
+            .download(HashAndFormat::raw(tag_one.hash), [addr_a.id])
+            .await
+            .expect("download blob one over endpoint b1");
+        assert!(
+            node_b.fs_store.blobs().has(tag_one.hash).await.unwrap(),
+            "peer b has blob one after the first attach's transfer"
+        );
+        endpoint_b1.close().await;
+
+        // detach: no live endpoint, but everything downloaded/stored so
+        // far stays readable.
+        node_b.detach_endpoint();
+        assert!(
+            node_b.downloader().is_none(),
+            "downloader cleared after detach"
+        );
+        assert!(
+            node_b.fs_store.blobs().has(tag_one.hash).await.unwrap(),
+            "already-downloaded blob still readable while detached"
+        );
+
+        // reattach to a BRAND NEW endpoint - simulates the user stopping
+        // and restarting their identity/endpoint - and confirm a second,
+        // different transfer still works against the new one.
+        let tag_two = node_a
+            .fs_store
+            .blobs()
+            .add_bytes(b"second payload, downloaded after reattach".to_vec())
+            .await
+            .expect("add bytes two on peer a");
+
+        let discovery_b2 = MemoryLookup::new();
+        discovery_b2.add_endpoint_info(addr_a.clone());
+        let endpoint_b2 = Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .address_lookup(discovery_b2)
+            .bind()
+            .await
+            .expect("bind endpoint b2");
+
+        node_b.attach_endpoint(&endpoint_b2);
+        assert!(
+            node_b.downloader().is_some(),
+            "downloader present after reattach to a new endpoint"
+        );
+
+        node_b
+            .downloader()
+            .expect("downloader attached")
+            .download(HashAndFormat::raw(tag_two.hash), [addr_a.id])
+            .await
+            .expect("download blob two over endpoint b2");
+        assert!(
+            node_b.fs_store.blobs().has(tag_two.hash).await.unwrap(),
+            "peer b has blob two after reattach to the new endpoint"
+        );
+
+        endpoint_b2.close().await;
+        router_a.shutdown().await.ok();
     }
 }

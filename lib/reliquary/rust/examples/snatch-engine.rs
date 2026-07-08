@@ -9,7 +9,7 @@
 //!
 //! run with: `cargo run --example snatch-engine --features test-utils`
 
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 
 use async_trait::async_trait;
 use iroh::address_lookup::MemoryLookup;
@@ -169,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
 
     let engine = SnatchEngine::new(
         Arc::clone(&blobz_b),
-        downloader,
+        Arc::new(RwLock::new(Some(downloader))),
         store_b,
         in_flight,
         endpoint_b.id().to_string(),

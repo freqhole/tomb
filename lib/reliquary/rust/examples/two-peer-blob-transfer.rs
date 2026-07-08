@@ -127,7 +127,8 @@ async fn main() -> anyhow::Result<()> {
     // download: a real verified iroh-blobs transfer over localhost quic.
     let hash: Hash = record.blake3.parse()?;
     node_b
-        .downloader
+        .downloader()
+        .expect("node_b should have a downloader attached via StorageNode::init")
         .download(HashAndFormat::raw(hash), [node_id_a])
         .await
         .map_err(|e| anyhow::anyhow!("download failed: {e}"))?;
