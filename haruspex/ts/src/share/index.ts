@@ -6,5 +6,18 @@ export {
 } from "./peer-addr.js";
 export type { PeerTarget } from "./peer-addr.js";
 
-// the unified share-token codec (all supported app + legacy token shapes)
-// and detectShareInput land here alongside these peer-address helpers.
+export type {
+  DocSharePayload,
+  EntitySharePayload,
+  NodeSharePayload,
+  ShareTokenPayload,
+} from "./codec.js";
+export {
+  decodeShareToken,
+  encodeShareToken,
+  extractShareToken,
+  shareFragment,
+} from "./codec.js";
+
+export type { ShareInputDetection } from "./detect.js";
+export { detectShareInput } from "./detect.js";
