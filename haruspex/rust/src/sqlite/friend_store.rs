@@ -57,7 +57,7 @@ impl FriendStore for SqliteFriendStore {
         let row: FriendRow = sqlx::query_as(
             r#"
             INSERT INTO friendz (node_id, status, direction, alias, group_name, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ON CONFLICT(node_id) DO UPDATE SET
                 status = excluded.status,
                 direction = excluded.direction,
@@ -72,6 +72,7 @@ impl FriendStore for SqliteFriendStore {
         .bind(direction)
         .bind(&edge.alias)
         .bind(&edge.group_name)
+        .bind(edge.created_at)
         .bind(edge.updated_at)
         .fetch_one(&self.pool)
         .await?;

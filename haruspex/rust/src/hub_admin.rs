@@ -518,6 +518,7 @@ impl<'a> HubAdmin<'a> {
                 identity_id: created.id,
                 node_id: node_id.to_string(),
                 instance_name: None,
+                created_at: now,
                 last_seen_at: now,
                 deleted_at: None,
             })
@@ -729,6 +730,7 @@ mod tests {
                 identity_id: identity.id,
                 node_id: "peer-a".to_string(),
                 instance_name: None,
+                created_at: 100,
                 last_seen_at: 100,
                 deleted_at: None,
             })

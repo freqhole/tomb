@@ -398,6 +398,7 @@ impl<'a> WebauthnCeremony<'a> {
                 identity_id,
                 node_id: node_id.to_string(),
                 instance_name: None,
+                created_at: now,
                 last_seen_at: now,
                 deleted_at: None,
             })

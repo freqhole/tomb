@@ -152,7 +152,9 @@ impl iroh::protocol::ProtocolHandler for KnockResponder {
             default_role: Role::Viewer,
             granted_by: self.local_node_id.clone(),
         };
-        let outcome = policy.on_accept(&local_knock).await;
+        let outcome = policy.on_accept(&local_knock).await.unwrap_or_else(|e| {
+            panic!("GrantOnAcceptPolicy denied the knock: {e}");
+        });
         println!(
             "responder's GrantOnAcceptPolicy decided: {:?} (role: {:?})",
             outcome.status, outcome.granted_role

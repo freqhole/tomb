@@ -126,6 +126,13 @@ pub trait KnockStore: Send + Sync {
     ) -> Result<KnockRecord, StoreError>;
     async fn get_knock(&self, knock_id: Uuid) -> Result<Option<KnockRecord>, StoreError>;
     async fn list_pending(&self) -> Result<Vec<KnockRecord>, StoreError>;
+    /// all knock records regardless of status, ordered by `created_at` desc.
+    async fn list_all(&self) -> Result<Vec<KnockRecord>, StoreError>;
+    /// the most recent knock record for `node_id`, regardless of status, or
+    /// `None` if this node id has never knocked. supports the one-knock-ever
+    /// lookup rule: once a node id has a knock record (in any status), callers
+    /// can find and return that record rather than creating a duplicate.
+    async fn find_by_node_id(&self, node_id: &str) -> Result<Option<KnockRecord>, StoreError>;
     /// appends a decision to the record's audit log and resolves the
     /// record's status per the store's resolution policy (last-decision-
     /// wins for haruspex's production sqlite store - see `KnockDecision`).
@@ -134,4 +141,8 @@ pub trait KnockStore: Send + Sync {
         knock_id: Uuid,
         decision: KnockDecision,
     ) -> Result<KnockRecord, StoreError>;
+    /// permanently delete a knock record. frees the node id to knock again
+    /// (since the dedup index only covers pending rows, any future knock from
+    /// this node id will create a fresh record once the old one is gone).
+    async fn delete_knock(&self, knock_id: Uuid) -> Result<(), StoreError>;
 }

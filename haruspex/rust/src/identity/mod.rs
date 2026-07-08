@@ -30,15 +30,21 @@ pub struct Identity {
 
 /// one device (iroh node id) belonging to an identity.
 ///
-/// ported from tomb's `user_peer_nodez`: `node_id` is globally unique even
-/// across soft-deleted rows, so a node id that was ever registered - even if
-/// later soft-deleted - can never be silently re-registered to a different
-/// identity. see `haruspex::sqlite::identity_store` for the enforcement.
+/// `node_id` is globally unique even across soft-deleted rows, so a node id
+/// that was ever registered - even if later soft-deleted - can never be
+/// silently re-registered to a different identity. see
+/// `haruspex::sqlite::identity_store` for the enforcement.
+///
+/// `created_at` is the unix timestamp at which the device was first
+/// registered. `last_seen_at` advances on each `touch_device` call and
+/// may diverge from `created_at` over time.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeviceNode {
     pub identity_id: Uuid,
     pub node_id: String,
     pub instance_name: Option<String>,
+    /// when the device was first registered with this identity.
+    pub created_at: i64,
     pub last_seen_at: i64,
     pub deleted_at: Option<i64>,
 }

@@ -156,6 +156,40 @@ impl InviteStore for SqliteInviteStore {
 
         rows.into_iter().map(TryInto::try_into).collect()
     }
+
+    async fn list_all(&self) -> Result<Vec<InviteCode>, StoreError> {
+        let rows: Vec<InviteRow> = sqlx::query_as(
+            r#"
+            SELECT id, code, code_type, grants_role, link_for_user_id, link_expires_at,
+                   created_at, used_at, used_by, is_active
+            FROM invite_codez ORDER BY created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn deactivate_all_unused(&self) -> Result<u64, StoreError> {
+        let result =
+            sqlx::query("UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_at IS NULL")
+                .execute(&self.pool)
+                .await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn update_grants_role(&self, code: &str, role: Role) -> Result<InviteCode, StoreError> {
+        sqlx::query(
+            "UPDATE invite_codez SET grants_role = ?1 WHERE code = ?2 AND is_active = 1 AND used_at IS NULL",
+        )
+        .bind(role.as_str())
+        .bind(code)
+        .execute(&self.pool)
+        .await?;
+
+        self.find_by_code(code).await?.ok_or(StoreError::NotFound)
+    }
 }
 
 #[cfg(test)]

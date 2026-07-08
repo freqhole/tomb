@@ -55,6 +55,7 @@ struct DeviceRow {
     identity_id: String,
     node_id: String,
     instance_name: Option<String>,
+    created_at: Option<i64>,
     last_seen_at: i64,
     deleted_at: Option<i64>,
 }
@@ -68,6 +69,9 @@ impl TryFrom<DeviceRow> for DeviceNode {
                 .map_err(|e| StoreError::Conflict(format!("invalid identity id: {e}")))?,
             node_id: row.node_id,
             instance_name: row.instance_name,
+            // rows added before migration 0005 have NULL created_at; fall
+            // back to last_seen_at as the best available approximation.
+            created_at: row.created_at.unwrap_or(row.last_seen_at),
             last_seen_at: row.last_seen_at,
             deleted_at: row.deleted_at,
         })
@@ -188,13 +192,14 @@ impl IdentityStore for SqliteIdentityStore {
         } else {
             sqlx::query(
                 r#"
-                INSERT INTO device_nodez (identity_id, node_id, instance_name, last_seen_at, deleted_at)
-                VALUES (?1, ?2, ?3, ?4, ?5)
+                INSERT INTO device_nodez (identity_id, node_id, instance_name, created_at, last_seen_at, deleted_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                 "#,
             )
             .bind(&identity_id)
             .bind(&device.node_id)
             .bind(&device.instance_name)
+            .bind(device.created_at)
             .bind(device.last_seen_at)
             .bind(device.deleted_at)
             .execute(&mut *tx)
@@ -211,7 +216,7 @@ impl IdentityStore for SqliteIdentityStore {
     async fn resolve_device(&self, node_id: &str) -> Result<Option<DeviceNode>, StoreError> {
         let row: Option<DeviceRow> = sqlx::query_as(
             r#"
-            SELECT identity_id, node_id, instance_name, last_seen_at, deleted_at
+            SELECT identity_id, node_id, instance_name, created_at, last_seen_at, deleted_at
             FROM device_nodez WHERE node_id = ?1
             "#,
         )
@@ -247,7 +252,7 @@ impl IdentityStore for SqliteIdentityStore {
         let id = identity_id.to_string();
         let rows: Vec<DeviceRow> = sqlx::query_as(
             r#"
-            SELECT identity_id, node_id, instance_name, last_seen_at, deleted_at
+            SELECT identity_id, node_id, instance_name, created_at, last_seen_at, deleted_at
             FROM device_nodez WHERE identity_id = ?1
             ORDER BY last_seen_at DESC
             "#,
@@ -365,6 +370,55 @@ impl IdentityStore for SqliteIdentityStore {
 
         row.map(TryInto::try_into).transpose()
     }
+
+    async fn has_api_key(&self, identity_id: Uuid) -> Result<bool, StoreError> {
+        let id = identity_id.to_string();
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM api_keyz WHERE identity_id = ?1")
+                .bind(&id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(exists.is_some())
+    }
+
+    async fn hard_delete_device(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM device_nodez WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn hard_delete_identity(&self, identity_id: Uuid) -> Result<(), StoreError> {
+        let id = identity_id.to_string();
+        // cascading FK on device_nodez, credentialz, api_keyz handles child rows.
+        sqlx::query("DELETE FROM identityz WHERE id = ?1")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn force_reassign_device(
+        &self,
+        node_id: &str,
+        new_identity_id: Uuid,
+    ) -> Result<(), StoreError> {
+        let identity_id = new_identity_id.to_string();
+        let result = sqlx::query(
+            "UPDATE device_nodez SET identity_id = ?1, deleted_at = NULL WHERE node_id = ?2",
+        )
+        .bind(&identity_id)
+        .bind(node_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -444,6 +498,7 @@ mod tests {
             identity_id: identity.id,
             node_id: "node-a".to_string(),
             instance_name: Some("laptop".to_string()),
+            created_at: 1_700_000_000,
             last_seen_at: 1_700_000_001,
             deleted_at: None,
         };
@@ -466,6 +521,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 1,
                 last_seen_at: 1,
                 deleted_at: None,
             })
@@ -477,6 +533,7 @@ mod tests {
                 identity_id: b.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 2,
                 last_seen_at: 2,
                 deleted_at: None,
             })
@@ -498,6 +555,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 1,
                 last_seen_at: 1,
                 deleted_at: None,
             })
@@ -511,6 +569,7 @@ mod tests {
                 identity_id: b.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 2,
                 last_seen_at: 2,
                 deleted_at: None,
             })
@@ -530,6 +589,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: Some("laptop".to_string()),
+                created_at: 1,
                 last_seen_at: 1,
                 deleted_at: None,
             })
@@ -549,6 +609,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: Some("laptop-renamed".to_string()),
+                created_at: 1,
                 last_seen_at: 5,
                 deleted_at: None,
             })
@@ -570,6 +631,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 1,
                 last_seen_at: 1,
                 deleted_at: None,
             })
@@ -592,6 +654,7 @@ mod tests {
                     identity_id: a.id,
                     node_id: node_id.to_string(),
                     instance_name: None,
+                    created_at: 1,
                     last_seen_at: 1,
                     deleted_at: None,
                 })
@@ -613,6 +676,7 @@ mod tests {
                 identity_id: a.id,
                 node_id: "node-a".to_string(),
                 instance_name: None,
+                created_at: 1,
                 last_seen_at: 1,
                 deleted_at: None,
             })

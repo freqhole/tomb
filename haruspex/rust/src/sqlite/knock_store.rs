@@ -191,6 +191,51 @@ impl KnockStore for SqliteKnockStore {
 
         self.get_knock(knock_id).await?.ok_or(StoreError::NotFound)
     }
+
+    async fn list_all(&self) -> Result<Vec<KnockRecord>, StoreError> {
+        let rows: Vec<KnockRow> = sqlx::query_as(
+            r#"
+            SELECT id, node_id, direction, scope_json, message, status, created_at,
+                   processed_at, processed_by, decisions_json
+            FROM knockz ORDER BY created_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn find_by_node_id(&self, node_id: &str) -> Result<Option<KnockRecord>, StoreError> {
+        let row: Option<KnockRow> = sqlx::query_as(
+            r#"
+            SELECT id, node_id, direction, scope_json, message, status, created_at,
+                   processed_at, processed_by, decisions_json
+            FROM knockz WHERE node_id = ?1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(TryInto::try_into).transpose()
+    }
+
+    async fn delete_knock(&self, knock_id: Uuid) -> Result<(), StoreError> {
+        let id = knock_id.to_string();
+        let result = sqlx::query("DELETE FROM knockz WHERE id = ?1")
+            .bind(&id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

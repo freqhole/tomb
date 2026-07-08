@@ -35,4 +35,13 @@ pub trait CredentialStore: Send + Sync {
     ) -> Result<(), StoreError>;
     /// soft-delete a credential.
     async fn remove_credential(&self, credential_id: &[u8]) -> Result<(), StoreError>;
+    /// rename a credential (set its human-readable display name). ownership
+    /// checking - verifying the credential belongs to the expected identity -
+    /// is the caller's responsibility; this method applies the rename
+    /// unconditionally. pass `None` to clear the name.
+    async fn rename_credential(
+        &self,
+        id: &str,
+        new_name: Option<String>,
+    ) -> Result<(), StoreError>;
 }

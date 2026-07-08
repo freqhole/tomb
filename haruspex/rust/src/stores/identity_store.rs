@@ -58,4 +58,39 @@ pub trait IdentityStore: Send + Sync {
     ) -> Result<(), StoreError>;
     /// resolve an api key back to the identity it was issued to.
     async fn find_by_api_key(&self, api_key: &str) -> Result<Option<Identity>, StoreError>;
+    /// returns true if `identity_id` currently has an api key issued.
+    async fn has_api_key(&self, identity_id: Uuid) -> Result<bool, StoreError>;
+
+    // --- admin / hard-delete operations ---
+
+    /// permanently delete a device row. the node id is freed and may be
+    /// re-registered to any identity afterward (unlike `remove_device`,
+    /// which soft-deletes and keeps the node id reserved forever).
+    ///
+    /// reserved for cleanup tooling - the normal soft-delete path should be
+    /// preferred to preserve audit history.
+    async fn hard_delete_device(&self, node_id: &str) -> Result<(), StoreError>;
+
+    /// permanently delete an identity and all rows that reference it
+    /// (devices, credentials, api keys) in one atomic operation. the
+    /// identity id and any of its node ids are freed after this call.
+    ///
+    /// reserved for cleanup tooling. prefer soft-delete (`upsert_identity`
+    /// with `deleted_at` set) for normal account management.
+    async fn hard_delete_identity(&self, identity_id: Uuid) -> Result<(), StoreError>;
+
+    /// move `node_id` onto `new_identity_id`, clearing any soft-delete marker
+    /// on the device row in the same step. bypasses the global-unique-node-id
+    /// rule that `add_device` enforces (which would reject a cross-identity
+    /// move), so this is an explicit admin escape hatch rather than an
+    /// ordinary registration.
+    ///
+    /// returns `StoreError::NotFound` if `node_id` has no row at all (i.e.
+    /// was never registered, or was hard-deleted). the target identity must
+    /// already exist.
+    async fn force_reassign_device(
+        &self,
+        node_id: &str,
+        new_identity_id: Uuid,
+    ) -> Result<(), StoreError>;
 }

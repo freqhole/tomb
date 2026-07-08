@@ -117,6 +117,21 @@ pub trait InviteStore: Send + Sync {
     /// deactivate a code so it can no longer be redeemed, even if unused.
     async fn deactivate(&self, code: &str) -> Result<(), StoreError>;
     async fn list_active(&self) -> Result<Vec<InviteCode>, StoreError>;
+    /// all invite codes regardless of active/used status, ordered by
+    /// `created_at` desc.
+    async fn list_all(&self) -> Result<Vec<InviteCode>, StoreError>;
+    /// deactivate every code that is still active and has not been used.
+    /// used codes are left untouched. returns the number of codes affected.
+    async fn deactivate_all_unused(&self) -> Result<u64, StoreError>;
+    /// update the role a code grants on redemption. only applies when the
+    /// code is still active and unused - an already-used or deactivated code
+    /// is silently left unchanged (the caller can check the returned code to
+    /// detect this if needed).
+    async fn update_grants_role(
+        &self,
+        code: &str,
+        role: Role,
+    ) -> Result<InviteCode, StoreError>;
 }
 
 /// generate a random invite code: four groups of four uppercase

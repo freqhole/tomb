@@ -45,6 +45,7 @@ async fn main() {
             identity_id: identity.id,
             node_id: laptop_node_id.clone(),
             instance_name: Some("alice's laptop".to_string()),
+            created_at: 1_700_000_000,
             last_seen_at: 1_700_000_000,
             deleted_at: None,
         })
@@ -75,6 +76,7 @@ async fn main() {
             identity_id: identity.id,
             node_id: phone_node_id.clone(),
             instance_name: Some("alice's phone".to_string()),
+            created_at: 1_700_000_100,
             last_seen_at: 1_700_000_100,
             deleted_at: None,
         })

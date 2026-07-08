@@ -34,4 +34,4 @@
 
 pub mod policy;
 
-pub use policy::{GrantOnAcceptPolicy, KnockOutcome, KnockPolicy};
+pub use policy::{GrantOnAcceptPolicy, KnockOutcome, KnockPolicy, PolicyError};

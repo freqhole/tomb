@@ -13,6 +13,23 @@ use crate::stores::grant_store::{Resource, Role, RoleGrant, Subject};
 use crate::stores::knock_store::{KnockRecord, KnockScope, KnockStatus};
 use crate::stores::{GrantStore, IdentityStore};
 
+/// the reason an `on_accept` side effect could not be completed. carries a
+/// human-readable description suitable for surfacing to an operator (e.g.
+/// "username 'alice' already taken", "database error: ...").
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
+pub struct PolicyError {
+    pub message: String,
+}
+
+impl PolicyError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
 /// the result of accepting a knock: what got granted (if anything) and, for
 /// `KnockScope::Account`, the identity that was created or linked.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,23 +40,17 @@ pub struct KnockOutcome {
     pub account: Option<Identity>,
 }
 
-impl KnockOutcome {
-    fn denied() -> Self {
-        Self {
-            status: KnockStatus::Denied,
-            granted_role: None,
-            granted_resource_ids: None,
-            account: None,
-        }
-    }
-}
-
 /// the accept-side-effect seam. tomb's "create user with role", skein's
 /// "write acl entry", and playlistz's "store grant" are all implementations
 /// of this trait over the same `KnockRecord` shape - see module docs.
+///
+/// `on_accept` returns `Err(PolicyError)` when the side effect cannot be
+/// completed (e.g. username collision, database error). the caller decides
+/// what to do with the failure - typically leaving the knock pending and
+/// surfacing the message to the operator.
 #[async_trait]
 pub trait KnockPolicy: Send + Sync {
-    async fn on_accept(&self, knock: &KnockRecord) -> KnockOutcome;
+    async fn on_accept(&self, knock: &KnockRecord) -> Result<KnockOutcome, PolicyError>;
 }
 
 /// a concrete `KnockPolicy`: creates/resolves an identity for the knocking
@@ -86,6 +97,7 @@ impl<'a> GrantOnAcceptPolicy<'a> {
                 identity_id: created.id,
                 node_id: node_id.to_string(),
                 instance_name: None,
+                created_at: now,
                 last_seen_at: now,
                 deleted_at: None,
             })
@@ -97,7 +109,7 @@ impl<'a> GrantOnAcceptPolicy<'a> {
 
 #[async_trait]
 impl<'a> KnockPolicy for GrantOnAcceptPolicy<'a> {
-    async fn on_accept(&self, knock: &KnockRecord) -> KnockOutcome {
+    async fn on_accept(&self, knock: &KnockRecord) -> Result<KnockOutcome, PolicyError> {
         match &knock.scope {
             KnockScope::Account { requested_username } => {
                 let identity = Identity {
@@ -107,25 +119,23 @@ impl<'a> KnockPolicy for GrantOnAcceptPolicy<'a> {
                     metadata: None,
                     deleted_at: None,
                 };
-                let Ok(created) = self.identities.upsert_identity(identity).await else {
-                    return KnockOutcome::denied();
-                };
-                if self
+                let created = self
                     .identities
+                    .upsert_identity(identity)
+                    .await
+                    .map_err(|e| PolicyError::new(format!("failed to create identity: {e}")))?;
+                self.identities
                     .add_device(DeviceNode {
                         identity_id: created.id,
                         node_id: knock.node_id.clone(),
                         instance_name: None,
+                        created_at: knock.created_at,
                         last_seen_at: knock.created_at,
                         deleted_at: None,
                     })
                     .await
-                    .is_err()
-                {
-                    return KnockOutcome::denied();
-                }
-                if self
-                    .grants
+                    .map_err(|e| PolicyError::new(format!("failed to link device: {e}")))?;
+                self.grants
                     .grant(RoleGrant {
                         subject: Subject::Identity {
                             identity_id: created.id,
@@ -137,38 +147,32 @@ impl<'a> KnockPolicy for GrantOnAcceptPolicy<'a> {
                         expires_at: None,
                     })
                     .await
-                    .is_err()
-                {
-                    return KnockOutcome::denied();
-                }
+                    .map_err(|e| PolicyError::new(format!("failed to write grant: {e}")))?;
 
-                KnockOutcome {
+                Ok(KnockOutcome {
                     status: KnockStatus::Accepted,
                     granted_role: Some(self.default_role),
                     granted_resource_ids: None,
                     account: Some(created),
-                }
+                })
             }
-            KnockScope::Browse => KnockOutcome {
+            KnockScope::Browse => Ok(KnockOutcome {
                 status: KnockStatus::Accepted,
                 granted_role: None,
                 granted_resource_ids: None,
                 account: None,
-            },
+            }),
             KnockScope::Resource {
                 resource_id,
                 requested_role,
             } => {
-                let Some(identity_id) = self
+                let identity_id = self
                     .resolve_or_create_identity(&knock.node_id, knock.created_at)
                     .await
-                else {
-                    return KnockOutcome::denied();
-                };
+                    .ok_or_else(|| PolicyError::new("failed to resolve or create identity"))?;
                 let role = requested_role.unwrap_or(self.default_role);
 
-                if self
-                    .grants
+                self.grants
                     .grant(RoleGrant {
                         subject: Subject::Identity { identity_id },
                         resource: Resource::doc(resource_id.clone()),
@@ -178,17 +182,14 @@ impl<'a> KnockPolicy for GrantOnAcceptPolicy<'a> {
                         expires_at: None,
                     })
                     .await
-                    .is_err()
-                {
-                    return KnockOutcome::denied();
-                }
+                    .map_err(|e| PolicyError::new(format!("failed to write grant: {e}")))?;
 
-                KnockOutcome {
+                Ok(KnockOutcome {
                     status: KnockStatus::Accepted,
                     granted_role: Some(role),
                     granted_resource_ids: Some(vec![resource_id.clone()]),
                     account: None,
-                }
+                })
             }
         }
     }
@@ -239,7 +240,7 @@ mod tests {
             },
         );
 
-        let outcome = policy.on_accept(&record).await;
+        let outcome = policy.on_accept(&record).await.unwrap();
 
         assert_eq!(outcome.status, KnockStatus::Accepted);
         assert_eq!(outcome.granted_role, Some(Role::Member));
@@ -277,7 +278,7 @@ mod tests {
             },
         );
 
-        let outcome = policy.on_accept(&record).await;
+        let outcome = policy.on_accept(&record).await.unwrap();
 
         assert_eq!(outcome.status, KnockStatus::Accepted);
         assert_eq!(outcome.granted_role, Some(Role::Member));
@@ -311,7 +312,7 @@ mod tests {
             },
         );
 
-        let outcome = policy.on_accept(&record).await;
+        let outcome = policy.on_accept(&record).await.unwrap();
 
         assert_eq!(outcome.granted_role, Some(Role::Viewer));
     }
@@ -334,6 +335,7 @@ mod tests {
                 identity_id: existing.id,
                 node_id: "node-d".to_string(),
                 instance_name: None,
+                created_at: 50,
                 last_seen_at: 50,
                 deleted_at: None,
             })
@@ -354,7 +356,7 @@ mod tests {
             },
         );
 
-        policy.on_accept(&record).await;
+        policy.on_accept(&record).await.unwrap();
 
         let doc_grants = grants.grants_on(Resource::doc("canvas-1")).await.unwrap();
         assert_eq!(doc_grants.len(), 1);
@@ -377,7 +379,7 @@ mod tests {
         };
         let record = knock("node-e", KnockScope::Browse);
 
-        let outcome = policy.on_accept(&record).await;
+        let outcome = policy.on_accept(&record).await.unwrap();
 
         assert_eq!(outcome.status, KnockStatus::Accepted);
         assert_eq!(outcome.granted_role, None);

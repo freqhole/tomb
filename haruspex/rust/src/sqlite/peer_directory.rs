@@ -164,6 +164,46 @@ impl PeerDirectory for SqlitePeerDirectory {
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
+
+    async fn clear_alias(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE peerz SET alias = NULL WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn clear_display_name(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE peerz SET display_name = NULL WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn clear_bio(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE peerz SET bio = NULL WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn clear_avatar(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE peerz SET avatar_blake3 = NULL WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn clear_accent_color(&self, node_id: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE peerz SET accent_color = NULL WHERE node_id = ?1")
+            .bind(node_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

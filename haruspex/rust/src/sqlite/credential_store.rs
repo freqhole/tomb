@@ -146,6 +146,19 @@ impl CredentialStore for SqliteCredentialStore {
         .await?;
         Ok(())
     }
+
+    async fn rename_credential(
+        &self,
+        id: &str,
+        new_name: Option<String>,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE credentialz SET name = ?1 WHERE id = ?2")
+            .bind(new_name.as_deref())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
