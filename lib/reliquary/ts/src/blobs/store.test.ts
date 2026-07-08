@@ -9,9 +9,8 @@
 // the exact same fake OPFS directory the direct-read path uses, so the
 // round trip is meaningful.
 
-import "fake-indexeddb/auto";
-import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fakeIdbHarness } from "../testing/index.js";
 
 // ---- fake OPFS (same shape as blob-worker-logic.test.ts / bytes-backend.test.ts) ----
 
@@ -109,7 +108,7 @@ const { createBlobStore, DEFAULT_DB_NAME } = await import("./store.js");
 const { putRecord } = await import("./db.js");
 
 beforeEach(() => {
-  globalThis.indexedDB = new IDBFactory();
+  fakeIdbHarness();
   installFakeOpfs();
   vi.stubGlobal("URL", {
     createObjectURL: vi.fn(() => `blob:mock-${Math.random()}`),
