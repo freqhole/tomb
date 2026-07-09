@@ -13,9 +13,9 @@ import type { BlobRecord } from "./types.js";
 const STORE_NAME = "blobs";
 const DB_VERSION = 1;
 
-function openDb(dbName: string): Promise<IDBDatabase> {
+function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(dbName, DB_VERSION);
+    const req = indexedDB.open(dbName, version);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -29,6 +29,49 @@ function openDb(dbName: string): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+// a dbName passed to `createBlobStore` is often an app's pre-existing
+// database (that's the whole point of making it a constructor parameter -
+// see store.ts) - it may already sit at a version higher than
+// `DB_VERSION`, and `indexedDB.open(name, version)` fails with a
+// VersionError when asked for a version lower than the database's actual
+// one. resolved versions are cached per dbName so the common case (a
+// fresh database, or one already at `DB_VERSION`) only ever pays for one
+// open per operation, matching the "open fresh, close when done" pattern
+// used throughout this module.
+const resolvedVersions = new Map<string, number>();
+
+async function openDb(dbName: string): Promise<IDBDatabase> {
+  const cachedVersion = resolvedVersions.get(dbName);
+  if (cachedVersion !== undefined) {
+    return openVersioned(dbName, cachedVersion);
+  }
+
+  try {
+    const db = await openVersioned(dbName, DB_VERSION);
+    resolvedVersions.set(dbName, DB_VERSION);
+    return db;
+  } catch (err) {
+    if (!(err instanceof DOMException) || err.name !== "VersionError") throw err;
+
+    // the database already exists at some higher version - open it
+    // version-less to discover what that is, then reopen at that exact
+    // version (creating the store if a pre-existing database somehow
+    // never had one).
+    const probe = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const currentVersion = probe.version;
+    const hasStore = probe.objectStoreNames.contains(STORE_NAME);
+    probe.close();
+
+    const targetVersion = hasStore ? currentVersion : currentVersion + 1;
+    resolvedVersions.set(dbName, targetVersion);
+    return openVersioned(dbName, targetVersion);
+  }
 }
 
 export async function putRecord(dbName: string, record: BlobRecord): Promise<void> {

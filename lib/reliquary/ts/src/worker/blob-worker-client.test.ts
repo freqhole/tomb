@@ -14,10 +14,20 @@ import {
   writeBlobToOpfs,
 } from "./blob-worker-client.js";
 import { resetMiddenBlake3Cache } from "./midden-blake3.js";
+import { log } from "../utils/log.js";
 
 // this test environment has no `Worker` global, so every helper below
 // exercises its main-thread fallback path - the same path used in
-// environments without Worker support (SSR, certain test runners).
+// environments without Worker support (SSR, certain test runners) -
+// except the `getBlobWorker` tests below that explicitly stub in a fake
+// `Worker` to exercise the real ready-handshake logic instead.
+
+/** minimal fake `Worker`: enough of the `EventTarget`-based message/error
+ *  surface for the ready-handshake tests below, without a real thread. */
+class FakeWorker extends EventTarget {
+  postMessage = vi.fn();
+  terminate = vi.fn();
+}
 
 class FakeImageBitmap {
   constructor(
@@ -62,6 +72,34 @@ afterEach(() => {
 describe("getBlobWorker", () => {
   it("returns null when Worker isn't available in this environment", async () => {
     expect(await getBlobWorker()).toBeNull();
+  });
+
+  it("resolves once the worker signals ready via a message, without waiting out the timeout", async () => {
+    const worker = new FakeWorker();
+    vi.stubGlobal("Worker", vi.fn(() => worker) as unknown as typeof Worker);
+
+    const proxyPromise = getBlobWorker();
+    worker.dispatchEvent(new MessageEvent("message", { data: "blob-worker-ready" }));
+
+    expect(await proxyPromise).not.toBeNull();
+  });
+
+  it("resolves null quickly (not after the full ready-timeout) when the worker script fails to load, and logs a warning", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(log, "warn");
+    const worker = new FakeWorker();
+    vi.stubGlobal("Worker", vi.fn(() => worker) as unknown as typeof Worker);
+
+    const proxyPromise = getBlobWorker();
+    // a worker script that fails to load fires an `error` event, never a
+    // `message` - this must resolve right away, not after the 20s
+    // ready-timeout (proven by asserting the result WITHOUT advancing
+    // fake timers at all).
+    worker.dispatchEvent(new Event("error"));
+
+    expect(await proxyPromise).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 

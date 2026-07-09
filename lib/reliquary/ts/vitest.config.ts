@@ -1,3 +1,4 @@
+import path from "path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -7,6 +8,14 @@ export default defineConfig({
     // resolves to solid's ssr-stub build (real components/effects need the
     // browser build even when the enclosing environment is plain node).
     conditions: ["browser"],
+    alias: {
+      // "midden" is a bare specifier that only an embedding app provides
+      // (aliased in its own bundler config) - see midden-blake3.ts. this
+      // package's own tests alias it to a stub so the dynamic import
+      // resolves (satisfying vite's static import analysis) while still
+      // exercising the "no midden module bundled" degraded-behavior path.
+      midden: path.resolve(__dirname, "src/worker/midden-not-bundled.stub.ts"),
+    },
   },
   test: {
     environment: "node",
@@ -14,6 +23,7 @@ export default defineConfig({
       ["src/utils/image-utils.test.ts", "happy-dom"],
       ["src/worker/blob-worker-logic.test.ts", "happy-dom"],
       ["src/worker/blob-worker-client.test.ts", "happy-dom"],
+      ["src/worker/midden-worker-client.test.ts", "happy-dom"],
       ["src/blobs/bytes-backend.test.ts", "happy-dom"],
       ["src/blobs/store.test.ts", "happy-dom"],
       ["src/solid/blob-url.test.ts", "happy-dom"],

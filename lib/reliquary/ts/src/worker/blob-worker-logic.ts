@@ -15,6 +15,9 @@
 
 import { sha256Hex } from "../utils/hash.js";
 import { loadMiddenBlake3 } from "./midden-blake3.js";
+import { log } from "../utils/log.js";
+
+const TAG = "blob.worker.logic";
 
 /** message the worker entry posts once comlink has registered its message
  *  listener - see `blob-worker.ts` for why the ordering matters. */
@@ -34,8 +37,13 @@ export const OPFS_DIR = "reliquary-blobs";
 export async function hashBlake3(data: Uint8Array): Promise<string> {
   try {
     const midden = await loadMiddenBlake3();
-    return midden && typeof midden.hash_blake3 === "function" ? midden.hash_blake3(data) : "";
-  } catch {
+    if (!midden || typeof midden.hash_blake3 !== "function") {
+      log.warn(TAG, "no midden module with hash_blake3 available, blake3 hashing degraded to empty string");
+      return "";
+    }
+    return midden.hash_blake3(data);
+  } catch (err) {
+    log.warn(TAG, "blake3 hashing threw, degrading to empty string:", err);
     return "";
   }
 }

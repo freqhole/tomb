@@ -7,6 +7,7 @@
 // multiple backends together.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { log } from "../utils/log.js";
 
 // ---- fake OPFS (async writable-stream path only, matches
 // blob-worker-logic.test.ts's fake) ----
@@ -164,6 +165,23 @@ describe("createOpfsBackend", () => {
     expect(await backend.has("id-1")).toBe(false);
   });
 
+  it("write returns false (not throw) when OPFS is available but the underlying write rejects - e.g. a real browser where createSyncAccessHandle throws because the page isn't cross-origin isolated, or a stale lock from a crashed session still holds the file - and logs the real underlying error instead of silently discarding it", async () => {
+    installFakeOpfs();
+    const backend = createOpfsBackend();
+    const worker = await import("../worker/index.js");
+    const realError = new Error("NotAllowedError: Access Handles cannot be created");
+    vi.mocked(worker.writeBlobToOpfs).mockRejectedValueOnce(realError);
+    const warnSpy = vi.spyOn(log, "warn");
+
+    // isAvailable() only checks that the OPFS *api* exists (navigator.
+    // storage.getDirectory is a function) - it says nothing about whether
+    // an actual write will succeed, so a real per-write failure surfaces
+    // here, at write() itself, not at isAvailable().
+    expect(await backend.isAvailable()).toBe(true);
+    expect(await backend.write("id-1", new ArrayBuffer(4), "text/plain")).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(expect.anything(), expect.any(String), realError);
+  });
+
   it("clear() removes the whole opfs directory", async () => {
     const root = installFakeOpfs();
     const backend = createOpfsBackend();
@@ -211,6 +229,15 @@ describe("chain helpers", () => {
   it("writeThroughChain returns null when every backend is unavailable", async () => {
     const chain = defaultBytesChain();
     expect(await writeThroughChain(chain, "id-3", new ArrayBuffer(4), "text/plain")).toBeNull();
+  });
+
+  it("writeThroughChain returns null when OPFS is available but rejects the write and there is no fallback backend in the chain - reproduces the real 'no bytes backend accepted it' failure a caller sees when the cache-api fallback is disabled (allowCacheFallback: false)", async () => {
+    installFakeOpfs();
+    const worker = await import("../worker/index.js");
+    vi.mocked(worker.writeBlobToOpfs).mockRejectedValueOnce(new Error("NotAllowedError"));
+
+    const opfsOnlyChain = [createOpfsBackend()];
+    expect(await writeThroughChain(opfsOnlyChain, "id-3", new ArrayBuffer(4), "text/plain")).toBeNull();
   });
 
   it("readThroughChain goes straight to the known backend", async () => {

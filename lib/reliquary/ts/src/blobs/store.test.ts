@@ -200,7 +200,10 @@ describe("storeBlob / getBlob / getBlobData", () => {
     });
     // no navigator.storage installed at all - opfs is unavailable
 
-    const store = createBlobStore({ dbName: "store-test-cache-fallback" });
+    const store = createBlobStore({
+      dbName: "store-test-cache-fallback",
+      allowCacheFallback: true,
+    });
     const record = await store.storeBlob(textBuffer("opfs-less content"), {
       filename: "no-opfs.txt",
       mime: "text/plain",
@@ -213,9 +216,41 @@ describe("storeBlob / getBlob / getBlobData", () => {
   it("throws when neither opfs nor cache-api can accept the write", async () => {
     vi.unstubAllGlobals();
     // no navigator.storage, no caches - every backend in the chain refuses
-    const store = createBlobStore({ dbName: "store-test-no-backend" });
+    const store = createBlobStore({ dbName: "store-test-no-backend", allowCacheFallback: true });
     await expect(
       store.storeBlob(textBuffer("nowhere to go"), { filename: "x.txt", mime: "text/plain" })
+    ).rejects.toThrow(/no bytes backend accepted/);
+  });
+
+  it("does not fall back to cache-api by default, even when it's available", async () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => `blob:mock-${Math.random()}`),
+      revokeObjectURL: vi.fn(),
+    });
+    const cacheStorage = new Map<string, Map<string, Response>>();
+    vi.stubGlobal("caches", {
+      async open(name: string) {
+        if (!cacheStorage.has(name)) cacheStorage.set(name, new Map());
+        const entries = cacheStorage.get(name)!;
+        return {
+          async put(url: string, response: Response) {
+            entries.set(url, response);
+          },
+          async match(url: string) {
+            const found = entries.get(url);
+            return found ? found.clone() : undefined;
+          },
+        };
+      },
+    });
+    // no navigator.storage installed - opfs is unavailable, cache-api is
+    // available but must NOT be used since allowCacheFallback defaults to
+    // false (Q25: loam's crash-loud semantics are the default).
+
+    const store = createBlobStore({ dbName: "store-test-no-fallback-default" });
+    await expect(
+      store.storeBlob(textBuffer("opfs-less content"), { filename: "no-opfs.txt", mime: "text/plain" })
     ).rejects.toThrow(/no bytes backend accepted/);
   });
 });

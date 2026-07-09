@@ -113,3 +113,32 @@ describe("db name isolation", () => {
     expect(await getRecord("db-one", "blake3-aaa")).not.toBeNull();
   });
 });
+
+describe("pre-existing database at a higher version", () => {
+  it("still reads and writes when dbName already exists at a version above DB_VERSION", async () => {
+    // simulates an app's pre-existing database (this module's whole
+    // reason for taking dbName as a parameter) that was already upgraded
+    // to a later version by that app's own code before this store ever
+    // touched it - indexedDB.open(name, 1) would otherwise fail with a
+    // VersionError since 1 is lower than the database's actual version.
+    const dbName = "pre-existing-higher-version-db";
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open(dbName, 3);
+      req.onupgradeneeded = () => {
+        const store = req.result.createObjectStore("blobs", { keyPath: "blob_id" });
+        store.createIndex("sha256", "sha256", { unique: false });
+        store.createIndex("blake3", "blake3", { unique: false });
+      };
+      req.onsuccess = () => {
+        req.result.close();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    const record = makeRecord();
+    await putRecord(dbName, record);
+    expect(await getRecord(dbName, record.blob_id)).toEqual(record);
+    expect(await getRecordByBlake3(dbName, record.blake3)).toEqual(record);
+  });
+});

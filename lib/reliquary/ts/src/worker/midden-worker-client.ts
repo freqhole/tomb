@@ -146,15 +146,31 @@ export class WorkerMiddenNode {
     const ready = await new Promise<boolean>((resolve) => {
       const timeout = setTimeout(() => {
         worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        log.warn(TAG, `worker did not signal ready within ${MIDDEN_WORKER_READY_TIMEOUT_MS}ms`);
         resolve(false);
       }, MIDDEN_WORKER_READY_TIMEOUT_MS);
       const onMessage = (e: MessageEvent): void => {
         if (e.data !== MIDDEN_WORKER_READY_MESSAGE) return;
         clearTimeout(timeout);
+        worker.removeEventListener("error", onError);
         worker.removeEventListener("message", onMessage);
         resolve(true);
       };
+      // a worker script that fails to load (network error, blocked by a dev
+      // server's file-serving restrictions, syntax error, etc.) fires an
+      // `error` event, never a `message` - without this listener the promise
+      // above would otherwise sit unresolved for the full ready-timeout with
+      // no indication anything went wrong.
+      const onError = (e: ErrorEvent): void => {
+        clearTimeout(timeout);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        log.warn(TAG, "worker failed to load:", e.message || e);
+        resolve(false);
+      };
       worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
     });
 
     if (!ready) {

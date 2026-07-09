@@ -13,6 +13,9 @@ import type { BlobWorkerApi } from "./blob-worker.js";
 import { sha256Hex } from "../utils/hash.js";
 import { loadMiddenBlake3 } from "./midden-blake3.js";
 import { BLOB_WORKER_READY_MESSAGE } from "./blob-worker-logic.js";
+import { log } from "../utils/log.js";
+
+const TAG = "blob.worker";
 
 let workerProxy: Comlink.Remote<BlobWorkerApi> | null = null;
 let workerInstance: Worker | null = null;
@@ -59,15 +62,31 @@ export async function getBlobWorker(): Promise<Comlink.Remote<BlobWorkerApi> | n
     const ready = await new Promise<boolean>((resolve) => {
       const timeout = setTimeout(() => {
         worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        log.warn(TAG, `worker did not signal ready within ${WORKER_READY_TIMEOUT_MS}ms`);
         resolve(false);
       }, WORKER_READY_TIMEOUT_MS);
       const onMessage = (e: MessageEvent): void => {
         if (e.data !== BLOB_WORKER_READY_MESSAGE) return;
         clearTimeout(timeout);
+        worker.removeEventListener("error", onError);
         worker.removeEventListener("message", onMessage);
         resolve(true);
       };
+      // a worker script that fails to load (network error, blocked by a dev
+      // server's file-serving restrictions, syntax error, etc.) fires an
+      // `error` event, never a `message` - without this listener the promise
+      // above would otherwise sit unresolved for the full ready-timeout with
+      // no indication anything went wrong.
+      const onError = (e: ErrorEvent): void => {
+        clearTimeout(timeout);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+        log.warn(TAG, "worker failed to load:", e.message || e);
+        resolve(false);
+      };
       worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
     });
 
     if (!ready) {
@@ -106,8 +125,13 @@ export function shutdownBlobWorker(): void {
 async function fallbackHashBlake3(data: Uint8Array): Promise<string> {
   try {
     const midden = await loadMiddenBlake3();
-    return midden && typeof midden.hash_blake3 === "function" ? midden.hash_blake3(data) : "";
-  } catch {
+    if (!midden || typeof midden.hash_blake3 !== "function") {
+      log.warn(TAG, "no midden module with hash_blake3 available, blake3 hashing degraded to empty string");
+      return "";
+    }
+    return midden.hash_blake3(data);
+  } catch (err) {
+    log.warn(TAG, "blake3 hashing threw, degrading to empty string:", err);
     return "";
   }
 }

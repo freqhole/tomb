@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { WorkerBiStream, WorkerImportSession } from "./midden-worker-client.js";
+import { WorkerBiStream, WorkerImportSession, WorkerMiddenNode } from "./midden-worker-client.js";
 import type { MiddenWorkerApi, StreamInfo } from "./midden-worker-contract.js";
+import { log } from "../utils/log.js";
 
 // `WorkerBiStream`/`WorkerImportSession` are the parts of the comlink
 // facade that are meaningfully unit-testable without a real worker thread:
-// pure message construction/parsing over a fake api object. spinning up an
-// actual worker (`WorkerMiddenNode.create()`) isn't realistically
-// testable in this environment and isn't covered here.
+// pure message construction/parsing over a fake api object.
+// `WorkerMiddenNode.create`'s ready-handshake is covered below against a
+// minimal fake `Worker`.
+
+/** minimal fake `Worker`: enough of the `EventTarget`-based message/error
+ *  surface for the ready-handshake tests below, without a real thread. */
+class FakeWorker extends EventTarget {
+  postMessage = vi.fn();
+  terminate = vi.fn();
+}
 
 function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi {
   return {
@@ -46,6 +54,26 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
 }
 
 const STREAM_INFO: StreamInfo = { streamId: 7, peerNodeId: "peer-abc", alpn: "test/1" };
+
+describe("WorkerMiddenNode.create", () => {
+  it("rejects quickly (not after the full ready-timeout) when the worker script fails to load, and logs a warning", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(log, "warn");
+    const worker = new FakeWorker();
+
+    const createPromise = WorkerMiddenNode.create(null, () => worker as unknown as Worker);
+    // a worker script that fails to load fires an `error` event, never a
+    // `message` - this must reject right away, not after the 20s
+    // ready-timeout (proven by asserting the result WITHOUT advancing fake
+    // timers at all).
+    worker.dispatchEvent(new Event("error"));
+
+    await expect(createPromise).rejects.toThrow(/did not become ready/);
+    expect(warnSpy).toHaveBeenCalled();
+    expect(worker.terminate).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
 
 describe("WorkerBiStream", () => {
   it("exposes the stream's peer id and alpn synchronously", () => {

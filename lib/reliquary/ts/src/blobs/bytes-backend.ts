@@ -23,7 +23,10 @@
 // access handle, and keeping them off the worker avoids a round trip.
 
 import { BLOB_OPFS_DIR, writeBlobToOpfs as writeBlobToOpfsViaWorker } from "../worker/index.js";
+import { log } from "../utils/log.js";
 import type { BytesBackendName } from "./types.js";
+
+const TAG = "blobs.bytes-backend";
 
 export interface BytesBackend {
   readonly name: BytesBackendName;
@@ -70,7 +73,16 @@ export function createOpfsBackend(): BytesBackend {
       try {
         await writeBlobToOpfsViaWorker(id, data);
         return true;
-      } catch {
+      } catch (err) {
+        // the real underlying failure (a browser-level exception from the
+        // worker's OPFS write - e.g. a missing cross-origin-isolation
+        // requirement for FileSystemSyncAccessHandle, or a stale lock on
+        // this file from an interrupted previous write) must not be
+        // silently discarded here - a caller several layers up (storeBlob)
+        // only ever sees a generic "no bytes backend accepted it" once
+        // every backend in the chain has failed, so this is the last place
+        // the real cause is still available to log.
+        log.warn(TAG, `opfs write failed for ${id.slice(0, 16)}...:`, err);
         return false;
       }
     },
@@ -147,7 +159,8 @@ export function createCacheBackend(): BytesBackend {
         const response = new Response(data, { headers: { "Content-Type": mime } });
         await cache.put(cacheUrlFor(id), response);
         return true;
-      } catch {
+      } catch (err) {
+        log.warn(TAG, `cache-api write failed for ${id.slice(0, 16)}...:`, err);
         return false;
       }
     },

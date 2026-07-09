@@ -30,6 +30,7 @@ import {
   putRecord,
 } from "./db.js";
 import {
+  createOpfsBackend,
   defaultBytesChain,
   hasBytesInChain,
   readThroughChain,
@@ -56,6 +57,14 @@ export interface BlobStoreOptions {
    *  `DEFAULT_DB_NAME`; pass an app's existing database name to keep
    *  reading/writing the same browser data it already has. */
   dbName?: string;
+  /** when true, a write falls back to the Cache API if OPFS is
+   *  unavailable or refuses the write (e.g. the webkitgtk quirk where
+   *  OPFS writes from the main thread are rejected). defaults to false:
+   *  a write that OPFS refuses throws instead of silently landing in the
+   *  cache, since a record whose bytes silently ended up somewhere the
+   *  caller didn't expect is worse than a loud failure the caller can
+   *  retry or surface. */
+  allowCacheFallback?: boolean;
 }
 
 export interface StoreBlobFromFileOptions {
@@ -89,7 +98,7 @@ export interface BlobStore {
  *  cache; construct one per app (not per component/request). */
 export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   const dbName = options.dbName ?? DEFAULT_DB_NAME;
-  const chain: BytesBackend[] = defaultBytesChain();
+  const chain: BytesBackend[] = options.allowCacheFallback ? defaultBytesChain() : [createOpfsBackend()];
 
   const blobUrlCache = new Map<string, string>();
   let beforeUnloadRegistered = false;

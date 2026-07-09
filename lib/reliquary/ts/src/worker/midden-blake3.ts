@@ -8,10 +8,20 @@
 // (an empty hash string, or a clearly thrown error where there is no
 // meaningful fallback) when it is not available.
 //
-// the module specifier is kept in a variable rather than inlined as a
-// string literal import so this package's own build/typecheck never needs
-// a "midden" module to be resolvable - only the final app that bundles
-// this worker (and brings its own midden dependency) does.
+// the specifier must be a literal string at the `import()` call site, not
+// a variable: bundlers only apply their own alias/resolution config (e.g.
+// vite's `resolve.alias`) to dynamic imports they can statically analyze,
+// and a variable defeats that analysis entirely - the import then falls
+// through to the runtime's native module resolution, which cannot resolve
+// a bare specifier without an import map and fails with "failed to
+// resolve module specifier". `@ts-ignore` (not `@vite-ignore`) is what's
+// needed here: this package never bundles a real "midden" module itself,
+// so typechecking a literal import of it is expected to fail, but the
+// bundler must still see and rewrite the literal specifier.
+
+import { log } from "../utils/log.js";
+
+const TAG = "blob.worker.midden";
 
 /** structural view of the pieces of a midden-shaped module this worker uses. */
 export interface MiddenBlake3Module {
@@ -28,8 +38,6 @@ export interface Blake3HasherLike {
   free(): void;
 }
 
-const MIDDEN_MODULE_SPECIFIER = "midden";
-
 let cached: MiddenBlake3Module | null | undefined;
 
 /**
@@ -40,8 +48,11 @@ let cached: MiddenBlake3Module | null | undefined;
 export async function loadMiddenBlake3(): Promise<MiddenBlake3Module | null> {
   if (cached !== undefined) return cached;
   try {
-    cached = (await import(MIDDEN_MODULE_SPECIFIER)) as MiddenBlake3Module;
-  } catch {
+    // @ts-ignore - this package never bundles a real "midden" module; the
+    // embedding app aliases the literal specifier below to its own build.
+    cached = (await import("midden")) as MiddenBlake3Module;
+  } catch (err) {
+    log.warn(TAG, "midden module failed to load, blake3 hashing will degrade:", err);
     cached = null;
   }
   return cached;
