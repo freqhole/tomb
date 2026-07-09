@@ -38,6 +38,10 @@
             "types": "./dist/protocol/index.d.ts",
             "import": "./dist/protocol/index.js"
         },
+        "./state": {
+            "types": "./dist/state/index.d.ts",
+            "import": "./dist/state/index.js"
+        },
         "./solid": {
             "types": "./dist/solid/index.d.ts",
             "import": "./dist/solid/index.js"
@@ -62,6 +66,7 @@
         }
     },
     "devDependencies": {
+        "@types/node": "^26.1.1",
         "fake-indexeddb": "^6.0.0",
         "typescript": "^5.6.0",
         "vitest": "^2.1.0",
