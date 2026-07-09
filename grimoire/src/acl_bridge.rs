@@ -1,3 +1,5 @@
+// CUTOVER(0.2.0): this entire module exists to bridge grimoire's admin flag onto haruspex's acl evaluator without backfilling RoleGrant rows; can be deleted once instance-admin RoleGrants are backfilled and grimoire.user_accountz.role is dropped
+
 //! bridges instance-wide admin routes onto haruspex's acl evaluator.
 //!
 //! grimoire still tracks its own admin flag on `user_accountz.role`

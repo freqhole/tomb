@@ -381,10 +381,8 @@ impl UserRepository {
     /// also cascade-soft-deletes all of the user's currently-active devices.
     /// device state lives in haruspex's own database, so it can't share
     /// this transaction - the cascade runs as a best-effort follow-up once
-    /// the user row itself is committed as deleted. (the legacy
-    /// `user_peer_nodez` cascade below is kept for rows still tracked
-    /// there from before this cutover; it's a no-op for anything added
-    /// since.)
+    /// the user row itself is committed as deleted.
+    // CUTOVER(0.2.0): the legacy user_peer_nodez cascade below can be deleted once grimoire.user_peer_nodez table is dropped
     pub async fn delete_user(&self, user_id: &str) -> AuthResult<()> {
         let pool = database::connect().await?;
 
@@ -690,15 +688,13 @@ impl UserRepository {
 
     /// Restore a soft-deleted user (set deleted_at = NULL).
     ///
-    /// also restores any legacy `user_peer_nodez` rows that were
-    /// cascade-soft-deleted in the same operation as this user (matched by
-    /// identical `deleted_at` timestamp) - kept for rows tracked there from
-    /// before this cutover. devices tracked in haruspex are NOT
-    /// auto-restored here: haruspex's `remove_device` stamps its own
-    /// `deleted_at` internally rather than accepting one, so there's no
-    /// reliable way to tell a device that was cascade-deleted alongside
-    /// this user apart from one removed individually beforehand. restore
-    /// those explicitly via `restore_peer_node` after restoring the user.
+    /// devices tracked in haruspex are NOT auto-restored here: haruspex's
+    /// `remove_device` stamps its own `deleted_at` internally rather than
+    /// accepting one, so there's no reliable way to tell a device that was
+    /// cascade-deleted alongside this user apart from one removed
+    /// individually beforehand. restore those explicitly via
+    /// `restore_peer_node` after restoring the user.
+    // CUTOVER(0.2.0): the legacy user_peer_nodez restore logic below (matched by deleted_at timestamp) can be deleted once grimoire.user_peer_nodez table is dropped
     pub async fn restore_user(&self, user_id: &str) -> AuthResult<User> {
         let pool = database::connect().await?;
         let mut tx = pool.begin().await?;

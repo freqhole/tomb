@@ -3,35 +3,38 @@
 //! this runs before cargo compiles the crate, ensuring views exist in the database
 //! when sqlx::query_as! macros do their compile-time verification.
 //!
-//! DATABASE_URL is set in .cargo/config.toml with relative = true
+//! DATABASE_URL is computed here from CARGO_MANIFEST_DIR (always this crate's
+//! own directory, regardless of the directory cargo is invoked from) and
+//! published via `cargo:rustc-env` - so builds are correct no matter the
+//! invocation cwd or which machine they run on, with no hardcoded absolute
+//! path committed anywhere.
 
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 fn main() {
-    // skip if SQLX_OFFLINE (CI/Docker) or no DATABASE_URL
+    // skip if SQLX_OFFLINE (CI/Docker) - no db connection needed at compile time
     if std::env::var("SQLX_OFFLINE").is_ok() {
         return;
     }
 
-    let Ok(url) = std::env::var("DATABASE_URL") else {
-        return;
-    };
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by cargo");
+    let db_path = Path::new(&manifest_dir)
+        .parent()
+        .expect("grimoire crate has a parent (workspace root)")
+        .join("data/grimoire.db");
+    let url = format!("sqlite:{}", db_path.display());
+    println!("cargo:rustc-env=DATABASE_URL={url}");
+    println!("cargo:rerun-if-changed=build.rs");
 
-    // strip sqlite: or sqlite:// prefix to get file path
-    let db_path = url
-        .strip_prefix("sqlite:///")
-        .or_else(|| url.strip_prefix("sqlite://"))
-        .or_else(|| url.strip_prefix("sqlite:"))
-        .unwrap_or(&url);
-
-    if !Path::new(db_path).exists() {
+    if !db_path.exists() {
         return;
     }
 
     // create views in dependency order (artist first, then others that reference it)
-    let views_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let views_dir = Path::new(&manifest_dir)
         .parent()
         .unwrap()
         .join("migrations/views");
@@ -50,7 +53,7 @@ fn main() {
         };
 
         let Ok(mut child) = Command::new("sqlite3")
-            .arg(db_path)
+            .arg(&db_path)
             .stdin(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

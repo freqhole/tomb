@@ -155,10 +155,9 @@ fn webauthn_challenge_ttl_secs() -> i64 {
         * 60
 }
 
-/// map a haruspex ceremony error onto the same response shapes the p2p
-/// handlers used before the cutover (a failed lookup and an expired/invalid
-/// nonce are kept indistinguishable from each other on purpose, to avoid
-/// leaking which case occurred).
+/// map a haruspex ceremony error to a response. failed lookups and
+/// expired/invalid nonces are kept indistinguishable from each other on
+/// purpose, to avoid leaking which case occurred.
 #[cfg(feature = "webauthn")]
 fn webauthn_error_response(err: haruspex::webauthn::WebauthnError) -> GrimoireResponse<JsonValue> {
     use haruspex::webauthn::WebauthnError;
@@ -455,10 +454,7 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
         user.id
     };
 
-    // link node_id to the grimoire user (grimoire's own peer table -
-    // separate from haruspex's own device_nodez table, which the ceremony
-    // above already updated directly; device/identity storage is not
-    // unified across the two yet, see this cutover's final report)
+    // CUTOVER(0.2.0): link node_id to grimoire's own peer table (separate from haruspex's device_nodez); can be deleted once grimoire.user_peer_nodez table is dropped and all device tracking is unified in haruspex
     if let Some(ref node_id) = req.node_id {
         let _ = user_service
             .add_peer_node(&credential_user_id, node_id, Some("passkey registration"))

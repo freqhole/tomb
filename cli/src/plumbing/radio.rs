@@ -1,12 +1,9 @@
 //! radio CLI commands.
 //!
-//! phase 0: a single `serve` subcommand that starts a federation endpoint
-//! with the `freqhole-radio/1` ALPN registered, prints the node id, and runs
-//! until Ctrl-C. each inbound connection gets its own ffmpeg pipeline and
-//! random song stream.
-//!
-//! phase 1 will add `status` / `info` / `skip` subcommands that talk to a
-//! running broadcaster.
+//! the `serve` subcommand starts a federation endpoint with the
+//! `freqhole-radio/1` ALPN registered, prints the node id, and runs until
+//! Ctrl-C. each inbound connection gets its own ffmpeg pipeline and random
+//! song stream.
 
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;

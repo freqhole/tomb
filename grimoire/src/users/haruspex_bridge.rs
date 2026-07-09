@@ -1,3 +1,5 @@
+// CUTOVER(0.2.0): this bridge exists because grimoire and haruspex use different user id types; can be deleted once grimoire adopts haruspex identity ids directly
+
 //! translates between grimoire's own user id representation
 //! (`user_accountz.id`, a short random hex string) and haruspex's identity
 //! model (`Identity.id: Uuid`).

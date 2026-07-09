@@ -31,8 +31,10 @@ open coverage/index.html  # view the HTML report
 
 all tests use `TestContext::from_snapshot()`, which points `run_cli()` / `run_json()` at the
 shared snapshot db `data/test.db` (via `cli/tests/fixtures/test-config.toml`). there is no
-per-test copy - tests share and mutate that one file, which is why `make test-cli` always runs
-with `--test-threads=1`. write new tests with that in mind: don't assume a pristine db, and
+per-test copy - tests share and mutate that one file directly, and `from_snapshot()` holds a
+process-wide lock for its lifetime so tests serialize safely under cargo's default
+multi-threaded test runner (`--test-threads=1` is no longer required, just a harmless extra
+safety belt if you want it). write new tests with that in mind: don't assume a pristine db, and
 don't assume other tests haven't mutated shared rows.
 
 example:

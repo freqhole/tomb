@@ -126,7 +126,7 @@ make test-cli-coverage
 make test-cli-list
 ```
 
-**Testing pattern**: CLI tests use `TestContext::from_snapshot()`, which points at the shared snapshot db `data/test.db` directly (no per-test copy - tests share and mutate it, hence `--test-threads=1`) and provides `run_cli()` / `run_json()` helpers. see [cli/tests/README.md](../cli/tests/README.md) for how to regenerate the snapshot or fix a poisoned migration checksum.
+**Testing pattern**: CLI tests use `TestContext::from_snapshot()`, which points at the shared snapshot db `data/test.db` directly (no per-test copy - tests share and mutate it) and provides `run_cli()` / `run_json()` helpers. `from_snapshot()` holds a process-wide lock for its lifetime, so tests serialize safely under cargo's default multi-threaded test runner - `--test-threads=1` is no longer required, just a harmless extra safety belt if you want it. see [cli/tests/README.md](../cli/tests/README.md) for how to regenerate the snapshot or fix a poisoned migration checksum.
 
 ### Client Development
 

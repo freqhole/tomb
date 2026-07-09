@@ -249,10 +249,7 @@ impl KnockPolicy for GrimoireKnockPolicy {
 
         Ok(KnockOutcome {
             status: HaruspexKnockStatus::Accepted,
-            // role assignment already happened via `CreateUserRequest.role`
-            // above; wiring grimoire's own role vocabulary onto haruspex's
-            // shared grant `Role` is a separate, later cutover pass, not
-            // this one.
+            // CUTOVER(0.2.0): role assignment already happened via `CreateUserRequest.role` above; wiring grimoire's role vocabulary onto haruspex RoleGrant rows is a separate pass (see GrimoireRoleResolver in acl_bridge.rs)
             granted_role: None,
             granted_resource_ids: None,
             account,

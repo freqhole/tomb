@@ -7,8 +7,10 @@
 # Override with SQLX_OFFLINE=false when you want online mode
 # SQLX_OFFLINE = "true"
 
-# relative path to db for online sqlx compile checks.
-DATABASE_URL = "sqlite:data/grimoire.db"
+# DATABASE_URL for online sqlx compile checks is computed by grimoire's own
+# build.rs (from CARGO_MANIFEST_DIR, absolute and cwd-independent) - not set
+# here anymore, since a plain relative path only resolved correctly when
+# cargo was invoked from this exact directory.
 
 [build]
 # Number of parallel jobs, defaults to # of CPUs
