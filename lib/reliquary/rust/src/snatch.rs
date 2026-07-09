@@ -12,13 +12,11 @@
 //!   the wire protocol for that question is app-specific (see
 //!   [`crate::ensure::send_ensure_blob_request`] for one ready-made option).
 //!
-//! everything else is generic engine machinery ported from skein's
-//! `snatch.rs` (see the xl-refactor phase 2 doc's "SnatchEngine
-//! genericization" section and `docs/storage-traits.md`'s "layer 3:
-//! transfer" section): the global + per-peer concurrency limits, probe
-//! timeout, per-progress-event download inactivity timeout, soft-delete-aware
-//! dedup, `TryReference` export + ingest, in-flight tracking shared with
-//! [`crate::node`]'s gc-protect callback, and a peer blob inventory fallback.
+//! everything else is generic engine machinery: global + per-peer concurrency
+//! limits, probe timeout, per-progress-event download inactivity timeout,
+//! soft-delete-aware dedup, `TryReference` export + ingest, in-flight
+//! tracking shared with [`crate::node`]'s gc-protect callback, and a peer
+//! blob inventory fallback.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};

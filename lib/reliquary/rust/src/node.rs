@@ -1,12 +1,10 @@
 //! StorageNode: the reusable iroh-blobs `FsStore` + gc-protect + downloader
 //! bundle.
 //!
-//! distilled from skein's `service.rs` and skein/tauri's fs-store wiring
-//! (both independently built the same FsStore/protect-callback/downloader
-//! bundle - see the xl-refactor phase 2 doc's "StorageNode builder"
-//! section). app wiring stays out of this module: endpoint construction,
-//! ALPN registration, router building, which access gate to use, and
-//! snatch engine startup are all consumer concerns.
+//! combines an `FsStore`, gc-protect callback, and `Downloader` into a single
+//! builder-configured struct. app wiring stays out of this module: endpoint
+//! construction, ALPN registration, router building, which access gate to use,
+//! and snatch engine startup are all consumer concerns.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

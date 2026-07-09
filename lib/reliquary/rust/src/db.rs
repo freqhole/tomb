@@ -1,7 +1,9 @@
 //! database handle: a single sqlx `SqlitePool` used by all reliquary modules.
 //!
-//! reliquary owns its own sqlite database file (`reliquary.db`, decision Q2 in
-//! the xl-refactor phase 2 doc), separate from any consuming app's own db.
+//! reliquary owns its own sqlite database file (`reliquary.db`), separate
+//! from any consuming app's own db. cross-domain joins are an application
+//! concern; reliquary ships batch resolver apis to make app-level joins
+//! efficient.
 
 use std::path::Path;
 

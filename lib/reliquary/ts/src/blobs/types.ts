@@ -1,12 +1,10 @@
 // shared shapes for the blake3-canonical blob record store.
 //
-// mirrors the rust crate's `reliquary::blobz` schema conceptually (blake3
-// primary key, sha256 legacy index, blob_type, parent linkage) but trims
-// fields that only make sense on the native side (on-disk path, external
-// flag, soft-delete bookkeeping) or that were app-specific classification
-// rather than part of a shared schema (loam's `domain` field, for
-// instance - callers that want that kind of classification can put it in
-// `metadata`).
+// core schema: blake3 primary key, sha256 legacy index, blob_type, parent
+// linkage. this browser version omits native-only fields (on-disk path,
+// external flag, soft-delete bookkeeping) and app-specific classification
+// fields (e.g. domain tags) - callers that want classification can use
+// the `metadata` field.
 
 /** original | thumbnail | waveform | preview - matches the rust schema's enum. */
 export type BlobType = "original" | "thumbnail" | "waveform" | "preview";

@@ -1,10 +1,9 @@
 //! subprocess-based pdf/video thumbnailing (feature `thumbnails`).
 //!
-//! ported from skein/tauri's `thumbnail.rs` dispatch logic. needs `magick`
-//! (imagemagick) on `PATH` for pdf first-page rasterization, and
-//! `ffprobe`/`ffmpeg` on `PATH` for video frame extraction. image
-//! thumbnails reuse [`crate::media::resize_to_square_webp`] and need no
-//! external binary.
+//! dispatches thumbnail generation to external tools: `magick` (imagemagick)
+//! for pdf first-page rasterization, and `ffprobe`/`ffmpeg` for video frame
+//! extraction. image thumbnails reuse [`crate::media::resize_to_square_webp`]
+//! and need no external binary. all tools must be on `PATH`.
 
 use std::path::Path;
 

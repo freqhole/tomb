@@ -1,11 +1,10 @@
 //! access gate seam for the `iroh-blobs/*` verified-transfer ALPN.
 //!
-//! ported from skein's `blob_acl.rs`: only the generic `EventSender` adapter
-//! mechanics move here. concrete gates that consult app-specific state
-//! (friendz tables, canvas acl maps) stay with their app - haruspex ships a
-//! friend-only gate (phase 4 of the xl-refactor plan), tumulus keeps its
-//! canvas-acl resolver (phase 7). this crate ships the adapter plus
-//! [`AllowAll`] for open nodes.
+//! provides the generic `EventSender` adapter mechanics that wire an
+//! [`AccessGate`] trait object into iroh-blobs' event extension point.
+//! concrete gates that consult app-specific state (friendz tables, canvas
+//! acl maps, etc.) are implemented by the consuming application - this
+//! crate ships the adapter plus [`AllowAll`] for open nodes.
 //!
 //! `iroh_blobs::provider::events::EventSender` is an upstream, documented
 //! extension point (see the `iroh-blobs` crate's own `examples/limit.rs`)
@@ -155,9 +154,9 @@ mod tests {
 
     /// real, two-endpoint, localhost-only (no relay/discovery needed) proof
     /// that `build_gated_blobs_events` actually gates byte transfer, not
-    /// just the `AccessGate` trait in isolation. mirrors the pattern
-    /// `iroh_blobs`' own test suite uses for local node pairs
-    /// (`presets::Minimal` + direct `EndpointAddr`, no relay).
+    /// just the `AccessGate` trait in isolation. uses the same test pattern
+    /// as `iroh_blobs`' own suite for local node pairs (`presets::Minimal` +
+    /// direct `EndpointAddr`, no relay).
     async fn two_local_endpoints() -> (iroh::Endpoint, iroh::Endpoint) {
         let a = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
