@@ -172,10 +172,11 @@ impl InviteStore for SqliteInviteStore {
     }
 
     async fn deactivate_all_unused(&self) -> Result<u64, StoreError> {
-        let result =
-            sqlx::query("UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_at IS NULL")
-                .execute(&self.pool)
-                .await?;
+        let result = sqlx::query(
+            "UPDATE invite_codez SET is_active = 0 WHERE is_active = 1 AND used_at IS NULL",
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(result.rows_affected())
     }
 

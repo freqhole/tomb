@@ -1,19 +1,15 @@
-//! the auth-flavored subset of skein's hub_admin protocol: friend crud
+//! the auth-flavored subset of the hub_admin protocol: friend crud
 //! (allow/remove/block/list), admin promote/demote, and profile get/set - as
 //! transport-agnostic request/response types plus a plain async handler over
 //! haruspex's own stores.
 //!
-//! ported from skein's real `reliquary/src/protocol/hub_admin.rs` (read-only
-//! research - 3585 lines total; only the auth-flavored slice below moves).
-//! per PHASE_4_HARUSPEX_RUST.md's "hub admin protocol (partial)" section,
-//! the canvas/blob lifecycle ops (disk usage, canvas usage, soft/hard-delete
-//! blobs, unsync canvas, pending-knock aggregation, avatar image upload)
-//! stay app-side (tumulus) - this module ships neither those types nor any
-//! wire protocol/ALPN handler at all. tumulus's own hub_admin wire handler
-//! (phase 7) dispatches its app-specific ops directly and calls into
-//! [`HubAdmin::handle`] for the auth ops covered here - the same
-//! "transport does framing, core does logic" split `protocol::service`
-//! already uses.
+//! this module ships only auth-related operations. canvas/blob lifecycle ops
+//! (disk usage, canvas usage, soft/hard-delete blobs, unsync canvas,
+//! pending-knock aggregation, avatar image upload) stay app-side - consuming
+//! apps dispatch those directly and call [`HubAdmin::handle`] for the auth
+//! ops covered here. this follows the "transport does framing, core does
+//! logic" split `protocol::service` already uses - no wire protocol or ALPN
+//! handler lives in this module.
 //!
 //! # store mapping (deliberately different from skein's flat tables)
 //!

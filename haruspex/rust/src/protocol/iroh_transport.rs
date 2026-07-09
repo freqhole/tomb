@@ -2,18 +2,14 @@
 //!
 //! every iroh-specific type (`Connection`, `ProtocolHandler`, `Endpoint`,
 //! `EndpointAddr`, `PublicKey`, `AcceptError`) lives only in this file,
-//! gated behind the `iroh` cargo feature, per PHASE_4_HARUSPEX_RUST.md's
-//! transport-agnostic design tenet. [`FriendzProtocolHandler::accept`] does
-//! nothing but: extract the caller's identity from the connection
-//! (`remote_id()`), read a framed message via [`super::codec`], call
-//! [`FriendzService::dispatch`] (zero iroh types in that signature), and
-//! write the response back via the codec. no dispatch decision-making
-//! lives here.
-//!
-//! ported from skein's `reliquary/src/protocol/handler.rs`'s
-//! `ProtocolHandler` impl and heartbeat loop, restructured so the presence
-//! bookkeeping and message routing (now `FriendzService`/`dispatch`) no
-//! longer live inside the iroh-coupled type.
+//! gated behind the `iroh` cargo feature, to keep the protocol core
+//! transport-agnostic. [`FriendzProtocolHandler::accept`] does nothing but:
+//! extract the caller's identity from the connection (`remote_id()`), read
+//! a framed message via [`super::codec`], call [`FriendzService::dispatch`]
+//! (zero iroh types in that signature), and write the response back via the
+//! codec. no dispatch decision-making lives here - all message routing and
+//! presence bookkeeping live in `FriendzService`/`dispatch`, not inside
+//! this iroh-coupled type.
 
 use std::sync::Arc;
 

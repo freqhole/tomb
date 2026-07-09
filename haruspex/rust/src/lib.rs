@@ -1,8 +1,8 @@
 //! haruspex: auth domain for the freqhole family of apps.
 //!
-//! identity, devices, roles/groups, acl evaluation, webauthn ceremonies, the knock
-//! access-request protocol, and the friendz peer protocol. see the repo README and
-//! `docs/xl-refactor/PHASE_4_HARUSPEX_RUST.md` in the tomb repo for the full design.
+//! identity, devices, roles/groups, acl evaluation, webauthn ceremonies, the
+//! knock access-request protocol, and the friendz peer protocol. see the
+//! repo README for the full design.
 //!
 //! this crate ships: the identity module (`identity`), the store traits
 //! (`stores`) every app-facing api sits behind, sqlite implementations of

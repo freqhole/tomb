@@ -1,8 +1,7 @@
 //! the acl evaluator: `effective_role`, resource ancestry, the `RoleResolver`
 //! seam, `Caller`, and the `on_access_changed` revocation hook.
 //!
-//! per PHASE_4_HARUSPEX_RUST.md's "grants + acl: the unified model" (ACCEPTED
-//! 2026-07-06):
+//! the model:
 //!
 //! ```text
 //! resolve(node_id) -> Identity

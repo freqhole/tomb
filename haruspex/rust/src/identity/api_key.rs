@@ -21,8 +21,7 @@ use crate::identity::Identity;
 use crate::stores::IdentityStore;
 
 /// generate a cryptographically random api key: 32 bytes of entropy,
-/// hex-encoded to a 64-character string. mirrors tomb's
-/// `generate_secure_api_key` exactly (same byte count and encoding).
+/// hex-encoded to a 64-character string.
 pub fn generate_api_key() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 32];

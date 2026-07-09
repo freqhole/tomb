@@ -39,9 +39,6 @@ pub trait CredentialStore: Send + Sync {
     /// checking - verifying the credential belongs to the expected identity -
     /// is the caller's responsibility; this method applies the rename
     /// unconditionally. pass `None` to clear the name.
-    async fn rename_credential(
-        &self,
-        id: &str,
-        new_name: Option<String>,
-    ) -> Result<(), StoreError>;
+    async fn rename_credential(&self, id: &str, new_name: Option<String>)
+        -> Result<(), StoreError>;
 }

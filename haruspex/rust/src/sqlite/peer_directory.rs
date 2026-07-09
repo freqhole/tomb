@@ -1,9 +1,8 @@
 //! sqlite-backed `PeerDirectory`.
 //!
-//! ported from skein's `userz` table: `upsert_profile` is a coalesce-based
-//! partial upsert (a `None` field never clobbers an existing value), and
-//! `is_self`/`is_hub` are one-way ratchets - once set, a plain profile
-//! update can never flip them back off.
+//! `upsert_profile` is a coalesce-based partial upsert (a `None` field
+//! never clobbers an existing value), and `is_self`/`is_hub` are one-way
+//! ratchets - once set, a plain profile update can never flip them back off.
 
 use async_trait::async_trait;
 use sqlx::SqlitePool;

@@ -169,7 +169,8 @@ impl KnockStore for SqliteKnockStore {
         let decisions_json = serde_json::to_string(&decisions)?;
         // single-responder assumption: whichever decision arrives becomes the
         // record's resolved status - there is no concurrent-writer case to
-        // reconcile here (see module docs).
+        // reconcile here (each knock typically has one admin deciding, not
+        // multiple simultaneous responders).
         let status = decision.outcome.as_str();
 
         sqlx::query(

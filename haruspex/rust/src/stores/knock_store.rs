@@ -82,12 +82,10 @@ impl KnockStatus {
 }
 
 /// one responder's decision on a knock, kept in an append-only log rather
-/// than a single mutable status field - ported from skein's real design
-/// (read-only research against loam/src/canvas/canvas-doc.ts's
-/// `KnockDecision`, not modified). haruspex's own knock store uses the
-/// single-responder, last-decision-wins resolution the automerge design
-/// spike recommended promoting to production (`docs/automerge-spike.md`);
-/// the first-decision-wins variant sketched there for a hypothetical
+/// than a single mutable status field. haruspex's own knock store uses
+/// single-responder, last-decision-wins resolution (typically one admin
+/// decides on each knock, so the first decision is also the last);
+/// a first-decision-wins variant would be needed for a hypothetical
 /// automerge-backed store stays spike-only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KnockDecision {

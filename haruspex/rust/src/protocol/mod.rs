@@ -1,8 +1,6 @@
 //! the unified friendz peer protocol - message types, codec, the
 //! transport-agnostic `FriendzService`/`dispatch` engine, and gossip digest
-//! computation/merge logic. see PHASE_4_HARUSPEX_RUST.md's "protocol (the
-//! friendz wire protocol)" and "wire-message mapping" sections (in the tomb
-//! repo's xl-refactor plan) for the full design.
+//! computation/merge logic.
 //!
 //! ALPN `freqhole-friendz/1` ([`messages::FRIENDZ_ALPN`]). every handler in
 //! this module family is transport-agnostic by construction: [`dispatch`]

@@ -1,8 +1,6 @@
-//! protocol codec round-trip fixtures - shared with the ts package (phase 5
-//! consumes these same json files to validate its zod schemas match the
-//! rust wire types byte-for-byte). see PHASE_4_HARUSPEX_RUST.md's "tests"
-//! section: "protocol codec round-trips (json fixtures shared with the ts
-//! package - commit the fixtures, phase 5 consumes them)".
+//! protocol codec round-trip fixtures - shared with the ts package. the ts
+//! side consumes these same json files to validate its zod schemas match
+//! the rust wire types byte-for-byte.
 //!
 //! each fixture is deserialized into a `FriendzMessage`, reserialized, and
 //! compared back against the original as a `serde_json::Value` (object key

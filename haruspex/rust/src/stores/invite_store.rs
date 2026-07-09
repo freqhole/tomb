@@ -1,23 +1,18 @@
-//! invite codes for the knock-free onboarding path (from tomb's real
-//! `invite_codez`/`InviteCode`): a code that grants a role on redemption,
-//! either for a brand-new identity (`InviteCodeType::Invite`) or to link a
-//! new device onto an existing identity (`InviteCodeType::AccountLink`).
+//! invite codes for the knock-free onboarding path: a code that grants a
+//! role on redemption, either for a brand-new identity
+//! (`InviteCodeType::Invite`) or to link a new device onto an existing
+//! identity (`InviteCodeType::AccountLink`).
 //!
-//! ported from tomb's `InviteCode`/`CreateInviteCodeRequest`/
-//! `UserService::generate_invite_codes` (read-only research against
-//! `grimoire/src/users/models.rs` and `grimoire/src/users/service.rs`).
-//! `generate_invite_codes`'s admin-only / no-root-grant / target-user-exists
-//! checks are app-level authorization policy (they inspect a `requesting_user`
-//! and call back into the same service for a `link_for_user_id` lookup) and
-//! stay out of this store on purpose - the store is crud plus the
-//! validity/expiry predicates (`InviteCode::is_valid_for_use`); an app wires
-//! its own admin gate (via `crate::acl::Caller::is_admin`) in front of
-//! `create_invite` the same way it wires one in front of any other admin
-//! action.
+//! the store is crud plus the validity/expiry predicates
+//! (`InviteCode::is_valid_for_use`). authorization policy (admin-only
+//! checks, no-root-grant enforcement, target-user-exists validation) is an
+//! app-level concern - consuming apps wire their own admin gate (via
+//! `crate::acl::Caller::is_admin`) in front of `create_invite` the same way
+//! they wire one in front of any other admin action.
 //!
-//! a word-based code generator (drawing memorable words from a wordlist
-//! asset) is deliberately not included here - this crate does not ship a
-//! wordlist asset. `generate_invite_code` in this module produces a code
+//! a word-based code generator (drawing memorable words from a wordlist) is
+//! deliberately not included here - this crate does not ship word assets.
+//! `generate_invite_code` in this module produces a code
 //! from random bytes instead (see its doc comment for the exact shape); an
 //! app with its own wordlist asset is free to generate its own code string
 //! and pass it to `create_invite` - this store's trait only persists
@@ -127,11 +122,7 @@ pub trait InviteStore: Send + Sync {
     /// code is still active and unused - an already-used or deactivated code
     /// is silently left unchanged (the caller can check the returned code to
     /// detect this if needed).
-    async fn update_grants_role(
-        &self,
-        code: &str,
-        role: Role,
-    ) -> Result<InviteCode, StoreError>;
+    async fn update_grants_role(&self, code: &str, role: Role) -> Result<InviteCode, StoreError>;
 }
 
 /// generate a random invite code: four groups of four uppercase

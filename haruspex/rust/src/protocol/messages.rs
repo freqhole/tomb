@@ -145,8 +145,7 @@ pub struct GossipDigestPendingKnock {
 
 /// a profile-doc pointer entry in a gossip digest - lets the receiver
 /// compare against any cached copy for staleness without needing a direct
-/// connection to the profile's owner. ported from skein/loam unchanged
-/// (already generic, not canvas-specific).
+/// connection to the profile's owner.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GossipDigestProfileEntry {

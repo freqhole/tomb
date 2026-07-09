@@ -1,11 +1,8 @@
 //! gossip digest computation + merge logic.
 //!
-//! ported from skein's gossip-digest handling (`hub::canvas::send_gossip_digest`
-//! builds one, the ts side's `mergeGossipDigestKnocks` merges an inbound one)
-//! but kept generic: the core digest shape carries `pendingKnocks` +
-//! `profiles` plus a namespaced `appPayload` section for app-specific
-//! extensions (skein's `canvasUpdates`/`pendingInvites`/`sharedCanvasIds`),
-//! per PHASE_4_HARUSPEX_RUST.md's protocol section.
+//! the core digest shape carries `pendingKnocks` + `profiles` plus a
+//! namespaced `appPayload` section for app-specific extensions (e.g.
+//! canvasUpdates, pendingInvites, sharedCanvasIds for canvas-based apps).
 //!
 //! both functions here are pure - no store or transport dependency - so an
 //! app supplies "what i already know" (already-known knock ids, already-

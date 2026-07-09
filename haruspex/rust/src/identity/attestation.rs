@@ -1,8 +1,7 @@
 //! device attestation: the signature chain that lets an already-member
 //! device vouch for a new one - "node id B belongs to identity X, signed by
-//! member node A" (see tomb's xl-refactor open questions, Q4). shapes and
-//! verification only in this module; the full cross-peer passkey add-device
-//! ceremony is deferred to a later phase.
+//! member node A". shapes and verification only in this module; the full
+//! cross-peer passkey add-device ceremony is a separate concern.
 //!
 //! an iroh node id IS an ed25519 public key, hex-encoded - so verifying a
 //! signature chain link needs nothing beyond the node id strings themselves:

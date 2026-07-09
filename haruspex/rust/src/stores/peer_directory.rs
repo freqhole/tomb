@@ -6,9 +6,8 @@ use crate::error::StoreError;
 use crate::identity::PeerProfile;
 
 /// peer profile crud. `upsert_profile` is a coalesce-based partial upsert -
-/// passing `None` for a field leaves the existing value alone, ported from
-/// skein's userz table so partial profile updates never require a
-/// read-modify-write round trip.
+/// passing `None` for a field leaves the existing value alone, so partial
+/// profile updates never require a read-modify-write round trip.
 ///
 /// to explicitly clear an optional field back to `NULL` (rather than leave
 /// it unchanged), use the dedicated `clear_*` methods below.

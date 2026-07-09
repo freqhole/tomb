@@ -1,10 +1,8 @@
 //! the multi-device identity model: a stable identity id owning n device
 //! node ids, plus the peer profile shape a device shows to others.
 //!
-//! see PHASE_4_HARUSPEX_RUST.md's "identity" module map section (in the
-//! tomb repo's xl-refactor plan) for the full design this ports. keypair
-//! file management does NOT live here - reliquary::identity owns the key
-//! file; haruspex only ever consumes node ids as plain strings.
+//! keypair file management does NOT live here - reliquary::identity owns
+//! the key file; haruspex only ever consumes node ids as plain strings.
 
 pub mod api_key;
 pub mod attestation;
@@ -51,10 +49,8 @@ pub struct DeviceNode {
 
 /// what a peer shows you: display name, alias, bio, avatar. kept separate
 /// from `Identity` - a profile is what a peer _presents_, not an
-/// authenticated claim.
-///
-/// ported from skein's userz peer directory, including its coalesce-based
-/// partial upsert semantics (see `haruspex::sqlite::peer_directory`).
+/// authenticated claim. uses coalesce-based partial upsert semantics (see
+/// `haruspex::sqlite::peer_directory`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PeerProfile {
     pub node_id: String,
