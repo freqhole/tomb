@@ -38,6 +38,7 @@ export type {
 
 export type {
   AuthenticateArgs,
+  CeremonyFailure,
   CeremonyResult,
   CreateCredentialFn,
   GetCredentialFn,

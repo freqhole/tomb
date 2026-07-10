@@ -142,6 +142,7 @@ impl iroh::protocol::ProtocolHandler for KnockResponder {
                 scope.to_store(),
                 message,
                 1_700_000_001,
+                None,
             )
             .await
             .map_err(iroh::protocol::AcceptError::from_err)?;
@@ -242,6 +243,7 @@ async fn main() {
             scope.clone(),
             "let me edit shared-doc".to_string(),
             1_700_000_000,
+            None,
         )
         .await
         .expect("create local knock record");

@@ -221,6 +221,7 @@ mod tests {
             processed_at: None,
             processed_by: None,
             decisions: vec![],
+            metadata: None,
         }
     }
 

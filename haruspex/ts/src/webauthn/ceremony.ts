@@ -16,7 +16,45 @@ import type {
 
 export type CeremonyResult =
   | ({ success: true } & AuthOutcome)
-  | { success: false; error: string };
+  | CeremonyFailure;
+
+/**
+ * a failed ceremony. `error` is always a human-readable message, matching
+ * the shape callers already relied on. `name` and `cause` are populated
+ * only when the failure came from a thrown value (e.g. the browser's own
+ * `DOMException` from `navigator.credentials.create`/`.get`) rather than a
+ * transport-reported failure (`start.error`/`finish.error`, which carry no
+ * such name) - so callers can distinguish "user cancelled"
+ * (`NotAllowedError`) from "passkeys not supported" (`NotSupportedError`)
+ * from a plain transport error, instead of pattern-matching the message
+ * string.
+ */
+export interface CeremonyFailure {
+  success: false;
+  error: string;
+  /** the thrown value's `name`, if it has one (e.g. a `DOMException`'s
+   *  `NotAllowedError`/`NotSupportedError`, or `Error`'s own `name`). */
+  name?: string;
+  /** the original thrown value, for callers that need more than `name`. */
+  cause?: unknown;
+}
+
+/** builds a `CeremonyFailure` from a value thrown by a browser api call
+ *  (`navigator.credentials.create`/`.get`), preserving its `name`/`message`
+ *  when present instead of collapsing every failure into one string. */
+function ceremonyFailureFromThrown(
+  err: unknown,
+  fallbackMessage: string,
+): CeremonyFailure {
+  if (err && typeof err === "object") {
+    const record = err as { name?: unknown; message?: unknown };
+    const name = typeof record.name === "string" ? record.name : undefined;
+    const message =
+      typeof record.message === "string" ? record.message : fallbackMessage;
+    return { success: false, error: message, name, cause: err };
+  }
+  return { success: false, error: fallbackMessage, cause: err };
+}
 
 /** creates a new passkey credential; defaults to `navigator.credentials.create`. */
 export type CreateCredentialFn = (
@@ -110,10 +148,7 @@ export async function registerWithPasskey(
 
     return { success: true, ...finish.data };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "registration failed",
-    };
+    return ceremonyFailureFromThrown(err, "registration failed");
   }
 }
 
@@ -157,10 +192,7 @@ export async function loginWithPasskey(
 
     return { success: true, ...finish.data };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "login failed",
-    };
+    return ceremonyFailureFromThrown(err, "login failed");
   }
 }
 

@@ -59,8 +59,21 @@ export interface KnockRecord {
    * rust's per-decision shape carries a single `grantedRole` and no id
    * list - this field is a ts-side addition for that many-resource case,
    * not a wire concept the two sides need to agree on byte-for-byte.
+   * settled: multi-resource grants are never carried on the wire decision
+   * message itself - they're delivered as grant-store writes plus the
+   * protocol's own `acl-change` message. this field is a local read-model
+   * convenience an app can populate from those grant writes, not
+   * something a transport implementation needs to fill in.
    */
   grantedResourceIds?: string[];
+  /**
+   * an opaque, app-populated json bag for data the wire message carries
+   * that this record has no dedicated field for (e.g. a sender's display
+   * name alongside their knock message). this package never reads or
+   * interprets its contents - it only persists and returns whatever the
+   * caller supplied at creation time.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -86,6 +99,8 @@ export interface CreateKnockInput {
   message?: string;
   /** unix epoch millis; defaults to Date.now(). */
   createdAt?: number;
+  /** stored and returned as-is, never interpreted - see KnockRecord.metadata. */
+  metadata?: Record<string, unknown>;
 }
 
 /**

@@ -78,6 +78,7 @@ impl KnockPeer {
                 scope.clone(),
                 message.clone(),
                 now,
+                None,
             )
             .await?;
 
@@ -124,6 +125,7 @@ impl KnockPeer {
                 scope.to_store(),
                 message,
                 now,
+                None,
             )
             .await?;
         self.wire_ids.insert(wire_id, local_record.id);

@@ -128,6 +128,7 @@ export function createIdbKnockStore(options: KnockStoreOptions): KnockStore {
               status: "pending",
               createdAt: input.createdAt ?? Date.now(),
               decisions: [],
+              ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
             };
             const putReq = store.put(toRow(record));
             putReq.onerror = () => reject(putReq.error);

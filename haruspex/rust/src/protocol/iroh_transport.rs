@@ -50,20 +50,26 @@ impl FriendzProtocolHandler {
         &self.service
     }
 
-    /// open a bi-stream to `peer_node_id` over `endpoint` and send one
-    /// message. fire-and-forget - does not wait for a reply (a reply, if
-    /// any, arrives on the peer's own outbound connection back to us and
-    /// is handled by `accept` like any other inbound message).
+    /// open a bi-stream to `peer` over `endpoint` and send one message.
+    /// fire-and-forget - does not wait for a reply (a reply, if any,
+    /// arrives on the peer's own outbound connection back to us and is
+    /// handled by `accept` like any other inbound message).
+    ///
+    /// `peer` accepts either a bare `PublicKey` (resolved via the
+    /// endpoint's configured discovery/relay) or a full `EndpointAddr`
+    /// with known direct addresses (bypasses discovery entirely). prefer
+    /// passing a full address (e.g. from `endpoint.addr()`) whenever one
+    /// is available - dialing a bare node id with no direct addresses and
+    /// no discovery/relay configured (e.g. `RelayMode::Disabled`) has no
+    /// path to the peer and hangs until the connection attempt times out.
     pub async fn send_message(
         &self,
         endpoint: &Endpoint,
-        peer_node_id: &str,
+        peer: impl Into<EndpointAddr>,
         msg: &FriendzMessage,
     ) -> Result<(), FriendzTransportError> {
-        let public_key: PublicKey = peer_node_id
-            .parse()
-            .map_err(|e| FriendzTransportError::InvalidNodeId(format!("{e}")))?;
-        let addr = EndpointAddr::from_parts(public_key, []);
+        let addr = peer.into();
+        let peer_node_id = addr.id.to_string();
 
         let conn = endpoint
             .connect(addr, FRIENDZ_ALPN)
@@ -75,18 +81,34 @@ impl FriendzProtocolHandler {
             .map_err(|e| FriendzTransportError::Connect(e.to_string()))?;
 
         codec::write_message(&mut send, msg).await?;
+        // dropping an unfinished send stream is an abrupt reset, not a
+        // graceful close - finish() signals "no more data" so the peer's
+        // read of what was just written actually completes.
+        send.finish()
+            .map_err(|e| FriendzTransportError::Connect(e.to_string()))?;
+        // finish() only queues the FIN - it doesn't wait for the peer to
+        // actually receive it. dropping `conn` right after returning here
+        // closes the whole connection, which can race ahead of the peer's
+        // `accept_bi()`/read (a local close can beat the peer's ack even
+        // though the data was written, since quic delivery being reliable
+        // once acked doesn't stop an immediate local close from arriving
+        // first). wait for the peer to finish reading this stream (or a
+        // short timeout as a safety net) before letting the connection
+        // close on drop.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), send.stopped()).await;
         tracing::debug!(peer = %peer_node_id, "friendz: sent message on new outbound stream");
         Ok(())
     }
 
-    /// send a heartbeat to a specific peer.
+    /// send a heartbeat to a specific peer - see [`Self::send_message`] for
+    /// the addressing tradeoffs of a bare `PublicKey` vs a full `EndpointAddr`.
     pub async fn send_heartbeat_to(
         &self,
         endpoint: &Endpoint,
-        peer_node_id: &str,
+        peer: impl Into<EndpointAddr>,
     ) -> Result<(), FriendzTransportError> {
         let msg = self.service.build_heartbeat().await;
-        self.send_message(endpoint, peer_node_id, &msg).await
+        self.send_message(endpoint, peer, &msg).await
     }
 
     /// run the heartbeat + discovery-sweep loops until the endpoint closes.
@@ -104,7 +126,14 @@ impl FriendzProtocolHandler {
             tokio::time::interval(std::time::Duration::from_millis(DISCOVERY_SWEEP_MS));
 
         for peer_id in get_friend_ids() {
-            if let Err(e) = self.send_heartbeat_to(&endpoint, &peer_id).await {
+            let addr = match bare_addr(&peer_id) {
+                Ok(addr) => addr,
+                Err(e) => {
+                    tracing::debug!(peer = %peer_id, error = %e, "friendz: invalid friend node id");
+                    continue;
+                }
+            };
+            if let Err(e) = self.send_heartbeat_to(&endpoint, addr).await {
                 tracing::debug!(peer = %peer_id, error = %e, "friendz: initial announce failed");
             }
         }
@@ -113,7 +142,14 @@ impl FriendzProtocolHandler {
             tokio::select! {
                 _ = heartbeat_interval.tick() => {
                     for peer_id in self.service.online_peers().await {
-                        if let Err(e) = self.send_heartbeat_to(&endpoint, &peer_id).await {
+                        let addr = match bare_addr(&peer_id) {
+                            Ok(addr) => addr,
+                            Err(e) => {
+                                tracing::debug!(peer = %peer_id, error = %e, "friendz: invalid friend node id");
+                                continue;
+                            }
+                        };
+                        if let Err(e) = self.send_heartbeat_to(&endpoint, addr).await {
                             tracing::debug!(peer = %peer_id, error = %e, "friendz: heartbeat failed");
                         }
                     }
@@ -124,13 +160,30 @@ impl FriendzProtocolHandler {
                 _ = discovery_interval.tick() => {
                     for peer_id in get_friend_ids() {
                         if !self.service.is_online(&peer_id).await {
-                            let _ = self.send_heartbeat_to(&endpoint, &peer_id).await;
+                            if let Ok(addr) = bare_addr(&peer_id) {
+                                let _ = self.send_heartbeat_to(&endpoint, addr).await;
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+/// resolves a bare friend-id string into an `EndpointAddr` with no known
+/// direct addresses - resolvable only via the endpoint's configured
+/// discovery/relay. [`FriendzProtocolHandler::run_heartbeat_loop`]'s
+/// caller supplies friend ids, not full addresses, so its own heartbeat
+/// sends always go through this discovery-dependent path; a caller that
+/// has a real `EndpointAddr` on hand should call
+/// [`FriendzProtocolHandler::send_message`]/`send_heartbeat_to` directly
+/// instead of routing through the loop.
+fn bare_addr(peer_id: &str) -> Result<EndpointAddr, FriendzTransportError> {
+    peer_id
+        .parse::<PublicKey>()
+        .map(EndpointAddr::from)
+        .map_err(|e| FriendzTransportError::InvalidNodeId(format!("{e}")))
 }
 
 impl ProtocolHandler for FriendzProtocolHandler {

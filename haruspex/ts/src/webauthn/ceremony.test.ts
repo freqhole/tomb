@@ -179,10 +179,11 @@ describe("registerWithPasskey", () => {
     expect(result).toEqual({ success: false, error: "invalid credential" });
   });
 
-  it("turns a thrown error (e.g. the user cancelling the passkey prompt) into a failure result", async () => {
+  it("turns a thrown DOMException into a failure result carrying its name and itself as cause", async () => {
     const transport = fakeTransport();
+    const thrown = new DOMException("user cancelled", "NotAllowedError");
     const createCredential = vi.fn(async () => {
-      throw new DOMException("user cancelled", "NotAllowedError");
+      throw thrown;
     });
 
     const result = await registerWithPasskey(
@@ -191,7 +192,53 @@ describe("registerWithPasskey", () => {
       { origin: deps.origin, createCredential },
     );
 
-    expect(result).toEqual({ success: false, error: "user cancelled" });
+    expect(result).toEqual({
+      success: false,
+      error: "user cancelled",
+      name: "NotAllowedError",
+      cause: thrown,
+    });
+  });
+
+  it("turns a thrown plain Error into a failure result carrying its name and itself as cause", async () => {
+    const transport = fakeTransport();
+    const thrown = new Error("boom");
+    const createCredential = vi.fn(async () => {
+      throw thrown;
+    });
+
+    const result = await registerWithPasskey(
+      transport,
+      { username: "alice" },
+      { origin: deps.origin, createCredential },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "boom",
+      name: "Error",
+      cause: thrown,
+    });
+  });
+
+  it("falls back to a generic message and no name for a non-error thrown value", async () => {
+    const transport = fakeTransport();
+    const createCredential = vi.fn(async () => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw "nope";
+    });
+
+    const result = await registerWithPasskey(
+      transport,
+      { username: "alice" },
+      { origin: deps.origin, createCredential },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "registration failed",
+      cause: "nope",
+    });
   });
 });
 
@@ -249,6 +296,27 @@ describe("loginWithPasskey", () => {
     expect(result).toEqual({
       success: false,
       error: "browser did not return a credential",
+    });
+  });
+
+  it("turns a thrown DOMException into a failure result carrying its name and itself as cause", async () => {
+    const transport = fakeTransport();
+    const thrown = new DOMException("no authenticator available", "NotSupportedError");
+    const getCredential = vi.fn(async () => {
+      throw thrown;
+    });
+
+    const result = await loginWithPasskey(
+      transport,
+      { username: "alice" },
+      { origin: deps.origin, getCredential },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "no authenticator available",
+      name: "NotSupportedError",
+      cause: thrown,
     });
   });
 });

@@ -108,12 +108,20 @@ pub struct KnockRecord {
     pub processed_by: Option<String>,
     /// full decision audit trail - see `KnockDecision`.
     pub decisions: Vec<KnockDecision>,
+    /// an opaque, app-populated json bag for data the wire message carries
+    /// that this record has no dedicated column for (e.g. a sender's
+    /// display name alongside their knock message). this store never reads
+    /// or interprets its contents - it only persists and returns whatever
+    /// the caller supplied at creation time.
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[async_trait]
 pub trait KnockStore: Send + Sync {
     /// enforces the dedup rule: one active (pending) knock per node id +
     /// scope. returns `StoreError::Conflict` if one already exists.
+    /// `metadata` is stored and returned as-is, never interpreted; pass
+    /// `None` for a knock with nothing to attach.
     async fn create_knock(
         &self,
         node_id: &str,
@@ -121,6 +129,7 @@ pub trait KnockStore: Send + Sync {
         scope: KnockScope,
         message: String,
         created_at: i64,
+        metadata: Option<serde_json::Value>,
     ) -> Result<KnockRecord, StoreError>;
     async fn get_knock(&self, knock_id: Uuid) -> Result<Option<KnockRecord>, StoreError>;
     async fn list_pending(&self) -> Result<Vec<KnockRecord>, StoreError>;

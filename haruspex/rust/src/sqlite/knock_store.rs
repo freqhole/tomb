@@ -40,6 +40,7 @@ struct KnockRow {
     processed_at: Option<i64>,
     processed_by: Option<String>,
     decisions_json: String,
+    metadata_json: Option<String>,
 }
 
 impl TryFrom<KnockRow> for KnockRecord {
@@ -62,6 +63,10 @@ impl TryFrom<KnockRow> for KnockRecord {
             processed_at: row.processed_at,
             processed_by: row.processed_by,
             decisions: serde_json::from_str::<Vec<KnockDecision>>(&row.decisions_json)?,
+            metadata: row
+                .metadata_json
+                .map(|json| serde_json::from_str(&json))
+                .transpose()?,
         })
     }
 }
@@ -75,6 +80,7 @@ impl KnockStore for SqliteKnockStore {
         scope: KnockScope,
         message: String,
         created_at: i64,
+        metadata: Option<serde_json::Value>,
     ) -> Result<KnockRecord, StoreError> {
         let id = Uuid::new_v4();
         let id_str = id.to_string();
@@ -86,11 +92,12 @@ impl KnockStore for SqliteKnockStore {
         let scope_json = scope_key.clone();
         let status = KnockStatus::Pending.as_str();
         let decisions_json = "[]";
+        let metadata_json = metadata.map(|m| serde_json::to_string(&m)).transpose()?;
 
         let result = sqlx::query(
             r#"
-            INSERT INTO knockz (id, node_id, direction, scope_key, scope_json, message, status, created_at, decisions_json)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            INSERT INTO knockz (id, node_id, direction, scope_key, scope_json, message, status, created_at, decisions_json, metadata_json)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
         )
         .bind(&id_str)
@@ -102,6 +109,7 @@ impl KnockStore for SqliteKnockStore {
         .bind(status)
         .bind(created_at)
         .bind(decisions_json)
+        .bind(&metadata_json)
         .execute(&self.pool)
         .await;
 
@@ -123,7 +131,7 @@ impl KnockStore for SqliteKnockStore {
         let row: Option<KnockRow> = sqlx::query_as(
             r#"
             SELECT id, node_id, direction, scope_json, message, status, created_at,
-                   processed_at, processed_by, decisions_json
+                   processed_at, processed_by, decisions_json, metadata_json
             FROM knockz WHERE id = ?1
             "#,
         )
@@ -138,7 +146,7 @@ impl KnockStore for SqliteKnockStore {
         let rows: Vec<KnockRow> = sqlx::query_as(
             r#"
             SELECT id, node_id, direction, scope_json, message, status, created_at,
-                   processed_at, processed_by, decisions_json
+                   processed_at, processed_by, decisions_json, metadata_json
             FROM knockz WHERE status = 'pending'
             ORDER BY created_at ASC
             "#,
@@ -197,7 +205,7 @@ impl KnockStore for SqliteKnockStore {
         let rows: Vec<KnockRow> = sqlx::query_as(
             r#"
             SELECT id, node_id, direction, scope_json, message, status, created_at,
-                   processed_at, processed_by, decisions_json
+                   processed_at, processed_by, decisions_json, metadata_json
             FROM knockz ORDER BY created_at DESC
             "#,
         )
@@ -211,7 +219,7 @@ impl KnockStore for SqliteKnockStore {
         let row: Option<KnockRow> = sqlx::query_as(
             r#"
             SELECT id, node_id, direction, scope_json, message, status, created_at,
-                   processed_at, processed_by, decisions_json
+                   processed_at, processed_by, decisions_json, metadata_json
             FROM knockz WHERE node_id = ?1
             ORDER BY created_at DESC
             LIMIT 1
@@ -244,6 +252,7 @@ mod tests {
     use super::*;
     use crate::sqlite::test_pool;
     use crate::stores::grant_store::Role;
+    use serde_json::json;
 
     async fn store() -> SqliteKnockStore {
         SqliteKnockStore::new(test_pool().await)
@@ -266,6 +275,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "let me in".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -274,6 +284,29 @@ mod tests {
         assert_eq!(fetched, created);
         assert_eq!(fetched.status, KnockStatus::Pending);
         assert!(fetched.decisions.is_empty());
+        // absence of metadata behaves exactly as before this field existed.
+        assert_eq!(fetched.metadata, None);
+    }
+
+    #[tokio::test]
+    async fn create_then_get_round_trips_metadata() {
+        let store = store().await;
+        let metadata = json!({ "name": "alice", "avatarColor": "#ff00ff" });
+        let created = store
+            .create_knock(
+                "node-a",
+                KnockDirection::Inbound,
+                resource_scope("canvas-1"),
+                "let me in".to_string(),
+                100,
+                Some(metadata.clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.metadata, Some(metadata.clone()));
+
+        let fetched = store.get_knock(created.id).await.unwrap().unwrap();
+        assert_eq!(fetched.metadata, Some(metadata));
     }
 
     #[tokio::test]
@@ -292,6 +325,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "first".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -303,6 +337,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "second".to_string(),
                 101,
+                None,
             )
             .await
             .unwrap_err();
@@ -319,6 +354,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "first".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -330,6 +366,7 @@ mod tests {
                 resource_scope("canvas-2"),
                 "second".to_string(),
                 101,
+                None,
             )
             .await
             .unwrap();
@@ -345,6 +382,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "first".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -369,6 +407,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "second attempt".to_string(),
                 102,
+                None,
             )
             .await
             .unwrap();
@@ -384,6 +423,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "pending".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -394,6 +434,7 @@ mod tests {
                 resource_scope("canvas-2"),
                 "resolved".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();
@@ -429,6 +470,7 @@ mod tests {
                 resource_scope("canvas-1"),
                 "let me in".to_string(),
                 100,
+                None,
             )
             .await
             .unwrap();

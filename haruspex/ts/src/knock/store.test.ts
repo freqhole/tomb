@@ -30,6 +30,34 @@ describe("createIdbKnockStore", () => {
     expect(await store.getKnock(record.id)).toEqual(record);
   });
 
+  it("has no metadata field when none is supplied - non-breaking for existing callers", async () => {
+    const store = createIdbKnockStore({ databaseName: "app-db", storeName: "knocks" });
+    const record = await store.createKnock({
+      nodeId: NODE_ID,
+      direction: "outbound",
+      scope: browseScope,
+      message: "let me in",
+    });
+
+    expect(record.metadata).toBeUndefined();
+    expect(await store.getKnock(record.id)).toEqual(record);
+  });
+
+  it("round-trips an app-populated metadata bag", async () => {
+    const store = createIdbKnockStore({ databaseName: "app-db", storeName: "knocks" });
+    const metadata = { name: "alice", avatarColor: "#ff00ff" };
+    const record = await store.createKnock({
+      nodeId: NODE_ID,
+      direction: "inbound",
+      scope: browseScope,
+      message: "let me in",
+      metadata,
+    });
+
+    expect(record.metadata).toEqual(metadata);
+    expect((await store.getKnock(record.id))?.metadata).toEqual(metadata);
+  });
+
   it("defaults message to an empty string and createdAt to now", async () => {
     const store = createIdbKnockStore({ databaseName: "app-db", storeName: "knocks" });
     const before = Date.now();
