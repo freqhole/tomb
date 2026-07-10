@@ -4,7 +4,7 @@
 //! handles binding the endpoint, accepting connections, and connecting to peers.
 //!
 //! uses iroh's Router pattern to handle multiple protocols:
-//! - freqhole/1: existing P2P proxy protocol
+//! - freqhole/1: existing P2P api protocol
 //! - freqhole-blobz: iroh-blobs verified streaming (audio files)
 
 use crate::blobz::{get_blobs_store, BLOBS_ALPN};
@@ -168,7 +168,7 @@ impl FederationEndpoint {
     /// start the router with the default protocol handlers only
     ///
     /// sets up:
-    /// - freqhole/1: P2P proxy protocol
+    /// - freqhole/1: P2P api protocol
     /// - /iroh-bytes/4: iroh-blobs verified streaming
     pub async fn start_router(&mut self) -> GrimoireResult<()> {
         self.start_router_with(|builder| builder).await

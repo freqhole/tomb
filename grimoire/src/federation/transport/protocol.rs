@@ -1,8 +1,8 @@
 //! protocol types for peer-to-peer communication
 //!
-//! uses a proxy pattern - peers send HTTP-like requests that get
-//! forwarded to the local freqhole server. this avoids having to
-//! manually wrap every API endpoint.
+//! peers send api-shaped requests (method, path, body) that get dispatched
+//! to the local freqhole server. this avoids having to manually wrap every
+//! API endpoint in its own wire message.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +13,8 @@ pub const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PeerMessage {
-    /// HTTP proxy request - forwarded to local server
-    ProxyRequest {
+    /// api request - dispatched to the local server
+    ApiRequest {
         /// request id for correlation
         id: u64,
         /// HTTP method (GET, POST, PUT, DELETE, etc.)
@@ -25,8 +25,8 @@ pub enum PeerMessage {
         body: Option<String>,
     },
 
-    /// HTTP proxy response
-    ProxyResponse {
+    /// api response
+    ApiResponse {
         /// request id for correlation
         id: u64,
         /// HTTP status code
@@ -92,4 +92,40 @@ pub enum PeerMessage {
         /// error message if computation failed
         error: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_request_serializes_with_api_request_tag() {
+        let msg = PeerMessage::ApiRequest {
+            id: 1,
+            method: "GET".to_string(),
+            path: "/api/music/songs".to_string(),
+            body: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"api_request\""));
+        assert!(!json.contains("proxy_request"));
+
+        let round_tripped: PeerMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(round_tripped, PeerMessage::ApiRequest { id, .. } if id == 1));
+    }
+
+    #[test]
+    fn api_response_serializes_with_api_response_tag() {
+        let msg = PeerMessage::ApiResponse {
+            id: 1,
+            status: 200,
+            body: "{}".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"api_response\""));
+        assert!(!json.contains("proxy_response"));
+
+        let round_tripped: PeerMessage = serde_json::from_str(&json).unwrap();
+        assert!(matches!(round_tripped, PeerMessage::ApiResponse { id, .. } if id == 1));
+    }
 }

@@ -436,7 +436,7 @@ impl UserService {
     /// returns the updated user.
     ///
     /// Used during federation sync to ensure federated users can authenticate
-    /// for P2P proxy requests.
+    /// for P2P api requests.
     pub async fn ensure_api_key(&self, user: User) -> GrimoireResponse<User> {
         // the key itself now lives in haruspex's own store, keyed by
         // identity id rather than as a column on `user`, so checking
@@ -1259,7 +1259,7 @@ impl UserService {
 
     /// Get API key for a peer by node_id
     ///
-    /// Used by federation proxy handler to authenticate requests to local server.
+    /// Used by the peer request handler to authenticate requests to local server.
     /// Returns the API key if the user exists and has one, otherwise an error.
     /// If the user exists but has no API key, generates one first.
     pub async fn get_api_key_for_peer(&self, node_id: &str) -> GrimoireResponse<String> {

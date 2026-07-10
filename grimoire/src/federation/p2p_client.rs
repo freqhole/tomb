@@ -3,7 +3,7 @@
 //! provides functions to make API requests and fetch blobs from remote peers
 //! using the server's federation endpoint. this is used by:
 //! - tauri app (via tauri commands) for native P2P transport
-//! - server routes for HTTP-based P2P proxy
+//! - server routes for HTTP-based P2P api requests
 //!
 //! the endpoint must be initialized via `set_federation_endpoint()` before use.
 //!
@@ -34,9 +34,9 @@ struct BlobsState {
     downloader: Downloader,
 }
 
-/// response from a P2P proxy request
+/// response from a P2P api request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct P2pProxyResponse {
+pub struct P2pApiResponse {
     pub status: u16,
     pub body: String,
 }
@@ -186,24 +186,24 @@ async fn connect_to_peer(
 
 /// send an API request to a remote peer
 ///
-/// uses the server's federation endpoint to connect to the peer and proxy
-/// an HTTP-like request. returns the response status and body.
-pub async fn proxy_request(
+/// uses the server's federation endpoint to connect to the peer and send
+/// an api-style request. returns the response status and body.
+pub async fn api_request(
     peer_addr: &str,
     method: &str,
     path: &str,
     body: Option<String>,
-) -> GrimoireResult<P2pProxyResponse> {
+) -> GrimoireResult<P2pApiResponse> {
     let endpoint = get_endpoint()?;
     let addr = parse_peer_address(peer_addr)?;
     let node_id_short = &addr.id.to_string()[..16];
 
-    debug!("P2P proxy {} {} to {}", method, path, node_id_short);
+    debug!("P2P api request {} {} to {}", method, path, node_id_short);
 
     let conn = connect_to_peer(&endpoint, &addr).await?;
-    let response = conn.proxy_request(method, path, body).await?;
+    let response = conn.api_request(method, path, body).await?;
 
-    Ok(P2pProxyResponse {
+    Ok(P2pApiResponse {
         status: response.status,
         body: response.body,
     })

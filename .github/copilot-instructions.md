@@ -236,6 +236,18 @@ path: "/api/music/playlists/:id"
 - Prefer `query_as!` macro for compile-time checked queries
 - Use `?` placeholders for parameters (not `$1` like PostgreSQL)
 - Foreign keys are enabled by default
+- **Never edit an already-existing migration file** (in this repo or any sibling repo's own
+  migrations directory - haruspex, reliquary, skein) **unless there's a specific, deliberate
+  reason to.** sqlx stores a checksum of each migration file's content in `_sqlx_migrations`
+  the first time it's applied to a database; editing the file afterward changes that checksum
+  and breaks every database that already applied it with `"migration N was previously applied
+  but has been modified"` errors. this applies even to comment-only changes and even to files
+  that "look old"/unused - if a migration needs a note (e.g. marking tables as superseded and
+  pending a future drop), put that note in `CUTOVER_BACKLOG.md` or a regular source-code comment
+  near where the table is used, never inside the migration file itself. genuine schema fixes to
+  an already-applied migration require the explicit checksum-repair procedure in
+  `cli/tests/README.md#fixing-migration-n-was-previously-applied-but-has-been-modified` - never
+  just silently re-edit and move on.
 
 ## Code Style
 

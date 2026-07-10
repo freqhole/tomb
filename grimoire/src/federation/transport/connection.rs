@@ -9,9 +9,9 @@ use iroh::PublicKey;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::debug;
 
-/// HTTP proxy response from a peer
+/// api response from a peer
 #[derive(Debug, Clone)]
-pub struct ProxyResponse {
+pub struct ApiResponse {
     pub status: u16,
     pub body: String,
 }
@@ -68,17 +68,17 @@ impl PeerConnection {
         self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// send an HTTP proxy request and receive the response
+    /// send an api request and receive the response
     ///
     /// this is the main method for making API calls to a peer's freqhole server.
-    pub async fn proxy_request(
+    pub async fn api_request(
         &self,
         method: &str,
         path: &str,
         body: Option<String>,
-    ) -> GrimoireResult<ProxyResponse> {
+    ) -> GrimoireResult<ApiResponse> {
         let id = self.next_request_id();
-        let msg = PeerMessage::ProxyRequest {
+        let msg = PeerMessage::ApiRequest {
             id,
             method: method.to_string(),
             path: path.to_string(),
@@ -88,7 +88,7 @@ impl PeerConnection {
         let response = self.send_message(&msg).await?;
 
         match response {
-            PeerMessage::ProxyResponse {
+            PeerMessage::ApiResponse {
                 id: resp_id,
                 status,
                 body,
@@ -98,10 +98,10 @@ impl PeerConnection {
                         message: format!("response id mismatch: expected {}, got {}", id, resp_id),
                     });
                 }
-                Ok(ProxyResponse { status, body })
+                Ok(ApiResponse { status, body })
             }
             _ => Err(GrimoireError::FederationApiError {
-                message: "unexpected response type for proxy request".to_string(),
+                message: "unexpected response type for api request".to_string(),
             }),
         }
     }

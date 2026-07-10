@@ -610,7 +610,7 @@ pub async fn accept_knock(
     tokio::spawn(async move {
         let payload = serde_json::json!({ "peer_addr": peer_addr, "server_name": server_name });
         let body_str = serde_json::to_string(&payload).unwrap_or_default();
-        if let Err(e) = crate::federation::p2p_client::proxy_request(
+        if let Err(e) = crate::federation::p2p_client::api_request(
             &requester_node_id,
             "POST",
             "/api/internal/knock-accepted",
