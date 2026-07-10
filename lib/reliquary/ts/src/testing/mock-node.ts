@@ -25,6 +25,8 @@ export interface MockBiStream extends BiStreamLike {
   _readResolvers: ((value: Uint8Array | null) => void)[];
   write_message: ReturnType<typeof vi.fn>;
   read_message: ReturnType<typeof vi.fn>;
+  read_to_end?: ReturnType<typeof vi.fn>;
+  write_raw_and_finish?: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   /** push a message (or `null` to simulate the peer closing the stream)
    *  for the next pending/future `read_message()` call to resolve with. */
@@ -55,6 +57,24 @@ export function createMockBiStream(peerId: string, alpn: string = "iroh/automerg
       return new Promise<Uint8Array | null>((resolve) => {
         stream._readResolvers.push(resolve);
       });
+    }),
+
+    read_to_end: vi.fn(async (max_size: number): Promise<Uint8Array> => {
+      if (stream._messageQueue.length > 0) {
+        const data = stream._messageQueue.shift()!;
+        return data ?? new Uint8Array(0);
+      }
+      return new Promise<Uint8Array>((resolve) => {
+        const originalResolver = (value: Uint8Array | null) => {
+          resolve(value ?? new Uint8Array(0));
+        };
+        stream._readResolvers.push(originalResolver);
+      });
+    }),
+
+    write_raw_and_finish: vi.fn(async (data: Uint8Array): Promise<void> => {
+      stream._written.push(data);
+      stream._closed = true;
     }),
 
     close: vi.fn(() => {

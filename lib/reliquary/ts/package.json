@@ -22,6 +22,10 @@
             "types": "./dist/automerge/index.d.ts",
             "import": "./dist/automerge/index.js"
         },
+        "./ensure": {
+            "types": "./dist/ensure/index.d.ts",
+            "import": "./dist/ensure/index.js"
+        },
         "./worker": {
             "types": "./dist/worker/index.d.ts",
             "import": "./dist/worker/index.js"
