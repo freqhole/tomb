@@ -272,3 +272,140 @@ fn test_users_deactivate_invite() {
         }
     }
 }
+
+#[test]
+fn test_users_invite_redemption_grants_role() {
+    let ctx = TestContext::from_snapshot();
+
+    // generate an invite code that grants the "admin" role
+    let generate_result = ctx.run_json(&[
+        "users",
+        "generate-invites",
+        "--count",
+        "1",
+        "--word-count",
+        "3",
+        "--code-type",
+        "invite",
+        "--role",
+        "admin",
+    ]);
+    assert!(
+        generate_result["success"].as_bool().unwrap(),
+        "should generate an invite code"
+    );
+    let codes = generate_result["data"]["codes"].as_array().unwrap();
+    let invite_code = codes[0]["code"].as_str().unwrap().to_string();
+
+    // redeem it by creating a user with that invite code, no explicit role
+    let username = format!(
+        "test_usr_invite_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let create_result = ctx.run_json(&[
+        "users",
+        "create",
+        "--username",
+        &username,
+        "--invite-code",
+        &invite_code,
+    ]);
+    assert!(
+        create_result["success"].as_bool().unwrap(),
+        "should redeem the invite code: {:?}",
+        create_result
+    );
+    let user_id = create_result["data"]["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        create_result["data"]["role"], "admin",
+        "user should receive the role granted by the invite code"
+    );
+
+    // the invite code is now used up
+    let list_result = ctx.run_json(&["users", "list-invites"]);
+    assert!(list_result["success"].as_bool().unwrap());
+    let invites = list_result["data"].as_array().unwrap();
+    let used_invite = invites
+        .iter()
+        .find(|i| i["code"] == invite_code)
+        .expect("used invite code should still be listed");
+    // `is_active` tracks admin enable/disable, not usage - a redeemed code
+    // stays active; `used_by_id` is what flips to record redemption (see
+    // `InviteCode::is_valid_for_use`, which checks `used_at.is_none()`
+    // separately from `is_active`).
+    assert_eq!(used_invite["is_active"], true);
+    assert_eq!(used_invite["used_by_id"], user_id);
+
+    // clean up: this suite shares one db file across every test run
+    let _ = ctx.run_json(&["users", "delete", "--user-id", &user_id]);
+}
+
+#[test]
+fn test_users_api_key_lifecycle() {
+    let ctx = TestContext::from_snapshot();
+
+    let username = format!(
+        "test_usr_apikey_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let create_result = ctx.run_json(&[
+        "users",
+        "create",
+        "--username",
+        &username,
+        "--role",
+        "admin",
+        "--bootstrap",
+    ]);
+    assert!(create_result["success"].as_bool().unwrap());
+    let user_id = create_result["data"]["id"].as_str().unwrap().to_string();
+
+    // freshly created user has no api key yet
+    let status_result = ctx.run_json(&["users", "api-key", "show-status", &username]);
+    assert!(status_result["success"].as_bool().unwrap());
+    assert_eq!(status_result["data"]["has_api_key"], false);
+
+    // generate one
+    let generate_result = ctx.run_json(&["users", "api-key", "generate", &username]);
+    assert!(
+        generate_result["success"].as_bool().unwrap(),
+        "should generate an api key: {:?}",
+        generate_result
+    );
+    assert!(!generate_result["data"]["api_key"]
+        .as_str()
+        .unwrap()
+        .is_empty());
+
+    // known, pre-existing quirk (not introduced by this test): both
+    // `show-status` and `revoke` read `user.api_key` off a plain, separate
+    // `get_user_by_username` fetch, but that field is only ever populated
+    // in the response returned by the SAME request that generated the key
+    // (see `UserService::ensure_api_key`'s own comment, "only ever
+    // populated right after a fresh [generation]") - any later, separate
+    // CLI invocation always sees it empty. this means `show-status` always
+    // reports `has_api_key: false` after generation, and `revoke` always
+    // fails with "User does not have an API key", even though a real key
+    // was generated and is presumably stored (hashed) server-side. pinning
+    // the actual current behavior here rather than what the command names
+    // imply; see CUTOVER_BACKLOG.md for the follow-up to fix both commands
+    // to check `UserRepository::has_api_key` instead of `user.api_key`.
+    let status_result = ctx.run_json(&["users", "api-key", "show-status", &username]);
+    assert!(status_result["success"].as_bool().unwrap());
+    assert_eq!(status_result["data"]["has_api_key"], false);
+
+    // revoke currently always fails here too, for the same reason - pinning
+    // that reality rather than assuming revoke actually works end-to-end.
+    let revoke_result = ctx.run_json(&["users", "api-key", "revoke", &username]);
+    assert!(!revoke_result["success"].as_bool().unwrap());
+    assert_eq!(revoke_result["message"], "User does not have an API key");
+
+    // clean up: this suite shares one db file across every test run
+    let _ = ctx.run_json(&["users", "delete", "--user-id", &user_id]);
+}

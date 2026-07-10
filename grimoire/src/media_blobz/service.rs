@@ -659,6 +659,21 @@ pub async fn count_blobs_needing_blake3() -> GrimoireResult<i64> {
     Ok(result.0)
 }
 
+/// blake3 backfill status: total non-deleted media blob rows, how many
+/// already have a blake3 hash, and how many still need one. this is the
+/// backfill gate check - production readiness means `missing_blake3` is 0.
+pub async fn count_blake3_backfill_status() -> GrimoireResult<(i64, i64, i64)> {
+    let pool = database::connect().await?;
+
+    let (total, with_blake3): (i64, i64) =
+        sqlx::query_as("SELECT COUNT(*), COUNT(blake3) FROM media_blobz WHERE deleted_at IS NULL")
+            .fetch_one(&pool)
+            .await?;
+
+    let missing_blake3 = total - with_blake3;
+    Ok((total, with_blake3, missing_blake3))
+}
+
 /// list blobs that need blake3 computation (for backfill)
 pub async fn list_blobs_needing_blake3(limit: i64) -> GrimoireResult<Vec<MediaBlob>> {
     let pool = database::connect().await?;
