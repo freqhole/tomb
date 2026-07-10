@@ -230,6 +230,16 @@ impl StorageNode {
         self.downloader.read().unwrap().clone()
     }
 
+    /// the actual shared cell backing [`StorageNode::downloader`], not a
+    /// point-in-time clone. a consumer that outlives a single read (e.g.
+    /// [`crate::snatch::SnatchEngine`]) should hold this cell rather than
+    /// wrapping its own separate `RwLock`, so it observes every future
+    /// [`StorageNode::attach_endpoint`]/[`StorageNode::detach_endpoint`]
+    /// call on this same node instead of going stale.
+    pub fn downloader_cell(&self) -> Arc<RwLock<Option<Downloader>>> {
+        Arc::clone(&self.downloader)
+    }
+
     /// convenience for callers who always have an endpoint at construction
     /// time and never stop/restart it (e.g. a headless daemon): exactly
     /// [`StorageNode::init_local`] followed immediately by
@@ -446,6 +456,40 @@ mod tests {
             assert!(node.in_flight.lock().unwrap().contains(&hash));
         }
         assert!(!node.in_flight.lock().unwrap().contains(&hash));
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn downloader_cell_is_shared_not_cloned() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+
+        let node = StorageNode::init_local(
+            tmp.path(),
+            blobz,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local storage node");
+
+        // a second holder (standing in for a consumer like SnatchEngine)
+        // grabs its own handle to the node's real cell, not a copy of it.
+        let holder_cell = node.downloader_cell();
+        assert!(holder_cell.read().unwrap().is_none());
+
+        let endpoint = test_endpoint().await;
+        node.attach_endpoint(&endpoint);
+
+        // the holder observes the attach through its own handle, without
+        // ever calling back into the node.
+        assert!(holder_cell.read().unwrap().is_some());
+
+        node.detach_endpoint();
+        assert!(holder_cell.read().unwrap().is_none());
+
         endpoint.close().await;
     }
 

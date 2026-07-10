@@ -256,6 +256,17 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         }
     }
 
+    /// remove every fallback-inventory entry recorded for `peer_node_id`,
+    /// e.g. when the app learns a peer has gone offline. only affects the
+    /// fallback inventory populated via [`SnatchEngine::offer_peer_blobs`] -
+    /// candidate peers supplied directly on a [`BlobDescriptor`] are
+    /// unaffected.
+    pub fn clear_peer(&self, peer_node_id: &str) {
+        if let Ok(mut inventory) = self.peer_blob_inventory.lock() {
+            inventory.remove(peer_node_id);
+        }
+    }
+
     /// scan every doc the source knows about, resolve missing blobs, and
     /// snatch them concurrently. used for [`SnatchEngine::run`]'s boot
     /// catch-up and available standalone for a manual/cli-triggered sweep.
@@ -1125,6 +1136,47 @@ mod tests {
         let result = engine.snatch_descriptor(&d).await;
         assert!(matches!(result, Err(SnatchError::NoPeerHasBlob)));
         assert_eq!(transport.calls(), vec!["peer-from-inventory".to_string()]);
+
+        deps.endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn clear_peer_removes_only_that_peers_inventory_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deps = engine_deps(tmp.path()).await;
+
+        let source = MockSource::new();
+        let transport = MockTransport::new();
+
+        let engine = SnatchEngine::new(
+            deps.blobz,
+            deps.downloader,
+            deps.fs_store,
+            Arc::new(StdMutex::new(HashSet::new())),
+            "local-node",
+            source,
+            transport,
+            short_options(),
+        );
+
+        engine.offer_peer_blobs("peer-going-offline", ["some-blake3".to_string()]);
+        engine.offer_peer_blobs("peer-still-online", ["other-blake3".to_string()]);
+
+        let d = descriptor("some-blake3", &[]);
+        assert_eq!(
+            engine.target_peers_for(&d),
+            vec!["peer-going-offline".to_string()]
+        );
+
+        engine.clear_peer("peer-going-offline");
+
+        assert!(engine.target_peers_for(&d).is_empty());
+        // the other peer's inventory entry is untouched.
+        let other = descriptor("other-blake3", &[]);
+        assert_eq!(
+            engine.target_peers_for(&other),
+            vec!["peer-still-online".to_string()]
+        );
 
         deps.endpoint.close().await;
     }
