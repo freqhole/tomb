@@ -776,7 +776,7 @@ pub fn run() {
             // P2P native transport commands
             p2p_commands::p2p_is_available,
             p2p_commands::p2p_get_node_id,
-            p2p_commands::p2p_proxy_request,
+            p2p_commands::p2p_api_call,
             p2p_commands::p2p_fetch_blob_verified,
             p2p_commands::p2p_fetch_blob_verified_by_id,
             p2p_commands::p2p_probe_blob,

@@ -45,7 +45,7 @@ export interface BiStreamLike {
 export interface MiddenNodeLike {
   node_id(): string;
   secret_key(): Uint8Array;
-  proxy_request(
+  api_request(
     peer_addr: string,
     method: string,
     path: string,
@@ -218,7 +218,7 @@ export class WasmTransport implements Transport {
     body?: string,
   ): Promise<TransportResponse> {
     try {
-      const result = await this.node.proxy_request(
+      const result = await this.node.api_request(
         this.peerAddr,
         method,
         path,
@@ -260,7 +260,7 @@ export class WasmTransport implements Transport {
       return this.uploadViaIrohBlobs(file, formData);
     }
 
-    // fallback: base64 encode and send via proxy_request (works for image uploads)
+    // fallback: base64 encode and send via api_request (works for image uploads)
     return this.uploadViaBase64(path, file, formData);
   }
 
@@ -363,7 +363,7 @@ export class WasmTransport implements Transport {
       }
     }
 
-    // send via proxy_request — routes through offal dispatch on the remote peer
+    // send via api_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));
   }
 
@@ -407,15 +407,15 @@ export class WasmTransport implements Transport {
           console.warn(
             `[WasmTransport] verified download failed, falling back: ${errorMessage}`,
           );
-          // fall through to proxy fetch
+          // fall through to api fetch
         }
       }
     }
 
-    // no blake3 (or verified download failed) — try proxy_request to get blob data
+    // no blake3 (or verified download failed) — try api_request to get blob data
     // this is the primary path for images (waveforms, thumbnails) stored in the database
     try {
-      const result = await this.node.proxy_request(
+      const result = await this.node.api_request(
         this.peerAddr,
         "GET",
         `/api/blobs/${blobId}/data`,
@@ -443,7 +443,7 @@ export class WasmTransport implements Transport {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.warn(
-        `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
+        `[WasmTransport] api blob data request failed, falling back: ${errorMessage}`,
       );
     }
 
@@ -653,9 +653,10 @@ export class WasmTransport implements Transport {
     }
 
     // no blake3 (or verified download failed).
-    // for audio blobs, prefer verified-by-id before proxy `/data` because
-    // `/api/blobs/{id}/data` only works for DB-backed blobs and file-backed
-    // media blobs would otherwise fail first, then fall back anyway.
+    // for audio blobs, prefer verified-by-id before the api_request `/data`
+    // fallback because `/api/blobs/{id}/data` only works for DB-backed blobs
+    // and file-backed media blobs would otherwise fail first, then fall back
+    // anyway.
     if (
       !blake3 &&
       this.node.download_verified_by_id &&
@@ -684,15 +685,15 @@ export class WasmTransport implements Transport {
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.warn(
-          `[WasmTransport] audio verified-by-id failed, falling back to proxy: ${errorMessage}`,
+          `[WasmTransport] audio verified-by-id failed, falling back to api_request: ${errorMessage}`,
         );
       }
     }
 
-    // try proxy_request to get blob data
-    let proxyFailureReason: string | null = null;
+    // try api_request to get blob data
+    let apiFailureReason: string | null = null;
     try {
-      const result = await this.node.proxy_request(
+      const result = await this.node.api_request(
         this.peerAddr,
         "GET",
         `/api/blobs/${blobId}/data`,
@@ -719,17 +720,17 @@ export class WasmTransport implements Transport {
 
           return { data, contentType };
         }
-        proxyFailureReason = `success=false in proxy response body for blob ${blobId}`;
-        console.warn(`[WasmTransport] ${proxyFailureReason}`);
+        apiFailureReason = `success=false in api response body for blob ${blobId}`;
+        console.warn(`[WasmTransport] ${apiFailureReason}`);
       } else {
-        proxyFailureReason = `proxy returned status ${result.status} for blob ${blobId}`;
-        console.warn(`[WasmTransport] ${proxyFailureReason}`);
+        apiFailureReason = `api request returned status ${result.status} for blob ${blobId}`;
+        console.warn(`[WasmTransport] ${apiFailureReason}`);
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
-      proxyFailureReason = `proxy request threw: ${errorMessage}`;
+      apiFailureReason = `api request threw: ${errorMessage}`;
       console.warn(
-        `[WasmTransport] proxy blob data request failed, falling back: ${errorMessage}`,
+        `[WasmTransport] api blob data request failed, falling back: ${errorMessage}`,
       );
     }
 
@@ -804,7 +805,7 @@ export class WasmTransport implements Transport {
     throw new Error(
       `no download method available for blob ${blobId} ` +
         `(blake3=${blake3 ? "yes" : "no"}, ` +
-        `proxy=${proxyFailureReason ?? "not attempted"}, ` +
+        `api=${apiFailureReason ?? "not attempted"}, ` +
         `legacy_fetch_blob=${this.node.fetch_blob ? "available" : "missing"})`,
     );
   }

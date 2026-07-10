@@ -128,12 +128,12 @@ export class CharnelTransport implements Transport {
     const inv = await ensureInvoke();
 
     // intentionally no per-error debug log here: the underlying
-    // p2p_proxy_request command already traces failures on the rust
+    // p2p_api_call command already traces failures on the rust
     // side, and callers (auth-status, health-check, etc.) decide
     // whether to surface the error. logging at this layer fires once
     // per request per failed peer and drowns the console for any
     // peer that's temporarily unreachable.
-    const result = (await inv("p2p_proxy_request", {
+    const result = (await inv("p2p_api_call", {
       peerAddr: this.peerAddr,
       method,
       path,
@@ -218,7 +218,7 @@ export class CharnelTransport implements Transport {
       );
     }
 
-    // for non-music uploads, send path + metadata via proxy_request
+    // for non-music uploads, send path + metadata via api_request
     const body: Record<string, unknown> = {
       file_path: filePath,
       ...metadata,
@@ -253,7 +253,7 @@ export class CharnelTransport implements Transport {
       }
     }
 
-    // send via proxy_request — routes through offal dispatch on the remote peer
+    // send via api_request — routes through offal dispatch on the remote peer
     return this.request("POST", path, JSON.stringify(body));
   }
 
@@ -311,7 +311,7 @@ export class CharnelTransport implements Transport {
   /**
    * fetch a blob via P2P
    * if blake3 is provided, uses iroh-blobs verified streaming.
-   * for blobs without blake3 (images, waveforms, thumbnails), uses proxy_request
+   * for blobs without blake3 (images, waveforms, thumbnails), uses api_request
    * to fetch base64-encoded data from the peer's /api/blobs/{id}/data endpoint.
    */
   async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
@@ -334,7 +334,7 @@ export class CharnelTransport implements Transport {
       };
     }
 
-    // no blake3 — try proxy_request to get blob data from database
+    // no blake3 — try api_request to get blob data from database
     // this is the primary path for images (waveforms, thumbnails) stored in the database
     try {
       const result = await this.request("GET", `/api/blobs/${blobId}/data`);
@@ -349,7 +349,7 @@ export class CharnelTransport implements Transport {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       console.warn(
-        `[CharnelTransport] proxy blob data request failed, falling back to verified download: ${errorMessage}`,
+        `[CharnelTransport] api blob data request failed, falling back to verified download: ${errorMessage}`,
       );
     }
 

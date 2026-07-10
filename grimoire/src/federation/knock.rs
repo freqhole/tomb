@@ -329,6 +329,7 @@ pub async fn create_knock(
             scope,
             request.message.clone(),
             now,
+            None,
         )
         .await
     {

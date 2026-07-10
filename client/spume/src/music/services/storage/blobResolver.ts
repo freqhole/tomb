@@ -212,8 +212,8 @@ export async function resolveBlobUrl(
     inProgressAbortControllers.set(cacheKey, abortController);
 
     // start the fetch and track it
-    // note: P2P thumbnail support requires proxy_request - use original blob for now
-    // TODO: add P2P thumbnail support via proxy_request to /api/blobs/{id}/thumb/{size}
+    // note: P2P thumbnail support requires api_request - use original blob for now
+    // TODO: add P2P thumbnail support via api_request to /api/blobs/{id}/thumb/{size}
     const fetchPromise = resolveP2PBlob(
       blobId,
       remote,

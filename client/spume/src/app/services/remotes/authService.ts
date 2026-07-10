@@ -12,7 +12,6 @@ import {
   registerWithPasskey,
   loginWithPasskey,
   whoami as webauthnWhoami,
-  type PasskeyCeremonyDeps,
 } from "@freqhole/haruspex/webauthn";
 import { getClientForRemote, httpRemote, isCharnelAvailable } from "../../api/client";
 import { createWebauthnTransport } from "./webauthnTransport";
@@ -186,17 +185,18 @@ export function isWebAuthnAvailable(): boolean {
   );
 }
 
-// check if an error indicates passkey is not available (vs other errors)
-function isPasskeyUnavailableError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+// check if a ceremony failure indicates passkey is not available (vs other errors)
+//
+// NotAllowedError: user denied or browser/platform blocked the request
+// NotSupportedError: webauthn not supported in this context
+// SecurityError: secure context required or other security issue
+// AbortError: request was aborted
+function isPasskeyUnavailableError(failureName: string | undefined): boolean {
+  if (!failureName) return false;
 
-  // NotAllowedError: user denied or browser/platform blocked the request
-  // NotSupportedError: webauthn not supported in this context
-  // SecurityError: secure context required or other security issue
-  // AbortError: request was aborted
   const unavailableErrorNames = ["NotAllowedError", "NotSupportedError", "SecurityError", "AbortError"];
 
-  return unavailableErrorNames.includes(err.name);
+  return unavailableErrorNames.includes(failureName);
 }
 
 // fallback to simple invite redemption (no passkey, session-only auth)
@@ -244,28 +244,14 @@ export async function registerWithWebauthn(
 
   debug("webauthn", "starting registration for username:", username);
 
-  // capture the raw credential-creation error (with its DOMException name)
-  // via the ceremony's injectable deps - the ceremony's own result only
-  // carries a plain error message, which loses the name this fallback
-  // decision depends on.
-  let credentialError: unknown;
-  const deps: PasskeyCeremonyDeps = {
-    createCredential: (options) =>
-      navigator.credentials.create(options).catch((err) => {
-        credentialError = err;
-        throw err;
-      }) as ReturnType<NonNullable<PasskeyCeremonyDeps["createCredential"]>>,
-  };
-
-  const result = await registerWithPasskey(
-    createWebauthnTransport(httpRemote(baseUrl)),
-    { username, inviteCode },
-    deps,
-  );
+  const result = await registerWithPasskey(createWebauthnTransport(httpRemote(baseUrl)), {
+    username,
+    inviteCode,
+  });
 
   if (!result.success) {
     const noCredential = result.error === "browser did not return a credential";
-    if (isPasskeyUnavailableError(credentialError) || noCredential) {
+    if (isPasskeyUnavailableError(result.name) || noCredential) {
       debug("webauthn", "passkey creation unavailable, falling back to invite redemption");
       return fallbackToInviteRedemption(baseUrl, username, inviteCode);
     }
