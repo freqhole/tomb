@@ -43,7 +43,7 @@ const node = await MiddenNode.create();
 console.log("my node_id:", node.node_id());
 
 // make API request to peer - accepts plain node_id or full endpoint JSON
-const response = await node.proxy_request(
+const response = await node.api_request(
   peerNodeId, // e.g. "abc123def456..." or '{"id":"...","addrs":[...]}'
   "GET",
   "/api/music/songs?limit=10",
@@ -80,7 +80,7 @@ midden accepts two formats for `peer_addr`:
 uses same protocol as grimoire's federation transport:
 
 - ALPN: `freqhole/1`
-- messages: `ProxyRequest`, `ProxyResponse`, `BlobStreamRequest`, `BlobStreamResponse`
+- messages: `ApiRequest`, `ApiResponse`, `BlobStreamRequest`, `BlobStreamResponse`
 - blob streaming: length-prefixed header followed by raw bytes
 
 see `grimoire/src/federation/transport/protocol.rs` for details.

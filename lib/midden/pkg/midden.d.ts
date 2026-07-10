@@ -90,7 +90,7 @@ export class BiStream {
      * race the QUIC flush -- the peer's `read_to_end` then errors with
      * "connection lost" mid-payload because the in-flight frames are
      * torn down with the connection. matters most for large payloads
-     * (e.g. base64-encoded blob bodies in `proxy_response`).
+     * (e.g. base64-encoded blob bodies in `api_response`).
      */
     write_raw_and_finish(data: Uint8Array): Promise<void>;
 }
@@ -216,7 +216,7 @@ export class IntoUnderlyingSource {
  * browser P2P node for freqhole federation
  *
  * supports two protocols:
- * - freqhole/1: API proxying and small blob streaming
+ * - freqhole/1: API requests and small blob streaming
  * - iroh-blobs: verified streaming for audio files
  */
 export class MiddenNode {
@@ -239,6 +239,11 @@ export class MiddenNode {
      * return the number of blobs currently held in the store via active TempTags.
      */
     active_blob_count(): number;
+    /**
+     * send an API request to a peer
+     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
+     */
+    api_request(peer_addr: string, method: string, path: string, body?: string | null): Promise<any>;
     /**
      * PROTOTYPE: remove a hash's restriction, returning it to the default
      * (served to anyone) state.
@@ -456,7 +461,7 @@ export class MiddenNode {
      * open a bidirectional stream to a peer on a specific ALPN.
      *
      * `peer_addr` can be a plain node_id hex string or a full endpoint
-     * address JSON (same format as proxy_request). `alpn` is the protocol
+     * address JSON (same format as api_request). `alpn` is the protocol
      * to negotiate (e.g. "iroh/automerge-repo/1").
      *
      * returns a BiStream for length-delimited message exchange.
@@ -477,11 +482,6 @@ export class MiddenNode {
      * schema happens in the spume `AdminClient`.
      */
     proxy_admin(peer_addr: string, command: string, args: string): Promise<any>;
-    /**
-     * send an API request to a peer
-     * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-     */
-    proxy_request(peer_addr: string, method: string, path: string, body?: string | null): Promise<any>;
     /**
      * release a blob's TempTag, allowing the store to garbage-collect it.
      * blake3_hash should be the 64-char hex string returned by import_blob.

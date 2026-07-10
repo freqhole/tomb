@@ -4,7 +4,7 @@
 //! accepts either plain node_id or full endpoint address JSON with relay/IP hints.
 //!
 //! supports two protocols:
-//! - freqhole/1: custom protocol for API proxying and small blob streaming
+//! - freqhole/1: custom protocol for API requests and small blob streaming
 //! - freqhole-blobz: iroh-blobs protocol for verified streaming of audio files
 
 use bao_tree::ChunkRanges;
@@ -90,13 +90,13 @@ enum AdminMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum PeerMessage {
-    ProxyRequest {
+    ApiRequest {
         id: u64,
         method: String,
         path: String,
         body: Option<String>,
     },
-    ProxyResponse {
+    ApiResponse {
         id: u64,
         status: u16,
         body: String,
@@ -154,9 +154,9 @@ impl HelloImageResult {
     }
 }
 
-/// response from proxy_request
+/// response from api_request
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProxyResponse {
+pub struct ApiResponse {
     pub status: u16,
     pub body: String,
 }
@@ -319,7 +319,7 @@ impl BiStream {
     /// race the QUIC flush -- the peer's `read_to_end` then errors with
     /// "connection lost" mid-payload because the in-flight frames are
     /// torn down with the connection. matters most for large payloads
-    /// (e.g. base64-encoded blob bodies in `proxy_response`).
+    /// (e.g. base64-encoded blob bodies in `api_response`).
     pub async fn write_raw_and_finish(&self, data: &[u8]) -> Result<(), JsError> {
         let mut send = self
             .send
@@ -717,7 +717,7 @@ fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
 /// browser P2P node for freqhole federation
 ///
 /// supports two protocols:
-/// - freqhole/1: API proxying and small blob streaming
+/// - freqhole/1: API requests and small blob streaming
 /// - iroh-blobs: verified streaming for audio files
 #[wasm_bindgen]
 pub struct MiddenNode {
@@ -1232,7 +1232,7 @@ impl MiddenNode {
     /// open a bidirectional stream to a peer on a specific ALPN.
     ///
     /// `peer_addr` can be a plain node_id hex string or a full endpoint
-    /// address JSON (same format as proxy_request). `alpn` is the protocol
+    /// address JSON (same format as api_request). `alpn` is the protocol
     /// to negotiate (e.g. "iroh/automerge-repo/1").
     ///
     /// returns a BiStream for length-delimited message exchange.
@@ -1419,7 +1419,7 @@ impl MiddenNode {
 
     /// send an API request to a peer
     /// peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
-    pub async fn proxy_request(
+    pub async fn api_request(
         &self,
         peer_addr: &str,
         method: &str,
@@ -1434,7 +1434,7 @@ impl MiddenNode {
             conn.open_bi().await.map_err(to_js_err)?;
 
         // send request
-        let request = PeerMessage::ProxyRequest {
+        let request = PeerMessage::ApiRequest {
             id: 1,
             method: method.to_string(),
             path: path.to_string(),
@@ -1445,7 +1445,7 @@ impl MiddenNode {
         send.finish().map_err(to_js_err)?;
 
         // read response (no length prefix, read to end). cap is generous
-        // because proxy_request is the fallback path for blob data (audio/
+        // because api_request is the fallback path for blob data (audio/
         // image) when verified iroh-blobs streaming fails. base64 inflation
         // means a 96MB cap covers ~70MB of raw audio, which fits typical
         // album-length mp3s. for anything larger the verified path must work.
@@ -1456,8 +1456,8 @@ impl MiddenNode {
         let response: PeerMessage = serde_json::from_slice(&response_bytes).map_err(to_js_err)?;
 
         match response {
-            PeerMessage::ProxyResponse { status, body, .. } => {
-                let result = ProxyResponse { status, body };
+            PeerMessage::ApiResponse { status, body, .. } => {
+                let result = ApiResponse { status, body };
                 Ok(serde_wasm_bindgen::to_value(&result)?)
             }
             _ => Err(JsError::new("unexpected response type")),
