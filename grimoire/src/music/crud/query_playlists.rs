@@ -4,6 +4,7 @@ use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuil
 use std::time::Instant;
 
 use super::user_prefs;
+use super::usernames;
 use crate::database;
 use crate::media_blobz::{BlobType, MediaBlob};
 use crate::music::crud::models::{
@@ -187,8 +188,6 @@ pub struct PlaylistSongViewRow {
     song_deleted_by: Option<String>,
     song_created_by: Option<String>,
     song_updated_by: Option<String>,
-    song_created_by_username: Option<String>,
-    song_updated_by_username: Option<String>,
     // aggregated play count from view
     song_play_count: Option<i64>,
 
@@ -315,8 +314,10 @@ impl PlaylistSongViewRow {
             deleted_by: self.song_deleted_by,
             created_by: self.song_created_by,
             updated_by: self.song_updated_by,
-            created_by_username: self.song_created_by_username,
-            updated_by_username: self.song_updated_by_username,
+            // resolved as a second pass by enrich_song_usernames, once the
+            // caller has the full batch of rows to resolve in one query
+            created_by_username: None,
+            updated_by_username: None,
             play_count: self.song_play_count,
         };
 
@@ -693,6 +694,15 @@ pub async fn query_playlist_songs(
         .into_iter()
         .map(|r| r.to_playlist_song_result(user_id_ref))
         .collect();
+
+    if let Err(e) = usernames::enrich_song_usernames(
+        &pool,
+        songs.iter_mut().map(|s| &mut s.details.song).collect(),
+    )
+    .await
+    {
+        return GrimoireResponse::failure("Failed to resolve usernames", vec![e.into()]);
+    }
 
     // apply user favorites and ratings to the songs
     if let Some(uid) = &params.user_id {

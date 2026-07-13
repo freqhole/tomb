@@ -23,12 +23,20 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         }
     };
 
+    let media_blob_id = req.media_blob_id.clone();
     let song = match sqlx::query_as!(
         Song,
         "INSERT INTO songz (
             media_blob_id, title, track_number, disc_number, duration, bpm, track_artist, metadata, lyrics,
-            created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_by, updated_by,
+            media_blob_sha256, media_blob_blake3, media_blob_mime, media_blob_size
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            (SELECT sha256 FROM media_blobz WHERE id = ?),
+            (SELECT blake3 FROM media_blobz WHERE id = ?),
+            (SELECT mime FROM media_blobz WHERE id = ?),
+            (SELECT size FROM media_blobz WHERE id = ?)
+        )
         RETURNING
             id as \"id!\",
             media_blob_id as \"media_blob_id!\",
@@ -61,7 +69,11 @@ pub async fn create_song(req: CreateSongRequest) -> GrimoireResponse<Song> {
         req.metadata,
         req.lyrics,
         req.created_by,
-        req.created_by
+        req.created_by,
+        media_blob_id,
+        media_blob_id,
+        media_blob_id,
+        media_blob_id
     )
     .fetch_one(&pool)
     .await
@@ -105,7 +117,7 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
     let offset = offset.unwrap_or(0) as i64;
 
     // query from song_query_view which includes images as JSON array
-    let songs = match sqlx::query_as!(
+    let mut songs = match sqlx::query_as!(
         Song,
         r#"SELECT
             song_id as "id!",
@@ -124,8 +136,8 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             song_deleted_by as deleted_by,
             song_created_by as created_by,
             song_updated_by as updated_by,
-            song_created_by_username as created_by_username,
-            song_updated_by_username as updated_by_username,
+            NULL as "created_by_username?: String",
+            NULL as "updated_by_username?: String",
             song_images as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>",
             song_play_count as "play_count?: i64"
@@ -144,6 +156,12 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
             return GrimoireResponse::failure("Failed to list songs", vec![ErrorDetail::from(e)])
         }
     };
+
+    if let Err(e) =
+        crate::music::crud::enrich_song_usernames(&pool, songs.iter_mut().collect()).await
+    {
+        return GrimoireResponse::failure("Failed to resolve usernames", vec![ErrorDetail::from(e)]);
+    }
 
     GrimoireResponse::success("Songs retrieved successfully", songs)
 }
@@ -179,8 +197,8 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
             song_deleted_by as "deleted_by?",
             song_created_by as "created_by?",
             song_updated_by as "updated_by?",
-            song_created_by_username as "created_by_username?",
-            song_updated_by_username as "updated_by_username?",
+            NULL as "created_by_username?: String",
+            NULL as "updated_by_username?: String",
             song_images as "images?: JsonVec<ImageMetadata>",
             NULL as "urls?: JsonVec<EntityUrl>",
             song_play_count as "play_count?: i64"
@@ -198,7 +216,20 @@ pub async fn get_song(id: &str) -> GrimoireResponse<Song> {
     };
 
     match song_opt {
-        Some(song) => GrimoireResponse::success("Song retrieved successfully", song),
+        Some(mut song) => {
+            if let Err(e) = crate::music::crud::enrich_song_usernames(
+                &pool,
+                std::iter::once(&mut song).collect(),
+            )
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "Failed to resolve usernames",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+            GrimoireResponse::success("Song retrieved successfully", song)
+        }
         None => {
             let err = GrimoireError::SongNotFound { id: id.to_string() };
             GrimoireResponse::failure("Song not found", vec![ErrorDetail::from(&err)])
@@ -346,10 +377,9 @@ pub async fn get_song_by_sha256(sha256: &str) -> GrimoireResult<Option<String>> 
 
     let song_id: Option<String> = sqlx::query_scalar!(
         r#"
-        SELECT s.id as "id!"
-        FROM songz s
-        JOIN media_blobz mb ON s.media_blob_id = mb.id
-        WHERE mb.sha256 = ? AND s.deleted_at IS NULL
+        SELECT id as "id!"
+        FROM songz
+        WHERE media_blob_sha256 = ? AND deleted_at IS NULL
         LIMIT 1
         "#,
         sha256
@@ -368,10 +398,9 @@ pub async fn get_song_by_blake3(blake3: &str) -> GrimoireResult<Option<String>> 
 
     let song_id: Option<String> = sqlx::query_scalar!(
         r#"
-        SELECT s.id as "id!"
-        FROM songz s
-        JOIN media_blobz mb ON s.media_blob_id = mb.id
-        WHERE mb.blake3 = ? AND s.deleted_at IS NULL
+        SELECT id as "id!"
+        FROM songz
+        WHERE media_blob_blake3 = ? AND deleted_at IS NULL
         LIMIT 1
         "#,
         blake3
@@ -390,10 +419,9 @@ pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
 
     let sha256s: Vec<String> = sqlx::query_scalar!(
         r#"
-        SELECT DISTINCT mb.sha256 as "sha256!"
-        FROM songz s
-        JOIN media_blobz mb ON s.media_blob_id = mb.id
-        WHERE mb.sha256 IS NOT NULL AND s.deleted_at IS NULL
+        SELECT DISTINCT media_blob_sha256 as "sha256!"
+        FROM songz
+        WHERE media_blob_sha256 IS NOT NULL AND deleted_at IS NULL
         "#
     )
     .fetch_all(&pool)

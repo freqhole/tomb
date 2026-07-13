@@ -10,6 +10,7 @@ mod query_favorites;
 mod query_playlists;
 mod update;
 mod user_prefs;
+mod usernames;
 
 // re-export public types
 pub use models::{
@@ -88,6 +89,11 @@ pub use query::{
 // `apply_user_preferences_albums` to layer favorites/ratings onto
 // walk-fetched albums.
 pub use user_prefs::apply_user_preferences_albums;
+
+// re-export username-resolution helpers — relations.rs and the songs/albums
+// entity repositories need these to resolve usernames as a second pass now
+// that the query views no longer join user_accountz directly.
+pub use usernames::{enrich_album_usernames, enrich_song_usernames};
 
 // re-export favorites query operations
 pub use query_favorites::query_favorites;

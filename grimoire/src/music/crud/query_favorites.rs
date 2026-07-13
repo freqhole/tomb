@@ -132,7 +132,7 @@ async fn query_song_favorites(
     .fetch_all(pool)
     .await?;
 
-    let results = rows
+    let mut results: Vec<FavoriteSongResult> = rows
         .into_iter()
         .map(|row| {
             let user_favorited_at: i64 = row.try_get("user_favorited_at").unwrap_or(0);
@@ -144,6 +144,12 @@ async fn query_song_favorites(
             }
         })
         .collect();
+
+    crate::music::crud::enrich_song_usernames(
+        pool,
+        results.iter_mut().map(|r| &mut r.song.song).collect(),
+    )
+    .await?;
 
     Ok(results)
 }
@@ -166,7 +172,7 @@ async fn query_album_favorites(
     .fetch_all(pool)
     .await?;
 
-    let results = rows
+    let mut results: Vec<FavoriteAlbumResult> = rows
         .into_iter()
         .map(|row| {
             let user_favorited_at: i64 = row.try_get("user_favorited_at").unwrap_or(0);
@@ -178,6 +184,12 @@ async fn query_album_favorites(
             }
         })
         .collect();
+
+    crate::music::crud::enrich_album_usernames(
+        pool,
+        results.iter_mut().map(|r| &mut r.album.album).collect(),
+    )
+    .await?;
 
     Ok(results)
 }

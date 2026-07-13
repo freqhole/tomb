@@ -27,7 +27,9 @@ use zod_gen_derive::ZodSchema;
 
 use crate::database;
 use crate::error::ErrorDetail;
-use crate::music::crud::{apply_user_preferences_albums, AlbumQueryResult, AlbumViewRow};
+use crate::music::crud::{
+    apply_user_preferences_albums, enrich_album_usernames, AlbumQueryResult, AlbumViewRow,
+};
 use crate::music::entities::albums::Album;
 use crate::music::entities::artists::Artist;
 use crate::music::entities::taxonomy::TaxonRef;
@@ -107,6 +109,15 @@ pub async fn list_albums_by_taxon_value(
         .map(|r| r.to_album_query_result(user_id))
         .collect();
 
+    if let Err(e) =
+        enrich_album_usernames(&pool, albums.iter_mut().map(|a| &mut a.album).collect()).await
+    {
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
     if let Some(uid) = user_id {
         apply_user_preferences_albums(&mut albums, uid).await;
     }
@@ -158,6 +169,15 @@ pub async fn list_recently_added_albums(
         .into_iter()
         .map(|r| r.to_album_query_result(user_id))
         .collect();
+
+    if let Err(e) =
+        enrich_album_usernames(&pool, albums.iter_mut().map(|a| &mut a.album).collect()).await
+    {
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
+    }
 
     if let Some(uid) = user_id {
         apply_user_preferences_albums(&mut albums, uid).await;
@@ -228,6 +248,15 @@ pub async fn list_albums_in_era_bin(
         .into_iter()
         .map(|r| r.to_album_query_result(user_id))
         .collect();
+
+    if let Err(e) =
+        enrich_album_usernames(&pool, albums.iter_mut().map(|a| &mut a.album).collect()).await
+    {
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
+    }
 
     if let Some(uid) = user_id {
         apply_user_preferences_albums(&mut albums, uid).await;
@@ -322,6 +351,15 @@ pub async fn list_unassigned_albums(
         .into_iter()
         .map(|r| r.to_album_query_result(user_id))
         .collect();
+
+    if let Err(e) =
+        enrich_album_usernames(&pool, albums.iter_mut().map(|a| &mut a.album).collect()).await
+    {
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
+    }
 
     if let Some(uid) = user_id {
         apply_user_preferences_albums(&mut albums, uid).await;
@@ -661,8 +699,6 @@ pub async fn find_albums_by_merged_key(
             v.album_deleted_by      as "deleted_by?",
             v.album_created_by      as "created_by?",
             v.album_updated_by      as "updated_by?",
-            v.album_created_by_username as "created_by_username?",
-            v.album_updated_by_username as "updated_by_username?",
             v.album_images          as "images?",
             v.album_metadata        as "metadata?",
             v.album_mb_lookup_status as "mb_lookup_status?",
@@ -724,14 +760,30 @@ pub async fn find_albums_by_merged_key(
             deleted_by: r.deleted_by,
             created_by: r.created_by,
             updated_by: r.updated_by,
-            created_by_username: r.created_by_username,
-            updated_by_username: r.updated_by_username,
+            // resolved as a second pass below, once every album in this
+            // batch has been built
+            created_by_username: None,
+            updated_by_username: None,
             metadata: r.metadata,
             mb_lookup_status: r.mb_lookup_status,
             mb_lookup_at: r.mb_lookup_at,
             mb_lookup_by: r.mb_lookup_by,
         };
         out.entry(r.merged_key).or_default().push(album);
+    }
+
+    if let Err(e) = enrich_album_usernames(
+        &pool,
+        out.values_mut()
+            .flat_map(|albums| albums.iter_mut())
+            .collect(),
+    )
+    .await
+    {
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
     }
 
     GrimoireResponse::success("albums by merged key retrieved", out)

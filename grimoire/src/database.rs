@@ -44,9 +44,6 @@ mod views {
         View {
             sql: include_str!("../../migrations/views/playlist_song_query_view.sql"),
         },
-        View {
-            sql: include_str!("../../migrations/views/feed_query_view.sql"),
-        },
     ];
 }
 

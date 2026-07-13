@@ -18,11 +18,13 @@ SELECT
         (SELECT media_blob_id FROM artist_imagez WHERE artist_id = ar.id AND is_primary = 1 LIMIT 1)
     ) as song_thumbnail_blob_id,
 
-    -- media blob fields (for P2P verified streaming via iroh-blobs)
-    mb.sha256 as media_blob_sha256,
-    mb.blake3 as media_blob_blake3,
-    mb.mime as media_blob_mime,
-    mb.size as media_blob_size,
+    -- media blob fields (for P2P verified streaming via iroh-blobs),
+    -- denormalized onto songz itself rather than joined from media_blobz
+    -- (content-addressed and immutable once a song is created)
+    s.media_blob_sha256 as media_blob_sha256,
+    s.media_blob_blake3 as media_blob_blake3,
+    s.media_blob_mime as media_blob_mime,
+    s.media_blob_size as media_blob_size,
 
     s.title as song_title,
     s.track_number as song_track_number,
@@ -38,8 +40,6 @@ SELECT
     s.deleted_by as song_deleted_by,
     s.created_by as song_created_by,
     s.updated_by as song_updated_by,
-    ucb_song.username as song_created_by_username,
-    uub_song.username as song_updated_by_username,
 
     -- song images as JSON array
     COALESCE(
@@ -189,14 +189,11 @@ SELECT
 
 FROM playlist_songz ps
 LEFT JOIN songz s ON ps.song_id = s.id
-LEFT JOIN media_blobz mb ON s.media_blob_id = mb.id
 LEFT JOIN artist_songz ars ON s.id = ars.song_id
 LEFT JOIN artistz ar ON ars.artist_id = ar.id AND ar.deleted_at IS NULL
 LEFT JOIN album_songz als ON s.id = als.song_id
 LEFT JOIN albumz al ON als.album_id = al.id AND al.deleted_at IS NULL
 LEFT JOIN playlistz pl ON ps.playlist_id = pl.id
 LEFT JOIN artist_query_view arv ON ar.id = arv.artist_id
-LEFT JOIN user_accountz ucb_song ON s.created_by = ucb_song.id
-LEFT JOIN user_accountz uub_song ON s.updated_by = uub_song.id
 WHERE s.deleted_at IS NULL AND pl.deleted_at IS NULL
 ORDER BY ps.position;

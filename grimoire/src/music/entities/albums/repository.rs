@@ -122,7 +122,7 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
     let limit = limit.unwrap_or(100).min(1000) as i64;
     let offset = offset.unwrap_or(0) as i64;
 
-    let albums: Vec<Album> = match sqlx::query_as!(
+    let mut albums: Vec<Album> = match sqlx::query_as!(
         Album,
         r#"SELECT
             album_id as "id!",
@@ -140,8 +140,8 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
-            album_created_by_username as "created_by_username?",
-            album_updated_by_username as "updated_by_username?",
+            NULL as "created_by_username?: String",
+            NULL as "updated_by_username?: String",
             album_images as "images: JsonVec<ImageMetadata>",
             album_urls as "urls: JsonVec<EntityUrl>",
             album_metadata as "metadata?",
@@ -163,6 +163,12 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
         }
     };
 
+    if let Err(e) =
+        crate::music::crud::enrich_album_usernames(&pool, albums.iter_mut().collect()).await
+    {
+        return GrimoireResponse::failure("failed to resolve usernames", vec![ErrorDetail::from(e)]);
+    }
+
     GrimoireResponse::success("albums retrieved successfully", albums)
 }
 
@@ -179,7 +185,7 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
     };
 
     // fetch album from view
-    let album = match sqlx::query_as!(
+    let mut album = match sqlx::query_as!(
         Album,
         r#"SELECT
             album_id as "id!",
@@ -197,8 +203,8 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             album_deleted_by as "deleted_by?",
             album_created_by as "created_by?",
             album_updated_by as "updated_by?",
-            album_created_by_username as "created_by_username?",
-            album_updated_by_username as "updated_by_username?",
+            NULL as "created_by_username?: String",
+            NULL as "updated_by_username?: String",
             album_images as "images: JsonVec<ImageMetadata>",
             album_urls as "urls: JsonVec<EntityUrl>",
             album_metadata as "metadata?",
@@ -221,6 +227,15 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
             return GrimoireResponse::failure("failed to get album", vec![ErrorDetail::from(e)])
         }
     };
+
+    if let Err(e) = crate::music::crud::enrich_album_usernames(
+        &pool,
+        std::iter::once(&mut album).collect(),
+    )
+    .await
+    {
+        return GrimoireResponse::failure("failed to resolve usernames", vec![ErrorDetail::from(e)]);
+    }
 
     GrimoireResponse::success("album retrieved successfully", album)
 }
