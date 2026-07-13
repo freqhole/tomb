@@ -19,6 +19,7 @@ use crate::error::{GrimoireError, GrimoireResult};
 static MAIN_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static HARUSPEX_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static RELIQUARY_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
 // (drop runs in reverse, create runs forward).
@@ -122,6 +123,12 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         })?;
         tracing::info!("created freqhole-blobz directory: {}", blobz_path.display());
     }
+
+    // eagerly open + migrate reliquary's own database (media blob storage
+    // domain library) so its schema is ready at boot, alongside the other
+    // pools. nothing reads or writes through it yet - this only opens the
+    // pool and runs its migrations.
+    let _reliquary_pool = connect_reliquary().await?;
 
     Ok(())
 }
@@ -235,5 +242,27 @@ async fn create_haruspex_pool() -> GrimoireResult<SqlitePool> {
         .await
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to open haruspex database: {e}"),
+        })
+}
+
+/// connect to reliquary's own sqlite database (`reliquary.db` by default, a
+/// sibling of grimoire's own database file under `data_dir`). reliquary owns
+/// this database's schema and migrations entirely - `reliquary::db::open_at`
+/// runs them on first connect, so this pool is ready to use as soon as it's
+/// returned. returns a clone of the singleton pool (cheap - just Arc clone).
+pub(crate) async fn connect_reliquary() -> GrimoireResult<SqlitePool> {
+    let pool = RELIQUARY_POOL
+        .get_or_try_init(|| async { create_reliquary_pool().await })
+        .await?;
+    Ok(pool.clone())
+}
+
+/// internal: open (and migrate) reliquary's database at its configured path
+async fn create_reliquary_pool() -> GrimoireResult<SqlitePool> {
+    let config = get_config();
+    reliquary::db::open_at(&config.reliquary_db_path())
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to open reliquary database: {e}"),
         })
 }

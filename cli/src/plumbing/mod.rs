@@ -22,6 +22,7 @@ pub mod dispatch;
 mod federation;
 mod jobs;
 mod maintenance;
+mod migrate_to_reliquary;
 mod music;
 #[cfg(feature = "rodio-playback")]
 mod player;
@@ -232,6 +233,12 @@ pub async fn handle_federation(action: FederationAction, json_output: bool) -> a
 pub async fn handle_blobz(action: BlobzAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = blobz::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_migrate_to_reliquary(json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = migrate_to_reliquary::handle_command().await;
     utils::print_and_exit(output, format);
 }
 

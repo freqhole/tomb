@@ -108,6 +108,11 @@ pub struct DatabaseConfig {
     /// Idle timeout in seconds before closing unused connections (default: 300)
     #[serde(default = "default_idle_timeout_seconds")]
     pub idle_timeout_seconds: u64,
+    /// optional override for reliquary's own sqlite database file path (the
+    /// media blob storage library, a sibling of grimoire's own database
+    /// file). when unset, defaults to `reliquary.db` under data_dir.
+    #[serde(default)]
+    pub reliquary_db_path: Option<PathBuf>,
 }
 
 /// Media processing configuration
@@ -787,6 +792,16 @@ impl GrimoireConfig {
         self.data_dir.join(&self.database.filename)
     }
 
+    /// get path to reliquary's own sqlite database file (media blob storage
+    /// domain library). defaults to `reliquary.db` under data_dir; override
+    /// via `[database] reliquary_db_path` in the config file.
+    pub fn reliquary_db_path(&self) -> PathBuf {
+        self.database
+            .reliquary_db_path
+            .clone()
+            .unwrap_or_else(|| self.data_dir.join("reliquary.db"))
+    }
+
     /// Get path to blob data SQLite database file
     /// derives from main database filename: grimoire.db → grimoire-blobdata.db
     pub fn blob_data_path(&self) -> PathBuf {
@@ -852,6 +867,7 @@ pub fn init_config_for_tests() {
             max_connections: default_max_connections(),
             acquire_timeout_seconds: default_acquire_timeout_seconds(),
             idle_timeout_seconds: default_idle_timeout_seconds(),
+            reliquary_db_path: None,
         },
         media: MediaConfig {
             max_fs_file_size: default_max_fs_file_size(),
@@ -1738,6 +1754,7 @@ mod tests {
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
+                reliquary_db_path: None,
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,
@@ -1784,6 +1801,7 @@ mod tests {
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
+                reliquary_db_path: None,
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,
@@ -1828,6 +1846,7 @@ mod tests {
                 max_connections: default_max_connections(),
                 acquire_timeout_seconds: default_acquire_timeout_seconds(),
                 idle_timeout_seconds: default_idle_timeout_seconds(),
+                reliquary_db_path: None,
             },
             media: MediaConfig {
                 max_fs_file_size: 1000,

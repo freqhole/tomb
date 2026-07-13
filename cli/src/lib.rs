@@ -100,6 +100,11 @@ pub enum Commands {
         action: plumbing::BlobzAction,
     },
 
+    /// one-shot migration of media_blobz + blob_data into reliquary's blobz
+    /// table. safe to run repeatedly; refuses to run until every live media
+    /// blob has a blake3 hash (see `blobz backfill-blake3`).
+    MigrateToReliquary,
+
     /// Sync operations (send-to-remote: album/song/playlist receive routes)
     Sync {
         #[command(subcommand)]
@@ -364,6 +369,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::MigrateToReliquary => {
+            plumbing::handle_migrate_to_reliquary(json_output).await?;
         }
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;
