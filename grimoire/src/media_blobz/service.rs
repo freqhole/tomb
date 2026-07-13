@@ -1,9 +1,11 @@
 //! media blob service functions
 //! clean business logic using sqlx::query_as! with no fallbacks
 
+use reliquary::blobz::{BlobStore, SqliteBlobStore};
+
 use super::models::{BlobType, CreateMediaBlobRequest, MediaBlob};
 use crate::error::{GrimoireError, GrimoireResult};
-use crate::{blob_data, database};
+use crate::{blob_data, config, database};
 
 /// create a new media blob with deduplication by SHA256
 pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
@@ -378,17 +380,20 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
 ///
 /// returns (MediaBlob, Option<Vec<u8>>)
 /// - if blob has local_path, returns (blob, None) - data should be read from filesystem
-/// - if blob data is in database, returns (blob, Some(data))
-/// - if neither exists, returns error
+/// - if blob data is in grimoire's own blob_data table, returns (blob, Some(data))
+/// - otherwise, falls back to reliquary's blob store: resolves the row by
+///   this id (recorded there as old_grimoire_id) and reads its bytes by
+///   blake3 hash, returning (blob, Some(data)) if found
+/// - if no source has the data, returns MediaBlobNotFound
 pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Option<Vec<u8>>)> {
     let blob = get_media_blob(id).await?;
 
-    // If blob has local_path, caller should read from filesystem
+    // if blob has local_path, caller should read from filesystem
     if blob.local_path.is_some() {
         return Ok((blob, None));
     }
 
-    // Try to get data from blob_data table
+    // try to get data from blob_data table
     let data_response = blob_data::get_blob_data(&blob.id).await;
 
     if data_response.success {
@@ -397,7 +402,19 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
         }
     }
 
-    // No data source available
+    // fall back to reliquary: any problem reaching it or resolving the blob
+    // there is treated the same as "not found" rather than propagated, so a
+    // reliquary-side issue never changes this function's error type.
+    if let Ok(reliquary_pool) = database::connect_reliquary().await {
+        let store = SqliteBlobStore::new(reliquary_pool, &config::get_config().data_dir);
+        if let Ok(Some(record)) = store.get_by_old_id(&blob.id).await {
+            if let Ok(Some(data)) = store.read_bytes(&record.blake3).await {
+                return Ok((blob, Some(data)));
+            }
+        }
+    }
+
+    // no data source available
     Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
 }
 
@@ -768,4 +785,121 @@ pub async fn find_present_sha256s(sha256s: &[String]) -> GrimoireResult<Vec<Stri
     .fetch_all(&pool)
     .await?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reliquary::blobz::NewBlobMeta;
+
+    // both tests spin up a fresh tempdir with their own grimoire.db,
+    // blob_data db, and reliquary.db (via the same real db pool singletons
+    // `get_media_blob_with_data` itself uses), so each is marked #[ignore]
+    // per this crate's convention for tests touching those singletons. run
+    // ONE at a time, each its own process - the pools are process-wide, so
+    // running both together (even in the same `--ignored` filter) races
+    // over the same singleton and fails with a spurious "table already
+    // exists" migration error:
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_falls_back_to_reliquary
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_not_found_anywhere
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+
+        crate::config::init_config(Some(config_path)).expect("init config");
+        database::run_migrations().await.expect("run migrations");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_with_data_falls_back_to_reliquary() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        // a media_blobz row with neither a local_path nor a blob_data row -
+        // grimoire's own sources both come up empty.
+        let bytes = b"reliquary-backed audio bytes";
+        let blake3 = reliquary::hash_bytes(bytes);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('fallback01', ?, ?, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("f".repeat(64))
+        .bind(bytes.len() as i64)
+        .bind(&blake3)
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        // the matching reliquary row, linked back to the grimoire id via
+        // old_grimoire_id.
+        let reliquary_pool = database::connect_reliquary().await.expect("reliquary pool");
+        let config = crate::config::get_config();
+        let store = SqliteBlobStore::new(reliquary_pool.clone(), &config.data_dir);
+        let record = store
+            .insert(bytes, NewBlobMeta::default())
+            .await
+            .expect("insert reliquary blob");
+        sqlx::query("UPDATE blobz SET old_grimoire_id = ? WHERE blake3 = ?")
+            .bind("fallback01")
+            .bind(&record.blake3)
+            .execute(&reliquary_pool)
+            .await
+            .expect("set old_grimoire_id");
+
+        let (blob, data) = get_media_blob_with_data("fallback01")
+            .await
+            .expect("get_media_blob_with_data");
+        assert_eq!(blob.id, "fallback01");
+        assert_eq!(data, Some(bytes.to_vec()));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_with_data_not_found_anywhere() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        // a media_blobz row with no local_path, no blob_data row, and no
+        // matching reliquary row - every source comes up empty.
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('missing01', ?, ?, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("0".repeat(64))
+        .bind(10i64)
+        .bind("0".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let result = get_media_blob_with_data("missing01").await;
+        assert!(matches!(
+            result,
+            Err(GrimoireError::MediaBlobNotFound { id }) if id == "missing01"
+        ));
+    }
 }
