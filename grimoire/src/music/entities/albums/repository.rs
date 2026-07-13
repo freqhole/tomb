@@ -166,7 +166,10 @@ pub async fn list_albums(limit: Option<u32>, offset: Option<u32>) -> GrimoireRes
     if let Err(e) =
         crate::music::crud::enrich_album_usernames(&pool, albums.iter_mut().collect()).await
     {
-        return GrimoireResponse::failure("failed to resolve usernames", vec![ErrorDetail::from(e)]);
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
     }
 
     GrimoireResponse::success("albums retrieved successfully", albums)
@@ -228,13 +231,14 @@ pub async fn get_album(id: &str) -> GrimoireResponse<Album> {
         }
     };
 
-    if let Err(e) = crate::music::crud::enrich_album_usernames(
-        &pool,
-        std::iter::once(&mut album).collect(),
-    )
-    .await
+    if let Err(e) =
+        crate::music::crud::enrich_album_usernames(&pool, std::iter::once(&mut album).collect())
+            .await
     {
-        return GrimoireResponse::failure("failed to resolve usernames", vec![ErrorDetail::from(e)]);
+        return GrimoireResponse::failure(
+            "failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
     }
 
     GrimoireResponse::success("album retrieved successfully", album)

@@ -160,7 +160,10 @@ pub async fn list_songs(limit: Option<u32>, offset: Option<u32>) -> GrimoireResp
     if let Err(e) =
         crate::music::crud::enrich_song_usernames(&pool, songs.iter_mut().collect()).await
     {
-        return GrimoireResponse::failure("Failed to resolve usernames", vec![ErrorDetail::from(e)]);
+        return GrimoireResponse::failure(
+            "Failed to resolve usernames",
+            vec![ErrorDetail::from(e)],
+        );
     }
 
     GrimoireResponse::success("Songs retrieved successfully", songs)

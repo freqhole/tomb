@@ -39,7 +39,11 @@ pub async fn usernames_for(
         return Ok(HashMap::new());
     }
 
-    let placeholders = unique_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let placeholders = unique_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!("SELECT id, username FROM user_accountz WHERE id IN ({placeholders})");
 
     let mut query = sqlx::query(&sql);
@@ -95,8 +99,14 @@ pub async fn enrich_album_usernames(
         .collect();
     let map = usernames_for(pool, ids).await?;
     for album in albums {
-        album.created_by_username = album.created_by.as_ref().and_then(|id| map.get(id).cloned());
-        album.updated_by_username = album.updated_by.as_ref().and_then(|id| map.get(id).cloned());
+        album.created_by_username = album
+            .created_by
+            .as_ref()
+            .and_then(|id| map.get(id).cloned());
+        album.updated_by_username = album
+            .updated_by
+            .as_ref()
+            .and_then(|id| map.get(id).cloned());
     }
     Ok(())
 }

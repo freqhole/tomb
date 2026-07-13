@@ -325,9 +325,12 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
             }
         }
     } else {
+        // log to stderr, not stdout - commands with `--json-output` write
+        // their json response to stdout, and a log line landing there would
+        // corrupt it for any caller parsing that output.
         let _ = tracing_subscriber::registry()
             .with(env_filter)
-            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
             .try_init();
     }
 
