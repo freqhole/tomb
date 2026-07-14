@@ -61,30 +61,6 @@ pub async fn get_blob_data(blob_id: &str) -> GrimoireResponse<Vec<u8>> {
     }
 }
 
-/// check if binary data exists for a media blob
-pub async fn blob_data_exists(blob_id: &str) -> GrimoireResponse<bool> {
-    let pool = match database::connect_blob_data().await {
-        Ok(p) => p,
-        Err(e) => {
-            return GrimoireResponse::failure("failed to connect to blob database", vec![e.into()])
-        }
-    };
-
-    let row = match sqlx::query("SELECT COUNT(*) as count FROM blob_data WHERE id = ?")
-        .bind(blob_id)
-        .fetch_one(&pool)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return GrimoireResponse::failure("failed to check blob data existence", vec![e.into()])
-        }
-    };
-
-    let count: i32 = row.get("count");
-    GrimoireResponse::success("blob data existence checked", count > 0)
-}
-
 /// delete binary data for a media blob
 pub async fn delete_blob_data(blob_id: &str) -> GrimoireResponse<()> {
     let pool = match database::connect_blob_data().await {

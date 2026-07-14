@@ -82,36 +82,30 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
                 // already has blake3, ensure it's in FsStore
                 let hash = store::parse_hash(&blake3)?;
                 if !store::has_blob(hash).await? {
-                    // not in FsStore — re-add from db
-                    let data_response = crate::blob_data::get_blob_data(blob_id).await;
-                    if data_response.success {
-                        if let Some(data) = data_response.data {
-                            let _ = store::add_bytes_to_store(&data).await;
-                        }
+                    // not in FsStore — re-add from whichever source still has
+                    // the bytes (blob_data table, or reliquary's blob store)
+                    if let Ok((_, Some(data))) =
+                        media_blobz::get_media_blob_with_data(blob_id).await
+                    {
+                        let _ = store::add_bytes_to_store(&data).await;
                     }
                 }
                 return Ok(blake3);
             }
 
-            // no blake3 yet — read bytes from blob_data table
-            let data_response = crate::blob_data::get_blob_data(blob_id).await;
-            if !data_response.success {
-                return Err(GrimoireError::ProcessingFailed {
-                    message: format!(
-                        "blob {} has no local_path and no blob_data for blake3 computation",
-                        blob_id
-                    ),
-                });
-            }
-
-            let data = data_response
-                .data
-                .ok_or_else(|| GrimoireError::ProcessingFailed {
-                    message: format!(
-                        "blob {} has no local_path and blob_data returned no bytes",
-                        blob_id
-                    ),
-                })?;
+            // no blake3 yet — read bytes from wherever they still live
+            // (blob_data table or, failing that, reliquary's blob store)
+            let data = match media_blobz::get_media_blob_with_data(blob_id).await {
+                Ok((_, Some(data))) => data,
+                _ => {
+                    return Err(GrimoireError::ProcessingFailed {
+                        message: format!(
+                            "blob {} has no local_path and no data source for blake3 computation",
+                            blob_id
+                        ),
+                    });
+                }
+            };
 
             // add bytes to FsStore — returns blake3 hash
             let hash = store::add_bytes_to_store(&data).await?;

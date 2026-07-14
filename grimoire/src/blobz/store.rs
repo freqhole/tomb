@@ -392,24 +392,25 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
             }
         }
         None => {
-            // db-stored blob: waveforms, thumbnails — load from blob_data table
-            let data_response = crate::blob_data::get_blob_data(&blob.id).await;
-            if !data_response.success {
-                tracing::warn!(
-                    "ensure_blob_by_blake3: NO LOCAL_PATH AND NO BLOB_DATA for {}: media_blob {} has neither a file nor inline bytes",
-                    &blake3_hash[..16],
-                    blob.id,
-                );
-                return Ok(false);
-            }
-
-            let data = match data_response.data {
-                Some(d) => d,
-                None => {
+            // db-stored blob: waveforms, thumbnails — read via grimoire's own
+            // blob_data table, falling back to reliquary if it's already
+            // moved on (get_media_blob_with_data covers both sources).
+            let data = match crate::media_blobz::get_media_blob_with_data(&blob.id).await {
+                Ok((_, Some(data))) => data,
+                Ok((_, None)) => {
                     tracing::warn!(
-                        "ensure_blob_by_blake3: BLOB_DATA EMPTY for {} (media_blob {}): get_blob_data returned success but no bytes",
+                        "ensure_blob_by_blake3: NO LOCAL_PATH AND NO DATA for {}: media_blob {} has neither a file nor inline bytes",
                         &blake3_hash[..16],
                         blob.id,
+                    );
+                    return Ok(false);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to resolve bytes for {} (media_blob {}): {}",
+                        &blake3_hash[..16],
+                        blob.id,
+                        e,
                     );
                     return Ok(false);
                 }

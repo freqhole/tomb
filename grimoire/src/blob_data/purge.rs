@@ -26,6 +26,7 @@ pub struct OrphanedBlob {
     pub mime: Option<String>,
     pub blob_type: String,
     pub created_at: i64,
+    pub blake3: Option<String>,
 }
 
 /// Find all orphaned media blobs (blobs with zero references)
@@ -40,7 +41,7 @@ pub async fn find_orphaned_media_blobs() -> GrimoireResponse<Vec<OrphanedBlob>> 
 
     // Get all non-deleted media blobs
     let all_blobs = match sqlx::query!(
-        "SELECT id as \"id!\", size, mime, blob_type as \"blob_type!\", created_at as \"created_at!\"
+        "SELECT id as \"id!\", size, mime, blob_type as \"blob_type!\", created_at as \"created_at!\", blake3
          FROM media_blobz
          WHERE deleted_at IS NULL
          ORDER BY created_at ASC"
@@ -82,6 +83,7 @@ pub async fn find_orphaned_media_blobs() -> GrimoireResponse<Vec<OrphanedBlob>> 
                 mime: blob.mime,
                 blob_type: blob.blob_type,
                 created_at: blob.created_at,
+                blake3: blob.blake3,
             });
         }
     }
@@ -146,6 +148,11 @@ pub async fn cleanup_orphaned_media_blobs() -> GrimoireResponse<OrphanedBlobSumm
                 }
                 // also delete from blob_data (separate db, no FK)
                 let _ = crate::blob_data::delete_blob_data(&blob.id).await;
+                // free the bytes in reliquary too, now that the blob is
+                // soft-deleted there (via delete_media_blob's own mirror)
+                if let Some(blake3) = blob.blake3.as_deref() {
+                    crate::media_blobz::mirror_hard_delete(blake3).await;
+                }
                 println!("    ✓ Deleted: {}", blob.id);
             }
             Err(e) => {
@@ -214,6 +221,7 @@ mod tests {
             mime: Some("image/webp".to_string()),
             blob_type: "original".to_string(),
             created_at: 1000000000,
+            blake3: None,
         };
 
         assert_eq!(blob.id, "test123");

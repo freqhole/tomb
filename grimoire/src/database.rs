@@ -3,10 +3,15 @@
 //!
 //! startup flow:
 //! 1. server/cli main calls `initialize()` once
-//! 2. initialize() runs migrations + creates views + creates blob_data db
-//! 3. all other code calls `connect()` or `connect_blob_data()` which return singleton pools
+//! 2. initialize() runs migrations + creates views
+//! 3. all other code calls `connect()` which returns the singleton pool
 //!
 //! IMPORTANT: pools are singletons - created once, reused for all requests.
+//! `connect_blob_data()` opens `blob_data.db` on demand rather than eagerly
+//! at startup - the file and its table are only ever created by whichever
+//! caller reaches for them first (historical data still lives there;
+//! `blob_data`'s crud functions and the reliquary migration tooling are the
+//! only remaining callers).
 
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Executor, SqlitePool};
@@ -100,17 +105,6 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         pool.execute(view.sql).await?;
     }
 
-    // initialize blob_data database (separate file for raw binary storage)
-    let blob_pool = connect_blob_data().await?;
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS blob_data (
-            id TEXT PRIMARY KEY,
-            data BLOB NOT NULL
-        )",
-    )
-    .execute(&blob_pool)
-    .await?;
-
     // create freqhole-blobz directory for iroh-blobs FsStore
     let config = get_config();
     let blobz_path = config.freqhole_blobz_path();
@@ -123,8 +117,8 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
 
     // eagerly open + migrate reliquary's own database (media blob storage
     // domain library) so its schema is ready at boot, alongside the other
-    // pools. nothing reads or writes through it yet - this only opens the
-    // pool and runs its migrations.
+    // pools. grimoire's music-domain blob code reads and writes through it
+    // already (the reliquary mirror + read-path fallback in media_blobz).
     let _reliquary_pool = connect_reliquary().await?;
 
     Ok(())
@@ -215,6 +209,20 @@ async fn create_blob_pool() -> GrimoireResult<SqlitePool> {
     sqlx::query("PRAGMA synchronous = NORMAL")
         .execute(&pool)
         .await?;
+
+    // ensure the table exists: this pool is now opened lazily, on demand,
+    // by whichever caller reaches for blob_data first (historical reads,
+    // or the reliquary migration tooling) rather than eagerly at every
+    // boot, so table creation has to happen here instead of at migration
+    // time.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS blob_data (
+            id TEXT PRIMARY KEY,
+            data BLOB NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
 
     tracing::debug!("blob_data pool initialized: {}", db_path.display());
     Ok(pool)

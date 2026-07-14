@@ -4,6 +4,7 @@
 use reliquary::blobz::{BlobStore, SqliteBlobStore};
 
 use super::models::{BlobType, CreateMediaBlobRequest, MediaBlob};
+use super::reliquary_mirror;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::{blob_data, config, database};
 
@@ -94,6 +95,10 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
                 serde_json::from_str(undeleted_with_metadata.metadata.as_str().unwrap_or("{}"))
                     .unwrap_or_default();
 
+            if let Some(blake3) = undeleted_with_metadata.blake3.as_deref() {
+                reliquary_mirror::mirror_restore(blake3).await;
+            }
+
             // same path-relocation logic as the active-existing branch:
             // when the resurrected blob is being re-ingested from a new
             // on-disk path, point local_path / filename at the new home
@@ -141,33 +146,15 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
             serde_json::from_str(existing_with_metadata.metadata.as_str().unwrap_or("{}"))
                 .unwrap_or_default();
 
-        // backfill blob_data if the caller provided binary data and the
-        // existing blob has none stored. this covers the case where a blob
-        // was originally created via the file scanner (local_path only, no
-        // binary data written) and is now being re-uploaded — without this,
-        // the ConvertWebp job fails every time with "blob data not found"
-        // creating a permanent loop.
-        if let Some(data) = req.data {
-            let exists_resp = crate::blob_data::blob_data_exists(&existing_with_metadata.id).await;
-            let has_data = exists_resp.success && exists_resp.data.unwrap_or(false);
-            if !has_data {
-                tracing::info!(
-                    "create_blob: backfilling missing blob_data for dedup blob_id={}",
-                    existing_with_metadata.id
-                );
-                match crate::blob_data::store_blob_data(&existing_with_metadata.id, data.into())
-                    .await
-                {
-                    r if r.success => {}
-                    r => {
-                        tracing::warn!(
-                            "create_blob: failed to backfill blob_data for {}: {}",
-                            existing_with_metadata.id,
-                            r.message
-                        );
-                    }
-                }
-            }
+        // mirror any caller-provided bytes into reliquary. this covers the
+        // case where a blob was originally created via the file scanner
+        // (local_path only, no bytes stored anywhere) and is now being
+        // re-uploaded — without this, the ConvertWebp job would never find
+        // the original bytes. safe to call unconditionally: the underlying
+        // store dedupes by blake3 internally, so there's no need to probe
+        // for existing bytes first.
+        if let Some(data) = &req.data {
+            reliquary_mirror::mirror_insert_bytes(&existing_with_metadata, data.as_ref()).await;
         }
 
         return Ok(existing_with_metadata);
@@ -225,21 +212,13 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
-    // If binary data was provided, store it in blob_data table
-    if let Some(data) = req.data {
-        match blob_data::store_blob_data(&blob_with_metadata.id, data.into()).await {
-            response if response.success => {}
-            response => {
-                let error_msg = if !response.errors.is_empty() {
-                    response.errors[0].detail.clone()
-                } else {
-                    response.message
-                };
-                return Err(GrimoireError::ProcessingFailed {
-                    message: format!("Failed to store blob data: {}", error_msg),
-                });
-            }
-        }
+    // mirror any provided bytes into reliquary (a no-op until the blob has
+    // a blake3 hash - dedup happens on the hash internally, so this is
+    // always safe to call unconditionally rather than probing first).
+    if let Some(data) = &req.data {
+        reliquary_mirror::mirror_insert_bytes(&blob_with_metadata, data.as_ref()).await;
+    } else if blob_with_metadata.local_path.is_some() {
+        reliquary_mirror::mirror_register_local_path(&blob_with_metadata).await;
     }
 
     Ok(blob_with_metadata)
@@ -582,21 +561,137 @@ async fn maybe_relocate_existing_blob(
 /// soft delete a media blob
 pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> GrimoireResult<()> {
     let pool = database::connect().await?;
-    let rows_affected = sqlx::query!(
-        "UPDATE media_blobz SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ? WHERE id = ? AND deleted_at IS NULL",
+    let deleted_by_for_mirror = deleted_by.clone();
+
+    let row = sqlx::query!(
+        "UPDATE media_blobz
+         SET deleted_at = unixepoch(), deleted_by = ?, updated_by = ?
+         WHERE id = ? AND deleted_at IS NULL
+         RETURNING blake3",
         deleted_by,
         deleted_by,
         id
     )
-    .execute(&pool)
-    .await?
-    .rows_affected();
+    .fetch_optional(&pool)
+    .await?;
 
-    if rows_affected == 0 {
-        return Err(GrimoireError::MediaBlobNotFound { id: id.to_string() });
+    let row = match row {
+        Some(row) => row,
+        None => return Err(GrimoireError::MediaBlobNotFound { id: id.to_string() }),
+    };
+
+    if let (Some(blake3), Some(actor)) = (row.blake3.as_deref(), deleted_by_for_mirror.as_deref()) {
+        reliquary_mirror::mirror_soft_delete(blake3, actor).await;
     }
 
     Ok(())
+}
+
+/// update a media blob's registered content identity (sha256, blake3,
+/// mime, size) to match bytes that have replaced its previously-stored
+/// content - e.g. converting an original image to webp under the same
+/// blob id. sha256 has a UNIQUE constraint; if the new hash would collide
+/// with another blob's existing sha256 (vanishingly unlikely for real
+/// content, but checked defensively - the same conflict-check-first
+/// pattern the rescan path uses for a similar "content changed, hash
+/// needs bumping" case), the sha256/blake3 update is skipped and a
+/// warning is logged, while mime/size still update to reflect the new
+/// bytes.
+pub async fn update_blob_content(
+    id: &str,
+    sha256: &str,
+    blake3: &str,
+    mime: &str,
+    size: i64,
+) -> GrimoireResult<MediaBlob> {
+    let pool = database::connect().await?;
+
+    let conflict = sqlx::query!(
+        "SELECT id as \"id!\" FROM media_blobz WHERE sha256 = ? AND id != ? LIMIT 1",
+        sha256,
+        id
+    )
+    .fetch_optional(&pool)
+    .await?;
+
+    let blob = if conflict.is_some() {
+        tracing::warn!(
+            "update_blob_content: new sha256 for blob {} collides with another blob's sha256 - leaving stored sha256/blake3 unchanged",
+            id
+        );
+        sqlx::query_as!(
+            MediaBlob,
+            "UPDATE media_blobz
+             SET mime = ?, size = ?, updated_at = unixepoch()
+             WHERE id = ?
+             RETURNING
+                id as \"id!\",
+                sha256 as \"sha256!\",
+                size,
+                mime,
+                source_client_id,
+                local_path,
+                filename,
+                parent_blob_id,
+                blob_type as \"blob_type!\",
+                metadata,
+                created_at as \"created_at!\",
+                updated_at as \"updated_at!\",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by,
+                width,
+                height,
+                blake3",
+            mime,
+            size,
+            id
+        )
+        .fetch_one(&pool)
+        .await?
+    } else {
+        sqlx::query_as!(
+            MediaBlob,
+            "UPDATE media_blobz
+             SET sha256 = ?, blake3 = ?, mime = ?, size = ?, updated_at = unixepoch()
+             WHERE id = ?
+             RETURNING
+                id as \"id!\",
+                sha256 as \"sha256!\",
+                size,
+                mime,
+                source_client_id,
+                local_path,
+                filename,
+                parent_blob_id,
+                blob_type as \"blob_type!\",
+                metadata,
+                created_at as \"created_at!\",
+                updated_at as \"updated_at!\",
+                deleted_at,
+                deleted_by,
+                created_by,
+                updated_by,
+                width,
+                height,
+                blake3",
+            sha256,
+            blake3,
+            mime,
+            size,
+            id
+        )
+        .fetch_one(&pool)
+        .await?
+    };
+
+    let mut blob_with_metadata = blob;
+    blob_with_metadata.metadata =
+        serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
+            .unwrap_or_default();
+
+    Ok(blob_with_metadata)
 }
 
 /// update blake3 hash for a media blob (for on-demand computation or backfill)
@@ -614,6 +709,16 @@ pub async fn update_blob_blake3(id: &str, blake3: &str) -> GrimoireResult<()> {
 
     if rows_affected == 0 {
         return Err(GrimoireError::MediaBlobNotFound { id: id.to_string() });
+    }
+
+    // this update marks the first point at which the blob has a hash, so
+    // the deferred dual-write into reliquary happens here.
+    if let Ok(blob) = get_media_blob(id).await {
+        if blob.local_path.is_some() {
+            reliquary_mirror::mirror_register_local_path(&blob).await;
+        } else if let Ok((_, Some(bytes))) = get_media_blob_with_data(id).await {
+            reliquary_mirror::mirror_insert_bytes(&blob, &bytes).await;
+        }
     }
 
     Ok(())
@@ -792,16 +897,18 @@ mod tests {
     use super::*;
     use reliquary::blobz::NewBlobMeta;
 
-    // both tests spin up a fresh tempdir with their own grimoire.db,
+    // these tests spin up a fresh tempdir with their own grimoire.db,
     // blob_data db, and reliquary.db (via the same real db pool singletons
     // `get_media_blob_with_data` itself uses), so each is marked #[ignore]
     // per this crate's convention for tests touching those singletons. run
     // ONE at a time, each its own process - the pools are process-wide, so
-    // running both together (even in the same `--ignored` filter) races
-    // over the same singleton and fails with a spurious "table already
-    // exists" migration error:
+    // running more than one together (even in the same `--ignored` filter)
+    // races over the same singleton and fails with a spurious "table
+    // already exists" migration error:
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_falls_back_to_reliquary
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_not_found_anywhere
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_updates_all_fields
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_skips_hash_update_on_sha256_conflict
     async fn init_test_env(data_dir: &std::path::Path) {
         let config_toml = format!(
             r#"data_dir = "{data_dir}"
@@ -901,5 +1008,93 @@ level = "warn"
             result,
             Err(GrimoireError::MediaBlobNotFound { id }) if id == "missing01"
         ));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_update_blob_content_updates_all_fields() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type)
+             VALUES ('convert01', ?, 10, 'image/jpeg', 'original')",
+        )
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let new_sha256 = "b".repeat(64);
+        let new_blake3 = reliquary::hash_bytes(b"webp bytes");
+        let updated = update_blob_content("convert01", &new_sha256, &new_blake3, "image/webp", 42)
+            .await
+            .expect("update_blob_content");
+        assert_eq!(updated.sha256, new_sha256);
+        assert_eq!(updated.blake3.as_deref(), Some(new_blake3.as_str()));
+        assert_eq!(updated.mime.as_deref(), Some("image/webp"));
+        assert_eq!(updated.size, Some(42));
+
+        // re-fetch to confirm the update was actually persisted, not just
+        // reflected in the returned row.
+        let refetched = get_media_blob("convert01").await.expect("get_media_blob");
+        assert_eq!(refetched.sha256, new_sha256);
+        assert_eq!(refetched.blake3.as_deref(), Some(new_blake3.as_str()));
+        assert_eq!(refetched.mime.as_deref(), Some("image/webp"));
+        assert_eq!(refetched.size, Some(42));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_update_blob_content_skips_hash_update_on_sha256_conflict() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+        let other_sha256 = "c".repeat(64);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type)
+             VALUES ('other01', ?, 5, 'image/png', 'original')",
+        )
+        .bind(&other_sha256)
+        .execute(&pool)
+        .await
+        .expect("insert other blob");
+
+        let original_sha256 = "d".repeat(64);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type)
+             VALUES ('convert02', ?, 10, 'image/jpeg', 'original')",
+        )
+        .bind(&original_sha256)
+        .execute(&pool)
+        .await
+        .expect("insert convert02 blob");
+
+        // attempt to bump convert02's sha256 to the same value other01
+        // already owns - the sha256/blake3 update must be skipped (the
+        // UNIQUE constraint would otherwise reject the whole statement),
+        // while mime/size still update to reflect the new bytes.
+        let colliding_blake3 = reliquary::hash_bytes(b"colliding webp bytes");
+        let updated = update_blob_content(
+            "convert02",
+            &other_sha256,
+            &colliding_blake3,
+            "image/webp",
+            99,
+        )
+        .await
+        .expect("update_blob_content");
+        assert_eq!(
+            updated.sha256, original_sha256,
+            "sha256 must be left unchanged on conflict"
+        );
+        assert_eq!(
+            updated.blake3, None,
+            "blake3 must be left unchanged on conflict"
+        );
+        assert_eq!(updated.mime.as_deref(), Some("image/webp"));
+        assert_eq!(updated.size, Some(99));
     }
 }

@@ -7,6 +7,7 @@ mod access;
 mod atlas;
 mod cleanup;
 mod models;
+mod reliquary_mirror;
 mod service;
 
 // re-export public types
@@ -23,9 +24,17 @@ pub use cleanup::{
     MediaBlobReferences,
 };
 pub use models::{BlobMetadataResponse, BlobType, CreateMediaBlobRequest, MediaBlob};
+// dual-write mirror into reliquary's blob store: crate-internal only, not
+// part of this module's public api. only the functions needed by sibling
+// modules (the music scanner, upload job processors, orphan cleanup) are
+// re-exported here; service.rs calls the rest directly through the
+// reliquary_mirror module path.
+pub(crate) use reliquary_mirror::{
+    mirror_hard_delete, mirror_insert_bytes, mirror_register_local_path, mirror_update_path,
+};
 pub use service::{
     count_blake3_backfill_status, count_blobs_needing_blake3, create_media_blob, delete_media_blob,
     find_present_blake3s, find_present_sha256s, get_media_blob, get_media_blob_by_blake3,
     get_media_blob_by_sha256, get_media_blob_with_data, list_blobs_needing_blake3,
-    list_media_blobs, update_blob_blake3, update_blob_local_path,
+    list_media_blobs, update_blob_blake3, update_blob_content, update_blob_local_path,
 };

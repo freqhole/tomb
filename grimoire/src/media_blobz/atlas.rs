@@ -13,7 +13,7 @@
 //! see `docs/graph-webgl-migration.md` for the larger plan and wire format
 //! discussion. this module owns step 1-4 + 6 of the implementation order.
 
-use crate::blob_data::get_blob_data;
+use super::service::get_media_blob_with_data;
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 use image::{imageops, DynamicImage, GenericImageView, ImageOutputFormat, RgbaImage};
@@ -174,10 +174,23 @@ pub async fn build_atlas_response(req: BuildAtlasRequest) -> GrimoireResult<Atla
             missing.push(parent_id.clone());
             continue;
         };
-        let data_resp = get_blob_data(thumb_id).await;
-        let Some(bytes) = data_resp.data else {
+        let Ok((thumb_blob, thumb_bytes)) = get_media_blob_with_data(thumb_id).await else {
             missing.push(parent_id.clone());
             continue;
+        };
+        let bytes = match thumb_bytes {
+            Some(bytes) => bytes,
+            None => {
+                let Some(local_path) = thumb_blob.local_path.as_deref() else {
+                    missing.push(parent_id.clone());
+                    continue;
+                };
+                let Ok(bytes) = tokio::fs::read(local_path).await else {
+                    missing.push(parent_id.clone());
+                    continue;
+                };
+                bytes
+            }
         };
         let img = match image::load_from_memory(&bytes) {
             Ok(i) => i,
