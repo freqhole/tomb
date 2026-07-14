@@ -111,6 +111,10 @@ pub enum Commands {
     /// safe to run repeatedly.
     MigrateToHaruspex,
 
+    /// one-shot backfill of instance-scope haruspex RoleGrant rows from
+    /// grimoire's legacy user_accountz.role column. safe to run repeatedly.
+    BackfillInstanceGrants,
+
     /// Sync operations (send-to-remote: album/song/playlist receive routes)
     Sync {
         #[command(subcommand)]
@@ -384,6 +388,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::MigrateToHaruspex => {
             plumbing::handle_migrate_to_haruspex(json_output).await?;
+        }
+        Commands::BackfillInstanceGrants => {
+            plumbing::handle_backfill_instance_grants(json_output).await?;
         }
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;
