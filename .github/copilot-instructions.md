@@ -241,7 +241,7 @@ path: "/api/music/playlists/:id"
   reason to.** sqlx stores a checksum of each migration file's content in `_sqlx_migrations`
   the first time it's applied to a database; editing the file afterward changes that checksum
   and breaks every database that already applied it with `"migration N was previously applied
-  but has been modified"` errors. this applies even to comment-only changes and even to files
+but has been modified"` errors. this applies even to comment-only changes and even to files
   that "look old"/unused - if a migration needs a note (e.g. marking tables as superseded and
   pending a future drop), put that note in `CUTOVER_BACKLOG.md` or a regular source-code comment
   near where the table is used, never inside the migration file itself. genuine schema fixes to
@@ -318,3 +318,21 @@ Avoid emojis in comments, error messages, or any code. Use them only in markdown
 - **Legacy artifacts**: `legacycli/`, `legacylib/`, `legacyserver/` are deprecated, ignore them
 - **Config must be initialized first**: Call `grimoire::config::init_config()` before any database operations
 - **Docker builds for cross-compilation**: Native cross-compilation is fragile; use `make build-pi` or `make build-linux`
+
+## Never use git mutation commands without explicit permission
+
+Do not run `git stash`, `git checkout -- <file>`, `git reset`, `git restore`, `git clean`, or any
+other command that discards or rewrites working-tree/history state - including as a "temporary"
+step (e.g. to check whether a test fails against the pre-fix version of a file, or to quickly
+undo an edit). This applies even when the intent is to immediately restore the change afterward
+
+- a crash, tool failure, or mistake mid-sequence can lose uncommitted work with no way to recover
+  it, and the user may have other uncommitted changes sitting in the same working tree.
+
+Instead:
+
+- To check a test against "before the fix": use the edit tool to manually revert the specific
+  change, run the test, then use the edit tool again to re-apply the fix. Never use git for this.
+- To undo an edit you just made: use the edit tool to change it back, don't `git checkout`/
+  `git restore` the file.
+- Read-only git commands (`git status`, `git diff`, `git log`, `git show`) are fine.
