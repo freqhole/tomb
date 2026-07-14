@@ -27,6 +27,8 @@
 
 #[cfg(feature = "blobz")]
 pub mod blobz;
+#[cfg(feature = "chunked_import")]
+pub mod chunked_import;
 pub mod db;
 #[cfg(feature = "ensure")]
 pub mod ensure;
@@ -47,6 +49,8 @@ pub use blobz::{
     BlobRecord, BlobStore, BlobStoreError, BlobType, NewBlobMeta, SoftDeleteOutcome,
     SqliteBlobStore, UsageStats,
 };
+#[cfg(feature = "chunked_import")]
+pub use chunked_import::ChunkedImport;
 pub use db::{DbError, DB_FILENAME};
 #[cfg(feature = "ensure")]
 pub use ensure::{EnsureBlobHandler, PeerMessage};

@@ -48,6 +48,12 @@ pub struct StorageNodeOptions {
     /// store so it's immediately servable over `iroh-blobs/*`, without
     /// waiting for a peer to first trigger an ensure/ingest.
     pub prewarm: bool,
+    /// the directory name (joined onto data_dir) the iroh-blobs FsStore lives
+    /// under. defaults to "freqhole-blobz" - override this if a consumer
+    /// wants a different on-disk layout, but the default deliberately avoids
+    /// leaking the underlying iroh dependency's name into application data
+    /// directories that outlive any particular transport choice.
+    pub blobs_dir_name: String,
 }
 
 impl Default for StorageNodeOptions {
@@ -56,6 +62,7 @@ impl Default for StorageNodeOptions {
             gc_enabled: true,
             gc_interval: DEFAULT_GC_INTERVAL,
             prewarm: false,
+            blobs_dir_name: "freqhole-blobz".to_string(),
         }
     }
 }
@@ -95,10 +102,10 @@ pub struct StorageNode {
 
 impl StorageNode {
     /// boot the local-only half of a storage node: load (or create) the
-    /// iroh-blobs `FsStore` under `<data_dir>/iroh-blobs/`, wire up gc
-    /// protection (if enabled), and optionally pre-warm the store with
-    /// every existing blobz row. no downloader is attached yet, so this
-    /// works fully offline or before a consuming app has any
+    /// iroh-blobs `FsStore` under `<data_dir>/<opts.blobs_dir_name>/`, wire
+    /// up gc protection (if enabled), and optionally pre-warm the store
+    /// with every existing blobz row. no downloader is attached yet, so
+    /// this works fully offline or before a consuming app has any
     /// identity/endpoint at all - call [`StorageNode::attach_endpoint`]
     /// once a live endpoint becomes available.
     pub async fn init_local(
@@ -106,7 +113,7 @@ impl StorageNode {
         blobz: Arc<dyn BlobStore>,
         opts: StorageNodeOptions,
     ) -> Result<Self, NodeError> {
-        let path = data_dir.join("iroh-blobs");
+        let path = data_dir.join(&opts.blobs_dir_name);
         tokio::fs::create_dir_all(&path).await?;
 
         let in_flight: Arc<StdMutex<HashSet<Hash>>> = Arc::new(StdMutex::new(HashSet::new()));
@@ -428,8 +435,29 @@ mod tests {
             .expect("get bytes");
         assert_eq!(&bytes[..], b"hello storage node");
 
-        assert!(tmp.path().join("iroh-blobs").exists());
+        assert!(tmp.path().join("freqhole-blobz").exists());
         endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn init_local_honors_a_custom_blobs_dir_name() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+
+        let _node = StorageNode::init_local(
+            tmp.path(),
+            blobz,
+            StorageNodeOptions {
+                gc_enabled: false,
+                blobs_dir_name: "custom-blobz".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local storage node with a custom blobs dir name");
+
+        assert!(tmp.path().join("custom-blobz").exists());
+        assert!(!tmp.path().join("freqhole-blobz").exists());
     }
 
     #[tokio::test]

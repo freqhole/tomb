@@ -63,9 +63,20 @@ serial_test = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-default = ["blobz", "identity", "node", "snatch", "ensure", "gate", "media"]
+default = [
+    "blobz",
+    "chunked_import",
+    "identity",
+    "node",
+    "snatch",
+    "ensure",
+    "gate",
+    "media",
+]
 # sqlite-backed content-addressed blob store (SqliteBlobStore, the BlobStore trait).
 blobz = []
+# chunked upload bookkeeping (ChunkedImport) built on top of BlobStore::adopt_local_file.
+chunked_import = ["blobz"]
 # iroh keypair management.
 identity = []
 # StorageNode: iroh-blobs FsStore + gc-protect + downloader bundle.

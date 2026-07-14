@@ -170,6 +170,24 @@ pub trait BlobStore: Send + Sync {
         cancel: Option<&AtomicBool>,
     ) -> Result<BlobRecord, BlobStoreError>;
 
+    /// take ownership of a file already on disk into managed (canonical,
+    /// content-addressed) storage: streams the file through blake3 (never
+    /// loads it fully into memory - the same streaming approach
+    /// `register_external_path` already uses), then moves it into the
+    /// store's canonical `<blake3-prefix>/<blake3-rest>` location instead of
+    /// leaving it where it was. unlike `register_external_path`, the source
+    /// file is consumed - gone from its original location on success (an
+    /// atomic rename when possible, falling back to copy-then-delete across
+    /// filesystem boundaries), untouched if the call fails. dedupes on
+    /// blake3 like every other insert path: if matching content is already
+    /// stored, the source file is still removed (its bytes are now
+    /// redundant) and the existing record is returned unchanged.
+    async fn adopt_local_file(
+        &self,
+        path: &Path,
+        meta: NewBlobMeta,
+    ) -> Result<BlobRecord, BlobStoreError>;
+
     /// resolve by blake3, excluding soft-deleted rows.
     async fn get(&self, blake3: &str) -> Result<Option<BlobRecord>, BlobStoreError>;
 
@@ -467,6 +485,69 @@ impl BlobStore for SqliteBlobStore {
 
         let path_str = abs_path.to_string_lossy().to_string();
         self.insert_row(&blake3_hex, &blake3_hex, &path_str, size, true, meta)
+            .await
+    }
+
+    async fn adopt_local_file(
+        &self,
+        path: &Path,
+        meta: NewBlobMeta,
+    ) -> Result<BlobRecord, BlobStoreError> {
+        // stream the file through blake3 + count bytes, same approach as
+        // `register_external_path`.
+        use tokio::io::AsyncReadExt;
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut hasher = blake3::Hasher::new();
+        let mut size: i64 = 0;
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = file.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            size += n as i64;
+        }
+        drop(file);
+        let blake3_hex = hasher.finalize().to_hex().to_string();
+
+        // see `insert()` for why a racing duplicate here is expected and
+        // must not surface as an error - same reasoning applies. the source
+        // file's bytes are already safely stored under the existing record,
+        // so it's just redundant now - remove it (best-effort) and hand
+        // back the existing record.
+        if let Some(existing) = self.get_any(&blake3_hex).await? {
+            if let Err(e) = tokio::fs::remove_file(path).await {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "adopt_local_file: failed to remove duplicate source file after dedup"
+                );
+            }
+            return Ok(existing);
+        }
+
+        let dest = self.prepare_canonical_path(&blake3_hex).await?;
+        if let Err(rename_err) = tokio::fs::rename(path, &dest).await {
+            tracing::debug!(
+                path = %path.display(),
+                dest = %dest.display(),
+                error = %rename_err,
+                "adopt_local_file: rename failed, falling back to copy-then-delete"
+            );
+            tokio::fs::copy(path, &dest).await?;
+            if let Err(e) = tokio::fs::remove_file(path).await {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "adopt_local_file: failed to remove source file after copy fallback"
+                );
+            }
+        }
+
+        let (prefix, rest) = blake3_hex.split_at(2);
+        let rel_path = format!("{prefix}/{rest}");
+        self.insert_row(&blake3_hex, &blake3_hex, &rel_path, size, false, meta)
             .await
     }
 
@@ -1226,6 +1307,74 @@ mod tests {
         assert!(matches!(err, BlobStoreError::Cancelled));
         assert_eq!(err.to_string(), "operation cancelled");
     }
+
+    #[tokio::test]
+    async fn adopt_local_file_moves_the_file_into_canonical_storage() {
+        let (store, _pool, tmp) = make_store().await;
+        let src_dir = tempfile::tempdir().expect("src tempdir");
+        let src_path = src_dir.path().join("adopt-me.bin");
+        let payload = vec![3u8; 512 * 1024];
+        tokio::fs::write(&src_path, &payload).await.unwrap();
+
+        let blob = store
+            .adopt_local_file(
+                &src_path,
+                NewBlobMeta {
+                    filename: Some("adopt-me.bin".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("adopt_local_file");
+
+        let expected_blake3 = blake3::hash(&payload).to_hex().to_string();
+        assert_eq!(blob.blake3, expected_blake3);
+        assert_eq!(blob.size, payload.len() as u64);
+        assert!(!blob.external);
+
+        // the source file is gone - it was moved, not copied.
+        assert!(!src_path.exists());
+
+        // bytes live under the store's own canonical, content-addressed
+        // path now, not at the original location.
+        let resolved = store.path_for(&blob);
+        assert!(resolved.starts_with(tmp.path().join(BLOB_FILES_DIR)));
+        assert_ne!(resolved, src_path);
+
+        let read = store.read_bytes(&blob.blake3).await.unwrap();
+        assert_eq!(read.as_deref(), Some(payload.as_slice()));
+    }
+
+    #[tokio::test]
+    async fn adopt_local_file_dedupes_and_still_removes_the_source() {
+        let (store, _pool, _tmp) = make_store().await;
+        let payload = b"content that already exists in the store";
+        let existing = store.insert(payload, NewBlobMeta::default()).await.unwrap();
+
+        let src_dir = tempfile::tempdir().expect("src tempdir");
+        let src_path = src_dir.path().join("duplicate.bin");
+        tokio::fs::write(&src_path, payload).await.unwrap();
+
+        let adopted = store
+            .adopt_local_file(&src_path, NewBlobMeta::default())
+            .await
+            .expect("adopt_local_file on duplicate content");
+
+        assert_eq!(adopted.blake3, existing.blake3);
+        // dedup path still consumes the source file - its bytes are
+        // redundant once the existing row is found.
+        assert!(!src_path.exists());
+
+        let (rows, total) = store.list(100, 0).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(total, 1);
+    }
+
+    // a cross-filesystem-boundary rename failure (falling back to
+    // copy-then-delete) isn't practical to simulate realistically in a unit
+    // test without mounting a second filesystem - skipped, matching this
+    // module's own coverage philosophy of only testing what a real tempdir
+    // setup can exercise.
 
     #[tokio::test]
     async fn total_usage_sums_sizes_and_counts_rows() {
