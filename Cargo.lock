@@ -8181,7 +8181,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "webauthn-rs",
 ]
 
 [[package]]

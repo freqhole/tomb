@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["webauthn"]
-webauthn = ["dep:webauthn-rs", "grimoire/webauthn"]
+webauthn = ["grimoire/webauthn"]
 
 [dependencies]
 # Workspace dependencies
@@ -23,9 +23,6 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 clap = { workspace = true }
-
-# Optional webauthn (feature-gated)
-webauthn-rs = { workspace = true, optional = true }
 
 # Internal dependencies
 grimoire = { path = "../grimoire", default-features = false }

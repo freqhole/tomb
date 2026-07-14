@@ -10,6 +10,7 @@ pub mod models;
 pub mod repository;
 pub mod service;
 pub mod webauthn;
+pub mod webauthn_ceremony;
 pub mod webauthn_models;
 
 pub(crate) mod haruspex_bridge;
