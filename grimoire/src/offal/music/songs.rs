@@ -95,15 +95,8 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
     // determine the target user_id for favorites/ratings
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &caller.user_id => {
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's data",
-                    )],
-                );
+            if let Err(resp) = crate::acl_bridge::require_scope(caller, "query_songs").await {
+                return resp;
             }
             uid.clone()
         }
@@ -144,11 +137,8 @@ pub async fn recent(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
 ///
 /// path: POST /api/songs/update
 pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_songs").await {
+        return resp;
     }
 
     let mut req: UpdateSongsRequest = match serde_json::from_value(body) {
@@ -180,11 +170,8 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/songs/bulk-delete
 pub async fn bulk_delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "bulk_delete_songs").await {
+        return resp;
     }
 
     let req: BulkDeleteSongsRequest = match serde_json::from_value(body) {
@@ -211,11 +198,8 @@ pub async fn bulk_delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 ///
 /// path: POST /api/songs/bulk-clear-artwork
 pub async fn bulk_clear_artwork(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "bulk_clear_song_artwork").await {
+        return resp;
     }
 
     let req: BulkClearSongArtworkRequest = match serde_json::from_value(body) {
@@ -242,11 +226,8 @@ pub async fn bulk_clear_artwork(caller: &Caller, body: JsonValue) -> GrimoireRes
 ///
 /// path: POST /api/songs/delete
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_song").await {
+        return resp;
     }
 
     let req: DeleteSongRequest = match serde_json::from_value(body) {

@@ -210,15 +210,8 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
 
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &caller.user_id => {
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's data",
-                    )],
-                );
+            if let Err(resp) = crate::acl_bridge::require_scope(caller, "query_albums").await {
+                return resp;
             }
             uid.clone()
         }
@@ -304,11 +297,8 @@ pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 ///
 /// path: POST /api/albums/update
 pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_album").await {
+        return resp;
     }
 
     let mut req: UpdateAlbumRequest = match serde_json::from_value(body) {
@@ -336,11 +326,8 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/albums/delete
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_album").await {
+        return resp;
     }
 
     let req: DeleteAlbumRequest = match serde_json::from_value(body) {
@@ -365,11 +352,8 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/music/images/delete
 pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_image").await {
+        return resp;
     }
 
     let req: DeleteImageRequest = match serde_json::from_value(body) {
@@ -410,11 +394,8 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 ///
 /// path: POST /api/music/images/set-primary
 pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "set_primary_image").await {
+        return resp;
     }
 
     let req: SetPrimaryImageRequest = match serde_json::from_value(body) {
@@ -455,11 +436,8 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
 ///
 /// path: POST /api/albums/mb-confirm
 pub async fn confirm_mb_match(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "confirm_mb_match").await {
+        return resp;
     }
 
     let req: ConfirmMbMatchRequest = match serde_json::from_value(body) {
@@ -498,11 +476,8 @@ pub async fn confirm_mb_match(caller: &Caller, body: JsonValue) -> GrimoireRespo
 ///
 /// path: POST /api/albums/mb-reject
 pub async fn reject_mb_match(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "reject_mb_match").await {
+        return resp;
     }
 
     let req: RejectMbMatchRequest = match serde_json::from_value(body) {
@@ -538,11 +513,8 @@ pub async fn auto_confirm_mb_matches(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "auto_confirm_mb_matches").await {
+        return resp;
     }
 
     let req: AutoConfirmMbMatchesRequest = match serde_json::from_value(body) {
@@ -578,11 +550,8 @@ pub async fn auto_confirm_mb_matches(
 ///
 /// path: POST /api/albums/propose-taxons
 pub async fn propose_taxons(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "propose_taxons").await {
+        return resp;
     }
     let req: ProposeTaxonsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -608,11 +577,8 @@ pub async fn apply_taxon_proposals(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "apply_taxon_proposals").await {
+        return resp;
     }
     let req: ApplyTaxonProposalsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -637,11 +603,8 @@ pub async fn apply_taxon_proposals(
 ///
 /// path: POST /api/albums/set-mb-lookup-status
 pub async fn set_mb_lookup_status(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "set_mb_lookup_status").await {
+        return resp;
     }
     let req: SetMbLookupStatusRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -714,11 +677,8 @@ const INGEST_MAX_DIMENSION: u32 = 1500;
 ///
 /// path: POST /api/music/images/ingest
 pub async fn ingest_remote_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "ingest_remote_image").await {
+        return resp;
     }
     let req: IngestRemoteImageRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -1086,11 +1046,9 @@ pub async fn image_candidates_for_album(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "image_candidates_for_album").await
+    {
+        return resp;
     }
     let req: AlbumImageCandidatesRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -1193,11 +1151,8 @@ pub async fn propose_external_urls(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "propose_external_urls").await {
+        return resp;
     }
     let req: ProposeExternalUrlsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -1221,11 +1176,8 @@ pub async fn propose_external_urls(
 ///
 /// path: POST /api/albums/apply-external-urls
 pub async fn apply_external_urls(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "apply_external_urls").await {
+        return resp;
     }
     let req: ApplyExternalUrlsRequest = match serde_json::from_value(body) {
         Ok(r) => r,

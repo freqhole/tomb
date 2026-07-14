@@ -152,15 +152,8 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
 
     let target_user_id = match &params.user_id {
         Some(uid) if uid != &caller.user_id => {
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's data",
-                    )],
-                );
+            if let Err(resp) = crate::acl_bridge::require_scope(caller, "query_artists").await {
+                return resp;
             }
             uid.clone()
         }
@@ -178,11 +171,8 @@ pub async fn query(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
 ///
 /// path: POST /api/music/artists
 pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "create_artist").await {
+        return resp;
     }
 
     let req: CreateArtistRequest = match serde_json::from_value(body) {
@@ -251,11 +241,8 @@ pub async fn get_images(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 ///
 /// path: POST /api/artists/update
 pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_artist").await {
+        return resp;
     }
 
     let mut req: UpdateArtistRequest = match serde_json::from_value(body) {
@@ -292,11 +279,8 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 /// * skips the write when the artist already has bio + image unless
 ///   `force = true`
 pub async fn update_metadata(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_artist_metadata").await {
+        return resp;
     }
 
     let mut req: UpdateArtistMetadataRequest = match serde_json::from_value(body) {
@@ -323,11 +307,8 @@ pub async fn update_metadata(caller: &Caller, body: JsonValue) -> GrimoireRespon
 ///
 /// path: POST /api/artists/delete
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_artist").await {
+        return resp;
     }
 
     let req: DeleteArtistRequest = match serde_json::from_value(body) {
@@ -355,11 +336,8 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/artists/propose-bios
 pub async fn propose_bios(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "propose_artist_bios").await {
+        return resp;
     }
     let req: ProposeArtistBiosRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -382,11 +360,8 @@ pub async fn propose_bios(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 ///
 /// path: POST /api/artists/apply-bio
 pub async fn apply_bio(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "apply_artist_bio").await {
+        return resp;
     }
     let req: ApplyArtistBioRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -409,11 +384,8 @@ pub async fn apply_bio(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
 ///
 /// path: POST /api/artists/propose-related
 pub async fn propose_related(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "propose_related_artists").await {
+        return resp;
     }
     let req: ProposeRelatedArtistsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -436,11 +408,8 @@ pub async fn propose_related(caller: &Caller, body: JsonValue) -> GrimoireRespon
 ///
 /// path: POST /api/artists/apply-related
 pub async fn apply_related(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "apply_related_artists").await {
+        return resp;
     }
     let req: ApplyRelatedArtistsRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -491,11 +460,9 @@ pub struct ArtistImageCandidatesResponse {
 ///
 /// path: POST /api/artists/image-candidates
 pub async fn image_candidates(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "image_candidates_for_artist").await
+    {
+        return resp;
     }
     let req: ArtistImageCandidatesRequest = match serde_json::from_value(body) {
         Ok(r) => r,

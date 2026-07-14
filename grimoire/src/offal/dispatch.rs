@@ -11,37 +11,26 @@ use crate::response::GrimoireResponse;
 use futures_util::stream::BoxStream;
 use serde_json::Value as JsonValue;
 
-/// look up the auth requirement for a route by path (and optionally method).
-/// returns None if the path is not in the route registry (e.g. handled outside
-/// offal dispatch, like blob streaming).
-fn find_route_auth(path: &str, method: Option<Method>) -> Option<RouteAuth> {
+/// look up the matched route (path, and optionally method) for its own
+/// `name` (used as the acl scope) and auth requirement. returns None if the
+/// path is not in the route registry (e.g. handled outside offal dispatch,
+/// like blob streaming).
+fn find_route(path: &str, method: Option<Method>) -> Option<(&'static str, RouteAuth)> {
     let routes = super::all_routes();
-    let mut path_match: Option<RouteAuth> = None;
+    let mut path_match: Option<(&'static str, RouteAuth)> = None;
     for route in &routes {
         if route.path == path {
             if let Some(m) = method {
                 if route.method == m {
-                    return Some(route.auth);
+                    return Some((route.name, route.auth));
                 }
             }
             if path_match.is_none() {
-                path_match = Some(route.auth);
+                path_match = Some((route.name, route.auth));
             }
         }
     }
     path_match
-}
-
-/// standard forbidden response used when a caller's role is insufficient.
-fn forbidden_response() -> GrimoireResponse<JsonValue> {
-    GrimoireResponse::failure(
-        "forbidden",
-        vec![ErrorDetail::new(
-            "forbidden",
-            "forbidden",
-            "insufficient role",
-        )],
-    )
 }
 
 /// a server-pushed event stream. items are pre-serialized to
@@ -76,9 +65,9 @@ pub async fn dispatch(
     // are open to everyone). Owner and OwnerOr cannot be checked centrally because
     // they require knowledge of the resource's owner; those remain the handler's
     // responsibility - see the allowlist test in this module's test section.
-    if let Some(RouteAuth::Role(required)) = find_route_auth(path, method) {
-        if !caller.role.has_privilege(required) {
-            return forbidden_response();
+    if let Some((name, RouteAuth::Role(_))) = find_route(path, method) {
+        if let Err(resp) = crate::acl_bridge::require_scope(caller, name).await {
+            return resp;
         }
     }
 
@@ -218,9 +207,17 @@ mod tests {
     // the route used for admin-gate tests is /api/taxonomy/kinds/create (Role(Admin)).
     // the route used for member-gate tests is /api/analytics/sessions (Role(Member)).
     // the route used for public tests is /health (Public).
+    //
+    // a denied verdict now falls through to `acl_bridge::require_scope`'s
+    // narrow-grant fallback, which opens the crate's real haruspex pool -
+    // so any test proving a denial needs this crate's usual db-singleton
+    // test setup and `#[ignore]` convention; a passing verdict never
+    // reaches that fallback and stays a plain, fast unit test.
 
     #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
     async fn test_role_check_viewer_forbidden_on_admin_route() {
+        crate::config::init_config_for_tests();
         let caller = Caller::new("u1", "viewer", UserRole::Viewer);
         let resp = dispatch("/api/taxonomy/kinds/create", &caller, JsonValue::Null, None).await;
         assert!(!resp.success);
@@ -229,7 +226,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
     async fn test_role_check_member_forbidden_on_admin_route() {
+        crate::config::init_config_for_tests();
         let caller = Caller::new("u2", "member", UserRole::Member);
         let resp = dispatch("/api/taxonomy/kinds/create", &caller, JsonValue::Null, None).await;
         assert!(!resp.success);
@@ -252,7 +251,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
     async fn test_role_check_viewer_forbidden_on_member_route() {
+        crate::config::init_config_for_tests();
         let caller = Caller::new("u4", "viewer", UserRole::Viewer);
         let resp = dispatch("/api/analytics/sessions", &caller, JsonValue::Null, None).await;
         assert!(!resp.success);
@@ -287,8 +288,13 @@ mod tests {
     // passkey routes (list/delete/link-node): queries are scoped to caller.user_id.
     // session progress/songs/status: repository functions accept caller.user_id and
     //   scope the update to rows owned by that user.
-    // session delete: handler checks session.user_id != caller.user_id && !is_admin().
-    // playlist mutate routes: handler checks created_by_id != caller.user_id && !is_admin().
+    // session delete, playlist mutate routes: handler calls
+    //   acl_bridge::require_owner_or_scope(owner_id, caller, scope).
+    // import review mutate routes: handler checks caller_meets_scope(...) OR that the
+    //   caller uploaded at least one song in the target album - a many-to-one
+    //   "uploader" relationship require_owner_or_scope's single-owner-id shape
+    //   can't express, so these combine caller_meets_scope with a direct async
+    //   ownership check instead of require_owner_or_scope.
     #[test]
     fn test_owner_routes_match_allowlist() {
         use crate::api_registry::RouteAuth;
@@ -311,6 +317,12 @@ mod tests {
             "add_songs_to_playlist",
             "remove_songs_from_playlist",
             "reorder_playlist_songs",
+            // import review mutations - handler checks admin, or that the
+            // caller uploaded at least one song in the target album
+            "mark_album_reviewed",
+            "patch_album_review",
+            "merge_albums_review",
+            "move_song_review",
         ];
 
         let allowlist: HashSet<&str> = HANDLER_ENFORCED_OWNER_ROUTES.iter().copied().collect();

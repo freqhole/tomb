@@ -216,11 +216,8 @@ pub async fn cancel_single_job(_caller: &Caller, body: JsonValue) -> GrimoireRes
 ///
 /// path: POST /api/music/fetch
 pub async fn create_fetch(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "create_fetch_job").await {
+        return resp;
     }
 
     let params: FetchMediaParams = match serde_json::from_value(body) {
@@ -314,11 +311,8 @@ pub async fn create_precheck_fetch(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "must be member")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "create_precheck_fetch_job").await {
+        return resp;
     }
 
     let params: PreCheckFetchParams = match serde_json::from_value(body) {
@@ -368,11 +362,8 @@ pub async fn enqueue_mb_album_search(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "enqueue_mb_album_search").await {
+        return resp;
     }
 
     let req: crate::jobs::EnqueueMbAlbumSearchRequest = match serde_json::from_value(body) {
@@ -495,11 +486,9 @@ pub async fn enqueue_lastfm_album_detail(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "enqueue_lastfm_album_detail").await
+    {
+        return resp;
     }
 
     let req: crate::jobs::EnqueueLastFmAlbumDetailRequest = match serde_json::from_value(body) {
@@ -573,11 +562,10 @@ pub async fn enqueue_audiodb_album_detail(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) =
+        crate::acl_bridge::require_scope(caller, "enqueue_audiodb_album_detail").await
+    {
+        return resp;
     }
 
     let req: crate::jobs::EnqueueAudioDbAlbumDetailRequest = match serde_json::from_value(body) {
@@ -658,11 +646,8 @@ pub async fn enqueue_bulk_enrichment(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "enqueue_bulk_enrichment").await {
+        return resp;
     }
     let req: BulkEnrichmentRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -764,11 +749,8 @@ pub async fn cancel_bulk_enrichment(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "cancel_bulk_enrichment").await {
+        return resp;
     }
     let req: CancelBulkEnrichmentRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -843,11 +825,8 @@ pub async fn get_enrichment_progress(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_enrichment_progress").await {
+        return resp;
     }
     let req: GetEnrichmentProgressRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -969,11 +948,8 @@ pub async fn get_enrichment_progress(
 ///
 /// path: POST /api/music/albums/enrichment/requery
 pub async fn requery_enrichment(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "requery_enrichment").await {
+        return resp;
     }
     let req: RequeryEnrichmentRequest = match serde_json::from_value(body) {
         Ok(r) => r,
