@@ -164,9 +164,9 @@ export async function getServerInfo(baseUrl: string) {
 // login with webauthn
 export async function loginWithWebauthn(
   baseUrl: string,
-  username: string,
+  username?: string,
 ): Promise<AuthResult> {
-  debug("webauthn", "starting login for username:", username);
+  debug("webauthn", "starting login for username:", username ?? "(discoverable)");
   const result = await loginWithPasskey(createWebauthnTransport(httpRemote(baseUrl)), { username });
   if (!result.success) {
     console.error("webauthn login failed:", result.error);
