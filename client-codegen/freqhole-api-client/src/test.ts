@@ -2,6 +2,7 @@
 import { validateWrapperCoverage } from "./test/coverage.js";
 import { runIntegrationTests } from "./test/integration.js";
 import { runStatefulTests } from "./test/stateful.js";
+import { runPermissionsTests } from "./test/permissions.js";
 
 async function main() {
   console.log("freqhole api client test suite\n");
@@ -15,6 +16,14 @@ async function main() {
   const coverageResults = await validateWrapperCoverage();
   totalPassed += coverageResults.passed;
   totalFailed += coverageResults.failed;
+
+  console.log("=".repeat(50));
+  console.log("");
+
+  // always run permissions characterization tests (no server needed)
+  const permissionsResults = await runPermissionsTests();
+  totalPassed += permissionsResults.passed;
+  totalFailed += permissionsResults.failed;
 
   console.log("=".repeat(50));
   console.log("");

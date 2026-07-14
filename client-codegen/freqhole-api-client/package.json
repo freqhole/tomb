@@ -21,7 +21,8 @@
     "auth-test": "vite --config vite.config.js"
   },
   "dependencies": {
-    "zod": "^4.3.5"
+    "zod": "^4.3.5",
+    "@freqhole/haruspex": "file:../../../haruspex/ts"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.10.1",
