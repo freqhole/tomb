@@ -10,9 +10,12 @@
 //! `IdentityStore::upsert_identity` (already an upsert), and every other
 //! table uses `INSERT OR IGNORE` keyed on the target table's own primary
 //! key, so a rerun after a partial or complete prior run only fills in
-//! whatever is still missing. never modifies or deletes anything in
-//! grimoire's own tables - only reads from them, and writes into
-//! haruspex's database.
+//! whatever is still missing. reads grimoire's own auth tables and writes
+//! into haruspex's database - the one exception is clearing grimoire's own
+//! `tower_sessions` table at the end of a run, signing out every
+//! currently-logged-in user (see `flush_sessions`), since a session
+//! established before this cutover shouldn't be trusted against the new
+//! auth backend after it.
 
 use std::collections::HashSet;
 
@@ -109,6 +112,12 @@ pub struct MigrationReport {
     /// this, so it's verified rather than assumed. still migrated (see
     /// `map_knock_status`), just flagged.
     pub unexpected_knock_status: Vec<(String, String)>,
+    /// existing tower_sessions rows cleared as part of this run. every
+    /// already-logged-in user is signed out and must re-authenticate once
+    /// the underlying auth backend changes out from under their session -
+    /// continuing to serve a session against the pre-cutover assumptions
+    /// it was created under is the actual risk, not just stale bytes.
+    pub flushed_sessions: i64,
 }
 
 impl MigrationReport {
@@ -780,10 +789,27 @@ async fn migrate_challenges(
     Ok((counts, unresolved))
 }
 
+/// clear every existing tower_sessions row (grimoire's own `MAIN_POOL`,
+/// same database the six auth tables above live in). called once, at the
+/// end of a migration run - every session still holding a pre-cutover
+/// user was established under a set of assumptions (the auth backend
+/// storing/validating their identity) that no longer holds once haruspex
+/// takes over, so the safe move is signing everyone out rather than
+/// hoping an old session cookie still behaves correctly against the new
+/// backend. returns the number of rows cleared.
+async fn flush_sessions(pool: &SqlitePool) -> GrimoireResult<i64> {
+    let result = sqlx::query("DELETE FROM tower_sessions")
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() as i64)
+}
+
 /// migrate grimoire's pre-haruspex auth data into haruspex's own database,
 /// in dependency order: identities first (every other table's rows
 /// reference one via the bridge), then api keys, credentials, devices,
-/// knocks, invites, and finally webauthn challenges.
+/// knocks, invites, and finally webauthn challenges. finishes by flushing
+/// every existing session, since this run is the one-time cutover point
+/// where the auth backend itself changes.
 pub async fn migrate_to_haruspex() -> GrimoireResult<MigrationReport> {
     let grimoire_pool = database::connect().await?;
     let haruspex_pool = database::connect_haruspex().await?;
@@ -819,6 +845,8 @@ pub async fn migrate_to_haruspex() -> GrimoireResult<MigrationReport> {
     .await?;
     unresolved_user_refs.extend(more_unresolved);
 
+    let flushed_sessions = flush_sessions(&grimoire_pool).await?;
+
     Ok(MigrationReport {
         identities: identities_counts,
         api_keys: api_keys_counts,
@@ -829,6 +857,7 @@ pub async fn migrate_to_haruspex() -> GrimoireResult<MigrationReport> {
         challenges: challenges_counts,
         unresolved_user_refs,
         unexpected_knock_status,
+        flushed_sessions,
     })
 }
 
@@ -1031,6 +1060,21 @@ level = "warn"
         .await
         .expect("insert challenge 2");
 
+        // a couple of pre-cutover sessions, standing in for already
+        // logged-in users - these must not survive the migration.
+        sqlx::query(
+            "INSERT INTO tower_sessions (id, data, expiry_date) VALUES ('sess-a', X'00', 9999999999)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert session 1");
+        sqlx::query(
+            "INSERT INTO tower_sessions (id, data, expiry_date) VALUES ('sess-b', X'00', 9999999999)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert session 2");
+
         // --- first run ---
         let report1 = migrate_to_haruspex().await.expect("first migration run");
 
@@ -1060,6 +1104,13 @@ level = "warn"
         assert!(report1.unresolved_user_refs.is_empty());
         assert!(report1.unexpected_knock_status.is_empty());
         assert!(report1.is_clean());
+        assert_eq!(report1.flushed_sessions, 2);
+
+        let remaining_sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tower_sessions")
+            .fetch_one(&pool)
+            .await
+            .expect("count remaining sessions");
+        assert_eq!(remaining_sessions, 0);
 
         let haruspex_pool = database::connect_haruspex().await.expect("haruspex pool");
 
@@ -1161,5 +1212,9 @@ level = "warn"
         assert_eq!(report2.challenges.already_existed, 1);
         assert_eq!(report2.challenges.skipped, 1);
         assert!(report2.is_clean());
+        assert_eq!(
+            report2.flushed_sessions, 0,
+            "nothing left to flush on a rerun with no new sessions created in between"
+        );
     }
 }
