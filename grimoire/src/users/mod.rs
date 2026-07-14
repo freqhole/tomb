@@ -13,6 +13,11 @@ pub mod webauthn;
 pub mod webauthn_models;
 
 pub(crate) mod haruspex_bridge;
+mod migrate_to_haruspex;
+
+pub use migrate_to_haruspex::{
+    migrate_to_haruspex, MigrationReport, TableCounts, UnresolvedUserRef,
+};
 
 // Re-export commonly used types
 pub use models::{

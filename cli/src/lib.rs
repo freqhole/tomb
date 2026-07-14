@@ -105,6 +105,12 @@ pub enum Commands {
     /// blob has a blake3 hash (see `blobz backfill-blake3`).
     MigrateToReliquary,
 
+    /// one-shot migration of grimoire's pre-haruspex auth tables
+    /// (user_accountz, user_credentialz, user_peer_nodez, knock_requestz,
+    /// invite_codez, webauthn_challenges) into haruspex's own database.
+    /// safe to run repeatedly.
+    MigrateToHaruspex,
+
     /// Sync operations (send-to-remote: album/song/playlist receive routes)
     Sync {
         #[command(subcommand)]
@@ -375,6 +381,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::MigrateToReliquary => {
             plumbing::handle_migrate_to_reliquary(json_output).await?;
+        }
+        Commands::MigrateToHaruspex => {
+            plumbing::handle_migrate_to_haruspex(json_output).await?;
         }
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;
