@@ -11,9 +11,7 @@
     "access": "public"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./storage": "./src/storage/index.ts",
-    "./automerge": "./src/automerge/index.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -23,19 +21,9 @@
     "auth-test": "vite --config vite.config.js"
   },
   "dependencies": {
-    "idb": "^8.0.3",
     "zod": "^4.3.5"
   },
-  "peerDependencies": {
-    "@automerge/automerge-repo": "^2.5.5"
-  },
-  "peerDependenciesMeta": {
-    "@automerge/automerge-repo": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@automerge/automerge-repo": "^2.5.6",
     "@tauri-apps/api": "^2.10.1",
     "@types/node": "^25.0.8",
     "tsx": "^4.7.0",

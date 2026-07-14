@@ -27,6 +27,7 @@
     "@freqhole/haruspex": "file:../../../haruspex/ts",
     "@freqhole/midden": "file:../../../midden/pkg",
     "@freqhole/playlistz": "^0.0.5",
+    "@freqhole/reliquary": "file:../../../reliquary/ts",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

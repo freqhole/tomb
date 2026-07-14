@@ -95,6 +95,28 @@ function serviceWorkerPlugin(): Plugin {
 // tauri builds should not include midden WASM - use app P2P via CharnelTransport
 const isCharnelBuild = !!process.env.VITE_CHARNEL_MODE;
 
+// resolves the bare "midden" specifier that reliquary's blob worker
+// dynamically imports (see @freqhole/reliquary/worker's midden-blake3.ts).
+// a plain `resolve.alias` entry does not reach this import: it's inside a
+// worker's own module graph, which vite builds through a separate plugin
+// pipeline from the main app - `resolve.alias` only applies to the graph
+// it's declared against, so the alias has to be re-declared as an actual
+// plugin and included in both the main `plugins` and `worker.plugins` lists
+// below for it to apply to both.
+function middenBareSpecifierPlugin(target: string): Plugin {
+  return {
+    name: "midden-bare-specifier",
+    resolveId(source) {
+      if (source === "midden") return this.resolve(target, undefined, { skipSelf: true });
+      return null;
+    },
+  };
+}
+
+const middenTarget = isCharnelBuild
+  ? path.join(dirname, "src/stubs/midden-stub.ts")
+  : "@freqhole/midden";
+
 // serve the standalone freqhole-playlistz.js bundle from the local package dist.
 // this lets buildPlaylistZip fetch it when building zip downloads in dev mode.
 function servePlaylistzBundle(): Plugin {
@@ -128,6 +150,15 @@ function servePlaylistzBundle(): Plugin {
 export default defineConfig({
   server: {
     allowedHosts: ["a75fda8121f7.ngrok.app"],
+    fs: {
+      // @freqhole/haruspex/reliquary/midden are file: deps pointing at
+      // sibling repos (../../../<repo> from spume/), so vite's default
+      // dev-server file allowlist (project root + node_modules only)
+      // blocks serving their real, non-symlink-resolved source/dist
+      // files - matching skein/loam's vite.config.ts, which needed the
+      // same allowance for the same reason.
+      allow: [".", "../../../haruspex", "../../../reliquary", "../../../midden"],
+    },
   },
   plugins: [
     // only include WASM plugins for non-Tauri builds
@@ -136,7 +167,14 @@ export default defineConfig({
     serviceWorkerPlugin(),
     sourcemapUrlPlugin(),
     servePlaylistzBundle(),
+    middenBareSpecifierPlugin(middenTarget),
   ],
+  // worker bundles need wasm too - reliquary's blob worker pulls in
+  // @freqhole/midden (wasm) for blake3.
+  worker: {
+    format: "es",
+    plugins: () => (isCharnelBuild ? [] : [wasm()]).concat(middenBareSpecifierPlugin(middenTarget)),
+  },
   // use relative paths so assets work in Tauri's tauri:// protocol
   base: isCharnelBuild ? "./" : "/",
   define: {
@@ -166,6 +204,13 @@ export default defineConfig({
             "@freqhole/midden": path.join(dirname, "src/stubs/midden-stub.ts"),
         }
       : {},
+  },
+  // exclude @freqhole/midden from esbuild pre-bundling - it contains a
+  // .wasm file that esbuild can't handle; vite-plugin-wasm handles it
+  // instead (matching skein/loam's vite.config.ts, which uses the same
+  // reliquary worker and hit the same need for this).
+  optimizeDeps: {
+    exclude: ["@freqhole/midden"],
   },
   test: {
     projects: [
