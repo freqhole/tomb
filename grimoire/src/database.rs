@@ -25,6 +25,8 @@ static MAIN_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static HARUSPEX_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static RELIQUARY_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static STORAGE_NODE: OnceCell<reliquary::StorageNode> = OnceCell::const_new();
+static CHUNKED_IMPORT: OnceCell<reliquary::ChunkedImport> = OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
 // (drop runs in reverse, create runs forward).
@@ -270,4 +272,41 @@ async fn create_reliquary_pool() -> GrimoireResult<SqlitePool> {
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to open reliquary database: {e}"),
         })
+}
+
+/// the shared iroh-blobs storage node (fs_store + gc-protection), backed by
+/// reliquary's blobz metadata store. lazily initialized on first use, like
+/// every other pool in this file.
+pub(crate) async fn storage_node() -> GrimoireResult<&'static reliquary::StorageNode> {
+    STORAGE_NODE
+        .get_or_try_init(|| async {
+            let reliquary_pool = connect_reliquary().await?;
+            let config = get_config();
+            let blobz: std::sync::Arc<dyn reliquary::blobz::BlobStore> = std::sync::Arc::new(
+                reliquary::blobz::SqliteBlobStore::new(reliquary_pool, &config.data_dir),
+            );
+            reliquary::StorageNode::init_local(
+                &config.data_dir,
+                blobz,
+                reliquary::StorageNodeOptions::default(),
+            )
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to initialize storage node: {}", e),
+            })
+        })
+        .await
+}
+
+/// the shared chunked-upload session tracker: bytes accumulate into a temp
+/// file across multiple calls (e.g. one http/ipc request per chunk), then
+/// get adopted into the storage node's blobz store once the upload
+/// completes. lazily initialized on first use, like every other singleton
+/// in this file.
+pub(crate) async fn chunked_import() -> &'static reliquary::ChunkedImport {
+    CHUNKED_IMPORT
+        .get_or_init(|| async {
+            reliquary::ChunkedImport::new(get_config().temp_dir().join("uploads"))
+        })
+        .await
 }

@@ -2,15 +2,104 @@
 //!
 //! computes blake3 hashes for audio files, used for verified streaming.
 //! hashes are stored in media_blobz.blake3 column for lookup.
-//! also adds files to the iroh-blobs FsStore for P2P serving.
+//! also adds files to the shared storage node's iroh-blobs store for P2P
+//! serving.
 
-use crate::blobz::store;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::media_blobz;
 use futures_util::stream::{self, StreamExt};
+use iroh_blobs::api::blobs::AddPathOptions;
+use iroh_blobs::api::proto::ImportMode;
+use iroh_blobs::{BlobFormat, Hash};
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+
+/// add a file to the shared storage node's iroh-blobs store using reference
+/// mode, avoiding a copy of the file's bytes.
+///
+/// only stores the outboard verification tree (.obao4) and references the
+/// original file. the input path is canonicalized first so iroh-blobs never
+/// persists tilde paths, symlink chains, or flatpak portal paths that vanish
+/// across sessions - canonicalization failures (e.g. file deleted) fall back
+/// to the input path and let iroh surface the error downstream.
+pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
+    let store = crate::database::storage_node().await?.fs_store;
+
+    let canonical = crate::paths::canonical_path(path);
+
+    let options = AddPathOptions {
+        path: canonical.clone(),
+        format: BlobFormat::Raw,
+        mode: ImportMode::TryReference,
+    };
+
+    let tag = store.add_path_with_opts(options).await.map_err(|e| {
+        tracing::error!(
+            path = ?canonical,
+            error = %e,
+            "failed to add file to blobs store"
+        );
+        GrimoireError::ProcessingFailed {
+            message: format!("failed to add file to blobs store: {}", e),
+        }
+    })?;
+
+    tracing::info!(
+        "added file {:?} to blobs store (reference mode), hash: {}",
+        canonical,
+        tag.hash.to_hex()
+    );
+
+    Ok(tag.hash)
+}
+
+/// add raw bytes to the shared storage node's iroh-blobs store.
+/// used for small blobs (thumbnails, waveforms) that live in the database,
+/// not on disk.
+pub async fn add_bytes_to_store(data: &[u8]) -> GrimoireResult<Hash> {
+    let store = crate::database::storage_node().await?.fs_store;
+
+    let tag = store
+        .blobs()
+        .add_bytes(bytes::Bytes::copy_from_slice(data))
+        .await
+        .map_err(|e| {
+            tracing::error!(bytes = data.len(), error = %e, "failed to add bytes to blobs store");
+            GrimoireError::ProcessingFailed {
+                message: format!("failed to add bytes to blobs store: {}", e),
+            }
+        })?;
+
+    tracing::info!(
+        "added {} bytes to blobs store, hash: {}",
+        data.len(),
+        tag.hash.to_hex()
+    );
+
+    Ok(tag.hash)
+}
+
+/// check if a blob exists in the shared storage node's iroh-blobs store by
+/// hash.
+async fn has_blob(hash: Hash) -> GrimoireResult<bool> {
+    let store = crate::database::storage_node().await?.fs_store;
+    store
+        .has(hash)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to check blob existence: {}", e),
+        })
+}
+
+/// parse a blake3 hash string into an iroh `Hash`.
+fn parse_hash(hash_str: &str) -> GrimoireResult<Hash> {
+    hash_str
+        .parse()
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("invalid blake3 hash: {}", e),
+        })
+}
 
 /// compute blake3 hash of a file
 /// returns hex-encoded hash string
@@ -59,12 +148,12 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
 
             if let Some(blake3) = blob.blake3 {
                 // already has blake3, just ensure it's in FsStore
-                let _ = store::add_file_to_store(path).await;
+                let _ = add_file_to_store(path).await;
                 return Ok(blake3);
             }
 
             // compute blake3 by adding file to FsStore
-            let hash = store::add_file_to_store(path).await?;
+            let hash = add_file_to_store(path).await?;
             let blake3_hash = hash.to_hex().to_string();
             media_blobz::update_blob_blake3(blob_id, &blake3_hash).await?;
 
@@ -80,14 +169,14 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
             // db-stored blob: waveforms, thumbnails, small images in blob_data table
             if let Some(blake3) = blob.blake3 {
                 // already has blake3, ensure it's in FsStore
-                let hash = store::parse_hash(&blake3)?;
-                if !store::has_blob(hash).await? {
+                let hash = parse_hash(&blake3)?;
+                if !has_blob(hash).await? {
                     // not in FsStore — re-add from whichever source still has
                     // the bytes (blob_data table, or reliquary's blob store)
                     if let Ok((_, Some(data))) =
                         media_blobz::get_media_blob_with_data(blob_id).await
                     {
-                        let _ = store::add_bytes_to_store(&data).await;
+                        let _ = add_bytes_to_store(&data).await;
                     }
                 }
                 return Ok(blake3);
@@ -108,7 +197,7 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
             };
 
             // add bytes to FsStore — returns blake3 hash
-            let hash = store::add_bytes_to_store(&data).await?;
+            let hash = add_bytes_to_store(&data).await?;
             let blake3_hash = hash.to_hex().to_string();
 
             // store blake3 in database for future lookups
@@ -123,6 +212,127 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
             );
 
             Ok(blake3_hash)
+        }
+    }
+}
+
+/// ensure a blob is loaded into the shared storage node's iroh-blobs store
+/// by its blake3 hash.
+///
+/// looks up the blob in media_blobz by blake3, then adds the file (or
+/// bytes) to the store if not already present. returns true if the blob is
+/// now available, false if the blake3 hash is not found in our database.
+///
+/// this enables on-demand loading for iroh-blobs requests.
+pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
+    // first check if already in store
+    let hash = match parse_hash(blake3_hash) {
+        Ok(h) => h,
+        Err(_) => return Ok(false),
+    };
+
+    if has_blob(hash).await? {
+        tracing::info!(
+            "ensure_blob_by_blake3: already in FsStore: {}",
+            &blake3_hash[..16]
+        );
+        return Ok(true);
+    }
+
+    // look up blob by blake3 in media_blobz
+    let blob = match media_blobz::get_media_blob_by_blake3(blake3_hash).await {
+        Ok(b) => b,
+        Err(_) => {
+            tracing::warn!(
+                "ensure_blob_by_blake3: NOT FOUND in media_blobz: {} (dest asked for a blake3 this source has never seen)",
+                &blake3_hash[..16]
+            );
+            return Ok(false);
+        }
+    };
+    tracing::info!(
+        "ensure_blob_by_blake3: found media_blob {} for blake3 {} (local_path={:?})",
+        blob.id,
+        &blake3_hash[..16],
+        blob.local_path.as_deref(),
+    );
+
+    match blob.local_path {
+        Some(local_path) => {
+            // file-backed blob
+            let path = Path::new(&local_path);
+            if !path.exists() {
+                tracing::warn!(
+                    "ensure_blob_by_blake3: LOCAL FILE MISSING for {}: path={} (media_blob row exists but on-disk file is gone -- db/disk drift)",
+                    &blake3_hash[..16],
+                    local_path
+                );
+                return Ok(false);
+            }
+
+            match add_file_to_store(path).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "ensure_blob_by_blake3: added file to FsStore: {} -> {}",
+                        &blake3_hash[..16],
+                        local_path
+                    );
+                    Ok(true)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to add file to FsStore: {} -> {}: {}",
+                        &blake3_hash[..16],
+                        local_path,
+                        e
+                    );
+                    Ok(false)
+                }
+            }
+        }
+        None => {
+            // db-stored blob: waveforms, thumbnails — read via grimoire's own
+            // blob_data table, falling back to reliquary if it's already
+            // moved on (get_media_blob_with_data covers both sources).
+            let data = match media_blobz::get_media_blob_with_data(&blob.id).await {
+                Ok((_, Some(data))) => data,
+                Ok((_, None)) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: NO LOCAL_PATH AND NO DATA for {}: media_blob {} has neither a file nor inline bytes",
+                        &blake3_hash[..16],
+                        blob.id,
+                    );
+                    return Ok(false);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to resolve bytes for {} (media_blob {}): {}",
+                        &blake3_hash[..16],
+                        blob.id,
+                        e,
+                    );
+                    return Ok(false);
+                }
+            };
+
+            match add_bytes_to_store(&data).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "ensure_blob_by_blake3: added db blob to FsStore: {} ({} bytes)",
+                        &blake3_hash[..16],
+                        data.len()
+                    );
+                    Ok(true)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ensure_blob_by_blake3: failed to add db blob to FsStore: {}: {}",
+                        &blake3_hash[..16],
+                        e
+                    );
+                    Ok(false)
+                }
+            }
         }
     }
 }
@@ -149,11 +359,11 @@ pub async fn backfill_blake3_hashes(
     crate::progress::report(format!(
         "scanning {total} blob(s) needing blake3 (batch_size={batch_size}, concurrency={concurrency})"
     ));
-    // eagerly warm up the FsStore so the first iteration doesn't pay
+    // eagerly warm up the storage node so the first iteration doesn't pay
     // the (one-time) load cost silently. surfaces hangs at this step.
     crate::progress::report("loading iroh-blobs FsStore\u{2026}".to_string());
     tracing::info!("backfill_blake3_hashes: warming FsStore");
-    match store::get_blobs_store().await {
+    match crate::database::storage_node().await {
         Ok(_) => {
             tracing::info!("backfill_blake3_hashes: FsStore ready");
             crate::progress::report("FsStore ready".to_string());
@@ -226,7 +436,7 @@ async fn backfill_one_blob(blob: media_blobz::MediaBlob, n: i64, total: i64) -> 
         tracing::info!(
             "backfill_blake3: [{n}/{total}] add_file_to_store start blob={blob_id} path={local_path}"
         );
-        match store::add_file_to_store(path).await {
+        match add_file_to_store(path).await {
             Ok(hash) => {
                 let blake3_hash = hash.to_hex().to_string();
                 if let Err(e) = media_blobz::update_blob_blake3(&blob_id, &blake3_hash).await {
@@ -307,5 +517,23 @@ mod tests {
             hash,
             "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
         );
+    }
+
+    #[test]
+    fn test_parse_hash() {
+        // valid 64-char hex hash
+        let hash_str = "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262";
+        let result = parse_hash(hash_str);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_hash_invalid() {
+        // use a 64-char string with non-hex chars so iroh's Hash::FromStr
+        // takes the hex branch and returns Err cleanly. shorter inputs
+        // hit the base32 branch which can panic inside data-encoding when
+        // the decoded length doesn't match the fixed 32-byte buffer.
+        let result = parse_hash(&"z".repeat(64));
+        assert!(result.is_err());
     }
 }
