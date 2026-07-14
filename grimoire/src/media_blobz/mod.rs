@@ -35,6 +35,7 @@ pub(crate) use reliquary_mirror::{
 pub use service::{
     count_blake3_backfill_status, count_blobs_needing_blake3, create_media_blob, delete_media_blob,
     find_present_blake3s, find_present_sha256s, get_media_blob, get_media_blob_by_blake3,
-    get_media_blob_by_sha256, get_media_blob_with_data, list_blobs_needing_blake3,
-    list_media_blobs, update_blob_blake3, update_blob_content, update_blob_local_path,
+    get_media_blob_by_sha256, get_media_blob_stream_source, get_media_blob_with_data,
+    list_blobs_needing_blake3, list_media_blobs, update_blob_blake3, update_blob_content,
+    update_blob_local_path, BlobStreamSource,
 };

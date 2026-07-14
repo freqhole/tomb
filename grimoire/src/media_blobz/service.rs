@@ -397,6 +397,72 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
     Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
 }
 
+/// where to read a blob's bytes from for streaming/serving purposes - a
+/// filesystem path (efficient, seekable, works for any size) or a
+/// last-resort in-memory copy for content that predates full reliquary
+/// coverage.
+pub enum BlobStreamSource {
+    File { path: std::path::PathBuf, size: u64 },
+    Memory(Vec<u8>),
+}
+
+/// resolve where to stream a media blob's bytes from without loading them
+/// into memory unless there is no other choice.
+///
+/// returns (MediaBlob, BlobStreamSource):
+/// - if blob has local_path, resolves to `File` at that path
+/// - else, if reliquary has a matching row (by old_grimoire_id) and its
+///   file actually exists on disk, resolves to `File` at reliquary's path
+/// - else, if blob data is in grimoire's own blob_data table, resolves to
+///   `Memory`
+/// - if no source has the data, returns MediaBlobNotFound
+///
+/// unlike `get_media_blob_with_data`, this never falls back to reading
+/// reliquary's bytes fully into memory: a reliquary row whose file is
+/// missing means the content is genuinely gone, not something an in-memory
+/// read would fix.
+pub async fn get_media_blob_stream_source(
+    id: &str,
+) -> GrimoireResult<(MediaBlob, BlobStreamSource)> {
+    let blob = get_media_blob(id).await?;
+
+    if let Some(local_path) = blob.local_path.clone() {
+        let size = blob.size.unwrap_or(0) as u64;
+        return Ok((
+            blob,
+            BlobStreamSource::File {
+                path: std::path::PathBuf::from(local_path),
+                size,
+            },
+        ));
+    }
+
+    if let Ok(reliquary_pool) = database::connect_reliquary().await {
+        let store = SqliteBlobStore::new(reliquary_pool, &config::get_config().data_dir);
+        if let Ok(Some(record)) = store.get_by_old_id(&blob.id).await {
+            let path = store.path_for(&record);
+            if tokio::fs::metadata(&path).await.is_ok() {
+                return Ok((
+                    blob,
+                    BlobStreamSource::File {
+                        path,
+                        size: record.size,
+                    },
+                ));
+            }
+        }
+    }
+
+    let data_response = blob_data::get_blob_data(&blob.id).await;
+    if data_response.success {
+        if let Some(data) = data_response.data {
+            return Ok((blob, BlobStreamSource::Memory(data)));
+        }
+    }
+
+    Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })
+}
+
 /// update media blob local_path (for setting filesystem location after upload)
 pub async fn update_blob_local_path(
     id: &str,
@@ -907,6 +973,10 @@ mod tests {
     // already exists" migration error:
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_falls_back_to_reliquary
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_with_data_not_found_anywhere
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_stream_source_local_path
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_stream_source_falls_back_to_reliquary_file
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_stream_source_falls_back_to_blob_data_memory
+    // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_get_media_blob_stream_source_not_found_anywhere
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_updates_all_fields
     // cargo test -p grimoire --lib -- --ignored --exact media_blobz::service::tests::test_update_blob_content_skips_hash_update_on_sha256_conflict
     async fn init_test_env(data_dir: &std::path::Path) {
@@ -1007,6 +1077,161 @@ level = "warn"
         assert!(matches!(
             result,
             Err(GrimoireError::MediaBlobNotFound { id }) if id == "missing01"
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_stream_source_local_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        let file_path = tmp.path().join("local.mp3");
+        std::fs::write(&file_path, b"local file bytes").expect("write local file");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, local_path)
+             VALUES ('localpath01', ?, ?, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("1".repeat(64))
+        .bind(17i64)
+        .bind(file_path.to_string_lossy().into_owned())
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let (blob, source) = get_media_blob_stream_source("localpath01")
+            .await
+            .expect("get_media_blob_stream_source");
+        assert_eq!(blob.id, "localpath01");
+        match source {
+            BlobStreamSource::File { path, size } => {
+                assert_eq!(path, file_path);
+                assert_eq!(size, 17);
+            }
+            BlobStreamSource::Memory(_) => panic!("expected File source for a local_path blob"),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_stream_source_falls_back_to_reliquary_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        // a media_blobz row with neither a local_path nor a blob_data row -
+        // grimoire's own sources both come up empty.
+        let bytes = b"reliquary-backed audio bytes for streaming";
+        let blake3 = reliquary::hash_bytes(bytes);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('streamfallback01', ?, ?, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("2".repeat(64))
+        .bind(bytes.len() as i64)
+        .bind(&blake3)
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        // the matching reliquary row, with a real file written at its
+        // resolved path, linked back via old_grimoire_id.
+        let reliquary_pool = database::connect_reliquary().await.expect("reliquary pool");
+        let config = crate::config::get_config();
+        let store = SqliteBlobStore::new(reliquary_pool.clone(), &config.data_dir);
+        let record = store
+            .insert(bytes, NewBlobMeta::default())
+            .await
+            .expect("insert reliquary blob");
+        sqlx::query("UPDATE blobz SET old_grimoire_id = ? WHERE blake3 = ?")
+            .bind("streamfallback01")
+            .bind(&record.blake3)
+            .execute(&reliquary_pool)
+            .await
+            .expect("set old_grimoire_id");
+
+        let expected_path = store.path_for(&record);
+
+        let (blob, source) = get_media_blob_stream_source("streamfallback01")
+            .await
+            .expect("get_media_blob_stream_source");
+        assert_eq!(blob.id, "streamfallback01");
+        match source {
+            BlobStreamSource::File { path, size } => {
+                assert_eq!(path, expected_path);
+                assert_eq!(size, bytes.len() as u64);
+            }
+            BlobStreamSource::Memory(_) => {
+                panic!("expected File source for a reliquary-backed blob")
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_stream_source_falls_back_to_blob_data_memory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type)
+             VALUES ('memoryfallback01', ?, ?, 'image/webp', 'original')",
+        )
+        .bind("3".repeat(64))
+        .bind(9i64)
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let bytes = b"thumb data";
+        let blob_data_pool = database::connect_blob_data().await.expect("blob_data pool");
+        sqlx::query("INSERT INTO blob_data (id, data) VALUES ('memoryfallback01', ?)")
+            .bind(bytes.as_slice())
+            .execute(&blob_data_pool)
+            .await
+            .expect("insert blob_data row");
+
+        let (blob, source) = get_media_blob_stream_source("memoryfallback01")
+            .await
+            .expect("get_media_blob_stream_source");
+        assert_eq!(blob.id, "memoryfallback01");
+        match source {
+            BlobStreamSource::Memory(data) => assert_eq!(data, bytes.to_vec()),
+            BlobStreamSource::File { .. } => {
+                panic!("expected Memory source for a blob_data-backed blob")
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_stream_source_not_found_anywhere() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        let pool = database::connect().await.expect("connect");
+
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('streammissing01', ?, ?, 'audio/mpeg', 'original', ?)",
+        )
+        .bind("4".repeat(64))
+        .bind(10i64)
+        .bind("4".repeat(64))
+        .execute(&pool)
+        .await
+        .expect("insert media_blobz row");
+
+        let result = get_media_blob_stream_source("streammissing01").await;
+        assert!(matches!(
+            result,
+            Err(GrimoireError::MediaBlobNotFound { id }) if id == "streammissing01"
         ));
     }
 
