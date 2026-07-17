@@ -3,8 +3,8 @@
 use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::config::{
-    config_needs_upgrade, create_config, find_config, get_binary_version, upgrade_config,
-    ConfigValidationResponse, GrimoireConfig,
+    config_needs_upgrade, create_config, find_config, get_binary_version, ConfigValidationResponse,
+    GrimoireConfig,
 };
 use grimoire::error::GrimoireError;
 use std::path::PathBuf;
@@ -180,21 +180,23 @@ pub async fn handle_command(
                 }
             };
 
-            match upgrade_config(&path) {
-                Ok(result) => {
-                    let message = format!(
-                        "config upgraded: {} -> {} (backup: {})",
-                        result.old_version,
-                        result.new_version,
-                        result.backup_path.display()
-                    );
+            // migration failures/skips are still an overall command success:
+            // the config upgrade itself succeeded, and the outcome fields
+            // carry the migration detail.
+            match grimoire::upgrade::upgrade_config_and_migrate(&path).await {
+                Ok(outcome) => {
+                    let message = grimoire::upgrade::describe_outcome(&outcome);
                     CommandOutput::success(
                         message,
                         serde_json::json!({
-                            "old_version": result.old_version,
-                            "new_version": result.new_version,
-                            "backup_path": result.backup_path.display().to_string(),
-                            "config_path": path.display().to_string()
+                            "old_version": outcome.config.old_version,
+                            "new_version": outcome.config.new_version,
+                            "backup_path": outcome.config.backup_path.display().to_string(),
+                            "config_path": path.display().to_string(),
+                            "haruspex_migration": serde_json::to_value(&outcome.haruspex)
+                                .unwrap_or(serde_json::Value::Null),
+                            "reliquary_migration": serde_json::to_value(&outcome.reliquary)
+                                .unwrap_or(serde_json::Value::Null),
                         }),
                     )
                 }

@@ -483,19 +483,28 @@ pub fn run() {
             if !needs_setup {
                 if let Some(server_config_path) = get_server_config_path_resolved(app.handle()) {
                     match grimoire::config::config_needs_upgrade(&server_config_path) {
-                        Ok(true) => match grimoire::config::upgrade_config(&server_config_path) {
-                            Ok(result) => {
-                                tracing::info!(
-                                    old_version = %result.old_version,
-                                    new_version = %result.new_version,
-                                    backup = %result.backup_path.display(),
-                                    "silently upgraded server config (mobile)"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "failed to silently upgrade server config (mobile)");
-                            }
-                        },
+                        Ok(true) => {
+                            // run the upgrade + one-shot data migrations off the
+                            // sync setup closure. best-effort: failures are logged
+                            // and never block startup.
+                            tauri::async_runtime::spawn(async move {
+                                match grimoire::upgrade::upgrade_config_and_migrate(
+                                    &server_config_path,
+                                )
+                                .await
+                                {
+                                    Ok(outcome) => {
+                                        tracing::info!(
+                                            "silently upgraded server config (mobile): {}",
+                                            grimoire::upgrade::describe_outcome(&outcome)
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(error = %e, "failed to silently upgrade server config (mobile)");
+                                    }
+                                }
+                            });
+                        }
                         Ok(false) => {}
                         Err(e) => {
                             tracing::warn!(error = %e, "failed to check server config upgrade status (mobile)");

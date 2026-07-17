@@ -35,6 +35,7 @@ pub mod sessions;
 pub mod setup;
 pub mod shutdown;
 pub mod updates;
+pub mod upgrade;
 pub mod upload;
 pub mod users;
 pub mod wordlist;

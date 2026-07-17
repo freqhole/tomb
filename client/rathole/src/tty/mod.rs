@@ -48,7 +48,7 @@ pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
     // runs before ratatui takes the screen, so any warnings land
     // in the rathole log via tracing rather than scribbling on the
     // alt-screen. best-effort: failures never block launch.
-    maybe_upgrade_config();
+    maybe_upgrade_config().await;
 
     // install a panic hook that routes panics to tracing instead of
     // stderr. background threads (notably `freqhole-rodio`) panic
@@ -95,32 +95,28 @@ pub async fn run(opts: LaunchOpts) -> color_eyre::Result<()> {
 }
 
 /// upgrade the resolved freqhole-config.toml in place if its
-/// `server.version` differs from this binary's grimoire version.
-/// silent and best-effort: all outcomes go to tracing so they end
-/// up in `<data_dir>/rathole.log` instead of scribbling on the
+/// `server.version` differs from this binary's grimoire version,
+/// then run the one-shot data migrations. the orchestrator reloads
+/// the in-memory config itself after rewriting the file, so the
+/// current process sees the new version without a restart. silent
+/// and best-effort: all outcomes go to tracing so they end up in
+/// `<data_dir>/rathole.log` instead of scribbling on the
 /// alt-screen. assumes `grimoire::config::init_config` has already
 /// run (both rathole entry points do this before calling `run`).
-fn maybe_upgrade_config() {
+async fn maybe_upgrade_config() {
     let Some(config_path) = grimoire::config::get_config_path() else {
         tracing::warn!(target: "rathole::config", "no config path resolved; skipping upgrade check");
         return;
     };
     match grimoire::config::config_needs_upgrade(&config_path) {
         Ok(false) => {}
-        Ok(true) => match grimoire::config::upgrade_config(&config_path) {
-            Ok(result) => {
+        Ok(true) => match grimoire::upgrade::upgrade_config_and_migrate(&config_path).await {
+            Ok(outcome) => {
                 tracing::info!(
                     target: "rathole::config",
-                    old = %result.old_version,
-                    new = %result.new_version,
-                    backup = %result.backup_path.display(),
-                    "freqhole-config.toml upgraded"
+                    "{}",
+                    grimoire::upgrade::describe_outcome(&outcome)
                 );
-                // reload in-memory CONFIG so the current process sees
-                // the new version without requiring a restart.
-                if let Err(e) = grimoire::config::init_config(Some(config_path.clone())) {
-                    tracing::warn!(target: "rathole::config", error = %e, "reload after upgrade failed");
-                }
             }
             Err(e) => {
                 tracing::warn!(target: "rathole::config", error = %e, "config upgrade failed");

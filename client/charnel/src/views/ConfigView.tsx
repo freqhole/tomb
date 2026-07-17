@@ -22,6 +22,18 @@ interface ConfigUpgradeResult {
   new_version: string;
   spume_updated: boolean;
   spume_files: number;
+  haruspex_migration?: {
+    status: string;
+    summary?: string;
+    error?: string;
+    reason?: string;
+  };
+  reliquary_migration?: {
+    status: string;
+    summary?: string;
+    error?: string;
+    reason?: string;
+  };
 }
 
 export interface ConfigViewProps {
@@ -161,10 +173,22 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       const spumeMsg = result.spume_updated
         ? `, web client updated (${result.spume_files} files)`
         : "";
+      const migrationLine = (
+        name: string,
+        m?: { status: string; summary?: string; error?: string },
+      ) => {
+        if (m?.status === "ran" && m.summary) return `; ${name}: ${m.summary}`;
+        if (m?.status === "failed")
+          return `; ${name} migration failed: ${m.error}`;
+        return "";
+      };
+      const migrationMsg =
+        migrationLine("haruspex", result.haruspex_migration) +
+        migrationLine("reliquary", result.reliquary_migration);
 
       // success - reload config
       setSaveMessage(
-        `config upgraded: ${versionMsg}${spumeMsg} (backup: ${result.backup_path})`,
+        `config upgraded: ${versionMsg}${spumeMsg}${migrationMsg} (backup: ${result.backup_path})`,
       );
       setIsError(false);
 
@@ -175,7 +199,7 @@ export default function ConfigView(props: ConfigViewProps = {}) {
       try {
         await invoke("reload_config");
         setSaveMessage(
-          `config upgraded: ${versionMsg}${spumeMsg} - config reloaded (backup: ${result.backup_path})`,
+          `config upgraded: ${versionMsg}${spumeMsg}${migrationMsg} - config reloaded (backup: ${result.backup_path})`,
         );
       } catch (e) {
         setSaveMessage(
@@ -309,7 +333,9 @@ export default function ConfigView(props: ConfigViewProps = {}) {
             class="warning"
             onClick={performUpgrade}
             disabled={isUpgrading() || isSaving()}
-            title={`upgrade config: ${upgradeStatus()?.config_version} → ${upgradeStatus()?.binary_version}`}
+            title={`upgrade config: ${upgradeStatus()?.config_version} → ${
+              upgradeStatus()?.binary_version
+            }`}
           >
             {isUpgrading() ? "upgrading..." : `update config`}
           </button>
