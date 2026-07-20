@@ -357,8 +357,26 @@ export function AddMusicModal(props: AddMusicModalProps) {
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
 
-  // completed sessions that have a sessionId - one review card per unique session,
-  // jobCount = number of completed jobs for that session
+  // reviewableSessions cross-checks completed sessions against pendingSessions
+  // (fetched only on modal open/refetchReviewKey), which would otherwise be
+  // stale for a session that finishes while the modal is already open -
+  // refetch whenever the completed-job count grows so a freshly-finished
+  // session's real album count shows up promptly instead of only on reopen.
+  let lastCompletedJobCount = 0;
+  createEffect(() => {
+    const count = completedJobs().length;
+    if (count > lastCompletedJobCount) {
+      lastCompletedJobCount = count;
+      void refetchPendingSessions();
+    }
+  });
+
+  // completed sessions that have a sessionId - one review card per unique session.
+  // jobCount tracks completed jobs, but a session's files can all turn out to be
+  // duplicates of already-imported songs, which never get registered for review -
+  // so jobCount alone can't tell us whether there's anything to actually review.
+  // cross-check against `pendingSessions` (the real backend-fetched review queue)
+  // and only surface a card for sessions that have at least one album pending.
   const reviewableSessions = createMemo(() => {
     const sessionMap = new Map<string, { jobCount: number; label?: string }>();
     for (const j of props.uploadJobs ?? []) {
@@ -371,7 +389,16 @@ export function AddMusicModal(props: AddMusicModalProps) {
         }
       }
     }
-    return [...sessionMap.entries()].map(([sessionId, data]) => ({ sessionId, ...data }));
+    const realAlbumCounts = new Map(
+      (pendingSessions() ?? []).map((s) => [s.session_id, s.albums.length])
+    );
+    return [...sessionMap.entries()]
+      .map(([sessionId, data]) => ({
+        sessionId,
+        ...data,
+        albumCount: realAlbumCounts.get(sessionId) ?? 0,
+      }))
+      .filter((s) => s.albumCount > 0);
   });
   // track which sessions the user has dismissed from this modal session
   const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
@@ -995,7 +1022,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   <div class="px-4 pb-2">
                     <ImportPendingReviewCard
                       sessionLabel={session.label}
-                      pendingCount={session.jobCount}
+                      pendingCount={session.albumCount}
                       onReview={() => {
                         props.onReviewSession?.(session.sessionId);
                       }}

@@ -159,24 +159,41 @@ fn build_metadata_json(row: &SourceBlob) -> GrimoireResult<String> {
 
 /// migrate every live (non-deleted) `media_blobz` row into reliquary's
 /// `blobz` table, extracting `blob_data` bytes to canonical
-/// `blob-files/<blake3>` files along the way. refuses to run at all unless
-/// every live blob already has a blake3 hash (run `freqhole blobz
-/// backfill-blake3` first).
+/// `blob-files/<blake3>` files along the way. every live blob needs a
+/// blake3 hash to migrate; rather than requiring a separate manual step
+/// first, this backfills any missing hashes itself before migrating.
 ///
 /// safe to run repeatedly: every insert is `INSERT OR IGNORE` keyed on
 /// blake3, so reruns after a partial run only fill in what's missing.
 /// never writes to or deletes from any grimoire table - reads only.
 pub async fn migrate_to_reliquary() -> GrimoireResult<MigrationReport> {
-    // hard gate: every live blob must already have a blake3 hash.
+    // every live blob needs a blake3 hash before it can migrate. back-fill
+    // whatever is missing (most commonly db-stored images that never got
+    // one at creation time) instead of hard-failing and pointing the
+    // caller at a separate manual command.
     let (_total, _with_blake3, needing_blake3) =
         media_blobz::count_blake3_backfill_status().await?;
     if needing_blake3 > 0 {
-        return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "{needing_blake3} media blob(s) still need a blake3 hash - run \
-                 `freqhole blobz backfill-blake3` first, then re-run this command"
-            ),
-        });
+        tracing::info!(
+            "migrate_to_reliquary: {needing_blake3} media blob(s) need a blake3 hash, \
+             backfilling before migrating"
+        );
+        crate::progress::report(format!(
+            "backfilling blake3 for {needing_blake3} blob(s) before migration\u{2026}"
+        ));
+        crate::blobz::backfill_blake3_hashes(needing_blake3, 4).await?;
+
+        let (_total, _with_blake3, still_needing) =
+            media_blobz::count_blake3_backfill_status().await?;
+        if still_needing > 0 {
+            return Err(GrimoireError::ProcessingFailed {
+                message: format!(
+                    "{still_needing} media blob(s) still need a blake3 hash after backfill \
+                     (likely missing source files) - run `freqhole blobz backfill-blake3` \
+                     to see which ones, then re-run this command"
+                ),
+            });
+        }
     }
 
     let rows = fetch_all_source_blobs().await?;

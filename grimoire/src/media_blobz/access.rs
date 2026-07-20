@@ -26,10 +26,11 @@ pub async fn build_blob_path_response(id: &str) -> GrimoireResponse<JsonValue> {
                     }),
                 )
             } else {
-                // blob record exists but has no file path — likely a db-only blob,
-                // a record whose file was never written, or a stale path after
-                // an app data directory move (e.g. flatpak sandbox change).
-                tracing::warn!(
+                // blob record exists but has no file path — expected for db-stored
+                // blobs (e.g. thumbnails, waveforms); callers fall back to
+                // `build_blob_data_response` on this error, so this isn't
+                // something an operator needs to act on.
+                tracing::debug!(
                     blob_id = %blob.id,
                     "blob has no local_path — db record exists but file path is null"
                 );
