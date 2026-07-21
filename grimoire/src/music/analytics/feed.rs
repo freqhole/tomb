@@ -354,7 +354,7 @@ impl RawFeedRow {
         let tags = self
             .tags
             .and_then(|json_str| serde_json::from_str::<Vec<String>>(&json_str).ok())
-            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+            .filter(|v| !v.is_empty());
 
         let collage_images = self
             .collage_images
@@ -363,7 +363,7 @@ impl RawFeedRow {
         let urls = self
             .urls
             .and_then(|json_str| serde_json::from_str::<Vec<EntityUrl>>(&json_str).ok())
-            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+            .filter(|v| !v.is_empty());
 
         FeedItem {
             id: self.id,
