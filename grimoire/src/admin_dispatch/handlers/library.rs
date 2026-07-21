@@ -124,8 +124,7 @@ pub(in crate::admin_dispatch) async fn scan(
 
     let outcome = resp.data.unwrap_or_default();
     if outcome.file_count > 0 {
-        let _ =
-            crate::jobs::record_scanned_directory(&path, outcome.file_count as i64, None).await;
+        let _ = crate::jobs::record_scanned_directory(&path, outcome.file_count as i64, None).await;
     }
     if outcome.jobs_created > 0 {
         // emit an immediate progress event so rathole's header badge
