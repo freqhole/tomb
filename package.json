@@ -10,7 +10,11 @@
         "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\") && npm --prefix client/spume install",
         "release:publish": "node scripts/release-publish.mjs",
         "publish:npm:api-client:local": "cd client-codegen/freqhole-api-client && npm publish --access public",
-        "publish:npm:local": "npm run publish:npm:api-client:local"
+        "publish:npm:local": "npm run publish:npm:api-client:local",
+        "build:libs": "npm --prefix lib/haruspex/ts ci && npm --prefix lib/haruspex/ts run build && npm --prefix lib/reliquary/ts ci && npm --prefix lib/reliquary/ts run build",
+        "deploy:spume": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build && (make -C client/rathole deploy-spume || true)",
+        "deploy:freqhole-net": "npm --prefix client-codegen/freqhole-api-client install && npm --prefix freqhole.net install && npm --prefix freqhole.net run build",
+        "deploy:storybook": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build-storybook"
     },
     "devDependencies": {
         "@changesets/cli": "^2.27.10"
