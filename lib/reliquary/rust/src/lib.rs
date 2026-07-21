@@ -1,4 +1,4 @@
-//! reliquary: media blob storage domain for the freqhole family of apps.
+//! reliquary: media blob storage domain for the freqhole world of apps.
 //!
 //! content-addressed blob stores (sqlite-native and indexeddb/opfs-browser), iroh-blobs
 //! wrappers, the snatch replication engine, blob acl gating, media helpers. see the repo

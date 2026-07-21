@@ -2,7 +2,7 @@
 
 ## project overview
 
-reliquary is the media blob storage library for the freqhole family of apps (tomb, skein,
+reliquary is the media blob storage library for the freqhole world of apps (tomb, skein,
 playlistz): content-addressed blob stores (sqlite-native and indexeddb/opfs-browser),
 iroh-blobs wrappers (fs store lifecycle, gc protection, verified transfer), the snatch engine
 (proactive blob replication), blob acl gating, media helpers (image resize, thumbnails),

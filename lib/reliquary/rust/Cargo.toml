@@ -2,7 +2,7 @@
 name = "reliquary"
 version.workspace = true
 edition.workspace = true
-description = "media blob storage domain for the freqhole family: content-addressed blob stores, iroh-blobs wrappers, snatch replication, blob acl gating, media helpers"
+description = "freqhole media blob storage domain: content-addressed blob stores, iroh-blobs wrappers, snatch replication, blob acl gating, media helpers"
 repository = "https://github.com/freqhole/reliquary"
 
 [lib]

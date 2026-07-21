@@ -1,6 +1,6 @@
 # reliquary (rust crate)
 
-media blob storage domain logic for the freqhole family: content-addressed blob stores,
+freqhole media blob storage domain: content-addressed blob stores,
 iroh-blobs wrappers, the snatch replication engine, blob acl gating, media helpers. see the
 repo root README and the xl-refactor phase 2 doc for the design.
 

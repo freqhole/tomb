@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": false,
     "type": "module",
-    "description": "media blob storage domain for the freqhole family: content-addressed blobs, transfer, worker, solid helpers",
+    "description": "freqhole media blob storage domain: content-addressed blobs, transfer, worker, solid helpers",
     "license": "UNLICENSED",
     "exports": {
         ".": {
