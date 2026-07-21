@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "zod": "^4.3.5",
-    "@freqhole/haruspex": "file:../../../haruspex/ts"
+    "@freqhole/haruspex": "file:../../lib/haruspex/ts"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.10.1",

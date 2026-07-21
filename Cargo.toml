@@ -6,14 +6,17 @@ members = [
     "client-codegen",
     "client/charnel/src-tauri",
     "client/rathole",
+    "lib/haruspex/rust",
+    "lib/reliquary/rust",
 ]
 exclude = [
-    "client/midden", # WASM package, built separately with wasm-pack
+    "lib/midden", # WASM package, built separately with wasm-pack
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.36"
+edition = "2021"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -91,6 +94,7 @@ image = "0.24"
 iroh = "1.0.2"
 iroh-blobs = "0.103"
 blake3 = "1.5"
+getrandom = "0.2"
 
 # release profile optimizations for smaller binaries
 [profile.release]

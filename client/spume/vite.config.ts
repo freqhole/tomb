@@ -152,12 +152,12 @@ export default defineConfig({
     allowedHosts: ["a75fda8121f7.ngrok.app"],
     fs: {
       // @freqhole/haruspex/reliquary/midden are file: deps pointing at
-      // sibling repos (../../../<repo> from spume/), so vite's default
-      // dev-server file allowlist (project root + node_modules only)
-      // blocks serving their real, non-symlink-resolved source/dist
+      // in-tree lib/ packages (../../lib/<name> from spume/), so vite's
+      // default dev-server file allowlist (project root + node_modules
+      // only) blocks serving their real, non-symlink-resolved source/dist
       // files - matching skein/loam's vite.config.ts, which needed the
       // same allowance for the same reason.
-      allow: [".", "../../../haruspex", "../../../reliquary", "../../../midden"],
+      allow: [".", "../../lib/haruspex", "../../lib/reliquary", "../../lib/midden"],
     },
   },
   plugins: [

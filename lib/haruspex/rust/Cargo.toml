@@ -15,7 +15,7 @@ tokio = { workspace = true }
 # grounded in skein's real hub_repo.rs::cancel_peer, which uses the same
 # crate (read-only research, not a shared dependency).
 tokio-util = "0.7"
-sqlx = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

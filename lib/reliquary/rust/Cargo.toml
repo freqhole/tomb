@@ -32,7 +32,7 @@ required-features = ["test-utils"]
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
-sqlx = { workspace = true }
+sqlx = { workspace = true, features = ["sqlite"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

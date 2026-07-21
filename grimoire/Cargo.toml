@@ -53,8 +53,8 @@ iroh-blobs = { workspace = true }
 blake3 = { workspace = true }
 bytes = "1.10"
 getrandom = "0.2"
-haruspex = { path = "../../haruspex/rust" }
-reliquary = { path = "../../reliquary/rust", default-features = false, features = [
+haruspex = { path = "../lib/haruspex/rust" }
+reliquary = { path = "../lib/reliquary/rust", default-features = false, features = [
     "blobz",
     "node",
     "chunked_import",

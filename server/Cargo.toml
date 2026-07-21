@@ -40,7 +40,7 @@ sha2.workspace = true
 [dev-dependencies]
 reqwest = { workspace = true }
 tempfile = { workspace = true }
-reliquary = { path = "../../reliquary/rust", default-features = false, features = [
+reliquary = { path = "../lib/reliquary/rust", default-features = false, features = [
     "blobz",
 ] }
 sqlx = { workspace = true, features = ["sqlite"] }
