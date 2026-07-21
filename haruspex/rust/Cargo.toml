@@ -1,0 +1,99 @@
+[package]
+name = "haruspex"
+version.workspace = true
+edition.workspace = true
+description = "freqhole auth domain: identity, devices, roles/groups, acl, webauthn, knock + friendz protocols"
+repository = "https://github.com/freqhole/haruspex"
+
+[lib]
+name = "haruspex"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+# on_access_changed's cancellation-token registry (see acl::access_changed);
+# grounded in skein's real hub_repo.rs::cancel_peer, which uses the same
+# crate (read-only research, not a shared dependency).
+tokio-util = "0.7"
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+# every store trait is `#[async_trait] pub trait X: Send + Sync`, matching
+# the style used across the freqhole crates.
+async-trait = "0.1"
+# device attestation verification: an iroh node id IS an ed25519 public key
+# (hex-encoded), so verifying a signature chain link needs nothing beyond
+# the node id strings themselves.
+ed25519-dalek = "2"
+hex = "0.4"
+# invite-code + api-key generation (see stores::invite_store and
+# identity::api_key).
+rand = "0.8"
+# the webauthn ceremony module (feature-gated, see below).
+webauthn-rs = { version = "0.5.1", features = [
+    "danger-allow-state-serialisation",
+    "conditional-ui",
+], optional = true }
+# the iroh feature's `FriendzProtocolHandler` (see `protocol::iroh_transport`)
+# - the ONLY place iroh types appear in this crate, per the transport-
+# agnostic design tenet. version matches skein/reliquary's pin exactly
+# (read-only research, not a shared dependency).
+iroh = { version = "1.0.2", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# webauthn_two_transports.rs's minimal software authenticator: real p-256
+# keygen, sha-256 hashing, and ecdsa signing - the same crate webauthn-rs
+# itself already links transitively, so this adds no new native dependency.
+openssl = "0.10"
+
+[features]
+default = []
+# the webauthn ceremony handlers (register/login start+finish) + ChallengeStore.
+# wraps webauthn-rs; off by default since not every consumer needs passkeys
+# (e.g. a pure p2p node with no browser-facing rp).
+webauthn = ["dep:webauthn-rs"]
+# the iroh ProtocolHandler shell for the friendz protocol
+# (`protocol::iroh_transport`). off by default: the message types, codec,
+# `FriendzService`, and `dispatch` are all transport-agnostic and usable
+# without iroh at all (e.g. over an in-memory duplex pair in tests, or a
+# future http/websocket binding).
+iroh = ["dep:iroh"]
+# in-process fixtures + fake stores for consumer test suites, exported under
+# haruspex::testing (open_in_memory, per-store constructors, knock_pair,
+# evaluator_fixture, fake_challenge_store).
+test-utils = []
+
+[[example]]
+name = "knock-exchange"
+required-features = ["test-utils"]
+
+[[example]]
+name = "identity-lifecycle"
+required-features = ["test-utils"]
+
+[[example]]
+name = "acl-roles"
+required-features = ["test-utils"]
+
+[[example]]
+name = "two-peer-knock-iroh"
+required-features = ["iroh", "test-utils"]
+
+[[example]]
+name = "role-backfill"
+required-features = ["test-utils"]
+
+[[test]]
+name = "friendz_send_message_addr"
+required-features = ["iroh"]
+
+[[test]]
+name = "webauthn_two_transports"
+required-features = ["webauthn", "test-utils"]

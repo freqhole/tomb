@@ -1,0 +1,6 @@
+{
+    "v": 1,
+    "type": "heartbeat",
+    "nodeId": "node-abc123",
+    "username": "alice"
+}

@@ -1,0 +1,9 @@
+{
+    "v": 1,
+    "type": "hello",
+    "nodeId": "node-abc123",
+    "username": "alice",
+    "capabilities": {
+        "browse": "knock"
+    }
+}
