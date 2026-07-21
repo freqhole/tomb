@@ -1,0 +1,83 @@
+{
+    "name": "@freqhole/reliquary",
+    "version": "0.1.0",
+    "private": false,
+    "type": "module",
+    "description": "freqhole media blob storage domain: content-addressed blobs, transfer, worker, solid helpers",
+    "license": "UNLICENSED",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./blobs": {
+            "types": "./dist/blobs/index.d.ts",
+            "import": "./dist/blobs/index.js"
+        },
+        "./transfer": {
+            "types": "./dist/transfer/index.d.ts",
+            "import": "./dist/transfer/index.js"
+        },
+        "./automerge": {
+            "types": "./dist/automerge/index.d.ts",
+            "import": "./dist/automerge/index.js"
+        },
+        "./ensure": {
+            "types": "./dist/ensure/index.d.ts",
+            "import": "./dist/ensure/index.js"
+        },
+        "./worker": {
+            "types": "./dist/worker/index.d.ts",
+            "import": "./dist/worker/index.js"
+        },
+        "./utils": {
+            "types": "./dist/utils/index.d.ts",
+            "import": "./dist/utils/index.js"
+        },
+        "./solid": {
+            "types": "./dist/solid/index.d.ts",
+            "import": "./dist/solid/index.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "import": "./dist/testing/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "comlink": "^4.4.2"
+    },
+    "peerDependencies": {
+        "@automerge/automerge-repo": "^2.5.6",
+        "fake-indexeddb": "^6.0.0",
+        "solid-js": "^1.9.0",
+        "vitest": "^2.1.0"
+    },
+    "peerDependenciesMeta": {
+        "@automerge/automerge-repo": {
+            "optional": true
+        },
+        "fake-indexeddb": {
+            "optional": true
+        },
+        "solid-js": {
+            "optional": true
+        },
+        "vitest": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@automerge/automerge": "^3.2.6",
+        "@automerge/automerge-repo": "^2.5.6",
+        "fake-indexeddb": "^6.0.0",
+        "happy-dom": "^20.10.6",
+        "solid-js": "^1.9.0",
+        "typescript": "^5.6.0",
+        "vitest": "^2.1.0"
+    }
+}

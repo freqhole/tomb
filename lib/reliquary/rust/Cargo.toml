@@ -1,0 +1,96 @@
+[package]
+name = "reliquary"
+version.workspace = true
+edition.workspace = true
+description = "freqhole media blob storage domain: content-addressed blob stores, iroh-blobs wrappers, snatch replication, blob acl gating, media helpers"
+repository = "https://github.com/freqhole/reliquary"
+
+[lib]
+name = "reliquary"
+path = "src/lib.rs"
+
+# every example needs the testing module's tempdir-backed fixtures, so all
+# of them are gated on "test-utils" - `cargo build/clippy --all-targets`
+# without that feature simply skips them rather than erroring out.
+[[example]]
+name = "blob-round-trip"
+required-features = ["test-utils"]
+
+[[example]]
+name = "two-peer-blob-transfer"
+required-features = ["test-utils"]
+
+[[example]]
+name = "blob-acl-gate"
+required-features = ["test-utils"]
+
+[[example]]
+name = "snatch-engine"
+required-features = ["test-utils"]
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+futures = "0.3"
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+blake3 = { workspace = true }
+iroh = { workspace = true }
+iroh-blobs = { workspace = true }
+async-trait = { workspace = true }
+getrandom = { workspace = true }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "webp",
+], optional = true }
+webp = { version = "0.3", default-features = false, features = [
+    "img",
+], optional = true }
+tempfile = { version = "3", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+testresult = "0.4"
+serial_test = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = [
+    "blobz",
+    "chunked_import",
+    "identity",
+    "node",
+    "snatch",
+    "ensure",
+    "gate",
+    "media",
+]
+# sqlite-backed content-addressed blob store (SqliteBlobStore, the BlobStore trait).
+blobz = []
+# chunked upload bookkeeping (ChunkedImport) built on top of BlobStore::adopt_local_file.
+chunked_import = ["blobz"]
+# iroh keypair management.
+identity = []
+# StorageNode: iroh-blobs FsStore + gc-protect + downloader bundle.
+node = ["blobz"]
+# SnatchEngine: generic blob-replication engine over BlobRefSource/PeerProbeTransport.
+snatch = ["node"]
+# ensure/blob_proxy protocol handler (peer asks the node to stage a blob for transfer).
+ensure = ["blobz", "gate"]
+# access gate seam for the iroh-blobs verified-transfer ALPN.
+gate = []
+# image resize/webp helpers (avatar thumbnails etc.). default feature is resize-only.
+media = ["dep:image", "dep:webp"]
+# subprocess-based pdf/video thumbnailing (needs ffmpeg/imagemagick on PATH).
+thumbnails = ["media"]
+# in-process fixtures + fake stores for consumer test suites, exported under
+# reliquary::testing.
+test-utils = ["node", "dep:tempfile"]
