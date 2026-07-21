@@ -13,7 +13,7 @@
         "publish:npm:local": "npm run publish:npm:api-client:local",
         "build:libs": "npm --prefix lib/haruspex/ts ci && npm --prefix lib/haruspex/ts run build && npm --prefix lib/reliquary/ts ci && npm --prefix lib/reliquary/ts run build",
         "deploy:spume": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build && (make -C client/rathole deploy-spume || true)",
-        "deploy:freqhole-net": "npm --prefix client-codegen/freqhole-api-client install && npm --prefix freqhole.net install && npm --prefix freqhole.net run build",
+        "deploy:freqhole-net": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix freqhole.net install && npm --prefix freqhole.net run build",
         "deploy:storybook": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build-storybook"
     },
     "devDependencies": {
