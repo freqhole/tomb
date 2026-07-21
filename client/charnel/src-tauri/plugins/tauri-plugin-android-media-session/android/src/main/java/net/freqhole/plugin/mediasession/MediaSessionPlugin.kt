@@ -5,11 +5,14 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -91,11 +94,44 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var endWatchdog: Runnable? = null
 
+    // unlike iOS, android does not pause playback on its own when the
+    // active audio route disappears (bluetooth headset disconnect, wired
+    // headphones unplugged) - without this, audio keeps playing and
+    // switches to the phone speaker. AudioManager.ACTION_AUDIO_BECOMING_NOISY
+    // is the standard signal for exactly this case; routing it through the
+    // existing "pause" action reuses the same path lock-screen/notification
+    // pause already goes through.
+    private var noisyReceiver: BroadcastReceiver? = null
+
     override fun load(webView: WebView) {
         super.load(webView)
         createNotificationChannel()
         requestNotificationPermission()
         initSession()
+        registerNoisyReceiver()
+    }
+
+    private fun registerNoisyReceiver() {
+        noisyReceiver?.let {
+            try {
+                activity.unregisterReceiver(it)
+            } catch (t: Throwable) {
+                Log.w(TAG, "failed to unregister previous noisy receiver", t)
+            }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                    emitAction("pause")
+                }
+            }
+        }
+        try {
+            activity.registerReceiver(receiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            noisyReceiver = receiver
+        } catch (t: Throwable) {
+            Log.w(TAG, "failed to register noisy receiver", t)
+        }
     }
 
     private fun requestNotificationPermission() {
