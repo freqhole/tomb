@@ -86,17 +86,10 @@ jobs:
         with:
           node-version: 24
 
-      # spume's @freqhole/midden dep is a file: link
-      # (client/spume -> ../../../midden/pkg) to the sibling freqhole/midden
-      # repo's committed pkg/ output, so it typechecks without a wasm rebuild
-      # here - but that means this repo's own checkout isn't enough; the
-      # sibling repo must be checked out alongside it on the runner too.
-      # note: this step only works once freqhole/midden exists on github.
-      - name: checkout freqhole/midden (sibling dep for spume's file: link)
-        uses: actions/checkout@v4
-        with:
-          repository: freqhole/midden
-          path: ../midden
+      # spume links @freqhole/haruspex, @freqhole/reliquary and
+      # @freqhole/midden by `file:` into lib/haruspex/ts, lib/reliquary/ts and
+      # lib/midden/pkg respectively - all part of this checkout now, so no
+      # sibling repo checkout is needed.
 
       # spume also links freqhole-api-client by `file:` (a symlink to its raw
       # TS source), so its own deps (zod, @tauri-apps/api) must be installed
@@ -121,6 +114,101 @@ jobs:
       - name: circular dependency check
         working-directory: client/spume
         run: npm run lint:circular
+
+  haruspex-ts-check:
+    name: haruspex (typecheck + vitest)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: install deps
+        working-directory: lib/haruspex/ts
+        run: npm ci
+
+      - name: typecheck
+        working-directory: lib/haruspex/ts
+        run: npm run typecheck
+
+      - name: unit tests
+        working-directory: lib/haruspex/ts
+        run: npm test
+
+  reliquary-ts-check:
+    name: reliquary (typecheck + vitest)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: install deps
+        working-directory: lib/reliquary/ts
+        run: npm ci
+
+      - name: typecheck
+        working-directory: lib/reliquary/ts
+        run: npm run typecheck
+
+      - name: unit tests
+        working-directory: lib/reliquary/ts
+        run: npm test
+
+  midden-check:
+    name: midden (rust fmt + clippy + native test + wasm build)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lib/midden
+
+      - name: cargo fmt --check
+        working-directory: lib/midden
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        working-directory: lib/midden
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (native)
+        # the browser-facing bits are behind wasm-bindgen, but the opfs_store
+        # module's storage/actor logic is storage-generic and carries native
+        # (non-wasm) tests via a NativeDir test impl.
+        working-directory: lib/midden
+        run: cargo test
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
+      - name: cargo check (wasm32 target)
+        working-directory: lib/midden
+        run: make check-wasm
+
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: wasm-pack build
+        working-directory: lib/midden
+        run: make build
 
   # eslint is split into its own status check: there's a backlog to clean up,
   # so keep it visible + independent of the core web gate above.

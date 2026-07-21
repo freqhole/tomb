@@ -5,6 +5,13 @@
     "type": "module",
     "description": "freqhole media blob storage domain: content-addressed blobs, transfer, worker, solid helpers",
     "license": "UNLICENSED",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/freqhole/tomb"
+    },
+    "files": [
+        "dist"
+    ],
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",

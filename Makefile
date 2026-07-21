@@ -479,7 +479,9 @@ bump-version:
 		echo "  updating Cargo.toml..."; \
 		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' Cargo.toml && rm -f Cargo.toml.bak; \
 		echo "  updating Cargo.lock (workspace member versions)..."; \
-		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
+		awk -v ver="$(NEW_VERSION)" '/^name = "(grimoire|cli|server|charnel|rathole|client-codegen|haruspex|reliquary)"$$/ { print; getline; sub(/version = "[^"]*"/, "version = \"" ver "\""); print; next } { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock; \
+		echo "  updating lib/midden/Cargo.toml (excluded from the workspace, own version field)..."; \
+		sed -i.bak 's/^version = "[^"]*"/version = "$(NEW_VERSION)"/' lib/midden/Cargo.toml && rm -f lib/midden/Cargo.toml.bak; \
 		echo "  updating tauri.conf.json..."; \
 		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
@@ -487,6 +489,8 @@ bump-version:
 		(cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		(cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		(cd client-codegen/freqhole-api-client && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
+		(cd lib/haruspex/ts && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
+		(cd lib/reliquary/ts && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		echo "  updating version.ts files..."; \
 		sed -i.bak 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' client/spume/src/version.ts && rm -f client/spume/src/version.ts.bak; \
 		sed -i.bak 's/VERSION = "[^"]*"/VERSION = "$(NEW_VERSION)"/' $(TAURI_DIR)/src/version.ts && rm -f $(TAURI_DIR)/src/version.ts.bak; \
