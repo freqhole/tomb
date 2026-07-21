@@ -2,7 +2,7 @@
 
 ## project overview
 
-midden is the unified wasm iroh node package for the freqhole family of apps (tomb, skein,
+midden is the unified wasm iroh node package for the freqhole world of apps (tomb, skein,
 playlistz): a `MiddenNode` class that lets browsers connect to freqhole/skein peers over iroh
 p2p (proxy requests, verified blob streaming, radio, admin dispatch, opfs-backed persistent
 blob storage). rust crate (wasm-bindgen, built with wasm-pack) + npm package
