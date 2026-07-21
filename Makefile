@@ -485,7 +485,7 @@ bump-version:
 		echo "  updating tauri.conf.json..."; \
 		sed -i.bak 's/"version": "[^"]*"/"version": "$(NEW_VERSION)"/' $(TAURI_DIR)/src-tauri/tauri.conf.json && rm -f $(TAURI_DIR)/src-tauri/tauri.conf.json.bak; \
 		echo "  updating package.json files..."; \
-		sed -i.bak 's/^  "version": "[^"]*"/  "version": "$(NEW_VERSION)"/' package.json && rm -f package.json.bak; \
+		node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync('package.json','utf8')); j.version='$(NEW_VERSION)'; fs.writeFileSync('package.json', JSON.stringify(j,null,4)+'\n');"; \
 		(cd $(TAURI_DIR) && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		(cd client/spume && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
 		(cd client-codegen/freqhole-api-client && npm version $(NEW_VERSION) --no-git-tag-version --allow-same-version >/dev/null); \
