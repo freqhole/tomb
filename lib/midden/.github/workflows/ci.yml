@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, native test)
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (native)
+        # the crate's browser-facing bits are behind wasm-bindgen, but the
+        # opfs_store module's storage/actor logic is storage-generic and has
+        # native (non-wasm) tests via a NativeDir test impl - see
+        # src/opfs_store/tests.rs once phase 1's port lands.
+        run: cargo test
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
+      - name: cargo check (wasm32 target)
+        run: make check-wasm
+
+  wasm-build:
+    name: wasm-pack build
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
+      - name: build
+        run: make build
