@@ -9,7 +9,7 @@
 //   npm run build:coach:html  -> dist-coach-demo-html/index.html
 //                                (single self-contained preview page, local only)
 
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
@@ -20,16 +20,39 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 // so `astro build` copies it into dist/ as-is.
 const WC_OUT_DIR = resolve(__dirname, "../../freqhole.net/public/demo");
 
+// demo builds are always browser-only (no wasm), so the bare "midden"
+// specifier that reliquary's blob worker dynamically imports resolves to
+// the same stub used for the `@freqhole/midden` alias below. a plain
+// `resolve.alias` entry does not reach this import: it's inside a worker's
+// own module graph, which vite builds through a separate plugin pipeline
+// from the main app, so the alias has to be re-declared as an actual
+// plugin (see spume's main vite.config.ts for the same pattern).
+const middenStub = resolve(__dirname, "src/stubs/midden-stub.ts");
+
+function middenBareSpecifierPlugin(): Plugin {
+  return {
+    name: "midden-bare-specifier",
+    resolveId(source) {
+      if (source === "midden") return this.resolve(middenStub, undefined, { skipSelf: true });
+      return null;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const isHtml = mode === "html";
   return {
-    plugins: [solid()],
+    plugins: [solid(), middenBareSpecifierPlugin()],
     resolve: {
       alias: {
         // midden is a wasm/native module — replace with the browser-only stub
         // for any demo build.
-        "@freqhole/midden": resolve(__dirname, "src/stubs/midden-stub.ts"),
+        "@freqhole/midden": middenStub,
       },
+    },
+    worker: {
+      format: "es",
+      plugins: () => [middenBareSpecifierPlugin()],
     },
     define: {
       "import.meta.env.STORYBOOK": "false",
