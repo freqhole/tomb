@@ -243,12 +243,20 @@ pub async fn import_song_with_metadata(
                             );
                         }
                     };
+                    // resolve the pre-existing song's real artist/album so callers get
+                    // actionable ids (e.g. a "view album" link) instead of a bare song.
+                    let existing_artist = get_current_artist_for_song(&existing_song.id)
+                        .await
+                        .unwrap_or(None);
+                    let existing_album = get_current_album_for_song(&existing_song.id)
+                        .await
+                        .unwrap_or(None);
                     return GrimoireResponse::success(
                         "song already existed",
                         ImportSongResult {
                             song: existing_song,
-                            artist: None,
-                            album: None,
+                            artist: existing_artist,
+                            album: existing_album,
                             genres: Vec::new(),
                             created_new_artist: false,
                             created_new_album: false,
@@ -476,6 +484,7 @@ pub async fn import_song_with_metadata(
     };
 
     // 4. Create the song
+    let media_blob_id_for_lookup = req.media_blob_id.clone();
     let song_req = CreateSongRequest {
         media_blob_id: req.media_blob_id,
         title: req.title,
@@ -491,6 +500,39 @@ pub async fn import_song_with_metadata(
 
     let song_response = songs::create_song(song_req).await;
     if !song_response.success {
+        // the blob-level uniqueness check inside create_song can catch a
+        // duplicate that the metadata-based heuristic above missed (e.g. the
+        // exact same file re-imported under slightly different tags). resolve
+        // the pre-existing song so callers still get actionable ids instead
+        // of a bare error.
+        let is_duplicate = song_response
+            .errors
+            .iter()
+            .any(|e| e.error_type == "duplicate_song");
+        if is_duplicate {
+            if let Some(existing_song) = find_song_by_media_blob_id(&media_blob_id_for_lookup).await
+            {
+                let existing_artist = get_current_artist_for_song(&existing_song.id)
+                    .await
+                    .unwrap_or(None);
+                let existing_album = get_current_album_for_song(&existing_song.id)
+                    .await
+                    .unwrap_or(None);
+                return GrimoireResponse::success(
+                    "song already existed",
+                    ImportSongResult {
+                        song: existing_song,
+                        artist: existing_artist,
+                        album: existing_album,
+                        genres: Vec::new(),
+                        created_new_artist: false,
+                        created_new_album: false,
+                        created_new_genre: false,
+                        existing: true,
+                    },
+                );
+            }
+        }
         return GrimoireResponse::failure("Failed to create song", song_response.errors);
     }
     let song = match song_response.data {
@@ -620,6 +662,29 @@ pub async fn find_or_create_artist(req: ArtistImportRequest) -> GrimoireResponse
 }
 
 // find existing album by title or create new one
+
+/// look up the song already linked to a media blob (used to resolve a
+/// duplicate caught by the blob-uniqueness constraint on songz.media_blob_id
+/// into an actionable existing record). returns None on any lookup failure.
+async fn find_song_by_media_blob_id(media_blob_id: &str) -> Option<songs::Song> {
+    let pool = database::connect().await.ok()?;
+    let existing_id = sqlx::query_scalar!(
+        "SELECT id as \"id!\" FROM songz WHERE media_blob_id = ? AND deleted_at IS NULL LIMIT 1",
+        media_blob_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()??;
+
+    match songs::get_song(&existing_id).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(song),
+            ..
+        } => Some(song),
+        _ => None,
+    }
+}
 
 /// get current artist for a song (returns first artist if multiple exist)
 pub async fn get_current_artist_for_song(song_id: &str) -> GrimoireResult<Option<Artist>> {

@@ -823,7 +823,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
             title="song images"
             images={songImages()}
             onUpload={(file) => handleImageUpload({ file })}
-            onUploadPath={handleImageSelectPath}
+            onUploadPath={pickRemote() ? handleImageSelectPath : undefined}
             onDelete={handleRemoveImage}
             onSetPrimary={handleTogglePrimary}
             uploading={!!processingJob()}

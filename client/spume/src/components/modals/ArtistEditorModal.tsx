@@ -65,6 +65,10 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
     message: string;
   } | null>(null);
 
+  // active remote for this editor - null means the true local (no-remote)
+  // data source, which only supports uploading image bytes, not a file path
+  const currentRemote = () => props.remote ?? getCurrentRemote();
+
   // initialize form data, images, and entity URLs when artist loads or when artistId changes
   // guarded by loadedArtistId to prevent refetchOnWindowFocus from wiping unsaved edits
   createEffect(() => {
@@ -232,7 +236,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       });
 
       // poll for job completion
-      const remote = props.remote ?? getCurrentRemote();
+      const remote = currentRemote();
       if (remote) {
         setProcessingJob({ status: "processing", message: "processing image..." });
         const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
@@ -464,7 +468,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
               <EntityImages
                 images={images()}
                 onUpload={(file) => handleImageUpload({ file })}
-                onUploadPath={handleImageSelectPath}
+                onUploadPath={currentRemote() ? handleImageSelectPath : undefined}
                 onDelete={handleRemoveImage}
                 onSetPrimary={handleTogglePrimary}
                 uploading={!!processingJob()}

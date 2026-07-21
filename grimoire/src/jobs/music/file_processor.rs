@@ -105,6 +105,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     metadata_extracted: update.song_updated,
                     thumbnail_generated: false,
                     waveform_generated: false,
+                    is_duplicate: false,
                 };
                 info!(
                     "file rescan-update complete: blob={} sha256_changed={} song_updated={} (total={:?})",
@@ -181,41 +182,50 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 artist_id = import_result.artist_id;
                 album_id = import_result.album_id.clone();
                 metadata_extracted = import_result.metadata_extracted;
+                is_duplicate = import_result.is_duplicate;
                 time_metadata = step_start.elapsed();
                 debug!("metadata extracted successfully");
 
-                // register this blob in the import review queue if the job has a session
-                if let Some(ref session_id) = job.session_id {
-                    if let Ok(pool) = crate::database::connect().await {
-                        let _ = sqlx::query!(
-                            "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
-                            media_blob_id,
-                            session_id
-                        )
-                        .execute(&pool)
-                        .await;
+                if is_duplicate {
+                    // the content already exists as a previously-imported song - its
+                    // thumbnail/waveform assets are already in place and it has
+                    // nothing new to review.
+                    info!("duplicate detected (existing song reused), skipping image and waveform generation");
+                } else {
+                    // register this blob in the import review queue if the job has a session
+                    if let Some(ref session_id) = job.session_id {
+                        if let Ok(pool) = crate::database::connect().await {
+                            let _ = sqlx::query!(
+                                "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
+                                media_blob_id,
+                                session_id
+                            )
+                            .execute(&pool)
+                            .await;
+                        }
                     }
-                }
 
-                // if this file came from a fetch job, add the source URL to the album
-                if let (Some(source_url), Some(aid)) = (&params.source_url, &import_result.album_id)
-                {
-                    match create_or_update::add_entity_url(
-                        "album",
-                        aid,
-                        Some("source".to_string()),
-                        source_url,
-                    )
-                    .await
+                    // if this file came from a fetch job, add the source URL to the album
+                    if let (Some(source_url), Some(aid)) =
+                        (&params.source_url, &import_result.album_id)
                     {
-                        Ok(Some(url_id)) => {
-                            debug!("added source URL to album {}: {}", aid, url_id);
-                        }
-                        Ok(None) => {
-                            debug!("source URL already exists for album {}", aid);
-                        }
-                        Err(e) => {
-                            warn!("failed to add source URL to album {}: {}", aid, e);
+                        match create_or_update::add_entity_url(
+                            "album",
+                            aid,
+                            Some("source".to_string()),
+                            source_url,
+                        )
+                        .await
+                        {
+                            Ok(Some(url_id)) => {
+                                debug!("added source URL to album {}: {}", aid, url_id);
+                            }
+                            Ok(None) => {
+                                debug!("source URL already exists for album {}", aid);
+                            }
+                            Err(e) => {
+                                warn!("failed to add source URL to album {}: {}", aid, e);
+                            }
                         }
                     }
                 }
@@ -227,8 +237,11 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     response.message
                 };
 
-                // check if this is a duplicate (skip expensive image/waveform processing)
-                // check both error_type and detail message
+                // fallback: a duplicate should normally be resolved as a success
+                // above (existing song looked up and reused); this only catches a
+                // duplicate that couldn't be resolved that way (e.g. the
+                // pre-existing song's own lookup failed), so processing still
+                // degrades gracefully instead of hard-failing.
                 let is_dup = response.errors.iter().any(|e| {
                     e.error_type == "duplicate_song"
                         || e.detail.to_lowercase().contains("duplicate")
@@ -256,6 +269,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             metadata_extracted: false,
             thumbnail_generated: false,
             waveform_generated: false,
+            is_duplicate: true,
         };
 
         let job_total = job_start.elapsed();
@@ -541,6 +555,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         metadata_extracted,
         thumbnail_generated: images_collected,
         waveform_generated,
+        is_duplicate: false,
     };
 
     // timing summary

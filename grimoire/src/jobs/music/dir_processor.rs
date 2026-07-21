@@ -11,6 +11,7 @@
 use super::file_processor::process_file_job;
 use super::models::{
     DirectoryFileFailure, ProcessDirectoryParams, ProcessDirectoryResult, ProcessFileParams,
+    ProcessFileResult,
 };
 use crate::jobs::models::{Job, JobError};
 use serde_json::Value;
@@ -48,8 +49,12 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
     );
 
     let mut succeeded: u64 = 0;
+    let mut duplicate: u64 = 0;
     let mut failed: u64 = 0;
     let mut failures: Vec<DirectoryFileFailure> = Vec::new();
+    let mut album_id: Option<String> = None;
+    let mut artist_id: Option<String> = None;
+    let mut song_id: Option<String> = None;
 
     for (idx, entry) in params.files.iter().enumerate() {
         let file_params = ProcessFileParams {
@@ -93,8 +98,27 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
         };
 
         match process_file_job(&synth_job).await {
-            Ok(_) => {
-                succeeded += 1;
+            Ok(value) => {
+                let file_result: Option<ProcessFileResult> = value
+                    .as_ref()
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+                if let Some(result) = &file_result {
+                    if album_id.is_none() {
+                        album_id = result.album_id.clone();
+                        artist_id = result.artist_id.clone();
+                        song_id = result.song_id.clone();
+                    }
+                    if result.is_duplicate {
+                        duplicate += 1;
+                    } else {
+                        succeeded += 1;
+                    }
+                } else {
+                    // no parseable result - still a success, just can't
+                    // distinguish new vs duplicate for this file.
+                    succeeded += 1;
+                }
             }
             Err(e) => {
                 let reason = match &e {
@@ -116,10 +140,11 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
 
     let elapsed = dir_start.elapsed();
     info!(
-        "directory processing complete: {} | files={} succeeded={} failed={} | elapsed={:.1}s",
+        "directory processing complete: {} | files={} succeeded={} duplicate={} failed={} | elapsed={:.1}s",
         params.directory_path,
         total,
         succeeded,
+        duplicate,
         failed,
         elapsed.as_secs_f64(),
     );
@@ -128,8 +153,12 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
         directory_path: params.directory_path,
         files_total: total,
         files_succeeded: succeeded,
+        files_duplicate: duplicate,
         files_failed: failed,
         failures,
+        album_id,
+        artist_id,
+        song_id,
     };
 
     Ok(Some(serde_json::to_value(result).map_err(|e| {

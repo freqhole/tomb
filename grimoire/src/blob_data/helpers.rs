@@ -486,7 +486,7 @@ pub async fn create_image_blob_from_webp_data(
         data: Some(webp_data.into()), // Store as binary data
         width: None,
         height: None,
-        blake3: None, // not needed for images stored in blobdata db
+        blake3: None, // create_media_blob computes this from the bytes above
     };
 
     match media_blobz::create_media_blob(request).await {

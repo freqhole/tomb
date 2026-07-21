@@ -60,6 +60,8 @@ pub struct ProcessFileResult {
     pub metadata_extracted: bool,
     pub thumbnail_generated: bool,
     pub waveform_generated: bool,
+    /// true when this file's content matched an already-existing song
+    pub is_duplicate: bool,
 }
 
 /// one entry in a `ProcessDirectoryParams.files` list. carries the
@@ -105,8 +107,22 @@ pub struct ProcessDirectoryResult {
     pub directory_path: String,
     pub files_total: u64,
     pub files_succeeded: u64,
+    /// files whose content matched an already-existing song, so nothing
+    /// new was created for them - counted separately from `files_succeeded`
+    /// so callers can tell "imported" apart from "already had it".
+    pub files_duplicate: u64,
     pub files_failed: u64,
     pub failures: Vec<DirectoryFileFailure>,
+    /// entity ids from the first successfully processed file in this
+    /// directory (new or duplicate). a directory job can span multiple
+    /// albums/artists, so this is a best-effort pointer for "view album"
+    /// style navigation, not a claim that every file landed here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song_id: Option<String>,
 }
 
 // ============================================================================

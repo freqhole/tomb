@@ -297,7 +297,7 @@ pub async fn generate_sized_thumbnails(
             data: Some(webp_data.into()),
             width: Some(size as i64),
             height: Some(size as i64),
-            blake3: None, // not needed for thumbnails
+            blake3: None, // create_media_blob computes this from the bytes above
         };
 
         match media_blobz::create_media_blob(request).await {

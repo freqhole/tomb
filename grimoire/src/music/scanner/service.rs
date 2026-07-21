@@ -7,7 +7,7 @@ use crate::error::ErrorDetail;
 use crate::GrimoireResponse;
 use std::path::Path;
 
-pub use super::directory::{is_audio_file, scan_directory_and_create_jobs};
+pub use super::directory::{is_audio_file, scan_directory_and_create_jobs, DirectoryScanOutcome};
 pub use super::import::{extract_and_import, ImportResult};
 
 /// Scan a directory for audio files and create import jobs
@@ -28,7 +28,9 @@ pub use super::import::{extract_and_import, ImportResult};
 ///
 /// # Returns
 ///
-/// Number of audio files discovered and jobs created
+/// A breakdown of files discovered vs. queued/skipped and jobs created - see
+/// `DirectoryScanOutcome`. a directory can discover files and still create
+/// zero jobs if every file is already imported and unchanged.
 pub async fn scan_directory(
     path: &str,
     session_id: &str,
@@ -36,7 +38,7 @@ pub async fn scan_directory(
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
     skip_tracked_subdirs: bool,
-) -> GrimoireResponse<usize> {
+) -> GrimoireResponse<DirectoryScanOutcome> {
     match scan_directory_and_create_jobs(
         path,
         session_id,
@@ -47,9 +49,12 @@ pub async fn scan_directory(
     )
     .await
     {
-        Ok(count) => GrimoireResponse::success(
-            format!("Scanned directory and created {} jobs", count),
-            count,
+        Ok(outcome) => GrimoireResponse::success(
+            format!(
+                "scanned directory: {} file(s) found, {} queued for import, {} already in library, {} job(s) created",
+                outcome.file_count, outcome.files_queued, outcome.files_skipped, outcome.jobs_created
+            ),
+            outcome,
         ),
         Err(e) => {
             GrimoireResponse::failure(format!("Failed to scan directory: {}", e), vec![e.into()])

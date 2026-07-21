@@ -18,7 +18,7 @@ pub use models::{
 pub use service::{import_audio_file, is_supported_audio_file, scan_directory};
 
 // re-export directory scanning utilities
-pub use directory::{is_audio_file, scan_directory_and_create_jobs};
+pub use directory::{is_audio_file, scan_directory_and_create_jobs, DirectoryScanOutcome};
 
 // re-export import functions
 pub use import::{extract_and_import, import_basic, ImportResult};

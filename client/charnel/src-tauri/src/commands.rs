@@ -826,11 +826,13 @@ pub async fn scan_directory(
     .await;
 
     match result.data {
-        Some(count) => {
+        Some(outcome) => {
             // record the scanned directory in the database
-            let _ = grimoire::jobs::record_scanned_directory(&path, count as i64, None).await;
+            let _ =
+                grimoire::jobs::record_scanned_directory(&path, outcome.file_count as i64, None)
+                    .await;
 
-            if count > 0 {
+            if outcome.jobs_created > 0 {
                 // start background polling for job completion
                 let app_handle_clone = app_handle.clone();
                 let session_id_clone = session_id.clone();
@@ -845,10 +847,19 @@ pub async fn scan_directory(
                 });
             }
 
+            let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
+                format!(
+                    "nothing new to import: {} file(s) already in your library",
+                    outcome.files_skipped
+                )
+            } else {
+                format!("scheduled {} music files for import", outcome.files_queued)
+            };
+
             ScanResult {
                 success: true,
-                jobs_created: count as u32,
-                message: format!("scheduled {} music files for import", count),
+                jobs_created: outcome.jobs_created as u32,
+                message,
             }
         }
         None => ScanResult {

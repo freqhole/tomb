@@ -8,13 +8,84 @@ use super::reliquary_mirror;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::{blob_data, config, database};
 
+/// backfill a legacy row's missing blake3 from freshly-provided bytes and
+/// persist it, so a re-upload of a blob that predates blake3 tracking (or
+/// was created before mirroring existed) becomes mirrorable into reliquary
+/// instead of permanently no-op-ing on every future upload of the same
+/// content. a no-op (returns `blob` unchanged) when blake3 is already set
+/// or no bytes were provided to hash.
+async fn backfill_blake3_if_missing(
+    pool: &sqlx::SqlitePool,
+    blob: MediaBlob,
+    data: Option<&[u8]>,
+) -> GrimoireResult<MediaBlob> {
+    if blob.blake3.is_some() {
+        return Ok(blob);
+    }
+    let Some(data) = data else {
+        return Ok(blob);
+    };
+
+    let blake3 = reliquary::hash_bytes(data);
+    let mut updated = sqlx::query_as!(
+        MediaBlob,
+        "UPDATE media_blobz
+         SET blake3 = ?, updated_at = unixepoch()
+         WHERE id = ?
+         RETURNING
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            filename,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by,
+            width,
+            height,
+            blake3",
+        blake3,
+        blob.id
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // the RETURNING clause hands back metadata as a raw JSON string, but
+    // callers always work with the parsed form - keep this function's
+    // output contract identical to its input regardless of which branch
+    // (no-op vs actual update) produced it.
+    updated.metadata =
+        serde_json::from_str(updated.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
+
+    Ok(updated)
+}
+
 /// create a new media blob with deduplication by SHA256
-pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
+pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResult<MediaBlob> {
     let pool = database::connect().await?;
 
     let blob_type = req.blob_type.unwrap_or(BlobType::Original);
     let blob_type_str = blob_type.as_str();
     let metadata_str = serde_json::to_string(&req.metadata).unwrap_or_else(|_| "{}".to_string());
+
+    // any blob carrying in-memory bytes needs a blake3 hash so it can be
+    // mirrored into reliquary's content-addressed store (mirror_insert_bytes
+    // is a no-op without one) - callers that only pass a local_path handle
+    // their own blake3 computation upstream (streamed, not held in memory),
+    // so this only fills in the gap for byte-carrying requests.
+    if req.blake3.is_none() {
+        if let Some(data) = &req.data {
+            req.blake3 = Some(reliquary::hash_bytes(data.as_ref()));
+        }
+    }
 
     // check if a blob with this SHA256 already exists (simple dedup check)
     // since sha256 has a UNIQUE constraint, we can't have two blobs with the same sha256
@@ -97,6 +168,12 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
 
             if let Some(blake3) = undeleted_with_metadata.blake3.as_deref() {
                 reliquary_mirror::mirror_restore(blake3).await;
+            } else if let Some(data) = &req.data {
+                undeleted_with_metadata =
+                    backfill_blake3_if_missing(&pool, undeleted_with_metadata, Some(data.as_ref()))
+                        .await?;
+                reliquary_mirror::mirror_insert_bytes(&undeleted_with_metadata, data.as_ref())
+                    .await;
             }
 
             // same path-relocation logic as the active-existing branch:
@@ -153,7 +230,15 @@ pub async fn create_media_blob(req: CreateMediaBlobRequest) -> GrimoireResult<Me
         // the original bytes. safe to call unconditionally: the underlying
         // store dedupes by blake3 internally, so there's no need to probe
         // for existing bytes first.
+        //
+        // a legacy row created before blake3 tracking existed has none on
+        // file, so backfill it from the freshly-provided bytes first -
+        // otherwise mirror_insert_bytes silently no-ops forever, every time
+        // this same content gets re-uploaded.
         if let Some(data) = &req.data {
+            existing_with_metadata =
+                backfill_blake3_if_missing(&pool, existing_with_metadata, Some(data.as_ref()))
+                    .await?;
             reliquary_mirror::mirror_insert_bytes(&existing_with_metadata, data.as_ref()).await;
         }
 
@@ -360,9 +445,11 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
 /// returns (MediaBlob, Option<Vec<u8>>)
 /// - if blob has local_path, returns (blob, None) - data should be read from filesystem
 /// - if blob data is in grimoire's own blob_data table, returns (blob, Some(data))
-/// - otherwise, falls back to reliquary's blob store: resolves the row by
-///   this id (recorded there as old_grimoire_id) and reads its bytes by
-///   blake3 hash, returning (blob, Some(data)) if found
+/// - otherwise, falls back to reliquary's blob store: reads bytes directly
+///   by this row's own blake3 hash, or (for rows from the one-time bulk
+///   migration that never got a blake3 of their own) by the reliquary row
+///   recorded against this id as old_grimoire_id - returning (blob,
+///   Some(data)) if either resolves
 /// - if no source has the data, returns MediaBlobNotFound
 pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Option<Vec<u8>>)> {
     let blob = get_media_blob(id).await?;
@@ -386,6 +473,21 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
     // reliquary-side issue never changes this function's error type.
     if let Ok(reliquary_pool) = database::connect_reliquary().await {
         let store = SqliteBlobStore::new(reliquary_pool, &config::get_config().data_dir);
+
+        // this row's own blake3 is the canonical, always-correct link once
+        // it's been dual-written by mirror_insert_bytes/mirror_register_local_path
+        // - those never populate old_grimoire_id (only the one-time bulk
+        // migration script does), so a lookup keyed on this id alone would
+        // miss every blob mirrored through the live dual-write path.
+        if let Some(blake3) = blob.blake3.as_deref() {
+            if let Ok(Some(data)) = store.read_bytes(blake3).await {
+                return Ok((blob, Some(data)));
+            }
+        }
+
+        // legacy fallback: rows carried over from the bulk migration can
+        // have old_grimoire_id set on the reliquary side with no blake3 of
+        // their own on the grimoire row yet.
         if let Ok(Some(record)) = store.get_by_old_id(&blob.id).await {
             if let Ok(Some(data)) = store.read_bytes(&record.blake3).await {
                 return Ok((blob, Some(data)));
@@ -411,7 +513,8 @@ pub enum BlobStreamSource {
 ///
 /// returns (MediaBlob, BlobStreamSource):
 /// - if blob has local_path, resolves to `File` at that path
-/// - else, if reliquary has a matching row (by old_grimoire_id) and its
+/// - else, if reliquary has a matching row (by this row's own blake3, or
+///   by old_grimoire_id for rows from the one-time bulk migration) and its
 ///   file actually exists on disk, resolves to `File` at reliquary's path
 /// - else, if blob data is in grimoire's own blob_data table, resolves to
 ///   `Memory`
@@ -439,7 +542,19 @@ pub async fn get_media_blob_stream_source(
 
     if let Ok(reliquary_pool) = database::connect_reliquary().await {
         let store = SqliteBlobStore::new(reliquary_pool, &config::get_config().data_dir);
-        if let Ok(Some(record)) = store.get_by_old_id(&blob.id).await {
+
+        // same reasoning as get_media_blob_with_data: prefer this row's own
+        // blake3 (the live dual-write path never sets old_grimoire_id), and
+        // only fall back to old_grimoire_id for bulk-migrated rows.
+        let mut record = None;
+        if let Some(blake3) = blob.blake3.as_deref() {
+            record = store.get(blake3).await.ok().flatten();
+        }
+        if record.is_none() {
+            record = store.get_by_old_id(&blob.id).await.ok().flatten();
+        }
+
+        if let Some(record) = record {
             let path = store.path_for(&record);
             if tokio::fs::metadata(&path).await.is_ok() {
                 return Ok((

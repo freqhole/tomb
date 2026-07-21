@@ -8,6 +8,8 @@ import {
   onCleanup,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+
+import { routes } from "../../music/utils/routing";
 import { Button } from "../buttons/Button";
 import { IconButton } from "../buttons/IconButton";
 import { TextArea } from "../forms/TextArea";
@@ -23,6 +25,7 @@ import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type { PreCheckFetchResponse, PendingReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
+import { debug } from "../../utils/logger";
 
 // ---------------------------------------------------------------------------
 // module-level precheck state so it survives the modal being closed/reopened
@@ -994,7 +997,8 @@ export function AddMusicModal(props: AddMusicModalProps) {
                               : job.status === "polling"
                                 ? (job.stage ?? "processing...")
                                 : job.status === "completed"
-                                  ? "done"
+                                  ? (job.resultSummary ??
+                                    (job.isDuplicate ? "already in your library" : "done"))
                                   : job.status === "timeout"
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
@@ -1004,8 +1008,21 @@ export function AddMusicModal(props: AddMusicModalProps) {
                           <Show when={job.albumId}>
                             <a
                               class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
-                              href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}
+                              href={`#${routes.albumOn(job.remoteId, job.albumId!)}`}
                               title="view album"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                // capture before onClose(), which clears completed jobs
+                                // from the store - reading job.* after that could race
+                                const target = routes.albumOn(job.remoteId, job.albumId!);
+                                debug("addMusic", "view album clicked:", {
+                                  remoteId: job.remoteId,
+                                  albumId: job.albumId,
+                                  target,
+                                });
+                                props.onClose();
+                                window.location.hash = target;
+                              }}
                             >
                               view album
                             </a>

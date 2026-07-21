@@ -16,6 +16,7 @@ use color_eyre::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
 use grimoire::jobs::{self, job_events::JobEvent, CancellationToken};
+use grimoire::music::scanner::DirectoryScanOutcome;
 use grimoire::setup::{get_local_defaults, SetupConfig, SetupResult, SetupService};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -141,12 +142,13 @@ struct ScanHandle {
     session_id: String,
     cancel: CancellationToken,
     /// result of the inline scan (file enumeration + job enqueue).
-    /// `None` while still walking the fs; `Some(Ok(n))` once we know
-    /// how many jobs were created; `Some(Err(msg))` on fs / db error.
-    /// the main loop polls this on every tick so the ui can react
-    /// when 0 files are found (no events would otherwise fire) or
-    /// when scan_directory itself blew up.
-    enqueue: Arc<Mutex<Option<std::result::Result<usize, String>>>>,
+    /// `None` while still walking the fs; `Some(Ok(outcome))` once we know
+    /// how many files were found vs. actually queued as jobs; `Some(Err(msg))`
+    /// on fs / db error. the main loop polls this on every tick so the ui can
+    /// react when no jobs were created (either 0 files found, or every file
+    /// found was already imported and unchanged - no job events would
+    /// otherwise fire in either case) or when scan_directory itself blew up.
+    enqueue: Arc<Mutex<Option<std::result::Result<DirectoryScanOutcome, String>>>>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -438,8 +440,19 @@ fn check_enqueue_result(app: &mut WizardApp) {
             handle.cancel.cancel();
             scan.handle = None;
         }
-        Ok(0) => {
-            scan.finished = Some("no audio files found in that directory".into());
+        Ok(outcome) if outcome.jobs_created == 0 => {
+            // no jobs were created - either the directory has no audio
+            // files at all, or every file found is already imported and
+            // unchanged. either way, no job events will ever fire, so
+            // finish the scan phase now instead of waiting forever.
+            scan.finished = Some(if outcome.file_count == 0 {
+                "no audio files found in that directory".into()
+            } else {
+                format!(
+                    "{} audio file(s) found, already all in your library",
+                    outcome.file_count
+                )
+            });
             handle.cancel.cancel();
             scan.handle = None;
         }
@@ -727,7 +740,7 @@ async fn start_scan(scan: &mut ScanState) {
         .collect();
     scan.error = None;
     let cancel = CancellationToken::new();
-    let enqueue: Arc<Mutex<Option<std::result::Result<usize, String>>>> =
+    let enqueue: Arc<Mutex<Option<std::result::Result<DirectoryScanOutcome, String>>>> =
         Arc::new(Mutex::new(None));
 
     // create the job session row first so the per-file jobs created
@@ -790,7 +803,7 @@ async fn start_scan(scan: &mut ScanState) {
         )
         .await;
         let result = match resp.data {
-            Some(n) => Ok(n),
+            Some(outcome) => Ok(outcome),
             None => {
                 let msg = if resp.errors.is_empty() {
                     resp.message
