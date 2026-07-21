@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": false,
     "type": "module",
-    "description": "auth domain for the freqhole family: identity, webauthn, knock + friendz protocols, permissions",
+    "description": "freqhole auth domain: identity, webauthn, knock + friendz protocols, permissions",
     "license": "UNLICENSED",
     "exports": {
         ".": {

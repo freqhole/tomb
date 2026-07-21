@@ -1,9 +1,8 @@
 //! `KnockOutcome` + the `KnockPolicy` trait, and `GrantOnAcceptPolicy` - a
 //! concrete example/test-double implementation exercising the full stack
 //! (`IdentityStore` + `GrantStore`) end to end. not tomb's or skein's real
-//! policy (those are app-specific and land in a later adoption phase per
-//! PHASE_4_HARUSPEX_RUST.md) - this is a reference shape consumers can
-//! start from or crib patterns out of.
+//! policy (those are app-specific and land in a later adoption phase)
+//! this is a reference shape consumers can start from or crib patterns out of.
 
 use async_trait::async_trait;
 use uuid::Uuid;

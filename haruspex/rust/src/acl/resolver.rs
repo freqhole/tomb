@@ -1,9 +1,9 @@
 //! the `RoleResolver` seam.
 //!
-//! per PHASE_4_HARUSPEX_RUST.md's storage + sync section: "docs that carry
-//! their own acl (skein canvases, playlistz doc.acl) keep doing so - the
-//! in-doc acl is the authoritative store for that doc resource; haruspex
-//! ships the `RoleResolver` seam bridging in-doc acl into the evaluator."
+//! storage + sync section: "docs that carry their own acl (skein canvases,
+//! playlistz doc.acl) keep doing so - the in-doc acl is the authoritative
+//! store for that doc resource; haruspex ships the `RoleResolver` seam
+//! bridging in-doc acl into the evaluator."
 //!
 //! a resolver is consulted for exactly one resource per `effective_role`
 //! call (the primary resource, never its ancestors - see

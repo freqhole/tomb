@@ -28,8 +28,6 @@
 //!
 //! # missing grant means no access, by design
 //!
-//! skein's canvas acl defaults a missing/invalid acl entry to `member`
-//! (write-permitted). PHASE_4_HARUSPEX_RUST.md explicitly closes that hole:
 //! this evaluator's default for "no matching grant, no resolver override" is
 //! `None` (no access), never a fallback role. an app that wants "viewer by
 //! default for docs already shared" implements that at the `RoleResolver`

@@ -1,4 +1,4 @@
-//! haruspex: auth domain for the freqhole family of apps.
+//! haruspex: freqhole auth domain of apps.
 //!
 //! identity, devices, roles/groups, acl evaluation, webauthn ceremonies, the
 //! knock access-request protocol, and the friendz peer protocol. see the

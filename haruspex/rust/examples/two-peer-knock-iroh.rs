@@ -1,13 +1,12 @@
 //! two-peer-knock-iroh: the knock-exchange flow over two real localhost
 //! iroh endpoints - the phase's own two-endpoint integration test, promoted
-//! to a runnable example per PHASE_4_HARUSPEX_RUST.md's "examples +
-//! testing exports" section.
+//! to a runnable example.
 //!
 //! deliberately shaped as a composition root (build stores, build the
-//! service + handler, register on an endpoint, run the accept loop) rather
-//! than a minimal smoke test - per the phase doc, this is the seed for a
-//! possible future standalone auth-peer mode, even though this particular
-//! run exits once it has demonstrated one full exchange.
+//! service + handler, register on an endpoint, run the accept loop);
+//! this is just a sketch for a possible future standalone auth-peer mode,
+//! even though this particular run exits once it has demonstrated
+//! one full exchange.
 //!
 //! the knock-request/knock-outcome pair rides one bidirectional stream
 //! (requester writes the request, then reads the reply off the same

@@ -1,7 +1,5 @@
 //! acl-roles: groups + memberships + role grants, with a group revocation
 //! cutting access and `on_access_changed` firing - the acl-evaluator seed
-//! example named in PHASE_4_HARUSPEX_RUST.md's "examples + testing exports"
-//! section.
 //!
 //! run with: `cargo run --example acl-roles --features test-utils`
 

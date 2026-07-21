@@ -1,7 +1,6 @@
 //! knock-exchange: two in-memory peers over a duplex channel exercising the
 //! full knock lifecycle - request -> pending -> accept -> grant visible.
-//! no iroh at all; this is the pure-logic seed example named in
-//! PHASE_4_HARUSPEX_RUST.md's "examples + testing exports" section.
+//! no iroh at all; this is the pure-logic seed example
 //!
 //! run with: `cargo run --example knock-exchange --features test-utils`
 

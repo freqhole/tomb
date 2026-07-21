@@ -2,7 +2,7 @@
 
 ## project overview
 
-haruspex is the auth domain library for the freqhole family of apps (tomb, skein, playlistz):
+haruspex is the auth domain library for the freqhole world of apps (tomb, skein, playlistz):
 webauthn passkeys, knock access requests, user identity, multi-device node ids, roles +
 groups, api keys + invite codes, acl primitives, and the friendz peer protocol. rust crate
 `haruspex` + npm package `@freqhole/haruspex`. extracted per the

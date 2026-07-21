@@ -2,7 +2,7 @@
 name = "haruspex"
 version.workspace = true
 edition.workspace = true
-description = "auth domain for the freqhole family: identity, devices, roles/groups, acl, webauthn, knock + friendz protocols"
+description = "freqhole auth domain: identity, devices, roles/groups, acl, webauthn, knock + friendz protocols"
 repository = "https://github.com/freqhole/haruspex"
 
 [lib]

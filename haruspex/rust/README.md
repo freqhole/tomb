@@ -1,6 +1,6 @@
 # haruspex (rust crate)
 
-auth domain logic for the freqhole family: identity, devices, roles/groups, acl evaluation,
+freqhole auth domain logic: identity, devices, roles/groups, acl evaluation,
 webauthn ceremonies, knock protocol, friendz peer protocol. see the repo root README and the
 xl-refactor phase 4 doc for the design.
 

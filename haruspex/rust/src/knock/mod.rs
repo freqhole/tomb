@@ -4,7 +4,7 @@
 //! decision log); this module owns what happens when a responder decides to
 //! accept one - tomb's "create user with role", skein's "write acl entry",
 //! and playlistz's "store grant" are all `KnockPolicy` implementations of
-//! the same seam, per PHASE_4_HARUSPEX_RUST.md's knock section.
+//! the same seam.
 //!
 //! # auto-accept expressibility
 //!

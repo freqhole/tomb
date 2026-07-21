@@ -1,7 +1,6 @@
 //! identity-lifecycle: generate an identity, add a second device node id,
 //! resolve both node ids back to the same identity, and verify a device
-//! attestation chain - the identity-model seed example named in
-//! PHASE_4_HARUSPEX_RUST.md's "examples + testing exports" section.
+//! attestation chain
 //!
 //! run with: `cargo run --example identity-lifecycle --features test-utils`
 
