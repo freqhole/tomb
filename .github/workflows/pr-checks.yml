@@ -89,7 +89,16 @@ jobs:
       # spume links @freqhole/haruspex, @freqhole/reliquary and
       # @freqhole/midden by `file:` into lib/haruspex/ts, lib/reliquary/ts and
       # lib/midden/pkg respectively - all part of this checkout now, so no
-      # sibling repo checkout is needed.
+      # sibling repo checkout is needed. midden's pkg/ output is committed to
+      # git, but haruspex/reliquary's dist/ is gitignored, so they must be
+      # built here before spume can resolve their subpath exports.
+      - name: install + build haruspex
+        working-directory: lib/haruspex/ts
+        run: npm ci && npm run build
+
+      - name: install + build reliquary
+        working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
 
       # spume also links freqhole-api-client by `file:` (a symlink to its raw
       # TS source), so its own deps (zod, @tauri-apps/api) must be installed
@@ -223,6 +232,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      # eslint resolves imports into the haruspex/reliquary `file:` links
+      # too, so their dist/ output must be built first (same reason as the
+      # typecheck job above).
+      - name: install + build haruspex
+        working-directory: lib/haruspex/ts
+        run: npm ci && npm run build
+
+      - name: install + build reliquary
+        working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
 
       # eslint resolves imports into the api-client `file:` symlink, so its
       # deps must be present too (same reason as the typecheck job).
