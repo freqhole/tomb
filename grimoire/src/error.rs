@@ -433,6 +433,16 @@ impl From<image::ImageError> for ErrorDetail {
     }
 }
 
+impl From<haruspex::error::StoreError> for ErrorDetail {
+    fn from(err: haruspex::error::StoreError) -> Self {
+        ErrorDetail {
+            error_type: "auth_store_error".to_string(),
+            title: "Auth Store Error".to_string(),
+            detail: err.to_string(),
+        }
+    }
+}
+
 /// Convert error_type (snake_case) to Title Case
 /// Example: "database_not_found" -> "Database Not Found"
 fn error_type_to_title(error_type: &str) -> String {

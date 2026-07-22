@@ -30,6 +30,10 @@ data_dir = "./data"
 # the full path will be: {data_dir}/{filename}
 filename = "grimoire.db"
 
+# OPTIONAL: override reliquary's own sqlite database file path (the media
+# blob storage library). defaults to reliquary.db under data_dir when unset.
+# reliquary_db_path = "/var/lib/freqhole/reliquary.db"
+
 # OPTIONAL: connection pool settings
 # each database operation creates a short-lived connection pool.
 # these settings control pool behavior and can help with slow hardware.
@@ -247,7 +251,7 @@ enabled = true
 # also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
 name = "freqhole"
 # REQUIRED: server version (you probably should never edit this)
-version = "0.1.35"
+version = "0.2.0"
 # OPTIONAL: server description (default: null)
 description = "get yr freq on"
 

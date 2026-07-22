@@ -10,7 +10,9 @@ use crate::config;
 use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
-use crate::media_blobz::update_blob_local_path;
+use crate::media_blobz::{
+    get_media_blob_with_data, mirror_insert_bytes, update_blob_content, update_blob_local_path,
+};
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::albums::add_album_image;
 use crate::music::entities::artists::add_artist_image;
@@ -18,6 +20,7 @@ use crate::music::entities::playlists::add_playlist_image;
 use crate::music::entities::songs::add_song_image;
 use crate::music::scanner::extract_and_import;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::{debug, error, info, warn};
 
@@ -29,9 +32,10 @@ use tracing::{debug, error, info, warn};
 /// - associate_with (optional): { entity_type: "album"|"playlist"|"song"|"artist", entity_id: "..." }
 ///
 /// steps:
-/// 1. check if blob already has WebP data in blob_data table
-/// 2. if not, get original image data and convert to WebP
-/// 3. store WebP data back to blob_data
+/// 1. check if the blob's mime is already "image/webp" (conversion already happened)
+/// 2. if not, get the original image bytes and convert to WebP
+/// 3. update the blob's registered sha256/blake3/mime/size to match the webp bytes,
+///    then mirror the new bytes into reliquary's content-addressed blob store
 /// 4. if associate_with is present, insert images into entity's *_imagez junction table
 pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ConvertWebp job: {}", job.id);
@@ -57,9 +61,18 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
     );
 
     if is_original {
-        // check if webp data already exists in blob_data table
-        let exists_response = blob_data::blob_data_exists(blob_id).await;
-        let already_converted = exists_response.success && exists_response.data.unwrap_or(false);
+        // load the blob's metadata + bytes together: this tells us whether
+        // conversion already happened (mime already updated to image/webp)
+        // and, if not, gives us the original bytes to convert without a
+        // separate local_path fallback dance.
+        let (blob, blob_bytes) =
+            get_media_blob_with_data(blob_id)
+                .await
+                .map_err(|e| JobError::ProcessingFailed {
+                    reason: format!("failed to load blob {}: {}", blob_id, e),
+                })?;
+
+        let already_converted = blob.mime.as_deref() == Some("image/webp");
 
         if !already_converted {
             crate::jobs::job_events::emit_stage_from_job(
@@ -67,40 +80,21 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 "converting",
                 Some("converting to webp"),
             );
-            // get original image data from blob_data; fall back to local_path
-            // if the blob was originally created via the file scanner (which
-            // stores local_path but no binary row in blob_data).
-            let image_data = {
-                let data_response = blob_data::get_blob_data(blob_id).await;
-                if data_response.success {
-                    data_response
-                        .data
-                        .ok_or_else(|| JobError::ProcessingFailed {
-                            reason: "blob_data row exists but data field is empty".to_string(),
-                        })?
-                } else {
-                    // blob_data missing — try reading from local_path on disk
-                    let local = crate::media_blobz::get_media_blob(blob_id)
-                        .await
-                        .ok()
-                        .and_then(|b| b.local_path)
-                        .ok_or_else(|| {
-                            error!(
-                                "ConvertWebp {}: no blob_data and no local_path (db error: {})",
-                                blob_id, data_response.message
-                            );
-                            JobError::ProcessingFailed {
-                                reason: format!(
-                                    "blob data not found and no local_path fallback: {}",
-                                    data_response.message
-                                ),
-                            }
-                        })?;
+
+            let image_data = match blob_bytes {
+                Some(bytes) => bytes,
+                None => {
+                    let local =
+                        blob.local_path
+                            .as_deref()
+                            .ok_or_else(|| JobError::ProcessingFailed {
+                                reason: format!("blob {} has no data and no local_path", blob_id),
+                            })?;
                     info!(
-                        "ConvertWebp {}: blob_data missing, reading from local_path={}",
+                        "ConvertWebp {}: no stored bytes, reading from local_path={}",
                         blob_id, local
                     );
-                    tokio::fs::read(&local)
+                    tokio::fs::read(local)
                         .await
                         .map_err(|e| JobError::ProcessingFailed {
                             reason: format!("failed to read local_path {}: {}", local, e),
@@ -115,13 +109,28 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 }
             })?;
 
-            // store converted WebP data back to blob_data
-            let store_response = blob_data::store_blob_data(blob_id, webp_data).await;
-            if !store_response.success {
-                return Err(JobError::ProcessingFailed {
-                    reason: format!("failed to store webp data: {}", store_response.message),
-                });
-            }
+            // the converted bytes are different content from the original,
+            // so the blob's registered content identity has to move with
+            // them before they're mirrored into the content-addressed
+            // reliquary store.
+            let mut hasher = Sha256::new();
+            hasher.update(&webp_data);
+            let sha256 = format!("{:x}", hasher.finalize());
+            let blake3 = reliquary::hash_bytes(&webp_data);
+
+            let updated_blob = update_blob_content(
+                blob_id,
+                &sha256,
+                &blake3,
+                "image/webp",
+                webp_data.len() as i64,
+            )
+            .await
+            .map_err(|e| JobError::ProcessingFailed {
+                reason: format!("failed to update blob content: {}", e),
+            })?;
+
+            mirror_insert_bytes(&updated_blob, &webp_data).await;
 
             info!("converted image to webp: blob_id={}", blob_id);
         } else {

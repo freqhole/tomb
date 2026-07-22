@@ -66,6 +66,7 @@ import { initMusicDB } from "../music/services/storage/db";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
+import { AUDIO_EXTS } from "../utils/filePicker";
 import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
@@ -890,10 +891,46 @@ export function App() {
       try {
         const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
           readFile: (path: string) => Promise<Uint8Array>;
+          readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
+        };
+        const pathModule = (await import("@tauri-apps/api/path" as any)) as {
+          join: (...parts: string[]) => Promise<string>;
         };
 
+        // expand any directory entries (e.g. from the "select folder" picker)
+        // into the audio files they contain, recursing into subfolders -
+        // a bare path may be a file or a directory, so we probe with
+        // readDir and fall back to treating it as a file on failure.
+        const audioFilePaths: string[] = [];
+        const collectAudioFiles = async (path: string): Promise<void> => {
+          let entries: { name: string; isDirectory: boolean }[] | null = null;
+          try {
+            entries = await fsModule.readDir(path);
+          } catch {
+            // not a directory - treat as a single file path
+          }
+          if (entries === null) {
+            audioFilePaths.push(path);
+            return;
+          }
+          for (const entry of entries) {
+            const entryPath = await pathModule.join(path, entry.name);
+            if (entry.isDirectory) {
+              await collectAudioFiles(entryPath);
+            } else {
+              const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+              if (AUDIO_EXTS.includes(ext)) {
+                audioFilePaths.push(entryPath);
+              }
+            }
+          }
+        };
+        for (const path of paths) {
+          await collectAudioFiles(path);
+        }
+
         const files: File[] = [];
-        for (const filePath of paths) {
+        for (const filePath of audioFilePaths) {
           try {
             const data = await fsModule.readFile(filePath);
             const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "audio.mp3";

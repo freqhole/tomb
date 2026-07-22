@@ -124,7 +124,7 @@ async fn handle_stream(
         .map_err(|e| format!("failed to parse message: {}", e))?;
 
     match msg {
-        PeerMessage::ProxyRequest {
+        PeerMessage::ApiRequest {
             id,
             method,
             path,
@@ -150,7 +150,7 @@ async fn handle_stream(
                             "rejecting request from unknown peer: {} {} from {}",
                             method, path, node_id_short
                         );
-                        let resp = PeerMessage::ProxyResponse {
+                        let resp = PeerMessage::ApiResponse {
                             id,
                             status: 401,
                             body:
@@ -220,7 +220,7 @@ async fn handle_stream(
                 (status, serde_json::to_string(&response).unwrap_or_default())
             };
 
-            let resp = PeerMessage::ProxyResponse {
+            let resp = PeerMessage::ApiResponse {
                 id,
                 status,
                 body: response_body,
@@ -405,7 +405,7 @@ async fn handle_stream(
         }
 
         // ignore responses sent to us (shouldn't happen)
-        PeerMessage::ProxyResponse { .. }
+        PeerMessage::ApiResponse { .. }
         | PeerMessage::HelloImageResponse { .. }
         | PeerMessage::EnsureBlobResponse { .. }
         | PeerMessage::ComputeBlake3Response { .. } => {

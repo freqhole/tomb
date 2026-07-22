@@ -64,8 +64,6 @@ pub fn resolve_request<T: DeserializeOwned>(
 // Error Formatting
 // ============================================================================
 
-// ErrorDetail is now defined in grimoire::error and re-exported from crate root
-
 // ============================================================================
 // Output Formatting
 // ============================================================================

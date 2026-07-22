@@ -1,0 +1,14 @@
+{
+    "v": 1,
+    "type": "skein:canvas-invite",
+    "inviteId": "inv-1",
+    "canvasDocId": "doc-canvas-1",
+    "canvasTitle": "my canvas",
+    "originNodeId": "node-abc123",
+    "originUsername": "alice",
+    "role": "member",
+    "targets": [
+        "node-def456"
+    ],
+    "acked": []
+}

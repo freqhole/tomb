@@ -13,6 +13,7 @@ use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::time::{sleep, Duration};
+use tracing::info;
 use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
@@ -859,6 +860,12 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
         );
     }
 
+    info!(
+        "import_music_paths: received {} path(s): {:?}",
+        req.paths.len(),
+        req.paths
+    );
+
     // create a job session for this import batch
     let session_request = CreateJobSessionRequest {
         job_type: JobType::ProcessFile,
@@ -881,16 +888,23 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
     let mut jobs_created = 0i32;
     let mut directories_scanned = 0i32;
     let mut files_skipped = 0i32;
+    let mut files_queued = 0i32;
+    let mut files_already_in_library = 0i32;
 
     for path_str in &req.paths {
         let path = Path::new(path_str);
 
         if !path.exists() {
+            info!(
+                "import_music_paths: path does not exist, skipping: {}",
+                path_str
+            );
             files_skipped += 1;
             continue;
         }
 
         if path.is_dir() {
+            info!("import_music_paths: scanning directory: {}", path_str);
             // scan directory for audio files
             let scan_result = scan_directory(
                 path_str,
@@ -902,8 +916,15 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
             )
             .await;
 
-            if let Some(count) = scan_result.data {
-                jobs_created += count as i32;
+            info!(
+                "import_music_paths: scan_directory({}) -> success={} data={:?} message={}",
+                path_str, scan_result.success, scan_result.data, scan_result.message
+            );
+
+            if let Some(outcome) = scan_result.data {
+                jobs_created += outcome.jobs_created as i32;
+                files_queued += outcome.files_queued as i32;
+                files_already_in_library += outcome.files_skipped as i32;
                 directories_scanned += 1;
             }
         } else if path.is_file() {
@@ -939,15 +960,27 @@ pub async fn import_music_paths(caller: &Caller, body: JsonValue) -> GrimoireRes
             let job_response = create_job(job_request).await;
             if job_response.success {
                 jobs_created += 1;
+                files_queued += 1;
             }
         } else {
             files_skipped += 1;
         }
     }
 
-    let message = format!(
-        "queued {} import jobs ({} directories scanned, {} files skipped)",
-        jobs_created, directories_scanned, files_skipped
+    let message = if files_queued == 0 && files_already_in_library > 0 {
+        format!(
+            "nothing new to import: {} file(s) already in your library ({} directories scanned, {} files skipped)",
+            files_already_in_library, directories_scanned, files_skipped
+        )
+    } else {
+        format!(
+            "queued {} file(s) across {} job(s) ({} directories scanned, {} already in library, {} files skipped)",
+            files_queued, jobs_created, directories_scanned, files_already_in_library, files_skipped
+        )
+    };
+    info!(
+        "import_music_paths: {} (session_id={})",
+        message, session_id
     );
 
     // if wait_for_completion is set, poll until all jobs complete

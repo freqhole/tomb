@@ -192,11 +192,8 @@ pub async fn me(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue
 ///
 /// path: POST /api/auth/users/list
 pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "list_users").await {
+        return resp;
     }
 
     let params: UserQueryParams = serde_json::from_value(body).unwrap_or_default();
@@ -223,11 +220,8 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 ///
 /// path: POST /api/auth/users/create
 pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "create_user").await {
+        return resp;
     }
 
     let req: CreateUserRequest = match serde_json::from_value(body) {
@@ -275,15 +269,11 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     };
 
     // can only update self unless admin
-    if req.user_id != caller.user_id && !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "can only update own account",
-            )],
-        );
+    if let Err(resp) =
+        crate::acl_bridge::require_owner_or_scope(Some(req.user_id.as_str()), caller, "update_user")
+            .await
+    {
+        return resp;
     }
 
     let service = UserService::new();
@@ -315,11 +305,8 @@ struct DeleteRequest {
 }
 
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_user").await {
+        return resp;
     }
 
     let req: DeleteRequest = match serde_json::from_value(body) {
@@ -370,15 +357,14 @@ pub async fn generate_api_key(caller: &Caller, body: JsonValue) -> GrimoireRespo
     let target_user = req.user_id.unwrap_or_else(|| caller.user_id.clone());
 
     // can only generate for self unless admin
-    if target_user != caller.user_id && !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "can only generate key for own account",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        Some(target_user.as_str()),
+        caller,
+        "generate_api_key",
+    )
+    .await
+    {
+        return resp;
     }
 
     let service = UserService::new();
@@ -398,15 +384,14 @@ pub async fn revoke_api_key(caller: &Caller, body: JsonValue) -> GrimoireRespons
     let target_user = req.user_id.unwrap_or_else(|| caller.user_id.clone());
 
     // can only revoke for self unless admin
-    if target_user != caller.user_id && !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "can only revoke key for own account",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        Some(target_user.as_str()),
+        caller,
+        "revoke_api_key",
+    )
+    .await
+    {
+        return resp;
     }
 
     let service = UserService::new();

@@ -106,11 +106,9 @@ pub async fn musicbrainz_search_releases(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "search_musicbrainz_releases").await
+    {
+        return resp;
     }
 
     let req: SearchReleasesRequest = match serde_json::from_value(body) {
@@ -170,11 +168,8 @@ pub async fn musicbrainz_get_release(
     caller: &Caller,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_musicbrainz_release").await {
+        return resp;
     }
 
     let req: GetReleaseRequest = match serde_json::from_value(body) {

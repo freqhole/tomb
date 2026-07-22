@@ -44,7 +44,7 @@ fn is_connection_error(error_msg: &str) -> bool {
         || lower.contains("no route")
 }
 
-/// response from p2p_proxy_request
+/// response from p2p_api_call
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pResponse {
     pub status: u16,
@@ -205,21 +205,21 @@ pub fn p2p_get_node_id() -> Result<String, String> {
 /// path: API path (e.g., /api/music/songs)
 /// body: optional JSON body for POST/PUT requests
 #[tauri::command]
-pub async fn p2p_proxy_request(
+pub async fn p2p_api_call(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     method: String,
     path: String,
     body: Option<String>,
 ) -> Result<P2pResponse, String> {
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p proxy request");
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p api request");
 
     let response =
-        grimoire::federation::p2p_client::proxy_request(&peer_addr, &method, &path, body)
+        grimoire::federation::p2p_client::api_request(&peer_addr, &method, &path, body)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p proxy request failed");
+                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
                 // emit peer-offline event for connection failures
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
@@ -227,7 +227,7 @@ pub async fn p2p_proxy_request(
                 error_msg
             })?;
 
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p proxy response");
+    tracing::info!(peer = %peer_addr, method = %method, path = %path, status = response.status, "p2p api response");
 
     Ok(P2pResponse {
         status: response.status,
@@ -367,7 +367,7 @@ pub fn p2p_close_all_connections() {
 ///
 /// used by CharnelTransport for P2P music upload:
 /// 1. user picks file -> call this command -> get blake3
-/// 2. send blake3 + metadata to remote peer via proxy_request
+/// 2. send blake3 + metadata to remote peer via api_request
 /// 3. remote peer pulls file from our iroh endpoint
 #[tauri::command]
 pub async fn p2p_import_blob(file_path: String) -> Result<String, String> {

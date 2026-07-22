@@ -1,0 +1,7 @@
+{
+    "v": 1,
+    "type": "friend-request",
+    "fromNodeId": "node-abc123",
+    "fromUsername": "alice",
+    "isHub": false
+}

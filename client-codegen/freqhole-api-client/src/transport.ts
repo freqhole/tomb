@@ -307,12 +307,19 @@ export async function* pollingJobEvents(
   let first = true;
   while (true) {
     if (signal?.aborted) return;
-    let snaps: JobStateSnapshot[] = [];
+    let snaps: JobStateSnapshot[];
     try {
       snaps = await snapshotJobEventsViaRequest(transport, filter);
     } catch {
-      // swallow; try again next tick. callers can fail-fast by
-      // observing snapshot errors separately via snapshotJobEvents.
+      // a transient fetch failure must not wipe `prev` - doing so would
+      // make every still-active job look "new" again on the next
+      // successful tick (a spurious `from: null` status_changed for
+      // jobs that never actually changed). skip this tick's diff
+      // entirely and retry with the same baseline next time. callers
+      // can fail-fast by observing snapshot errors separately via
+      // snapshotJobEvents.
+      await sleepOrAbort(POLL_INTERVAL_FALLBACK_MS, signal);
+      continue;
     }
     if (!first) {
       const next = new Map<string, JobStateSnapshot>();

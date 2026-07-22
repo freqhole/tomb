@@ -455,11 +455,9 @@ pub async fn list_batch(_caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 
 /// path: POST /api/related-artists/set-bandcamp
 pub async fn set_bandcamp(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "set_related_artist_bandcamp").await
+    {
+        return resp;
     }
 
     let req: SetRelatedArtistBandcampRequest = match serde_json::from_value(body) {

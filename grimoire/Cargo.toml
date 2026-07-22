@@ -53,6 +53,12 @@ iroh-blobs = { workspace = true }
 blake3 = { workspace = true }
 bytes = "1.10"
 getrandom = "0.2"
+haruspex = { path = "../lib/haruspex/rust" }
+reliquary = { path = "../lib/reliquary/rust", default-features = false, features = [
+    "blobz",
+    "node",
+    "chunked_import",
+] }
 
 clap = { version = "4.4", features = ["derive"] }
 humantime = "2.1"
@@ -83,7 +89,7 @@ zod_gen_derive = "1.0"
 
 [features]
 default = ["webauthn", "rodio-playback"]
-webauthn = ["webauthn-rs"]
+webauthn = ["webauthn-rs", "haruspex/webauthn"]
 vendored-openssl = ["openssl"]
 # rodio audio backend (uses cpal). disable for headless / cross-
 # compile targets without an audio system available at link time.
@@ -96,3 +102,11 @@ optional = true
 [dependencies.openssl]
 workspace = true
 optional = true
+
+[dev-dependencies]
+tempfile = "3"
+# webauthn credential-compatibility test's minimal software authenticator:
+# real p-256 keygen, sha-256 hashing, and ecdsa signing - the same crate
+# webauthn-rs itself already links transitively, so this adds no new
+# native dependency.
+openssl = { workspace = true }

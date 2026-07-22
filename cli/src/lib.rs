@@ -100,6 +100,21 @@ pub enum Commands {
         action: plumbing::BlobzAction,
     },
 
+    /// one-shot migration of media_blobz + blob_data into reliquary's blobz
+    /// table. safe to run repeatedly; refuses to run until every live media
+    /// blob has a blake3 hash (see `blobz backfill-blake3`).
+    MigrateToReliquary,
+
+    /// one-shot migration of grimoire's pre-haruspex auth tables
+    /// (user_accountz, user_credentialz, user_peer_nodez, knock_requestz,
+    /// invite_codez, webauthn_challenges) into haruspex's own database.
+    /// safe to run repeatedly.
+    MigrateToHaruspex,
+
+    /// one-shot backfill of instance-scope haruspex RoleGrant rows from
+    /// grimoire's legacy user_accountz.role column. safe to run repeatedly.
+    BackfillInstanceGrants,
+
     /// Sync operations (send-to-remote: album/song/playlist receive routes)
     Sync {
         #[command(subcommand)]
@@ -320,9 +335,12 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
             }
         }
     } else {
+        // log to stderr, not stdout - commands with `--json-output` write
+        // their json response to stdout, and a log line landing there would
+        // corrupt it for any caller parsing that output.
         let _ = tracing_subscriber::registry()
             .with(env_filter)
-            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
             .try_init();
     }
 
@@ -364,6 +382,15 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::Blobz { action } => {
             plumbing::handle_blobz(action, json_output).await?;
+        }
+        Commands::MigrateToReliquary => {
+            plumbing::handle_migrate_to_reliquary(json_output).await?;
+        }
+        Commands::MigrateToHaruspex => {
+            plumbing::handle_migrate_to_haruspex(json_output).await?;
+        }
+        Commands::BackfillInstanceGrants => {
+            plumbing::handle_backfill_instance_grants(json_output).await?;
         }
         Commands::Sync { action } => {
             plumbing::handle_sync(action, json_output).await?;

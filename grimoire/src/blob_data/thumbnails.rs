@@ -6,7 +6,6 @@
 //!
 //! thumbnail sizes are configurable via `media.thumbnail_sizes` (default: [50, 200])
 
-use crate::blob_data::get_blob_data;
 use crate::config;
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
@@ -159,20 +158,23 @@ pub async fn generate_sized_thumbnails(
     parent_blob_id: &str,
     created_by: Option<String>,
 ) -> GrimoireResponse<Vec<GeneratedThumbnail>> {
-    // get parent blob metadata
-    let parent_blob = match media_blobz::get_media_blob(parent_blob_id).await {
-        Ok(blob) => blob,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to get parent blob",
-                vec![ErrorDetail::new(
-                    "parent_not_found",
-                    "Parent Blob Not Found",
-                    format!("blob {} not found: {}", parent_blob_id, e),
-                )],
-            )
-        }
-    };
+    // get parent blob metadata + bytes in one call: local_path-backed blobs
+    // read from disk below, everything else resolves through blob_data or
+    // reliquary's fallback chain.
+    let (parent_blob, parent_bytes) =
+        match media_blobz::get_media_blob_with_data(parent_blob_id).await {
+            Ok(result) => result,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to get parent blob",
+                    vec![ErrorDetail::new(
+                        "parent_not_found",
+                        "Parent Blob Not Found",
+                        format!("blob {} not found: {}", parent_blob_id, e),
+                    )],
+                )
+            }
+        };
 
     // only generate thumbnails for original images and waveforms
     let blob_type = parent_blob.blob_type;
@@ -190,18 +192,37 @@ pub async fn generate_sized_thumbnails(
         );
     }
 
-    // get parent image data
-    let parent_data = match get_blob_data(parent_blob_id).await.data {
+    // get parent image data: use bytes already resolved above, or read
+    // from disk when the blob is local_path-backed.
+    let parent_data = match parent_bytes {
         Some(data) => data,
         None => {
-            return GrimoireResponse::failure(
-                "failed to get parent blob data",
-                vec![ErrorDetail::new(
-                    "data_not_found",
-                    "Data Not Found",
-                    format!("no data found for blob {}", parent_blob_id),
-                )],
-            )
+            let local_path = match parent_blob.local_path.as_deref() {
+                Some(p) => p,
+                None => {
+                    return GrimoireResponse::failure(
+                        "failed to get parent blob data",
+                        vec![ErrorDetail::new(
+                            "data_not_found",
+                            "Data Not Found",
+                            format!("no data found for blob {}", parent_blob_id),
+                        )],
+                    )
+                }
+            };
+            match tokio::fs::read(local_path).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to read parent blob file",
+                        vec![ErrorDetail::new(
+                            "data_not_found",
+                            "Data Not Found",
+                            format!("failed to read {}: {}", local_path, e),
+                        )],
+                    )
+                }
+            }
         }
     };
 
@@ -276,7 +297,7 @@ pub async fn generate_sized_thumbnails(
             data: Some(webp_data.into()),
             width: Some(size as i64),
             height: Some(size as i64),
-            blake3: None, // not needed for thumbnails
+            blake3: None, // create_media_blob computes this from the bytes above
         };
 
         match media_blobz::create_media_blob(request).await {

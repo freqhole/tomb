@@ -86,11 +86,24 @@ jobs:
         with:
           node-version: 24
 
-      # midden wasm pkg/ and the generated api client are committed, so spume
-      # typechecks against them without a wasm rebuild here. but spume links
-      # freqhole-api-client by `file:` (a symlink to its raw TS source), so its
-      # own deps (zod, @tauri-apps/api) must be installed in that folder first
-      # or tsc can't resolve them. mirrors the cloudflare build order.
+      # spume links @freqhole/haruspex, @freqhole/reliquary and
+      # @freqhole/midden by `file:` into lib/haruspex/ts, lib/reliquary/ts and
+      # lib/midden/pkg respectively - all part of this checkout now, so no
+      # sibling repo checkout is needed. midden's pkg/ output is committed to
+      # git, but haruspex/reliquary's dist/ is gitignored, so they must be
+      # built here before spume can resolve their subpath exports.
+      - name: install + build haruspex
+        working-directory: lib/haruspex/ts
+        run: npm ci && npm run build
+
+      - name: install + build reliquary
+        working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
+
+      # spume also links freqhole-api-client by `file:` (a symlink to its raw
+      # TS source), so its own deps (zod, @tauri-apps/api) must be installed
+      # in that folder first or tsc can't resolve them. mirrors the
+      # cloudflare build order.
       - name: install api-client deps
         working-directory: client-codegen/freqhole-api-client
         run: npm ci
@@ -111,6 +124,101 @@ jobs:
         working-directory: client/spume
         run: npm run lint:circular
 
+  haruspex-ts-check:
+    name: haruspex (typecheck + vitest)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: install deps
+        working-directory: lib/haruspex/ts
+        run: npm ci
+
+      - name: typecheck
+        working-directory: lib/haruspex/ts
+        run: npm run typecheck
+
+      - name: unit tests
+        working-directory: lib/haruspex/ts
+        run: npm test
+
+  reliquary-ts-check:
+    name: reliquary (typecheck + vitest)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: install deps
+        working-directory: lib/reliquary/ts
+        run: npm ci
+
+      - name: typecheck
+        working-directory: lib/reliquary/ts
+        run: npm run typecheck
+
+      - name: unit tests
+        working-directory: lib/reliquary/ts
+        run: npm test
+
+  midden-check:
+    name: midden (rust fmt + clippy + native test + wasm build)
+    if: github.head_ref != 'changeset-release/main'
+    runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lib/midden
+
+      - name: cargo fmt --check
+        working-directory: lib/midden
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        working-directory: lib/midden
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (native)
+        # the browser-facing bits are behind wasm-bindgen, but the opfs_store
+        # module's storage/actor logic is storage-generic and carries native
+        # (non-wasm) tests via a NativeDir test impl.
+        working-directory: lib/midden
+        run: cargo test
+
+      - name: install llvm
+        run: sudo apt-get install -y llvm
+
+      - name: cargo check (wasm32 target)
+        working-directory: lib/midden
+        run: make check-wasm
+
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: wasm-pack build
+        working-directory: lib/midden
+        run: make build
+
   # eslint is split into its own status check: there's a backlog to clean up,
   # so keep it visible + independent of the core web gate above.
   lint:
@@ -124,6 +232,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      # eslint resolves imports into the haruspex/reliquary `file:` links
+      # too, so their dist/ output must be built first (same reason as the
+      # typecheck job above).
+      - name: install + build haruspex
+        working-directory: lib/haruspex/ts
+        run: npm ci && npm run build
+
+      - name: install + build reliquary
+        working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
 
       # eslint resolves imports into the api-client `file:` symlink, so its
       # deps must be present too (same reason as the typecheck job).

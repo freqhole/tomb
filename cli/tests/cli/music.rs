@@ -416,6 +416,35 @@ fn test_music_delete_operations() {
 }
 
 #[test]
+fn test_music_song_media_blob_join() {
+    let ctx = TestContext::from_snapshot();
+
+    // query-songs joins in each song's own media blob alongside the song row
+    let result = ctx.run_json(&["music", "query-songs", "--limit", "1"]);
+    assert!(result["success"].as_bool().unwrap(), "should query songs");
+
+    let items = result["data"]["items"].as_array().unwrap();
+    assert!(!items.is_empty(), "test db should have at least one song");
+
+    let item = &items[0];
+    let song_media_blob_id = item["song"]["media_blob_id"].as_str().unwrap();
+    let media_blob = &item["media_blob"];
+
+    assert!(
+        !media_blob.is_null(),
+        "song query result should join in the song's media blob"
+    );
+    assert_eq!(
+        media_blob["id"], song_media_blob_id,
+        "joined media blob id should match the song's media_blob_id"
+    );
+    assert!(
+        media_blob["blob_type"].is_string(),
+        "media blob should report a blob_type"
+    );
+}
+
+#[test]
 fn test_music_brainz() {
     let ctx = TestContext::from_snapshot();
 

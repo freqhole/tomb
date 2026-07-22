@@ -1,8 +1,9 @@
 //! webauthn handlers for p2p transport
 //!
 //! these handlers implement the same webauthn register/login flow as the http
-//! handlers in server/src/auth/freq_webauthn.rs, but use a sqlite challenge
-//! store instead of tower_sessions so they work over p2p (no cookie support).
+//! handlers in server/src/auth/freq_webauthn.rs, but drive haruspex's
+//! `WebauthnCeremony` (a sqlite challenge/credential store instead of
+//! tower_sessions) so they work over p2p (no cookie support).
 //!
 //! the nonce returned by the start handlers must be echoed back in the finish
 //! body. challenges expire after `server.auth.webauthn_challenge_ttl_minutes`.
@@ -12,12 +13,6 @@
 //!
 //! this module is only compiled when the `webauthn` feature is enabled.
 //! when the feature is off, stub functions return a "not enabled" error.
-
-#[cfg(feature = "webauthn")]
-use webauthn_rs::prelude::{
-    Passkey, PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential,
-    RegisterPublicKeyCredential,
-};
 
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -148,16 +143,67 @@ fn internal_error(detail: &str) -> GrimoireResponse<JsonValue> {
 // handlers (feature-gated)
 // ============================================================================
 
+/// the challenge ttl, in seconds, from config (default 15 minutes)
+#[cfg(feature = "webauthn")]
+fn webauthn_challenge_ttl_secs() -> i64 {
+    use crate::config::get_config;
+    get_config()
+        .server
+        .as_ref()
+        .map(|s| s.auth.webauthn_challenge_ttl_minutes)
+        .unwrap_or(15) as i64
+        * 60
+}
+
+/// map a haruspex ceremony error to a response. failed lookups and
+/// expired/invalid nonces are kept indistinguishable from each other on
+/// purpose, to avoid leaking which case occurred.
+#[cfg(feature = "webauthn")]
+fn webauthn_error_response(err: haruspex::webauthn::WebauthnError) -> GrimoireResponse<JsonValue> {
+    use haruspex::webauthn::WebauthnError;
+    match err {
+        WebauthnError::InvalidChallenge => bad_request("invalid or expired nonce"),
+        WebauthnError::NoCredentials | WebauthnError::AuthenticationFailed => {
+            bad_request("passkey authentication failed")
+        }
+        WebauthnError::InvalidCredential(msg) => {
+            bad_request(&format!("invalid credential: {}", msg))
+        }
+        WebauthnError::Ceremony(msg) => {
+            internal_error(&format!("webauthn ceremony failed: {}", msg))
+        }
+        WebauthnError::Store(e) => internal_error(&format!("auth store error: {}", e)),
+    }
+}
+
+/// open haruspex's credential/challenge/identity stores, all backed by the
+/// same pool.
+#[cfg(feature = "webauthn")]
+async fn haruspex_webauthn_stores() -> Result<
+    (
+        haruspex::sqlite::SqliteCredentialStore,
+        haruspex::sqlite::SqliteChallengeStore,
+        haruspex::sqlite::SqliteIdentityStore,
+    ),
+    GrimoireResponse<JsonValue>,
+> {
+    let pool = crate::database::connect_haruspex()
+        .await
+        .map_err(|e| internal_error(&format!("failed to open auth store: {}", e)))?;
+    Ok((
+        haruspex::sqlite::SqliteCredentialStore::new(pool.clone()),
+        haruspex::sqlite::SqliteChallengeStore::new(pool.clone()),
+        haruspex::sqlite::SqliteIdentityStore::new(pool),
+    ))
+}
+
 /// start passkey registration over p2p
 ///
 /// path: POST /api/auth/webauthn/register/start
 #[cfg(feature = "webauthn")]
 pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{
-        challenge_store::{ChallengeStore, SaveChallengeArgs},
-        webauthn::GrimoireWebAuthn,
-        UserService, WebAuthnService,
-    };
+    use crate::users::{haruspex_bridge, UserService};
+    use haruspex::webauthn::{RegisterStartArgs, WebauthnCeremony};
 
     let req: P2pRegisterStartRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -170,19 +216,22 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
     };
 
     let user_service = UserService::new();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let (credentials, challenges, identities) = match haruspex_webauthn_stores().await {
+        Ok(stores) => stores,
+        Err(e) => return e,
+    };
 
-    // determine user_id and whether this is an account-link flow
-    let (user_id, is_account_link) = if let Some(ref code) = req.invite_code {
-        tracing::info!("[PASSKEY-REG-BE] checking invite code, len={}", code.len());
+    // determine the identity this passkey will belong to, and whether this
+    // is an account-link flow: an invite code either names an existing
+    // account (account-link) or authorizes a brand-new one; a known peer's
+    // node_id can also resolve to an existing account.
+    let (identity_id, is_account_link) = if let Some(ref code) = req.invite_code {
         let code_response = user_service.check_invite_code(code).await;
         if !code_response.is_success() {
             return bad_request("invalid invite code");
         }
         let invite = code_response.data.unwrap();
-        tracing::info!(
-            "[PASSKEY-REG-BE] invite code type: is_account_link={}",
-            invite.is_account_link_code()
-        );
         if invite.is_account_link_code() {
             let target_user_id = match invite.get_target_user_id() {
                 Some(id) => id.to_string(),
@@ -199,27 +248,58 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                     req.username, user.username
                 ));
             }
-            (user.id, true)
+            let id = match haruspex_bridge::ensure_identity_for_user(
+                &identities,
+                &user.id,
+                &user.username,
+                now,
+            )
+            .await
+            {
+                Ok(id) => id,
+                Err(e) => return internal_error(&format!("failed to prepare identity: {}", e)),
+            };
+            (id, true)
         } else {
             // regular invite: check username is free
             let existing = user_service.get_user_by_username(&req.username).await;
             if existing.is_success() {
                 return bad_request("username already exists");
             }
-            (uuid::Uuid::new_v4().to_string().replace("-", ""), false)
+            // brand-new account: no grimoire user row exists yet (created in
+            // register_finish once the ceremony succeeds), so there is no
+            // stable id to derive an identity from - use a fresh one and
+            // link it to the real grimoire user id once that row exists.
+            let id = uuid::Uuid::new_v4();
+            if let Err(e) =
+                haruspex_bridge::create_pending_identity(&identities, id, &req.username, now).await
+            {
+                return internal_error(&format!("failed to prepare identity: {}", e));
+            }
+            (id, false)
         }
     } else if let Some(ref node_id) = req.node_id {
         // no invite code: allow if this node_id is already a known/trusted peer
         use crate::federation::is_known_peer;
         if is_known_peer(node_id).await {
-            // find the user linked to this node_id
             let user_resp = user_service.get_user_by_node_id(node_id).await;
             if user_resp.is_success() {
                 let user = user_resp.data.unwrap();
                 if user.username != req.username {
                     return bad_request("username does not match node's linked account");
                 }
-                (user.id, false)
+                let id = match haruspex_bridge::ensure_identity_for_user(
+                    &identities,
+                    &user.id,
+                    &user.username,
+                    now,
+                )
+                .await
+                {
+                    Ok(id) => id,
+                    Err(e) => return internal_error(&format!("failed to prepare identity: {}", e)),
+                };
+                (id, false)
             } else {
                 return bad_request(
                     "node_id is known but not linked to a user account - use an invite code",
@@ -232,60 +312,30 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         return bad_request("invite_code required to register a passkey");
     };
 
-    // exclude already-registered credentials for this user
-    let exclude_credentials = if is_account_link {
-        let webauthn_service = WebAuthnService::new();
-        let creds = webauthn_service
-            .get_credentials(&user_id)
-            .await
-            .data
-            .unwrap_or_default();
-        tracing::info!(
-            "[PASSKEY-REG-BE] account-link mode: user_id={}, excluding {} credentials",
-            user_id,
-            creds.len()
-        );
-        creds
-            .iter()
-            .map(|p: &Passkey| p.cred_id().clone())
-            .collect()
-    } else {
-        tracing::info!("[PASSKEY-REG-BE] new-user mode: no exclusions, is_account_link=false");
-        vec![]
+    let ceremony = WebauthnCeremony {
+        rp_id: &rp_id,
+        rp_name: "freqhole",
+        credentials: &credentials,
+        challenges: &challenges,
+        identities: &identities,
     };
 
-    let freq_webauthn = GrimoireWebAuthn::new(rp_id.clone(), "freqhole".to_string());
-    tracing::info!("[PASSKEY-REG-BE] calling start_registration: rp_id={}, user_id={}, username={}, exclude_count={}", rp_id, user_id, req.username, exclude_credentials.len());
-    let (ccr, reg_state) = match freq_webauthn.start_registration(
-        &req.origin,
-        &user_id,
-        &req.username,
-        exclude_credentials,
-    ) {
-        Ok(r) => r,
-        Err(e) => return internal_error(&format!("webauthn start failed: {:?}", e)),
-    };
-
-    // persist challenge
-    let challenge_json = match serde_json::to_string(&reg_state) {
-        Ok(j) => j,
-        Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
-    };
-
-    let store = ChallengeStore::new();
-    let nonce = match store
-        .save(SaveChallengeArgs {
-            kind: "registration",
-            challenge_json: &challenge_json,
-            user_id: Some(&user_id),
-            username: Some(&req.username),
-            is_account_link,
-            invite_code: req.invite_code.as_deref(),
-        })
+    let (ccr, nonce) = match ceremony
+        .register_start(
+            &req.origin,
+            RegisterStartArgs {
+                identity_id,
+                username: &req.username,
+                is_account_link,
+                invite_code: req.invite_code.as_deref(),
+                now,
+                challenge_ttl_secs: webauthn_challenge_ttl_secs(),
+            },
+        )
         .await
     {
-        Ok(n) => n,
-        Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
+        Ok(r) => r,
+        Err(e) => return webauthn_error_response(e),
     };
 
     GrimoireResponse::success(
@@ -302,10 +352,9 @@ pub async fn register_start(_caller: &Caller, body: JsonValue) -> GrimoireRespon
 /// path: POST /api/auth/webauthn/register/finish
 #[cfg(feature = "webauthn")]
 pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{
-        challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, CreateUserRequest,
-        UserService, WebAuthnService,
-    };
+    use crate::users::{haruspex_bridge, CreateUserRequest, UserService};
+    use haruspex::stores::IdentityStore;
+    use haruspex::webauthn::WebauthnCeremony;
 
     let req: P2pRegisterFinishRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -317,48 +366,54 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
         Err(e) => return e,
     };
 
-    // retrieve (and consume) the challenge
-    let store = ChallengeStore::new();
-    let row = match store.take(&req.nonce, "registration").await {
-        Ok(Some(r)) => r,
-        Ok(None) => return bad_request("invalid or expired nonce"),
-        Err(e) => return internal_error(&format!("failed to retrieve challenge: {}", e)),
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let (credentials, challenges, identities) = match haruspex_webauthn_stores().await {
+        Ok(stores) => stores,
+        Err(e) => return e,
     };
 
-    let user_id = match row.user_id {
-        Some(ref id) => id.clone(),
-        None => return internal_error("challenge missing user_id"),
-    };
-    let username = match row.username {
-        Some(ref u) => u.clone(),
-        None => return internal_error("challenge missing username"),
-    };
-
-    // deserialize the stored challenge state
-    let reg_state: PasskeyRegistration = match serde_json::from_str(&row.challenge_json) {
-        Ok(s) => s,
-        Err(e) => return internal_error(&format!("failed to deserialize challenge: {}", e)),
+    let ceremony = WebauthnCeremony {
+        rp_id: &rp_id,
+        rp_name: "freqhole",
+        credentials: &credentials,
+        challenges: &challenges,
+        identities: &identities,
     };
 
-    // deserialize the credential from the client
-    let reg_credential: RegisterPublicKeyCredential = match serde_json::from_value(req.credential) {
-        Ok(c) => c,
-        Err(e) => return bad_request(&format!("invalid credential: {}", e)),
-    };
-
-    let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
-    let passkey = match freq_webauthn.finish_registration(&req.origin, &reg_credential, &reg_state)
+    let outcome = match ceremony
+        .register_finish(
+            &req.origin,
+            &req.nonce,
+            req.credential,
+            req.node_id.as_deref(),
+            now,
+        )
+        .await
     {
-        Ok(p) => p,
-        Err(e) => return bad_request(&format!("registration verification failed: {:?}", e)),
+        Ok(o) => o,
+        Err(e) => return webauthn_error_response(e),
+    };
+
+    let identity_id = outcome.credential.identity_id;
+    let username = match identities.get_identity(identity_id).await {
+        Ok(Some(identity)) => identity.username.unwrap_or_default(),
+        Ok(None) => return internal_error("identity vanished mid-ceremony"),
+        Err(e) => return internal_error(&format!("failed to load identity: {}", e)),
     };
 
     let user_service = UserService::new();
 
-    // create or confirm user and keep the authoritative user id for credential save
-    let credential_user_id = if row.is_account_link {
+    // create or confirm the grimoire user and keep the authoritative user id
+    // for the response
+    let credential_user_id = if outcome.is_account_link {
+        let user_id =
+            match haruspex_bridge::grimoire_user_id_for_identity(&identities, identity_id).await {
+                Ok(Some(id)) => id,
+                Ok(None) => return internal_error("identity is missing its linked grimoire user"),
+                Err(e) => return internal_error(&format!("failed to resolve user: {}", e)),
+            };
         // user already exists; optionally mark invite code as used
-        if let Some(ref code) = row.invite_code {
+        if let Some(ref code) = outcome.invite_code {
             let _ = user_service
                 .register_user(&CreateUserRequest {
                     username: username.clone(),
@@ -367,13 +422,13 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
                 })
                 .await;
         }
-        user_id.clone()
+        user_id
     } else {
         let user_resp = user_service
             .register_user(&CreateUserRequest {
                 username: username.clone(),
                 role: None,
-                invite_code: row.invite_code.clone(),
+                invite_code: outcome.invite_code.clone(),
             })
             .await;
         if !user_resp.is_success() {
@@ -384,27 +439,22 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
                 .unwrap_or_else(|| "failed to create user".to_string());
             return bad_request(&detail);
         }
-        match user_resp.data {
-            Some(user) => user.id,
+        let user = match user_resp.data {
+            Some(user) => user,
             None => return internal_error("failed to create user"),
+        };
+        // the identity was created with a scratch id in register_start (no
+        // grimoire user existed yet) - link it to the real one now.
+        if let Err(e) =
+            haruspex_bridge::link_identity_to_grimoire_user(&identities, identity_id, &user.id)
+                .await
+        {
+            return internal_error(&format!("failed to link identity: {}", e));
         }
+        user.id
     };
 
-    // save the credential
-    let webauthn_service = WebAuthnService::new();
-    let save_resp = webauthn_service
-        .save_credential(&credential_user_id, &passkey)
-        .await;
-    if !save_resp.is_success() {
-        let detail = save_resp
-            .errors
-            .first()
-            .map(|e| e.detail.clone())
-            .unwrap_or_else(|| "failed to save credential".to_string());
-        return internal_error(&detail);
-    }
-
-    // link node_id to user if provided
+    // CUTOVER(0.2.0): link node_id to grimoire's own peer table (separate from haruspex's device_nodez); can be deleted once grimoire.user_peer_nodez table is dropped and all device tracking is unified in haruspex
     if let Some(ref node_id) = req.node_id {
         let _ = user_service
             .add_peer_node(&credential_user_id, node_id, Some("passkey registration"))
@@ -430,11 +480,8 @@ pub async fn register_finish(_caller: &Caller, body: JsonValue) -> GrimoireRespo
 /// the user is identified from the credential's embedded userHandle in login_finish.
 #[cfg(feature = "webauthn")]
 pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{
-        challenge_store::{ChallengeStore, SaveChallengeArgs},
-        webauthn::GrimoireWebAuthn,
-        UserService, WebAuthnService,
-    };
+    use crate::users::{haruspex_bridge, UserService};
+    use haruspex::webauthn::WebauthnCeremony;
 
     let req: P2pLoginStartRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -446,14 +493,19 @@ pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
         Err(e) => return e,
     };
 
-    let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let (credentials, challenges, identities) = match haruspex_webauthn_stores().await {
+        Ok(stores) => stores,
+        Err(e) => return e,
+    };
 
-    // if username is supplied and non-empty, use the targeted flow (specific credentials).
-    // otherwise use discoverable credentials so the authenticator picks the passkey.
+    // if username is supplied and non-empty, use the targeted flow (specific
+    // credentials). otherwise use discoverable credentials so the
+    // authenticator picks the passkey; the identity is resolved in
+    // login_finish.
     let username = req.username.as_deref().filter(|s| !s.is_empty());
 
-    if let Some(username) = username {
-        // targeted flow: look up user, build allowCredentials list
+    let targeted_identity = if let Some(username) = username {
         let user_service = UserService::new();
         let user_resp = user_service.get_user_by_username(username).await;
         if !user_resp.is_success() {
@@ -461,98 +513,63 @@ pub async fn login_start(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
             return bad_request("passkey authentication failed");
         }
         let user = user_resp.data.unwrap();
-
-        let webauthn_service = WebAuthnService::new();
-        let creds = webauthn_service
-            .get_credentials(&user.id)
-            .await
-            .data
-            .unwrap_or_default();
-
-        if creds.is_empty() {
-            return bad_request("passkey authentication failed");
-        }
-
-        let (rcr, auth_state) = match freq_webauthn.start_authentication(&req.origin, &creds) {
-            Ok(r) => r,
-            Err(e) => return internal_error(&format!("webauthn start failed: {:?}", e)),
-        };
-
-        let challenge_json = match serde_json::to_string(&auth_state) {
-            Ok(j) => j,
-            Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
-        };
-
-        let store = ChallengeStore::new();
-        let nonce = match store
-            .save(SaveChallengeArgs {
-                kind: "authentication",
-                challenge_json: &challenge_json,
-                user_id: Some(&user.id),
-                username: Some(&user.username),
-                is_account_link: false,
-                invite_code: None,
-            })
-            .await
-        {
-            Ok(n) => n,
-            Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
-        };
-
-        GrimoireResponse::success(
-            "authentication challenge created",
-            json!({ "nonce": nonce, "challenge": rcr }),
+        let identity_id = match haruspex_bridge::ensure_identity_for_user(
+            &identities,
+            &user.id,
+            &user.username,
+            now,
         )
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => return internal_error(&format!("failed to prepare identity: {}", e)),
+        };
+        Some((identity_id, user.username))
     } else {
-        // discoverable flow: empty allowCredentials, user identified in login_finish
-        let (rcr, auth_state) = match freq_webauthn.start_discoverable_authentication(&req.origin) {
-            Ok(r) => r,
-            Err(e) => {
-                return internal_error(&format!("discoverable webauthn start failed: {:?}", e))
-            }
-        };
+        None
+    };
 
-        let challenge_json = match serde_json::to_string(&auth_state) {
-            Ok(j) => j,
-            Err(e) => return internal_error(&format!("failed to serialize challenge: {}", e)),
-        };
+    let ceremony = WebauthnCeremony {
+        rp_id: &rp_id,
+        rp_name: "freqhole",
+        credentials: &credentials,
+        challenges: &challenges,
+        identities: &identities,
+    };
 
-        let store = ChallengeStore::new();
-        let nonce = match store
-            .save(SaveChallengeArgs {
-                kind: "discoverable_authentication",
-                challenge_json: &challenge_json,
-                user_id: None,
-                username: None,
-                is_account_link: false,
-                invite_code: None,
-            })
-            .await
-        {
-            Ok(n) => n,
-            Err(e) => return internal_error(&format!("failed to save challenge: {}", e)),
-        };
-
-        GrimoireResponse::success(
-            "authentication challenge created",
-            json!({ "nonce": nonce, "challenge": rcr }),
+    let (rcr, nonce) = match ceremony
+        .login_start(
+            &req.origin,
+            targeted_identity
+                .as_ref()
+                .map(|(id, name)| (*id, name.as_str())),
+            now,
+            webauthn_challenge_ttl_secs(),
         )
-    }
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return webauthn_error_response(e),
+    };
+
+    GrimoireResponse::success(
+        "authentication challenge created",
+        json!({ "nonce": nonce, "challenge": rcr }),
+    )
 }
 
 /// finish passkey authentication over p2p
 ///
 /// path: POST /api/auth/webauthn/login/finish
 ///
-/// handles both targeted (kind="authentication") and discoverable
-/// (kind="discoverable_authentication") challenge flows.
-/// on success, the connecting node_id is linked to the authenticated user so
+/// handles both the targeted and discoverable challenge flows transparently
+/// (the ceremony tries both challenge kinds under the same nonce). on
+/// success, the connecting node_id is linked to the authenticated user so
 /// subsequent p2p requests from that node are auto-authenticated by node_id lookup.
 #[cfg(feature = "webauthn")]
 pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    use crate::users::{
-        challenge_store::ChallengeStore, webauthn::GrimoireWebAuthn, UserService, WebAuthnService,
-    };
+    use crate::users::{haruspex_bridge, UserService};
+    use haruspex::webauthn::WebauthnCeremony;
 
     let req: P2pLoginFinishRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -564,122 +581,51 @@ pub async fn login_finish(_caller: &Caller, body: JsonValue) -> GrimoireResponse
         Err(e) => return e,
     };
 
-    let store = ChallengeStore::new();
-
-    // try to retrieve the challenge - check both kinds
-    let row = {
-        let targeted = store.take(&req.nonce, "authentication").await;
-        let discoverable = store.take(&req.nonce, "discoverable_authentication").await;
-        match (targeted, discoverable) {
-            (Ok(Some(r)), _) => r,
-            (_, Ok(Some(r))) => r,
-            (Ok(None), Ok(None)) => return bad_request("invalid or expired nonce"),
-            (Err(e), _) | (_, Err(e)) => {
-                return internal_error(&format!("failed to retrieve challenge: {}", e))
-            }
-        }
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let (credentials, challenges, identities) = match haruspex_webauthn_stores().await {
+        Ok(stores) => stores,
+        Err(e) => return e,
     };
 
-    let auth_credential: PublicKeyCredential = match serde_json::from_value(req.credential) {
-        Ok(c) => c,
-        Err(e) => return bad_request(&format!("invalid credential: {}", e)),
+    let ceremony = WebauthnCeremony {
+        rp_id: &rp_id,
+        rp_name: "freqhole",
+        credentials: &credentials,
+        challenges: &challenges,
+        identities: &identities,
     };
 
-    let freq_webauthn = GrimoireWebAuthn::new(rp_id, "freqhole".to_string());
+    let outcome = match ceremony
+        .login_finish(
+            &req.origin,
+            &req.nonce,
+            req.credential,
+            req.node_id.as_deref(),
+            now,
+        )
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => return webauthn_error_response(e),
+    };
+
+    let user_id = match haruspex_bridge::grimoire_user_id_for_identity(
+        &identities,
+        outcome.identity_id,
+    )
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => return internal_error("identity is missing its linked grimoire user"),
+        Err(e) => return internal_error(&format!("failed to resolve user: {}", e)),
+    };
+
     let user_service = UserService::new();
 
-    let user_id = if row.kind == "discoverable_authentication" {
-        // discoverable flow: extract credential_id directly from the assertion
-        // (identify_discoverable_authentication is not used because it requires
-        //  the authenticator to have sent a user handle, which is not guaranteed)
-        let cred_id = auth_credential.get_credential_id();
-        tracing::info!(
-            "discoverable login_finish: cred_id len={}, hex prefix={}",
-            cred_id.len(),
-            cred_id
-                .iter()
-                .take(8)
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        );
-
-        // look up which user owns this credential
-        let webauthn_service = WebAuthnService::new();
-        let lookup = webauthn_service.get_user_id_by_credential_id(cred_id).await;
-        tracing::info!(
-            "discoverable login_finish: db lookup success={}, data={:?}",
-            lookup.success,
-            lookup.data
-        );
-        let uid = match lookup.data {
-            Some(Some(id)) => id,
-            _ => return bad_request("passkey authentication failed"),
-        };
-
-        // get user's credentials and finish the discoverable authentication
-        let creds = webauthn_service
-            .get_credentials(&uid)
-            .await
-            .data
-            .unwrap_or_default();
-        tracing::info!(
-            "discoverable login_finish: uid={}, credential count={}",
-            uid,
-            creds.len()
-        );
-
-        let disc_state: webauthn_rs::prelude::DiscoverableAuthentication =
-            match serde_json::from_str(&row.challenge_json) {
-                Ok(s) => s,
-                Err(e) => {
-                    return internal_error(&format!("failed to deserialize challenge: {}", e))
-                }
-            };
-
-        let auth_result = match freq_webauthn.finish_discoverable_authentication(
-            &req.origin,
-            &auth_credential,
-            disc_state,
-            &creds,
-        ) {
-            Ok(r) => r,
-            Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
-        };
-
-        // update last_used_at for the credential that was used
-        let _ = WebAuthnService::new()
-            .update_credential_last_used(auth_result.cred_id())
-            .await;
-
-        uid
-    } else {
-        // targeted flow: user_id is in the challenge row
-        let uid = match row.user_id {
-            Some(ref id) => id.clone(),
-            None => return internal_error("challenge missing user_id"),
-        };
-
-        let auth_state: PasskeyAuthentication = match serde_json::from_str(&row.challenge_json) {
-            Ok(s) => s,
-            Err(e) => return internal_error(&format!("failed to deserialize challenge: {}", e)),
-        };
-
-        let auth_result =
-            match freq_webauthn.finish_authentication(&req.origin, &auth_credential, &auth_state) {
-                Ok(r) => r,
-                Err(e) => return bad_request(&format!("authentication failed: {:?}", e)),
-            };
-
-        // update last_used_at for the credential that was used
-        let _ = WebAuthnService::new()
-            .update_credential_last_used(auth_result.cred_id())
-            .await;
-
-        uid
-    };
-
-    // link node_id to user (this is the key p2p auth payoff: subsequent
-    // requests from this node are auto-authenticated without a passkey)
+    // link node_id to the grimoire user (this is the key p2p auth payoff:
+    // subsequent requests from this node are auto-authenticated without a
+    // passkey; see register_finish's comment on haruspex's own device_nodez
+    // table being updated separately by the ceremony above)
     if let Some(ref node_id) = req.node_id {
         let _ = user_service
             .add_peer_node(&user_id, node_id, Some("passkey login"))
@@ -885,7 +831,7 @@ pub async fn link_node(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
     tokio::spawn(async move {
         let payload = serde_json::json!({ "peer_addr": peer_addr, "server_name": server_name });
         let body_str = serde_json::to_string(&payload).unwrap_or_default();
-        if let Err(e) = crate::federation::p2p_client::proxy_request(
+        if let Err(e) = crate::federation::p2p_client::api_request(
             &linked_node_id,
             "POST",
             "/api/internal/device-linked",

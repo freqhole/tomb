@@ -597,6 +597,16 @@ async fn relocate_blob(
     )
     .execute(pool)
     .await?;
+
+    if let Ok(row) = sqlx::query!("SELECT blake3 FROM media_blobz WHERE id = ?", blob_id)
+        .fetch_one(pool)
+        .await
+    {
+        if let Some(blake3) = row.blake3 {
+            crate::media_blobz::mirror_update_path(&blake3, new_path).await;
+        }
+    }
+
     Ok(())
 }
 

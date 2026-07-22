@@ -152,6 +152,11 @@ pub async fn cleanup_orphaned_media_blobs_older_than(
                 }
                 // also delete from blob_data (separate db, no FK)
                 let _ = crate::blob_data::delete_blob_data(&blob.id).await;
+                // free the bytes in reliquary too, now that the blob is
+                // soft-deleted there (via delete_media_blob's own mirror)
+                if let Some(blake3) = blob.blake3.as_deref() {
+                    crate::media_blobz::mirror_hard_delete(blake3).await;
+                }
                 println!("    ✓ Deleted: {}", blob.id);
             }
             Err(e) => {

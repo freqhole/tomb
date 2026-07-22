@@ -58,7 +58,7 @@ export interface PickFilesOptions {
 }
 
 // file extension filters per kind (used by native dialogs).
-const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"];
+export const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"];
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
 
 // accept attribute for <input type=file> on the web.

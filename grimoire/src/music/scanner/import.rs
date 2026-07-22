@@ -34,6 +34,8 @@ pub struct ImportResult {
     pub album_id: Option<String>,
     /// Whether metadata was successfully extracted
     pub metadata_extracted: bool,
+    /// true when this import resolved to an already-existing song (a duplicate)
+    pub is_duplicate: bool,
 }
 
 /// Metadata extracted from tags and filename
@@ -219,6 +221,7 @@ pub async fn extract_and_import(
         artist_id: result.artist.map(|a| a.id),
         album_id: result.album.map(|a| a.id),
         metadata_extracted: true,
+        is_duplicate: result.existing,
     })
 }
 
@@ -534,6 +537,7 @@ pub async fn import_basic(
         artist_id: result.artist.map(|a| a.id),
         album_id: result.album.map(|a| a.id),
         metadata_extracted: false,
+        is_duplicate: false,
     })
 }
 
@@ -834,6 +838,7 @@ mod tests {
             artist_id: Some("artist456".to_string()),
             album_id: Some("album789".to_string()),
             metadata_extracted: true,
+            is_duplicate: false,
         };
 
         assert_eq!(result.song_id, "song123");

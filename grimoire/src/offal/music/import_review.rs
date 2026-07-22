@@ -13,6 +13,7 @@ use crate::music::entities::import_review::{
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
+use crate::users::UserRole;
 use serde_json::Value as JsonValue;
 
 pub const ROUTES: &[RouteInfo] = &[
@@ -32,7 +33,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "MarkAlbumReviewedRequest",
         response_type: "ImportReviewOk",
-        auth: RouteAuth::Authenticated,
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
     RouteInfo {
         name: "patch_album_review",
@@ -41,7 +42,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "PatchAlbumReviewRequest",
         response_type: "ImportReviewOk",
-        auth: RouteAuth::Authenticated,
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
     RouteInfo {
         name: "merge_albums_review",
@@ -50,7 +51,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "MergeAlbumsReviewRequest",
         response_type: "ImportReviewOk",
-        auth: RouteAuth::Authenticated,
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
     RouteInfo {
         name: "move_song_review",
@@ -59,7 +60,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "MoveSongReviewRequest",
         response_type: "ImportReviewOk",
-        auth: RouteAuth::Authenticated,
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
     RouteInfo {
         name: "album_pending",
@@ -75,15 +76,9 @@ pub const ROUTES: &[RouteInfo] = &[
 /// list sessions with pending (unreviewed) albums.
 /// members see only sessions where they uploaded at least one file.
 pub async fn list_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "list_pending_import_review").await
+    {
+        return resp;
     }
 
     let req: ListPendingReviewRequest = match serde_json::from_value(body) {
@@ -124,17 +119,6 @@ pub async fn list_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
 /// mark all pending blobs for an album in a session as reviewed.
 pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
-    }
-
     let req: MarkAlbumReviewedRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -149,7 +133,7 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
         }
     };
 
-    if !caller.is_admin() {
+    if !crate::acl_bridge::caller_meets_scope(caller, "mark_album_reviewed").await {
         match repository::is_uploader(&req.album_id, &caller.user_id).await {
             Ok(true) => {}
             Ok(false) => {
@@ -184,17 +168,6 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
 
 /// patch album metadata and mark it reviewed in one call.
 pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
-    }
-
     let req: PatchAlbumReviewRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -209,7 +182,7 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         }
     };
 
-    if !caller.is_admin() {
+    if !crate::acl_bridge::caller_meets_scope(caller, "patch_album_review").await {
         match repository::is_uploader(&req.album_id, &caller.user_id).await {
             Ok(true) => {}
             Ok(false) => {
@@ -303,17 +276,6 @@ pub async fn patch_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
 
 /// merge source albums into a target album, then mark them all reviewed.
 pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
-    }
-
     let req: MergeAlbumsReviewRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -328,7 +290,7 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         }
     };
 
-    if !caller.is_admin() {
+    if !crate::acl_bridge::caller_meets_scope(caller, "merge_albums_review").await {
         // must own the target album
         match repository::is_uploader(&req.target_id, &caller.user_id).await {
             Ok(true) => {}
@@ -392,17 +354,6 @@ pub async fn merge_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
 /// move a song to a different album, re-keying album_songz via update_songs.
 pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
-    }
-
     let req: MoveSongReviewRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
@@ -417,7 +368,7 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
         }
     };
 
-    if !caller.is_admin() {
+    if !crate::acl_bridge::caller_meets_scope(caller, "move_song_review").await {
         // must own the destination album
         match repository::is_uploader(&req.to_album_id, &caller.user_id).await {
             Ok(true) => {}
@@ -473,15 +424,8 @@ pub async fn move_song(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
 
 /// check if an album has pending (unreviewed) import blobs.
 pub async fn album_pending(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "Forbidden",
-                "authentication required",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "album_pending").await {
+        return resp;
     }
 
     let req: AlbumPendingRequest = match serde_json::from_value(body) {

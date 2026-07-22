@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["webauthn"]
-webauthn = ["dep:webauthn-rs", "grimoire/webauthn"]
+webauthn = ["grimoire/webauthn"]
 
 [dependencies]
 # Workspace dependencies
@@ -24,9 +24,6 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 clap = { workspace = true }
 
-# Optional webauthn (feature-gated)
-webauthn-rs = { workspace = true, optional = true }
-
 # Internal dependencies
 grimoire = { path = "../grimoire", default-features = false }
 
@@ -43,3 +40,7 @@ sha2.workspace = true
 [dev-dependencies]
 reqwest = { workspace = true }
 tempfile = { workspace = true }
+reliquary = { path = "../lib/reliquary/rust", default-features = false, features = [
+    "blobz",
+] }
+sqlx = { workspace = true, features = ["sqlite"] }

@@ -1,0 +1,5 @@
+{
+    "v": 1,
+    "type": "friend-accept-ack",
+    "fromNodeId": "node-abc123"
+}

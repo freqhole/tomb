@@ -202,20 +202,18 @@ pub async fn history(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
 
     // can only query own history unless admin
     let target_user = match req.user_id {
-        Some(uid) if uid != caller.user_id => {
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's history",
-                    )],
-                );
+        Some(uid) => {
+            if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+                Some(uid.as_str()),
+                caller,
+                "listening_history",
+            )
+            .await
+            {
+                return resp;
             }
             uid
         }
-        Some(uid) => uid,
         None => caller.user_id.clone(),
     };
 
@@ -289,11 +287,8 @@ pub async fn top_artists(_caller: &Caller, body: JsonValue) -> GrimoireResponse<
 ///
 /// path: POST /api/analytics/overview
 pub async fn overview(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "overview").await {
+        return resp;
     }
 
     let response = get_overview_stats().await;
@@ -315,20 +310,15 @@ pub async fn user_stats(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     };
 
     let target_user = match req.user_id {
-        Some(uid) if uid != caller.user_id => {
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's stats",
-                    )],
-                );
+        Some(uid) => {
+            if let Err(resp) =
+                crate::acl_bridge::require_owner_or_scope(Some(uid.as_str()), caller, "user_stats")
+                    .await
+            {
+                return resp;
             }
             uid
         }
-        Some(uid) => uid,
         None => caller.user_id.clone(),
     };
 
@@ -363,19 +353,15 @@ pub async fn feed(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     };
 
     // admins can filter by user, non-admins see all feed
-    let user_filter = match req.user_id {
-        Some(uid) if !caller.is_admin() && uid != caller.user_id => {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "cannot filter by another user",
-                )],
-            );
+    if let Some(uid) = &req.user_id {
+        if let Err(resp) =
+            crate::acl_bridge::require_owner_or_scope(Some(uid.as_str()), caller, "activity_feed")
+                .await
+        {
+            return resp;
         }
-        x => x,
-    };
+    }
+    let user_filter = req.user_id;
 
     let limit = req.limit.unwrap_or(20);
     let offset = req.offset.unwrap_or(0);
@@ -425,15 +411,14 @@ pub async fn delete_feed_event(caller: &Caller, body: JsonValue) -> GrimoireResp
     };
 
     // permission check: own items always deletable, admin can delete any
-    if owner_user_id != caller.user_id && !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "you can only delete your own feed events",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+        Some(owner_user_id.as_str()),
+        caller,
+        "delete_feed_event",
+    )
+    .await
+    {
+        return resp;
     }
 
     let delete_result =

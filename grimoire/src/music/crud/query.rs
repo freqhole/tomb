@@ -4,6 +4,7 @@ use sea_query::{Cond, Expr, Iden, Order, Query, SelectStatement, SqliteQueryBuil
 use std::time::Instant;
 
 use super::user_prefs;
+use super::usernames;
 use crate::database;
 
 use crate::media_blobz::{BlobType, MediaBlob};
@@ -140,8 +141,6 @@ pub struct SongViewRow {
     song_deleted_by: Option<String>,
     song_created_by: Option<String>,
     song_updated_by: Option<String>,
-    song_created_by_username: Option<String>,
-    song_updated_by_username: Option<String>,
     artist_id: Option<String>,
     artist_name: Option<String>,
     artist_created_at: Option<i64>,
@@ -260,8 +259,10 @@ impl SongViewRow {
             deleted_by: self.song_deleted_by,
             created_by: self.song_created_by,
             updated_by: self.song_updated_by,
-            created_by_username: self.song_created_by_username,
-            updated_by_username: self.song_updated_by_username,
+            // resolved as a second pass by enrich_song_usernames, once the
+            // caller has the full batch of rows to resolve in one query
+            created_by_username: None,
+            updated_by_username: None,
             play_count: self.song_play_count,
         };
 
@@ -498,8 +499,6 @@ pub struct AlbumViewRow {
     album_deleted_by: Option<String>,
     album_created_by: Option<String>,
     album_updated_by: Option<String>,
-    album_created_by_username: Option<String>,
-    album_updated_by_username: Option<String>,
     album_genres: Option<String>, // JSON array of {id, name} objects from view
     album_taxons: Option<String>, // JSON array of {id, kind_slug, label, ...} from view
     album_images: Option<String>, // JSON array from view
@@ -627,8 +626,10 @@ impl AlbumViewRow {
             deleted_by: self.album_deleted_by,
             created_by: self.album_created_by,
             updated_by: self.album_updated_by,
-            created_by_username: self.album_created_by_username,
-            updated_by_username: self.album_updated_by_username,
+            // resolved as a second pass by enrich_album_usernames, once the
+            // caller has the full batch of rows to resolve in one query
+            created_by_username: None,
+            updated_by_username: None,
             metadata: self.album_metadata,
             mb_lookup_status: self.album_mb_lookup_status,
             mb_lookup_at: self.album_mb_lookup_at,
@@ -1073,6 +1074,13 @@ pub async fn query_songs(params: QueryParams) -> GrimoireResponse<QueryResult<So
         .map(|r| r.to_song_query_result(user_id_ref))
         .collect();
 
+    if let Err(err) =
+        usernames::enrich_song_usernames(&pool, songs.iter_mut().map(|s| &mut s.song).collect())
+            .await
+    {
+        return GrimoireResponse::failure("Failed to resolve usernames", vec![err.into()]);
+    }
+
     // apply user favorites and ratings if user_id provided
     if let Some(uid) = &params.user_id {
         user_prefs::apply_user_preferences_songs(&mut songs, uid).await;
@@ -1269,6 +1277,13 @@ pub async fn query_albums(params: QueryParams) -> GrimoireResponse<QueryResult<A
         .into_iter()
         .map(|r| r.to_album_query_result(user_id_ref))
         .collect();
+
+    if let Err(err) =
+        usernames::enrich_album_usernames(&pool, albums.iter_mut().map(|a| &mut a.album).collect())
+            .await
+    {
+        return GrimoireResponse::failure("Failed to resolve usernames", vec![err.into()]);
+    }
 
     // apply user favorites and ratings if user_id provided
     if let Some(uid) = &params.user_id {

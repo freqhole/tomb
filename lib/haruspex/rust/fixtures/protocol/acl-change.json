@@ -1,0 +1,10 @@
+{
+    "v": 1,
+    "type": "acl-change",
+    "resourceId": "doc-1",
+    "resourceTitle": "my shared doc",
+    "targetNodeId": "node-def456",
+    "newRole": "viewer",
+    "changedBy": "node-admin789",
+    "changedByUsername": "admin"
+}

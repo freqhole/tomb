@@ -122,37 +122,49 @@ pub(in crate::admin_dispatch) async fn scan(
 
     let resp = crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await;
 
-    let count = resp.data.unwrap_or(0);
-    if count > 0 {
-        let _ = crate::jobs::record_scanned_directory(&path, count as i64, None).await;
+    let outcome = resp.data.unwrap_or_default();
+    if outcome.file_count > 0 {
+        let _ = crate::jobs::record_scanned_directory(&path, outcome.file_count as i64, None).await;
+    }
+    if outcome.jobs_created > 0 {
         // emit an immediate progress event so rathole's header badge
         // appears as soon as jobs are enqueued (before first file
-        // finishes processing).
+        // finishes processing). only emit when jobs actually exist -
+        // otherwise the badge would show pending work that will never
+        // complete (every file already imported and unchanged).
         crate::jobs::job_events::emit(crate::jobs::job_events::JobEvent::Progress {
             session_id: session_id.clone(),
             complete: 0,
-            total: count as i64,
+            total: outcome.jobs_created as i64,
             topic: crate::jobs::JobType::ScanDirectory,
             entity_ref: None,
             created_by: Some(caller.user_id.clone()),
             details: Some(serde_json::json!({
                 "directory": path.clone(),
                 "songs_added": 0,
-                "jobs_pending": count as u32,
-                "jobs_total": count as u32,
+                "jobs_pending": outcome.jobs_created as u32,
+                "jobs_total": outcome.jobs_created as u32,
             })),
         });
     }
 
     if resp.success {
+        let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
+            format!(
+                "nothing new to import: {} file(s) already in your library",
+                outcome.files_skipped
+            )
+        } else {
+            format!("created {} import job(s)", outcome.jobs_created)
+        };
         GrimoireResponse::success(
-            format!("created {} import jobs", count),
+            message.clone(),
             json!({
                 "session_id": session_id,
-                "files_discovered": count,
-                "jobs_created": count,
+                "files_discovered": outcome.file_count,
+                "jobs_created": outcome.jobs_created,
                 "success": true,
-                "message": format!("created {} import jobs", count),
+                "message": message,
             }),
         )
     } else {

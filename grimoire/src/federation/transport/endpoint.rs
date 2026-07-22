@@ -4,10 +4,10 @@
 //! handles binding the endpoint, accepting connections, and connecting to peers.
 //!
 //! uses iroh's Router pattern to handle multiple protocols:
-//! - freqhole/1: existing P2P proxy protocol
+//! - freqhole/1: existing P2P api protocol
 //! - freqhole-blobz: iroh-blobs verified streaming (audio files)
 
-use crate::blobz::{get_blobs_store, BLOBS_ALPN};
+use crate::blobz::BLOBS_ALPN;
 use crate::config::{get_config, FederationConfig, RelayModeConfig};
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::federation::identity;
@@ -20,7 +20,6 @@ use iroh::endpoint::{presets, RelayMode};
 use iroh::protocol::{Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayUrl, SecretKey};
 use iroh_blobs::provider::events::{EventMask, EventSender};
-use iroh_blobs::BlobsProtocol;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tracing::{info, warn};
 
@@ -168,7 +167,7 @@ impl FederationEndpoint {
     /// start the router with the default protocol handlers only
     ///
     /// sets up:
-    /// - freqhole/1: P2P proxy protocol
+    /// - freqhole/1: P2P api protocol
     /// - /iroh-bytes/4: iroh-blobs verified streaming
     pub async fn start_router(&mut self) -> GrimoireResult<()> {
         self.start_router_with(|builder| builder).await
@@ -192,10 +191,14 @@ impl FederationEndpoint {
         // create freqhole/1 protocol handler
         let freqhole_handler = FreqholeProtocol::new();
 
-        // create iroh-blobs protocol handler with event tracing enabled
-        let blobs_store = get_blobs_store().await?;
+        // create iroh-blobs protocol handler with event tracing enabled,
+        // sourced from the shared storage node. attach this endpoint to the
+        // node's downloader too, so it can drive verified peer-to-peer
+        // fetches for any future consumer (e.g. the snatch engine).
+        let storage_node = crate::database::storage_node().await?;
         let event_sender = EventSender::DEFAULT.tracing(EventMask::default());
-        let blobs_handler = BlobsProtocol::new(blobs_store, Some(event_sender));
+        let blobs_handler = storage_node.blobs_protocol(Some(event_sender));
+        storage_node.attach_endpoint(&self.endpoint);
 
         // build router with core protocols
         let builder = Router::builder(self.endpoint.clone())
@@ -325,5 +328,82 @@ impl FederationEndpoint {
         }
 
         self.endpoint.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::RelayModeConfig;
+
+    fn fed(relay_mode: RelayModeConfig, relay_url: Option<&str>) -> FederationConfig {
+        FederationConfig {
+            relay_mode,
+            relay_url: relay_url.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn relay_mode_default_leaves_preset_untouched() {
+        // no federation config at all: no override.
+        assert!(resolve_relay_mode(None).unwrap().is_none());
+
+        // federation config present but relay_mode left at its default: still no override.
+        let cfg = fed(RelayModeConfig::Default, None);
+        assert!(resolve_relay_mode(Some(&cfg)).unwrap().is_none());
+    }
+
+    #[test]
+    fn relay_mode_custom_only_routes_through_custom_relay_alone() {
+        let cfg = fed(
+            RelayModeConfig::CustomOnly,
+            Some("https://relay.example.com"),
+        );
+        let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
+        let url: RelayUrl = "https://relay.example.com".parse().unwrap();
+
+        match mode {
+            RelayMode::Custom(map) => {
+                assert!(map.contains(&url));
+                assert_eq!(
+                    map.len(),
+                    1,
+                    "custom_only must not include the public relays"
+                );
+            }
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn relay_mode_prefer_custom_includes_public_fallback() {
+        let cfg = fed(
+            RelayModeConfig::PreferCustom,
+            Some("https://relay.example.com"),
+        );
+        let mode = resolve_relay_mode(Some(&cfg)).unwrap().unwrap();
+        let custom_url: RelayUrl = "https://relay.example.com".parse().unwrap();
+        let public_map = RelayMode::Default.relay_map();
+
+        match mode {
+            RelayMode::Custom(map) => {
+                assert!(map.contains(&custom_url), "custom relay must be present");
+                assert!(
+                    map.len() > public_map.len(),
+                    "prefer_custom must include the public relays alongside the custom one"
+                );
+            }
+            other => panic!("expected RelayMode::Custom, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn relay_mode_custom_requires_a_relay_url() {
+        let cfg = fed(RelayModeConfig::CustomOnly, None);
+        assert!(resolve_relay_mode(Some(&cfg)).is_err());
+
+        let cfg = fed(RelayModeConfig::PreferCustom, Some("   "));
+        assert!(resolve_relay_mode(Some(&cfg)).is_err());
     }
 }

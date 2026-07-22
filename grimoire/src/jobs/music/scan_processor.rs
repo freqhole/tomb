@@ -34,7 +34,7 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
     };
 
     // use music scanner to handle directory scanning and job creation
-    let files_discovered = match scanner::scan_directory_and_create_jobs(
+    let outcome = match scanner::scan_directory_and_create_jobs(
         &params.directory_path,
         session_id,
         params.recursive,
@@ -44,7 +44,7 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
     )
     .await
     {
-        Ok(count) => count,
+        Ok(outcome) => outcome,
         Err(e) => {
             return Err(JobError::ProcessingFailed {
                 reason: format!("failed to scan directory: {}", e),
@@ -62,8 +62,8 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
 
     // return scan results
     let result = ScanDirectoryResult {
-        files_discovered: files_discovered as u64,
-        jobs_created: files_discovered as u64,
+        files_discovered: outcome.file_count as u64,
+        jobs_created: outcome.jobs_created as u64,
         errors: Vec::new(),
     };
 

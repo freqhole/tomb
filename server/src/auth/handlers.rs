@@ -123,7 +123,7 @@ pub async fn redeem_invite(
 ) -> Result<impl IntoResponse, ApiError> {
     let service = grimoire::users::UserService::new();
 
-    // get peer node_id from header (added by federation proxy) or request body
+    // get peer node_id from header (added by the federation handler) or request body
     let peer_node_id = headers
         .get("X-Peer-Node-Id")
         .and_then(|v| v.to_str().ok())

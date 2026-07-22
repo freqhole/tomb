@@ -128,11 +128,8 @@ pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/tags/add-to-albums
 pub async fn add_to_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "add_albums_tags").await {
+        return resp;
     }
 
     let req: AddAlbumsTagsRequest = match serde_json::from_value(body) {
@@ -163,11 +160,8 @@ struct RemoveAlbumsTagsRequest {
 }
 
 pub async fn remove_from_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "remove_albums_tags").await {
+        return resp;
     }
 
     let req: RemoveAlbumsTagsRequest = match serde_json::from_value(body) {
@@ -198,11 +192,8 @@ struct ReplaceAlbumsTagsRequest {
 }
 
 pub async fn replace_on_albums(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "replace_albums_tags").await {
+        return resp;
     }
 
     let req: ReplaceAlbumsTagsRequest = match serde_json::from_value(body) {
@@ -286,11 +277,8 @@ struct DeleteTagRequest {
 }
 
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_tag").await {
+        return resp;
     }
 
     let req: DeleteTagRequest = match serde_json::from_value(body) {

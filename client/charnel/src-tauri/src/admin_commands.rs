@@ -48,7 +48,7 @@ pub async fn admin_dispatch(
 /// format accepted by the rest of the P2P client surface).
 ///
 /// the federation endpoint must already be initialized — this is the same
-/// requirement as `p2p_proxy_request` and friends. on the wire, the request
+/// requirement as `p2p_api_call` and friends. on the wire, the request
 /// is framed as `AdminMessage::Request` and the response as
 /// `AdminMessage::Response`; we re-shape it to a `GrimoireResponse`-style
 /// JSON envelope so the TS side can treat local and remote responses the

@@ -1,17 +1,24 @@
-// auth service — abstracts webauthn authentication flows
+// auth service - abstracts webauthn authentication flows
 // handles login and registration with the freqhole server
+//
+// the actual passkey ceremony logic (credential construction, response
+// handling, error paths) lives in @freqhole/haruspex's webauthn subpath;
+// this file wires that ceremony logic to spume's api client via
+// createWebauthnTransport and layers spume-specific app logic on top (the
+// invite-code fallback for plain-http registration when passkeys aren't
+// available).
 
-import { getClientForRemote, httpRemote, isCharnelAvailable, webauthn } from "../../api/client";
+import {
+  registerWithPasskey,
+  loginWithPasskey,
+  whoami as webauthnWhoami,
+} from "@freqhole/haruspex/webauthn";
+import { getClientForRemote, httpRemote, isCharnelAvailable } from "../../api/client";
+import { createWebauthnTransport } from "./webauthnTransport";
 import { debug } from "../../../utils/logger";
 
 // ============================================================================
 // p2p webauthn flows
-//
-// the p2p handlers differ from http in two ways:
-//   1. start calls require `origin: window.location.origin` in the body
-//      (http handlers get origin from the validated request header)
-//   2. finish calls wrap the credential as { nonce, origin, credential }
-//      (http handlers use session cookies to carry the nonce)
 // ============================================================================
 
 export interface P2PAuthResult {
@@ -21,10 +28,9 @@ export interface P2PAuthResult {
   error?: string;
 }
 
-// extract a human-readable message from a failed SafeParseResult.
-// the client wraps all server errors as ZodError with the message in issues[0].
-function parseErrorMsg(err: import("zod").ZodError, fallback: string): string {
-  return err.issues?.[0]?.message ?? fallback;
+function p2pRemoteFor(peerAddr: string) {
+  const transport = isCharnelAvailable() ? ("app" as const) : ("wasm" as const);
+  return { transport, peer_addr: peerAddr };
 }
 
 /**
@@ -39,57 +45,17 @@ export async function registerWithWebauthnP2P(
   username: string,
   inviteCode: string,
 ): Promise<P2PAuthResult> {
-  const origin = window.location.origin;
-  const transport = isCharnelAvailable() ? "app" as const : "wasm" as const;
-  const remote = { transport, peer_addr: peerAddr };
-
-  try {
-    const client = await getClientForRemote(remote);
-    debug("webauthn-p2p", "starting p2p registration for:", username);
-    console.log("[PASSKEY-REG] registerStart request:", { username, invite_code: inviteCode, origin });
-
-    // step 1: start - include origin so server can derive rp_id
-    const startResult = await client.auth.registerStart({
-      username,
-      invite_code: inviteCode,
-      origin,
-    });
-
-    console.log("[PASSKEY-REG] registerStart response:", { success: startResult.success });
-
-    if (!startResult.success) {
-      return { success: false, error: parseErrorMsg(startResult.error, "failed to start registration") };
-    }
-
-    // startResult.data is { nonce, challenge } for p2p; { publicKey, ... } for http
-    const { nonce, challenge } = startResult.data as { nonce: string; challenge: unknown };
-    console.log("[PASSKEY-REG] challenge structure:", { nonce: nonce?.slice?.(0, 20), challenge_type: typeof challenge, has_publicKey: !!(challenge as any)?.publicKey, has_allowCredentials: !!(challenge as any)?.publicKey?.allowCredentials?.length });
-
-    // step 2: browser creates credential from the challenge
-    const credentialOptions = webauthn.prepareRegistrationOptions(challenge);
-    console.log("[PASSKEY-REG] credentialOptions after prepare:", { publicKey: credentialOptions.publicKey?.user?.name, rp_id: credentialOptions.publicKey?.rp?.id, attestation: credentialOptions.publicKey?.attestation, excludeCredentials_count: credentialOptions.publicKey?.excludeCredentials?.length });
-    const credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
-    console.log("[PASSKEY-REG] credential created:", credential ? { id: credential.id?.slice?.(0, 20), type: credential.type } : null);
-    if (!credential) {
-      return { success: false, error: "browser did not return a credential" };
-    }
-
-    // step 3: finish - wrap with nonce + origin
-    const serialized = webauthn.serializeRegistrationCredential(credential);
-    const finishResult = await client.auth.registerFinish({ nonce, origin, credential: serialized });
-
-    if (!finishResult.success) {
-      return { success: false, error: parseErrorMsg(finishResult.error, "failed to finish registration") };
-    }
-
-    const data = finishResult.data as { user_id?: string; username?: string } | undefined;
-    debug("webauthn-p2p", "p2p registration complete:", data);
-    return { success: true, userId: data?.user_id, username: data?.username };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "registration failed";
-    debug("webauthn-p2p", "p2p registration error:", err);
-    return { success: false, error: msg };
+  debug("webauthn-p2p", "starting p2p registration for:", username);
+  const result = await registerWithPasskey(createWebauthnTransport(p2pRemoteFor(peerAddr)), {
+    username,
+    inviteCode,
+  });
+  if (!result.success) {
+    debug("webauthn-p2p", "p2p registration error:", result.error);
+    return { success: false, error: result.error };
   }
+  debug("webauthn-p2p", "p2p registration complete:", result);
+  return { success: true, userId: result.userId, username: result.username };
 }
 
 /**
@@ -104,81 +70,19 @@ export async function loginWithWebauthnP2P(
   peerAddr: string,
   username?: string,
 ): Promise<P2PAuthResult> {
-  const origin = window.location.origin;
-  const transport = isCharnelAvailable() ? "app" as const : "wasm" as const;
-  const remote = { transport, peer_addr: peerAddr };
-
-  try {
-    console.log("[loginWithWebauthnP2P] starting", { username, origin, peerAddr: peerAddr.slice(0, 16) + "..." });
-    const client = await getClientForRemote(remote);
-    debug("webauthn-p2p", "starting p2p login, username:", username ?? "(discoverable)");
-
-    // step 1: start - include origin; omit username for discoverable flow
-    console.log("[loginWithWebauthnP2P] calling loginStart...");
-    const startResult = await client.auth.loginStart({
-      username: username || undefined,
-      origin,
-    });
-
-    console.log("[loginWithWebauthnP2P] loginStart response:", startResult.success ? "success" : "error", startResult);
-    if (!startResult.success) {
-      const errorMsg = parseErrorMsg(startResult.error, "failed to start login");
-      console.log("[loginWithWebauthnP2P] START FAILED:", errorMsg, "raw error:", startResult.error);
-      debug("webauthn-p2p", "LOGIN START FAILED - error:", startResult.error, "parsed:", errorMsg);
-      return { success: false, error: errorMsg };
-    }
-
-    const { nonce, challenge } = startResult.data as { nonce: string; challenge: unknown };
-    console.log("[loginWithWebauthnP2P] got challenge, preparing options...");
-    debug("webauthn-p2p", "login start succeeded, got challenge");
-
-    // step 2: browser asserts credential
-    const credentialOptions = webauthn.prepareAuthenticationOptions(challenge);
-    console.log("[loginWithWebauthnP2P] credentialOptions:", credentialOptions);
-    debug("webauthn-p2p", "prepared authentication options");
-    
-    console.log("[loginWithWebauthnP2P] calling navigator.credentials.get...");
-    const credential = (await navigator.credentials.get(credentialOptions)) as PublicKeyCredential;
-    console.log("[loginWithWebauthnP2P] got credential:", credential ? credential.id : "null");
-    
-    if (!credential) {
-      console.log("[loginWithWebauthnP2P] ERROR: no credential returned - allowCredentials must be empty");
-      debug("webauthn-p2p", "ERROR: browser did not return a credential - allowCredentials list may be empty");
-      return { success: false, error: "browser did not return a credential" };
-    }
-    debug("webauthn-p2p", "credential id (base64url):", credential.id);
-    debug("webauthn-p2p", "user handle present:", !!(credential.response as AuthenticatorAssertionResponse).userHandle);
-
-    // step 3: finish
-    const serialized = webauthn.serializeAuthenticationCredential(credential);
-    console.log("[loginWithWebauthnP2P] calling loginFinish...");
-    debug("webauthn-p2p", "sending finish, nonce:", nonce, "rawId (first 8 chars):", serialized.rawId?.slice(0, 8));
-    const finishResult = await client.auth.loginFinish({ nonce, origin, credential: serialized });
-    
-    console.log("[loginWithWebauthnP2P] loginFinish response:", finishResult.success ? "success" : "error", finishResult);
-    debug("webauthn-p2p", "finish result:", finishResult.success, finishResult.success ? finishResult.data : finishResult.error);
-
-    if (!finishResult.success) {
-      const errorMsg = parseErrorMsg(finishResult.error, "failed to finish login");
-      console.log("[loginWithWebauthnP2P] FINISH FAILED:", errorMsg, "raw error:", finishResult.error);
-      return { success: false, error: errorMsg };
-    }
-
-    const data = finishResult.data as { user_id?: string; username?: string } | undefined;
-    console.log("[loginWithWebauthnP2P] login complete:", data);
-    debug("webauthn-p2p", "p2p login complete:", data);
-    return { success: true, userId: data?.user_id, username: data?.username };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "login failed";
-    console.log("[loginWithWebauthnP2P] exception:", err, "message:", msg);
-    debug("webauthn-p2p", "p2p login exception:", err);
-    return { success: false, error: msg };
+  debug("webauthn-p2p", "starting p2p login, username:", username ?? "(discoverable)");
+  const result = await loginWithPasskey(createWebauthnTransport(p2pRemoteFor(peerAddr)), { username });
+  if (!result.success) {
+    debug("webauthn-p2p", "p2p login failed:", result.error);
+    return { success: false, error: result.error };
   }
+  debug("webauthn-p2p", "p2p login complete:", result);
+  return { success: true, userId: result.userId, username: result.username };
 }
 
 /**
  * register a first passkey using node-based authentication (no invite code needed).
- * 
+ *
  * works for users already authenticated to a P2P remote - their node_id is in
  * the allowed peers list, so they can register new passkeys without an invite code.
  *
@@ -189,72 +93,20 @@ export async function addPasskeyWithNodeAuth(
   peerAddr: string,
   username?: string,
 ): Promise<P2PAuthResult> {
-  const origin = window.location.origin;
-  const transport = isCharnelAvailable() ? "app" as const : "wasm" as const;
-  const remote = { transport, peer_addr: peerAddr };
-
-  try {
-    console.log("[addPasskeyWithNodeAuth] starting with username:", username ?? "(discoverable)");
-    const client = await getClientForRemote(remote);
-    debug("webauthn-p2p-nodeauth", "starting first passkey registration, username:", username ?? "(discoverable)");
-
-    // step 1: start - request registration challenge using node-based auth (no invite code)
-    console.log("[addPasskeyWithNodeAuth] calling registerStart without invite code...");
-    const startResult = await client.auth.registerStart({
-      username: username || "",
-      origin,
-      // no invite_code - backend will use node_id to find the user
-    });
-
-    console.log("[addPasskeyWithNodeAuth] registerStart response:", startResult.success ? "success" : "error", startResult);
-    if (!startResult.success) {
-      const errorMsg = parseErrorMsg(startResult.error, "failed to start registration");
-      console.log("[addPasskeyWithNodeAuth] START FAILED:", errorMsg, "raw error:", startResult.error);
-      debug("webauthn-p2p-nodeauth", "REGISTER START FAILED:", errorMsg);
-      return { success: false, error: errorMsg };
-    }
-
-    const { nonce, challenge } = startResult.data as { nonce: string; challenge: unknown };
-    console.log("[addPasskeyWithNodeAuth] got challenge, preparing options...");
-    debug("webauthn-p2p-nodeauth", "registration challenge received");
-
-    // step 2: browser creates credential
-    const credentialOptions = webauthn.prepareRegistrationOptions(challenge);
-    console.log("[addPasskeyWithNodeAuth] credentialOptions prepared");
-    const credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
-    console.log("[addPasskeyWithNodeAuth] credential created:", credential ? credential.id : "null");
-    
-    if (!credential) {
-      console.log("[addPasskeyWithNodeAuth] ERROR: browser did not return a credential");
-      debug("webauthn-p2p-nodeauth", "ERROR: browser did not return a credential");
-      return { success: false, error: "browser did not return a credential" };
-    }
-
-    // step 3: finish
-    const serialized = webauthn.serializeRegistrationCredential(credential);
-    console.log("[addPasskeyWithNodeAuth] calling registerFinish...");
-    debug("webauthn-p2p-nodeauth", "sending finish");
-    const finishResult = await client.auth.registerFinish({ nonce, origin, credential: serialized });
-    
-    console.log("[addPasskeyWithNodeAuth] registerFinish response:", finishResult.success ? "success" : "error", finishResult);
-    debug("webauthn-p2p-nodeauth", "finish result:", finishResult.success ? "success" : finishResult.error);
-
-    if (!finishResult.success) {
-      const errorMsg = parseErrorMsg(finishResult.error, "failed to finish registration");
-      console.log("[addPasskeyWithNodeAuth] FINISH FAILED:", errorMsg);
-      return { success: false, error: errorMsg };
-    }
-
-    const data = finishResult.data as { user_id?: string; username?: string } | undefined;
-    console.log("[addPasskeyWithNodeAuth] registration complete:", data);
-    debug("webauthn-p2p-nodeauth", "first passkey registered:", data);
-    return { success: true, userId: data?.user_id, username: data?.username };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "registration failed";
-    console.log("[addPasskeyWithNodeAuth] exception:", err, "message:", msg);
-    debug("webauthn-p2p-nodeauth", "exception:", err);
-    return { success: false, error: msg };
+  debug(
+    "webauthn-p2p-nodeauth",
+    "starting first passkey registration, username:",
+    username ?? "(discoverable)",
+  );
+  const result = await registerWithPasskey(createWebauthnTransport(p2pRemoteFor(peerAddr)), {
+    username: username || "",
+  });
+  if (!result.success) {
+    debug("webauthn-p2p-nodeauth", "registration failed:", result.error);
+    return { success: false, error: result.error };
   }
+  debug("webauthn-p2p-nodeauth", "first passkey registered:", result);
+  return { success: true, userId: result.userId, username: result.username };
 }
 
 export interface AuthResult {
@@ -269,20 +121,20 @@ export interface WhoamiResult {
   role?: string;
 }
 
+function toWhoamiResult(outcome: {
+  authenticated: boolean;
+  userId?: string;
+  username?: string;
+  role?: string;
+}): WhoamiResult {
+  if (!outcome.authenticated) return { success: false };
+  return { success: true, userId: outcome.userId, username: outcome.username, role: outcome.role };
+}
+
 // check if user is authenticated on a remote
 export async function whoami(baseUrl: string): Promise<WhoamiResult> {
   try {
-    const client = await getClientForRemote(httpRemote(baseUrl));
-    const result = await client.auth.whoami();
-    if (result.success && result.data) {
-      return {
-        success: true,
-        userId: result.data.user_id,
-        username: result.data.username,
-        role: result.data.role,
-      };
-    }
-    return { success: false };
+    return toWhoamiResult(await webauthnWhoami(createWebauthnTransport(httpRemote(baseUrl))));
   } catch {
     return { success: false };
   }
@@ -293,24 +145,14 @@ export async function whoami(baseUrl: string): Promise<WhoamiResult> {
  * required for gating admin-only UI on P2P remotes where role isn't carried
  * implicitly by the iroh node id.
  *
- * NOTE: this does NOT swallow transport errors — callers (e.g. the auth
+ * NOTE: this does NOT swallow transport errors - callers (e.g. the auth
  * status store) need to distinguish "not authenticated" (success:false)
  * from "p2p transport not warm yet" (throws) so they can retry.
  */
 export async function whoamiForRemote(
   remote: import("../storage/schemas/remote").Remote,
 ): Promise<WhoamiResult> {
-  const client = await getClientForRemote(remote);
-  const result = await client.auth.whoami();
-  if (result.success && result.data) {
-    return {
-      success: true,
-      userId: result.data.user_id,
-      username: result.data.username,
-      role: result.data.role,
-    };
-  }
-  return { success: false };
+  return toWhoamiResult(await webauthnWhoami(createWebauthnTransport(remote)));
 }
 
 // get server info (public endpoint)
@@ -322,51 +164,16 @@ export async function getServerInfo(baseUrl: string) {
 // login with webauthn
 export async function loginWithWebauthn(
   baseUrl: string,
-  username: string,
+  username?: string,
 ): Promise<AuthResult> {
-  try {
-    const client = await getClientForRemote(httpRemote(baseUrl));
-    debug("webauthn", "starting login for username:", username);
-
-    // step 1: start login
-    debug("webauthn", "starting webauthn login...");
-    const startResult = await client.auth.loginStart({ username });
-
-    if (!startResult.success) {
-      console.error("login start failed:", startResult);
-      return { success: false, error: "failed to start login" };
-    }
-    debug("webauthn", "login start response:", startResult.data);
-
-    // step 2: get webauthn credential
-    debug("webauthn", "requesting credential from browser...");
-    const credentialOptions = webauthn.prepareAuthenticationOptions(startResult.data);
-    const credential = (await navigator.credentials.get(credentialOptions)) as PublicKeyCredential;
-
-    if (!credential) {
-      return { success: false, error: "failed to get credential" };
-    }
-    debug("webauthn", "credential retrieved:", credential);
-
-    // step 3: finish login
-    debug("webauthn", "finishing login...");
-    const serializedCredential = webauthn.serializeAuthenticationCredential(credential);
-    const finishResult = await client.auth.loginFinish(serializedCredential);
-
-    if (!finishResult.success) {
-      console.error("login finish failed:", finishResult);
-      return { success: false, error: "failed to complete login" };
-    }
-    debug("webauthn", "login complete!");
-
-    return { success: true };
-  } catch (err) {
-    console.error("webauthn login failed:", err);
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "authentication failed",
-    };
+  debug("webauthn", "starting login for username:", username ?? "(discoverable)");
+  const result = await loginWithPasskey(createWebauthnTransport(httpRemote(baseUrl)), { username });
+  if (!result.success) {
+    console.error("webauthn login failed:", result.error);
+    return { success: false, error: result.error };
   }
+  debug("webauthn", "login complete!");
+  return { success: true };
 }
 
 // check if webauthn is supported and available in current context
@@ -378,17 +185,18 @@ export function isWebAuthnAvailable(): boolean {
   );
 }
 
-// check if an error indicates passkey is not available (vs other errors)
-function isPasskeyUnavailableError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+// check if a ceremony failure indicates passkey is not available (vs other errors)
+//
+// NotAllowedError: user denied or browser/platform blocked the request
+// NotSupportedError: webauthn not supported in this context
+// SecurityError: secure context required or other security issue
+// AbortError: request was aborted
+function isPasskeyUnavailableError(failureName: string | undefined): boolean {
+  if (!failureName) return false;
 
-  // NotAllowedError: user denied or browser/platform blocked the request
-  // NotSupportedError: webauthn not supported in this context
-  // SecurityError: secure context required or other security issue
-  // AbortError: request was aborted
   const unavailableErrorNames = ["NotAllowedError", "NotSupportedError", "SecurityError", "AbortError"];
 
-  return unavailableErrorNames.includes(err.name);
+  return unavailableErrorNames.includes(failureName);
 }
 
 // fallback to simple invite redemption (no passkey, session-only auth)
@@ -434,76 +242,28 @@ export async function registerWithWebauthn(
     return fallbackToInviteRedemption(baseUrl, username, inviteCode);
   }
 
-  try {
-    const client = await getClientForRemote(httpRemote(baseUrl));
-    debug("webauthn", "starting registration for username:", username);
+  debug("webauthn", "starting registration for username:", username);
 
-    // step 1: start registration with invite code
-    debug("webauthn", "starting webauthn registration...");
-    const startResult = await client.auth.registerStart({
-      username,
-      invite_code: inviteCode,
-    });
+  const result = await registerWithPasskey(createWebauthnTransport(httpRemote(baseUrl)), {
+    username,
+    inviteCode,
+  });
 
-    if (!startResult.success) {
-      console.error("register start failed:", startResult);
-      return { success: false, error: "failed to start registration" };
-    }
-    debug("webauthn", "register start response:", startResult.data);
-
-    // step 2: create webauthn credential (this is where passkey creation happens)
-    debug("webauthn", "requesting credential creation from browser...");
-    const credentialOptions = webauthn.prepareRegistrationOptions(startResult.data);
-
-    let credential: PublicKeyCredential | null = null;
-    try {
-      credential = (await navigator.credentials.create(credentialOptions)) as PublicKeyCredential;
-    } catch (credErr) {
-      // if passkey creation failed due to unavailability, fall back to invite redemption
-      if (isPasskeyUnavailableError(credErr)) {
-        debug("webauthn", `passkey creation failed (${(credErr as Error).name}), falling back to invite redemption`);
-        return fallbackToInviteRedemption(baseUrl, username, inviteCode);
-      }
-      // re-throw other errors
-      throw credErr;
-    }
-
-    if (!credential) {
-      // no credential and no error - unexpected, try fallback
-      debug("webauthn", "no credential returned, falling back to invite redemption");
+  if (!result.success) {
+    const noCredential = result.error === "browser did not return a credential";
+    if (isPasskeyUnavailableError(result.name) || noCredential) {
+      debug("webauthn", "passkey creation unavailable, falling back to invite redemption");
       return fallbackToInviteRedemption(baseUrl, username, inviteCode);
     }
-    debug("webauthn", "credential created:", credential);
-
-    // step 3: finish registration
-    debug("webauthn", "finishing registration...");
-    const serializedCredential = webauthn.serializeRegistrationCredential(credential);
-    const finishResult = await client.auth.registerFinish(serializedCredential);
-
-    if (!finishResult.success) {
-      console.error("register finish failed:", finishResult);
-      return { success: false, error: "failed to complete registration" };
-    }
-    debug("webauthn", "registration complete!");
-
-    return { success: true };
-  } catch (err) {
-    console.error("webauthn registration failed:", err);
-
-    // if the error indicates passkey unavailability, try fallback
-    if (isPasskeyUnavailableError(err)) {
-      debug("webauthn", `registration failed with passkey error (${(err as Error).name}), trying fallback`);
-      return fallbackToInviteRedemption(baseUrl, username, inviteCode);
-    }
-
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "registration failed",
-    };
+    console.error("webauthn registration failed:", result.error);
+    return { success: false, error: result.error };
   }
+
+  debug("webauthn", "registration complete!");
+  return { success: true };
 }
 
-// perform auth (login or register) — unified helper
+// perform auth (login or register) - unified helper
 export async function authenticate(
   baseUrl: string,
   data: {

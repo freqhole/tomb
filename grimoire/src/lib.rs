@@ -5,6 +5,7 @@
 //! grimoire library
 //! core business logic and database operations
 
+pub(crate) mod acl_bridge;
 pub mod admin_dispatch;
 pub mod analytics;
 pub mod api_registry;
@@ -34,6 +35,7 @@ pub mod sessions;
 pub mod setup;
 pub mod shutdown;
 pub mod updates;
+pub mod upgrade;
 pub mod upload;
 pub mod users;
 pub mod wordlist;

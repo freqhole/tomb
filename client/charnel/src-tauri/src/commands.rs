@@ -826,11 +826,13 @@ pub async fn scan_directory(
     .await;
 
     match result.data {
-        Some(count) => {
+        Some(outcome) => {
             // record the scanned directory in the database
-            let _ = grimoire::jobs::record_scanned_directory(&path, count as i64, None).await;
+            let _ =
+                grimoire::jobs::record_scanned_directory(&path, outcome.file_count as i64, None)
+                    .await;
 
-            if count > 0 {
+            if outcome.jobs_created > 0 {
                 // start background polling for job completion
                 let app_handle_clone = app_handle.clone();
                 let session_id_clone = session_id.clone();
@@ -845,10 +847,19 @@ pub async fn scan_directory(
                 });
             }
 
+            let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
+                format!(
+                    "nothing new to import: {} file(s) already in your library",
+                    outcome.files_skipped
+                )
+            } else {
+                format!("scheduled {} music files for import", outcome.files_queued)
+            };
+
             ScanResult {
                 success: true,
-                jobs_created: count as u32,
-                message: format!("scheduled {} music files for import", count),
+                jobs_created: outcome.jobs_created as u32,
+                message,
             }
         }
         None => ScanResult {
@@ -1658,23 +1669,38 @@ pub struct ConfigUpgradeResult {
     pub old_version: String,
     /// new version written to config
     pub new_version: String,
+    /// outcome of the haruspex auth data migration (tagged by "status")
+    pub haruspex_migration: serde_json::Value,
+    /// outcome of the reliquary blob data migration (tagged by "status")
+    pub reliquary_migration: serde_json::Value,
 }
 
-/// upgrade server config to current version
+/// upgrade server config to current version and run the one-shot data migrations
 ///
-/// creates backup first, then merges user values into fresh template.
+/// creates backup first, then merges user values into fresh template, reloads
+/// the in-memory config, and runs the haruspex + reliquary data migrations.
+/// migration failures are non-fatal - their outcomes ride along in the result.
 /// app config (freqhole-app-config.toml) is upgraded silently on startup.
 #[tauri::command]
-pub fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResult, String> {
+pub async fn upgrade_config(app_handle: tauri::AppHandle) -> Result<ConfigUpgradeResult, String> {
     let config_path = get_server_config_path_resolved(&app_handle)
         .ok_or_else(|| "config file not found".to_string())?;
 
-    let result = grimoire::config::upgrade_config(&config_path).map_err(|e| e.to_string())?;
+    let outcome = grimoire::upgrade::upgrade_config_and_migrate(&config_path)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // land the migration results in the log even if the ui ignores them
+    tracing::info!("{}", grimoire::upgrade::describe_outcome(&outcome));
 
     Ok(ConfigUpgradeResult {
-        backup_path: result.backup_path.display().to_string(),
-        old_version: result.old_version,
-        new_version: result.new_version,
+        backup_path: outcome.config.backup_path.display().to_string(),
+        old_version: outcome.config.old_version,
+        new_version: outcome.config.new_version,
+        haruspex_migration: serde_json::to_value(&outcome.haruspex)
+            .unwrap_or(serde_json::Value::Null),
+        reliquary_migration: serde_json::to_value(&outcome.reliquary)
+            .unwrap_or(serde_json::Value::Null),
     })
 }
 

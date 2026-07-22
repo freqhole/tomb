@@ -81,11 +81,8 @@ struct ListKnocksRequest {
 }
 
 pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "list_knocks").await {
+        return resp;
     }
 
     let req: ListKnocksRequest = serde_json::from_value(body).unwrap_or_default();
@@ -97,11 +94,8 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 ///
 /// path: GET /api/admin/knocks/all
 pub async fn list_all(caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "list_all_knocks").await {
+        return resp;
     }
 
     let response = list_knocks(true).await;
@@ -112,11 +106,8 @@ pub async fn list_all(caller: &Caller, _body: JsonValue) -> GrimoireResponse<Jso
 ///
 /// path: GET /api/admin/knocks/{id}
 pub async fn get_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_knock").await {
+        return resp;
     }
 
     let response = get_knock(id).await;
@@ -138,11 +129,8 @@ pub async fn accept_by_id(
     id: &str,
     body: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "accept_knock").await {
+        return resp;
     }
 
     let req: AcceptKnockBody = serde_json::from_value(body).unwrap_or_default();
@@ -164,11 +152,8 @@ pub async fn accept_by_id(
 ///
 /// path: POST /api/admin/knocks/{id}/reject
 pub async fn reject_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "reject_knock").await {
+        return resp;
     }
 
     match reject_knock(id, &caller.user_id).await {
@@ -183,11 +168,8 @@ pub async fn reject_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonVal
 ///
 /// path: DELETE /api/admin/knocks/{id}
 pub async fn delete_by_id(caller: &Caller, id: &str) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_knock").await {
+        return resp;
     }
 
     match delete_knock(id).await {
@@ -205,11 +187,8 @@ pub struct GetKnockRequest {
 }
 
 pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "get_knock").await {
+        return resp;
     }
 
     let req: GetKnockRequest = match serde_json::from_value(body) {
@@ -242,11 +221,8 @@ pub struct AcceptKnockRequest {
 }
 
 pub async fn accept(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "accept_knock").await {
+        return resp;
     }
 
     let req: AcceptKnockRequest = match serde_json::from_value(body) {
@@ -286,11 +262,8 @@ pub struct RejectKnockRequest {
 }
 
 pub async fn reject(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "reject_knock").await {
+        return resp;
     }
 
     let req: RejectKnockRequest = match serde_json::from_value(body) {
@@ -324,11 +297,8 @@ pub struct DeleteKnockRequest {
 }
 
 pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_admin() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new("forbidden", "forbidden", "admin only")],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_knock").await {
+        return resp;
     }
 
     let req: DeleteKnockRequest = match serde_json::from_value(body) {

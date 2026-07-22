@@ -1,0 +1,10 @@
+{
+    "v": 1,
+    "type": "profile-response",
+    "username": "alice",
+    "bio": "building things on freqhole",
+    "avatarDataUrl": "data:image/png;base64,abc123",
+    "accentColor": 6366441,
+    "profileDocId": "doc-profile-alice",
+    "profileUpdatedAt": "2026-07-01T12:00:00Z"
+}

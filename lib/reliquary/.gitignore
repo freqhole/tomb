@@ -1,0 +1,7 @@
+/target
+/reliquary.db
+/reliquary.db-*
+Cargo.lock
+node_modules/
+dist/
+.DS_Store

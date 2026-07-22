@@ -15,9 +15,8 @@ use zod_gen_derive::ZodSchema;
 
 /// session type — what kind of entity is being listened to.
 ///
-/// note: "taxon" replaced "genre" in migration 037; entity_id for a taxon
-/// session points at `taxonz.id`, which can be any kind (genre, label,
-/// mood, era, region, ...).
+/// entity_id for a taxon session points at `taxonz.id`, which can be any
+/// kind (genre, label, mood, era, region, ...).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ListenSessionType {
@@ -57,8 +56,7 @@ impl ListenSessionType {
             "song" => Self::Song,
             "album" => Self::Album,
             "artist" => Self::Artist,
-            // accept legacy "genre" string from cached payloads; the db column
-            // was renamed by migration 037
+            // accept legacy "genre" string from cached payloads for backward compatibility
             "taxon" | "genre" => Self::Taxon,
             "playlist" => Self::Playlist,
             "shuffle" => Self::Shuffle,

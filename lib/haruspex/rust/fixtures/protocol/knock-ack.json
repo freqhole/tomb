@@ -1,0 +1,7 @@
+{
+    "v": 1,
+    "type": "knock-ack",
+    "knockId": "knock-1",
+    "ackerNodeId": "node-hub456",
+    "resourceId": "doc-1"
+}

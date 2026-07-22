@@ -4,12 +4,15 @@ use crate::plumbing::utils::CommandOutput;
 use clap::Subcommand;
 use grimoire::blobz::backfill_blake3_hashes;
 use grimoire::media_blobz::{
-    count_blobs_needing_blake3, find_present_blake3s, find_present_sha256s,
+    count_blake3_backfill_status, count_blobs_needing_blake3, find_present_blake3s,
+    find_present_sha256s,
 };
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct Blake3Status {
+    total_blobs: i64,
+    with_blake3: i64,
     needing_blake3: i64,
     message: String,
 }
@@ -67,14 +70,19 @@ pub enum BlobzAction {
 /// handle blobz commands
 pub async fn handle_command(action: BlobzAction) -> CommandOutput<serde_json::Value> {
     match action {
-        BlobzAction::Blake3Status => match count_blobs_needing_blake3().await {
-            Ok(count) => {
+        BlobzAction::Blake3Status => match count_blake3_backfill_status().await {
+            Ok((total_blobs, with_blake3, needing_blake3)) => {
                 let status = Blake3Status {
-                    needing_blake3: count,
-                    message: if count == 0 {
-                        "all media blobs have blake3 hashes".to_string()
+                    total_blobs,
+                    with_blake3,
+                    needing_blake3,
+                    message: if needing_blake3 == 0 {
+                        format!("all {} media blobs have blake3 hashes", total_blobs)
                     } else {
-                        format!("{} media blobs need blake3 hashes", count)
+                        format!(
+                            "{} of {} media blobs need blake3 hashes",
+                            needing_blake3, total_blobs
+                        )
                     },
                 };
                 CommandOutput::success(

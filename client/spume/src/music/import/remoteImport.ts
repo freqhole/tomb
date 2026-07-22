@@ -45,8 +45,15 @@ export interface UploadJob {
   albumId?: string;
   artistId?: string;
   songId?: string;
+  /** true when the import resolved to an already-existing song (a duplicate) */
+  isDuplicate?: boolean;
   /** job session id - set after completion; used to open import review */
   sessionId?: string;
+  /** short human-readable outcome for a directory (batch) import, e.g.
+   * "6 added, 2 already in library" - set when the resolved job result
+   * carries per-file counts (ProcessDirectory jobs) rather than a single
+   * song outcome. */
+  resultSummary?: string;
 }
 
 // reactive store for all tracked upload jobs
@@ -115,7 +122,15 @@ function updateJobStage(id: string, stage: string | undefined) {
 // server-side job result.
 function updateJobEntities(
   id: string,
-  ids: { albumId?: string; artistId?: string; songId?: string; remoteId?: string; sessionId?: string }
+  ids: {
+    albumId?: string;
+    artistId?: string;
+    songId?: string;
+    remoteId?: string;
+    sessionId?: string;
+    isDuplicate?: boolean;
+    resultSummary?: string;
+  }
 ) {
   setUploadJobs(
     (j) => j.id === id,
@@ -125,18 +140,39 @@ function updateJobEntities(
       if (ids.songId) j.songId = ids.songId;
       if (ids.remoteId) j.remoteId = ids.remoteId;
       if (ids.sessionId) j.sessionId = ids.sessionId;
+      if (ids.isDuplicate !== undefined) j.isDuplicate = ids.isDuplicate;
+      if (ids.resultSummary) j.resultSummary = ids.resultSummary;
     })
   );
 }
 
 // fetch a job's result JSON from the server and resolve its produced
 // entity ids. for ImportMusic the result already contains album/artist/
-// song ids. for FetchMedia (url fetch) the parent has none, so we list
-// child jobs by session_id and pick the first ImportMusic with a result.
+// song ids. for FetchMedia (url fetch) the parent has none, so callers
+// that submit one job per logical item (fetchUrlsOnRemote) opt into
+// `allowSessionFallback` to list sibling jobs by session_id and pick the
+// first one with a result.
+//
+// batch file imports (uploadFilesToRemote, uploadPathsToRemote,
+// importPathsToLocal) submit MANY per-file jobs into one shared session,
+// so this fallback must stay off for them - a file that genuinely has no
+// album (eg. an untagged single) must not borrow a sibling file's album
+// just because one happens to be sitting in the same session.
 async function resolveJobEntities(
   client: FreqholeClient,
-  jobId: string
-): Promise<{ albumId?: string; artistId?: string; songId?: string; sessionId?: string } | null> {
+  jobId: string,
+  allowSessionFallback = false
+): Promise<
+  | {
+      albumId?: string;
+      artistId?: string;
+      songId?: string;
+      sessionId?: string;
+      isDuplicate?: boolean;
+      resultSummary?: string;
+    }
+  | null
+> {
   try {
     const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
     if (!statusResp.success || !statusResp.data) return null;
@@ -144,11 +180,11 @@ async function resolveJobEntities(
     if (!row) return null;
     const fromResult = parseJobResult(row.result ?? null);
     const sessionId = row.session_id ?? undefined;
-    if (fromResult.albumId || fromResult.songId || fromResult.artistId) {
+    if (fromResult.albumId || fromResult.songId || fromResult.artistId || fromResult.resultSummary) {
       return { ...fromResult, sessionId };
     }
     // FetchMedia parent path: walk children via session_id
-    if (row.session_id) {
+    if (allowSessionFallback && row.session_id) {
       try {
         const listResp = await client.music.listJobs({
           session_id: row.session_id,
@@ -172,18 +208,41 @@ async function resolveJobEntities(
   }
 }
 
-function parseJobResult(
-  raw: string | null | undefined
-): { albumId?: string; artistId?: string; songId?: string } {
+function parseJobResult(raw: string | null | undefined): {
+  albumId?: string;
+  artistId?: string;
+  songId?: string;
+  isDuplicate?: boolean;
+  resultSummary?: string;
+} {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw) as Record<string, unknown>;
     const get = (k: string) =>
       typeof v[k] === "string" ? (v[k] as string) : undefined;
+    const getNum = (k: string) => (typeof v[k] === "number" ? (v[k] as number) : undefined);
+
+    // ProcessDirectoryResult carries per-file counts instead of a single
+    // song outcome - build a short human summary from them when present.
+    const filesTotal = getNum("files_total");
+    let resultSummary: string | undefined;
+    if (filesTotal !== undefined) {
+      const succeeded = getNum("files_succeeded") ?? 0;
+      const duplicate = getNum("files_duplicate") ?? 0;
+      const failed = getNum("files_failed") ?? 0;
+      const parts: string[] = [];
+      if (succeeded > 0) parts.push(`${succeeded} added`);
+      if (duplicate > 0) parts.push(`${duplicate} already in library`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      resultSummary = parts.length > 0 ? parts.join(", ") : "no new files";
+    }
+
     return {
       albumId: get("album_id"),
       artistId: get("artist_id"),
       songId: get("song_id"),
+      isDuplicate: typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
+      resultSummary,
     };
   } catch {
     return {};
@@ -440,6 +499,20 @@ export async function importPathsToLocal(
     return trackId;
   });
 
+  // the server already knows up front whether any jobs were actually
+  // created (a directory scan can discover files and still create zero
+  // jobs if everything's already imported and unchanged) - when that's
+  // the case there's nothing to poll for, so finish immediately with an
+  // honest summary instead of waiting on child jobs that will never exist.
+  if (batchResult.data.jobs_created === 0) {
+    for (const trackId of trackIds) {
+      updateJobEntities(trackId, { resultSummary: batchResult.data.message, sessionId });
+      updateJobStatus(trackId, "completed");
+    }
+    onSessionComplete?.(sessionId);
+    return;
+  }
+
   // poll child jobs from the session to update per-file progress
   const poller = new JobPoller(remote, 3000);
   let remaining = paths.length;
@@ -460,15 +533,48 @@ export async function importPathsToLocal(
       }
 
       remaining = childJobs.length;
-      // remap track rows to child job ids (best-effort by index)
-      childJobs.forEach((job, i) => {
-        const trackId = trackIds[i] ?? trackIds[trackIds.length - 1];
+
+      // match child jobs to tracked rows deterministically by the file
+      // path each ProcessFile job was given (parameters.file_path), so a
+      // job for one file can never get attributed to a different tracked
+      // row. paths that don't match any child 1:1 (e.g. a directory path
+      // that fanned out into one or more ProcessDirectory jobs with their
+      // own directory_path) fall back to a best-effort index match among
+      // whatever's left over.
+      const pathToTrackId = new Map(paths.map((p, i) => [p, trackIds[i]]));
+      const jobToTrackId = new Map<string, string>();
+      const usedTrackIds = new Set<string>();
+      const unmatchedJobs: typeof childJobs = [];
+      for (const job of childJobs) {
+        let matchedPath: string | undefined;
+        try {
+          const params = JSON.parse(job.parameters) as Record<string, unknown>;
+          if (typeof params.file_path === "string") matchedPath = params.file_path;
+        } catch {
+          // leave matchedPath undefined - falls through to index fallback
+        }
+        const trackId = matchedPath ? pathToTrackId.get(matchedPath) : undefined;
+        if (trackId && !usedTrackIds.has(trackId)) {
+          jobToTrackId.set(job.id, trackId);
+          usedTrackIds.add(trackId);
+        } else {
+          unmatchedJobs.push(job);
+        }
+      }
+      const leftoverTrackIds = trackIds.filter((id) => !usedTrackIds.has(id));
+      unmatchedJobs.forEach((job, i) => {
+        const trackId = leftoverTrackIds[i] ?? leftoverTrackIds[leftoverTrackIds.length - 1] ?? trackIds[trackIds.length - 1];
+        jobToTrackId.set(job.id, trackId);
+      });
+
+      childJobs.forEach((job) => {
+        const trackId = jobToTrackId.get(job.id) ?? trackIds[trackIds.length - 1];
         updateJobStatus(trackId, "polling", { jobId: job.id });
       });
 
       await Promise.all(
-        childJobs.map(async (job, i) => {
-          const trackId = trackIds[i] ?? trackIds[trackIds.length - 1];
+        childJobs.map(async (job) => {
+          const trackId = jobToTrackId.get(job.id) ?? trackIds[trackIds.length - 1];
           try {
             const pollResult = await poller.waitForJob(job.id, 180_000, {
               onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
@@ -497,18 +603,16 @@ export async function importPathsToLocal(
         })
       );
 
-      // propagate albumId to any tracked rows that didn't resolve one.
-      // this happens when the server returns fewer child jobs than submitted
-      // paths (e.g. a parent orchestrator job covers the whole batch).
-      // also ensure any unmatched rows are marked completed so they don't
-      // stay stuck in "polling" forever.
-      const anyAlbumId = uploadJobs.find((j) => trackIds.includes(j.id) && !!j.albumId)?.albumId;
+      // ensure any rows that never got a matching child job (or whose poll
+      // threw before reaching a terminal status) don't stay stuck in
+      // "polling" forever. deliberately does NOT borrow another row's
+      // albumId here - each row's "view album" link must only ever reflect
+      // that row's own resolved job, never a sibling's, or multi-file/
+      // multi-folder batches would show the wrong album for files that
+      // legitimately have none (or whose own job hasn't resolved yet).
       for (const trackId of trackIds) {
         const j = uploadJobs.find((j) => j.id === trackId);
         if (!j) continue;
-        if (anyAlbumId && !j.albumId) {
-          updateJobEntities(trackId, { albumId: anyAlbumId, sessionId });
-        }
         if (j.status !== "completed" && j.status !== "failed" && j.status !== "timeout") {
           updateJobStatus(trackId, "completed");
           onJobComplete?.();
@@ -577,7 +681,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
           onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
         });
         if (pollResult.status === "completed") {
-          const ids = await resolveJobEntities(client, jobId);
+          const ids = await resolveJobEntities(client, jobId, true);
           if (ids) updateJobEntities(trackId, ids);
           updateJobStatus(trackId, "completed");
           onJobComplete?.();

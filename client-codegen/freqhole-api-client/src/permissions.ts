@@ -1,14 +1,20 @@
 // permission helpers for route authorization
 //
 // these are hand-written helpers that use the generated route auth metadata
-// to check if a user has permission to perform actions.
+// to check if a user has permission to perform actions. the core role-
+// hierarchy/route-auth evaluation logic is bound once over this package's
+// own codegen'd role hierarchy from @freqhole/haruspex/permissions - only
+// the entity-specific route lookups below are tomb-specific.
 
+import { bindRoleHierarchy, type AccessRule } from "@freqhole/haruspex/permissions";
 import {
   roleHierarchy,
   routes,
   type RouteAuth,
   type UserRoleName,
 } from "./codegen/routes.js";
+
+const roleChecks = bindRoleHierarchy(roleHierarchy);
 
 // ============================================================================
 // core permission functions
@@ -26,7 +32,7 @@ export function canAccessRole(
   userRole: UserRoleName,
   requiredRole: UserRoleName,
 ): boolean {
-  return roleHierarchy[userRole] <= roleHierarchy[requiredRole];
+  return roleChecks.hasAtLeastRole(userRole, requiredRole);
 }
 
 /**
@@ -45,12 +51,7 @@ export function canAccessOwnerOr(
   userRole: UserRoleName,
   requiredRole: UserRoleName,
 ): boolean {
-  // owner always has access
-  if (ownerId !== null && userId === ownerId) {
-    return true;
-  }
-  // otherwise check role
-  return canAccessRole(userRole, requiredRole);
+  return roleChecks.canAccessOwnerOr(userId, ownerId, userRole, requiredRole);
 }
 
 /**
@@ -65,7 +66,7 @@ export function canAccessOwner(
   userId: string,
   ownerId: string | null,
 ): boolean {
-  return ownerId !== null && userId === ownerId;
+  return roleChecks.isOwner(userId, ownerId);
 }
 
 /**
@@ -84,27 +85,13 @@ export function canAccessRoute(
   userId: string | null,
   ownerId: string | null,
 ): boolean {
-  switch (auth.type) {
-    case "public":
-      return true;
-
-    case "authenticated":
-      return userRole !== null;
-
-    case "role":
-      return userRole !== null && canAccessRole(userRole, auth.role);
-
-    case "owner":
-      return userId !== null && canAccessOwner(userId, ownerId);
-
-    case "owner_or":
-      return (
-        userId !== null &&
-        userRole !== null &&
-        canAccessOwnerOr(userId, ownerId, userRole, auth.role)
-      );
-  }
+  return roleChecks.canAccess(auth as AccessRule<UserRoleName>, {
+    userRole,
+    userId,
+    ownerId,
+  });
 }
+
 
 // ============================================================================
 // entity-specific permission helpers

@@ -388,7 +388,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
                     ),
                 })
                 .to_string();
-                match crate::federation::p2p_client::proxy_request(
+                match crate::federation::p2p_client::api_request(
                     peer,
                     "POST",
                     "/api/knock",

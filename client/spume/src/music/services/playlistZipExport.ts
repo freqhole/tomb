@@ -40,7 +40,7 @@ async function toPlaylistZipEntry(playlist: Playlist, songs: Song[]): Promise<Pl
         sha: s.sha256,
         // prefer remote_blob_id (transport key), fall back to local_blob_id (opfs key)
         imageSha: imgSha,
-        imageType: imgMeta?.mime_type ?? undefined,
+        imageType: imgMeta?.mime ?? undefined,
         fileSize: s.file_size ?? undefined,
         lyrics: s.lyrics ?? undefined,
       };
@@ -53,7 +53,7 @@ async function toPlaylistZipEntry(playlist: Playlist, songs: Song[]): Promise<Pl
       title: playlist.title,
       description: playlist.description ?? undefined,
       imageSha: playlistImgSha,
-      imageType: playlistImgMeta?.mime_type ?? undefined,
+      imageType: playlistImgMeta?.mime ?? undefined,
     },
     songs: songEntries,
   };

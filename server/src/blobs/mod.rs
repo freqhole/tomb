@@ -23,7 +23,7 @@ use axum::{
     response::Response,
     Extension,
 };
-use grimoire::media_blobz::get_media_blob_with_data;
+use grimoire::media_blobz::{get_media_blob_stream_source, BlobStreamSource};
 use std::io::SeekFrom;
 use tokio::{
     fs::File,
@@ -115,8 +115,8 @@ pub async fn stream_blob_handler(
         "streaming blob"
     );
 
-    // get blob metadata and data (if in database)
-    let (blob, db_data) = get_media_blob_with_data(&blob_id)
+    // get blob metadata and where to stream its bytes from
+    let (blob, source) = get_media_blob_stream_source(&blob_id)
         .await
         .map_err(|_| ApiError::NotFound)?;
 
@@ -145,15 +145,19 @@ pub async fn stream_blob_handler(
         return Ok(head_response(size, &content_type, &etag));
     }
 
-    // determine data source and stream
-    if let Some(local_path) = blob.local_path {
-        // stream from filesystem
-        stream_from_file(local_path, size, content_type, &etag, req).await
-    } else if let Some(data) = db_data {
-        // stream from memory (database)
-        stream_from_memory(data, content_type, &etag, req).await
-    } else {
-        Err(ApiError::NotFound)
+    // stream from wherever the bytes actually live
+    match source {
+        BlobStreamSource::File { path, .. } => {
+            stream_from_file(
+                path.to_string_lossy().into_owned(),
+                size,
+                content_type,
+                &etag,
+                req,
+            )
+            .await
+        }
+        BlobStreamSource::Memory(data) => stream_from_memory(data, content_type, &etag, req).await,
     }
 }
 

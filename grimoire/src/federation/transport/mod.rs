@@ -21,7 +21,7 @@ mod protocol;
 pub use admin_client::send_admin_request;
 pub use admin_iroh::AdminProtocol;
 pub use admin_protocol::{AdminMessage, ADMIN_ALPN};
-pub use connection::{BlobStreamInfo, EnsureBlobOutcome, PeerConnection, ProxyResponse};
+pub use connection::{ApiResponse, BlobStreamInfo, EnsureBlobOutcome, PeerConnection};
 pub use endpoint::FederationEndpoint;
 pub use events_client::{snapshot_events_remote, subscribe_events_remote, EventsRemoteStream};
 pub use events_protocol::{EventsClientMsg, EventsProtocol, EventsServerMsg, EVENTS_ALPN};

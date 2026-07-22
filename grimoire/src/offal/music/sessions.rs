@@ -141,18 +141,18 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
     // non-admins can only list their own sessions
     match &req.user_id {
-        Some(uid) if uid != &caller.user_id && !caller.is_admin() => {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "cannot list another user's sessions",
-                )],
-            );
+        Some(uid) => {
+            if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+                Some(uid.as_str()),
+                caller,
+                "list_listen_sessions",
+            )
+            .await
+            {
+                return resp;
+            }
         }
         None => req.user_id = Some(caller.user_id.clone()),
-        _ => {}
     }
 
     let response = list_listen_sessions(&req).await;
@@ -182,15 +182,14 @@ pub async fn get(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
 
     if let Some(session) = &get_response.data {
         // verify ownership unless admin
-        if session.user_id != caller.user_id && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "cannot access another user's session",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            Some(session.user_id.as_str()),
+            caller,
+            "get_listen_session",
+        )
+        .await
+        {
+            return resp;
         }
     }
 
@@ -284,15 +283,14 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     // verify ownership before deleting
     let get_response = get_listen_session(&req.id).await;
     if let Some(session) = &get_response.data {
-        if session.user_id != caller.user_id && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "cannot delete another user's session",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            Some(session.user_id.as_str()),
+            caller,
+            "delete_listen_session",
+        )
+        .await
+        {
+            return resp;
         }
     } else {
         return GrimoireResponse::failure(

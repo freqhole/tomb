@@ -150,21 +150,18 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 
     // determine the target user_id for favorites/ratings
     let target_user_id = match &params.user_id {
-        Some(uid) if uid != &caller.user_id => {
-            // requesting data for a different user - must be admin
-            if !caller.is_admin() {
-                return GrimoireResponse::failure(
-                    "forbidden",
-                    vec![ErrorDetail::new(
-                        "forbidden",
-                        "forbidden",
-                        "cannot query another user's data",
-                    )],
-                );
+        Some(uid) => {
+            if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+                Some(uid.as_str()),
+                caller,
+                "list_playlists",
+            )
+            .await
+            {
+                return resp;
             }
             uid.clone()
         }
-        Some(uid) => uid.clone(),
         None => caller.user_id.clone(),
     };
 
@@ -178,15 +175,8 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
 ///
 /// path: POST /api/music/playlists
 pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if !caller.is_member() {
-        return GrimoireResponse::failure(
-            "forbidden",
-            vec![ErrorDetail::new(
-                "forbidden",
-                "forbidden",
-                "must be member to create playlists",
-            )],
-        );
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "create_playlist").await {
+        return resp;
     }
 
     let mut req: CreatePlaylistRequest = match serde_json::from_value(body) {
@@ -301,15 +291,14 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     // check ownership
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "can only update your own playlists",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "update_playlist",
+        )
+        .await
+        {
+            return resp;
         }
     }
 
@@ -339,15 +328,14 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     // check ownership
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "can only delete your own playlists",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "delete_playlist",
+        )
+        .await
+        {
+            return resp;
         }
     }
 
@@ -376,15 +364,14 @@ pub async fn add_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<Jso
     // check ownership
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "can only modify your own playlists",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "add_songs_to_playlist",
+        )
+        .await
+        {
+            return resp;
         }
     }
 
@@ -414,15 +401,14 @@ pub async fn remove_songs(caller: &Caller, body: JsonValue) -> GrimoireResponse<
     // check ownership
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "can only modify your own playlists",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "remove_songs_from_playlist",
+        )
+        .await
+        {
+            return resp;
         }
     }
 
@@ -452,15 +438,14 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
     // check ownership
     let playlist_response = get_playlist(&req.playlist_id).await;
     if let Some(playlist) = &playlist_response.data {
-        if playlist.created_by_id.as_ref() != Some(&caller.user_id) && !caller.is_admin() {
-            return GrimoireResponse::failure(
-                "forbidden",
-                vec![ErrorDetail::new(
-                    "forbidden",
-                    "forbidden",
-                    "can only modify your own playlists",
-                )],
-            );
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "reorder_playlist_songs",
+        )
+        .await
+        {
+            return resp;
         }
     }
 

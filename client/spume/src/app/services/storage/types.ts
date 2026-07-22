@@ -130,13 +130,10 @@ export {
   toRemoteRef,
 } from "./schemas";
 
-// P2P identity stored in app_state store with id: "p2p_identity"
-export interface P2PIdentity {
-  id: "p2p_identity";
-  secret_key: Uint8Array; // 32-byte iroh secret key
-  node_id: string; // public node_id derived from secret key
-  created_at: number;
-}
+// P2P identity - secret_key/node_id/created_at, persisted in app_state store
+// with an id: "p2p_identity" tag added at the storage boundary (see
+// getP2PIdentity/saveP2PIdentity in db.ts).
+export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";

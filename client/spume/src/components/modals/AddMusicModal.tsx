@@ -8,6 +8,8 @@ import {
   onCleanup,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+
+import { routes } from "../../music/utils/routing";
 import { Button } from "../buttons/Button";
 import { IconButton } from "../buttons/IconButton";
 import { TextArea } from "../forms/TextArea";
@@ -23,6 +25,7 @@ import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import type { PreCheckFetchResponse, PendingReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
+import { debug } from "../../utils/logger";
 
 // ---------------------------------------------------------------------------
 // module-level precheck state so it survives the modal being closed/reopened
@@ -357,8 +360,26 @@ export function AddMusicModal(props: AddMusicModalProps) {
   );
   const hasJobs = createMemo(() => (props.uploadJobs ?? []).length > 0);
 
-  // completed sessions that have a sessionId - one review card per unique session,
-  // jobCount = number of completed jobs for that session
+  // reviewableSessions cross-checks completed sessions against pendingSessions
+  // (fetched only on modal open/refetchReviewKey), which would otherwise be
+  // stale for a session that finishes while the modal is already open -
+  // refetch whenever the completed-job count grows so a freshly-finished
+  // session's real album count shows up promptly instead of only on reopen.
+  let lastCompletedJobCount = 0;
+  createEffect(() => {
+    const count = completedJobs().length;
+    if (count > lastCompletedJobCount) {
+      lastCompletedJobCount = count;
+      void refetchPendingSessions();
+    }
+  });
+
+  // completed sessions that have a sessionId - one review card per unique session.
+  // jobCount tracks completed jobs, but a session's files can all turn out to be
+  // duplicates of already-imported songs, which never get registered for review -
+  // so jobCount alone can't tell us whether there's anything to actually review.
+  // cross-check against `pendingSessions` (the real backend-fetched review queue)
+  // and only surface a card for sessions that have at least one album pending.
   const reviewableSessions = createMemo(() => {
     const sessionMap = new Map<string, { jobCount: number; label?: string }>();
     for (const j of props.uploadJobs ?? []) {
@@ -371,7 +392,16 @@ export function AddMusicModal(props: AddMusicModalProps) {
         }
       }
     }
-    return [...sessionMap.entries()].map(([sessionId, data]) => ({ sessionId, ...data }));
+    const realAlbumCounts = new Map(
+      (pendingSessions() ?? []).map((s) => [s.session_id, s.albums.length])
+    );
+    return [...sessionMap.entries()]
+      .map(([sessionId, data]) => ({
+        sessionId,
+        ...data,
+        albumCount: realAlbumCounts.get(sessionId) ?? 0,
+      }))
+      .filter((s) => s.albumCount > 0);
   });
   // track which sessions the user has dismissed from this modal session
   const [dismissedSessions, setDismissedSessions] = createSignal<Set<string>>(new Set());
@@ -967,7 +997,8 @@ export function AddMusicModal(props: AddMusicModalProps) {
                               : job.status === "polling"
                                 ? (job.stage ?? "processing...")
                                 : job.status === "completed"
-                                  ? "done"
+                                  ? (job.resultSummary ??
+                                    (job.isDuplicate ? "already in your library" : "done"))
                                   : job.status === "timeout"
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}
@@ -977,8 +1008,21 @@ export function AddMusicModal(props: AddMusicModalProps) {
                           <Show when={job.albumId}>
                             <a
                               class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
-                              href={`#/${job.remoteId ?? "local"}/albums/${encodeURIComponent(job.albumId!)}`}
+                              href={`#${routes.albumOn(job.remoteId, job.albumId!)}`}
                               title="view album"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                // capture before onClose(), which clears completed jobs
+                                // from the store - reading job.* after that could race
+                                const target = routes.albumOn(job.remoteId, job.albumId!);
+                                debug("addMusic", "view album clicked:", {
+                                  remoteId: job.remoteId,
+                                  albumId: job.albumId,
+                                  target,
+                                });
+                                props.onClose();
+                                window.location.hash = target;
+                              }}
                             >
                               view album
                             </a>
@@ -995,7 +1039,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   <div class="px-4 pb-2">
                     <ImportPendingReviewCard
                       sessionLabel={session.label}
-                      pendingCount={session.jobCount}
+                      pendingCount={session.albumCount}
                       onReview={() => {
                         props.onReviewSession?.(session.sessionId);
                       }}

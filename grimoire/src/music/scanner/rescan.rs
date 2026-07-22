@@ -150,6 +150,14 @@ pub async fn update_existing_from_rescan(
         .map_err(|e| JobError::ProcessingFailed {
             reason: format!("failed to update existing blob: {}", e),
         })?;
+
+        // the content hash changed, so re-mirror this blob's (unchanged)
+        // on-disk path into reliquary under its new blake3.
+        if new_blake3.is_some() {
+            if let Ok(blob) = crate::media_blobz::get_media_blob(existing_blob_id).await {
+                crate::media_blobz::mirror_register_local_path(&blob).await;
+            }
+        }
     } else {
         sqlx::query!(
             r#"UPDATE media_blobz SET size = ?, metadata = ? WHERE id = ?"#,

@@ -2,7 +2,7 @@
 //!
 //! dedicated channel for remote admin operations. command-based framing
 //! (not path-based like `freqhole/1`). isolated from the `PeerMessage`
-//! enum used by the player proxy protocol.
+//! enum used by the peer api protocol.
 //!
 //! see docs/wizard-remote-admin.md for the full plan.
 

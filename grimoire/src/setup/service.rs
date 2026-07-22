@@ -505,8 +505,8 @@ impl SetupService {
             )
             .await;
 
-            if let Some(count) = response.data {
-                total_jobs += count;
+            if let Some(outcome) = response.data {
+                total_jobs += outcome.jobs_created;
             }
         }
 

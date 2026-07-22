@@ -114,7 +114,7 @@ pub async fn process_rescan_directories_job(job: &Job) -> Result<Option<Value>, 
         let scan_result = scan_directory(&dir.path, &session_id, true, None, None, false).await;
 
         let found_count = if scan_result.success {
-            scan_result.data.unwrap_or(0)
+            scan_result.data.map(|o| o.file_count).unwrap_or(0)
         } else {
             warn!("scan failed for {}: {}", dir.path, scan_result.message);
             0

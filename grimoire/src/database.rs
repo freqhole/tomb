@@ -3,10 +3,15 @@
 //!
 //! startup flow:
 //! 1. server/cli main calls `initialize()` once
-//! 2. initialize() runs migrations + creates views + creates blob_data db
-//! 3. all other code calls `connect()` or `connect_blob_data()` which return singleton pools
+//! 2. initialize() runs migrations + creates views
+//! 3. all other code calls `connect()` which returns the singleton pool
 //!
 //! IMPORTANT: pools are singletons - created once, reused for all requests.
+//! `connect_blob_data()` opens `blob_data.db` on demand rather than eagerly
+//! at startup - the file and its table are only ever created by whichever
+//! caller reaches for them first (historical data still lives there;
+//! `blob_data`'s crud functions and the reliquary migration tooling are the
+//! only remaining callers).
 
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Executor, SqlitePool};
@@ -18,6 +23,10 @@ use crate::error::{GrimoireError, GrimoireResult};
 // singleton pools - initialized once, reused for all requests
 static MAIN_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
 static BLOB_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static HARUSPEX_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static RELIQUARY_POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+static STORAGE_NODE: OnceCell<reliquary::StorageNode> = OnceCell::const_new();
+static CHUNKED_IMPORT: OnceCell<reliquary::ChunkedImport> = OnceCell::const_new();
 
 // view SQL files embedded at compile time, in dependency order
 // (drop runs in reverse, create runs forward).
@@ -41,9 +50,6 @@ mod views {
         },
         View {
             sql: include_str!("../../migrations/views/playlist_song_query_view.sql"),
-        },
-        View {
-            sql: include_str!("../../migrations/views/feed_query_view.sql"),
         },
     ];
 }
@@ -101,17 +107,6 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         pool.execute(view.sql).await?;
     }
 
-    // initialize blob_data database (separate file for raw binary storage)
-    let blob_pool = connect_blob_data().await?;
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS blob_data (
-            id TEXT PRIMARY KEY,
-            data BLOB NOT NULL
-        )",
-    )
-    .execute(&blob_pool)
-    .await?;
-
     // create freqhole-blobz directory for iroh-blobs FsStore
     let config = get_config();
     let blobz_path = config.freqhole_blobz_path();
@@ -121,6 +116,12 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         })?;
         tracing::info!("created freqhole-blobz directory: {}", blobz_path.display());
     }
+
+    // eagerly open + migrate reliquary's own database (media blob storage
+    // domain library) so its schema is ready at boot, alongside the other
+    // pools. grimoire's music-domain blob code reads and writes through it
+    // already (the reliquary mirror + read-path fallback in media_blobz).
+    let _reliquary_pool = connect_reliquary().await?;
 
     Ok(())
 }
@@ -211,6 +212,101 @@ async fn create_blob_pool() -> GrimoireResult<SqlitePool> {
         .execute(&pool)
         .await?;
 
+    // ensure the table exists: this pool is now opened lazily, on demand,
+    // by whichever caller reaches for blob_data first (historical reads,
+    // or the reliquary migration tooling) rather than eagerly at every
+    // boot, so table creation has to happen here instead of at migration
+    // time.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS blob_data (
+            id TEXT PRIMARY KEY,
+            data BLOB NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
     tracing::debug!("blob_data pool initialized: {}", db_path.display());
     Ok(pool)
+}
+
+/// connect to haruspex's own sqlite database (`haruspex.db`, a sibling of
+/// grimoire's own database file under `data_dir`). haruspex owns this
+/// database's schema and migrations entirely - `haruspex::sqlite::open` runs
+/// them on first connect, so this pool is ready to use as soon as it's
+/// returned. returns a clone of the singleton pool (cheap - just Arc clone).
+pub(crate) async fn connect_haruspex() -> GrimoireResult<SqlitePool> {
+    let pool = HARUSPEX_POOL
+        .get_or_try_init(|| async { create_haruspex_pool().await })
+        .await?;
+    Ok(pool.clone())
+}
+
+/// internal: open (and migrate) haruspex's database under grimoire's data dir
+async fn create_haruspex_pool() -> GrimoireResult<SqlitePool> {
+    let config = get_config();
+    haruspex::sqlite::open(&config.data_dir)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to open haruspex database: {e}"),
+        })
+}
+
+/// connect to reliquary's own sqlite database (`reliquary.db` by default, a
+/// sibling of grimoire's own database file under `data_dir`). reliquary owns
+/// this database's schema and migrations entirely - `reliquary::db::open_at`
+/// runs them on first connect, so this pool is ready to use as soon as it's
+/// returned. returns a clone of the singleton pool (cheap - just Arc clone).
+pub(crate) async fn connect_reliquary() -> GrimoireResult<SqlitePool> {
+    let pool = RELIQUARY_POOL
+        .get_or_try_init(|| async { create_reliquary_pool().await })
+        .await?;
+    Ok(pool.clone())
+}
+
+/// internal: open (and migrate) reliquary's database at its configured path
+async fn create_reliquary_pool() -> GrimoireResult<SqlitePool> {
+    let config = get_config();
+    reliquary::db::open_at(&config.reliquary_db_path())
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to open reliquary database: {e}"),
+        })
+}
+
+/// the shared iroh-blobs storage node (fs_store + gc-protection), backed by
+/// reliquary's blobz metadata store. lazily initialized on first use, like
+/// every other pool in this file.
+pub(crate) async fn storage_node() -> GrimoireResult<&'static reliquary::StorageNode> {
+    STORAGE_NODE
+        .get_or_try_init(|| async {
+            let reliquary_pool = connect_reliquary().await?;
+            let config = get_config();
+            let blobz: std::sync::Arc<dyn reliquary::blobz::BlobStore> = std::sync::Arc::new(
+                reliquary::blobz::SqliteBlobStore::new(reliquary_pool, &config.data_dir),
+            );
+            reliquary::StorageNode::init_local(
+                &config.data_dir,
+                blobz,
+                reliquary::StorageNodeOptions::default(),
+            )
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to initialize storage node: {}", e),
+            })
+        })
+        .await
+}
+
+/// the shared chunked-upload session tracker: bytes accumulate into a temp
+/// file across multiple calls (e.g. one http/ipc request per chunk), then
+/// get adopted into the storage node's blobz store once the upload
+/// completes. lazily initialized on first use, like every other singleton
+/// in this file.
+pub(crate) async fn chunked_import() -> &'static reliquary::ChunkedImport {
+    CHUNKED_IMPORT
+        .get_or_init(|| async {
+            reliquary::ChunkedImport::new(get_config().temp_dir().join("uploads"))
+        })
+        .await
 }

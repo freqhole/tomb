@@ -13,12 +13,29 @@ use crate::jobs::{
 use crate::users::get_root_user_id;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::{debug, info};
 use walkdir::WalkDir;
+
+/// outcome of a directory scan. separates "how many audio files exist"
+/// from "how many jobs did this actually create" - a scan can discover
+/// files and still create zero jobs (every file already imported and
+/// unchanged), which callers must not mistake for "jobs are running".
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DirectoryScanOutcome {
+    /// total audio files discovered under the scanned root
+    pub file_count: usize,
+    /// files queued into a ProcessDirectory job (not skipped)
+    pub files_queued: usize,
+    /// files skipped because they're unchanged since the last import
+    pub files_skipped: usize,
+    /// number of ProcessDirectory jobs actually created
+    pub jobs_created: usize,
+}
 
 /// Scan a directory for audio files and create processing jobs
 ///
-/// Returns the number of audio files discovered and jobs created.
+/// Returns a breakdown of files discovered vs. actually queued/skipped
+/// and the number of jobs created - see `DirectoryScanOutcome`.
 ///
 /// # Arguments
 /// * `skip_tracked_subdirs` - if true, skip subdirectories that are already tracked
@@ -31,7 +48,7 @@ pub async fn scan_directory_and_create_jobs(
     max_depth: Option<u32>,
     file_extensions: Option<Vec<String>>,
     skip_tracked_subdirs: bool,
-) -> GrimoireResult<usize> {
+) -> GrimoireResult<DirectoryScanOutcome> {
     // Get audio extensions from config if not provided
     let audio_extensions = match file_extensions {
         Some(exts) => exts,
@@ -59,6 +76,11 @@ pub async fn scan_directory_and_create_jobs(
     } else {
         None
     };
+
+    info!(
+        "scan_directory_and_create_jobs: root={:?} recursive={} max_depth={:?} skip_tracked_subdirs={}",
+        walk_root, recursive, max_depth, skip_tracked_subdirs
+    );
 
     // Build directory walker
     let mut walker = WalkDir::new(&walk_root);
@@ -127,6 +149,10 @@ pub async fn scan_directory_and_create_jobs(
     }
 
     let file_count = audio_files.len();
+    info!(
+        "scan_directory_and_create_jobs: found {} audio file(s) under {:?}",
+        file_count, walk_root
+    );
 
     // Connect to database to check for existing files
     let pool =
@@ -231,12 +257,21 @@ pub async fn scan_directory_and_create_jobs(
         files_to_process += 1;
     }
 
+    info!(
+        "scan_directory_and_create_jobs: bucketed {} file(s) into {} directory group(s) ({} skipped as unchanged)",
+        files_to_process, by_dir.len(), files_skipped
+    );
+
     // emit one ProcessDirectory job per non-empty dir bucket
     let mut jobs_created = 0usize;
     for (directory_path, files) in by_dir {
         if files.is_empty() {
             continue;
         }
+        info!(
+            "scan_directory_and_create_jobs: creating ProcessDirectory job for {:?} with {} file(s)",
+            directory_path, files.len()
+        );
         let params = ProcessDirectoryParams {
             directory_path: directory_path.clone(),
             files,
@@ -261,7 +296,7 @@ pub async fn scan_directory_and_create_jobs(
         jobs_created += 1;
     }
 
-    debug!(
+    info!(
         "scan complete: {} files found, {} files queued across {} directory jobs, {} files skipped (unchanged)",
         file_count, files_to_process, jobs_created, files_skipped
     );
@@ -275,7 +310,12 @@ pub async fn scan_directory_and_create_jobs(
     let _ =
         update_session_progress(session_id, JobProgress::new(0, jobs_created as u64), None).await;
 
-    Ok(file_count)
+    Ok(DirectoryScanOutcome {
+        file_count,
+        files_queued: files_to_process,
+        files_skipped,
+        jobs_created,
+    })
 }
 
 /// Check if a file has a supported audio extension

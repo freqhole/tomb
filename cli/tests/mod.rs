@@ -5,8 +5,10 @@
 //!
 //! ## Test Database
 //!
-//! Tests use the shared `../data/test.db` file. Since tests run sequentially
-//! (`--test-threads=1`), there are no conflicts even when tests mutate data.
+//! Tests use the shared `../data/test.db` file. `TestContext::from_snapshot()`
+//! holds a process-wide lock for its lifetime, serializing every test against
+//! that one mutable file regardless of how the test binary is invoked - a
+//! default multi-threaded `cargo test` is just as safe as `--test-threads=1`.
 //!
 //! ## Code Coverage
 //!
@@ -19,12 +21,25 @@
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{LazyLock, Mutex, MutexGuard};
 
 pub mod cli;
+
+/// guards the shared `../data/test.db` fixture: every `TestContext` holds
+/// this lock for its lifetime so tests mutating that one file never run
+/// concurrently, no matter what thread count the test binary is invoked with.
+static TEST_DB_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+fn lock_test_db() -> MutexGuard<'static, ()> {
+    TEST_DB_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Test context for running CLI commands
 pub struct TestContext {
     pub test_config_path: PathBuf,
+    _db_lock: MutexGuard<'static, ()>,
 }
 
 /// Output from a CLI command
@@ -39,6 +54,7 @@ impl TestContext {
     ///
     /// Verifies that `../data/test.db` exists before running tests.
     pub fn from_snapshot() -> Self {
+        let _db_lock = lock_test_db();
         let test_config_path = PathBuf::from("tests/fixtures/test-config.toml");
 
         // Verify snapshot exists
@@ -52,7 +68,10 @@ impl TestContext {
             );
         }
 
-        Self { test_config_path }
+        Self {
+            test_config_path,
+            _db_lock,
+        }
     }
 
     /// Run CLI command with test config, return raw output
@@ -92,9 +111,19 @@ impl TestContext {
 
         let output = self.run_cli(&json_args);
         serde_json::from_str(&output.stdout).unwrap_or_else(|e| {
+            let hint = if output
+                .stderr
+                .contains("was previously applied but has been modified")
+            {
+                "\n\nhint: a migration under migrations/ was edited after already being \
+                 applied to data/test.db - see cli/tests/README.md#fixing-migration-n-was-\
+                 previously-applied-but-has-been-modified"
+            } else {
+                Default::default()
+            };
             panic!(
-                "Invalid JSON response:\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\nError: {}",
-                output.stdout, output.stderr, e
+                "Invalid JSON response:\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\nError: {}{}",
+                output.stdout, output.stderr, e, hint
             )
         })
     }
