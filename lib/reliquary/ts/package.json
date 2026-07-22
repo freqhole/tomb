@@ -51,7 +51,7 @@
         }
     },
     "scripts": {
-        "build": "tsc -p tsconfig.json",
+        "build": "cp ../README.md ./README.md && tsc -p tsconfig.json",
         "typecheck": "tsc --noEmit",
         "test": "vitest run"
     },

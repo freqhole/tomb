@@ -1,89 +1,105 @@
 # midden
 
-browser WASM client for freqhole P2P federation.
+the unified wasm iroh node for the freqhole world of apps: a `MiddenNode` class that lets
+browsers talk to freqhole peers over iroh p2p - api requests, verified blob streaming,
+opfs-backed persistent blob storage, chunked import sessions, radio, and raw bidirectional
+streams for app protocols. rust crate built with wasm-bindgen/wasm-pack; npm package
+`@freqhole/midden`.
 
-part of the [xl-refactor plan](https://github.com/freqhole/tomb/blob/main/docs/xl-refactor/OVERVIEW.md).
-see [PHASE_1_MIDDEN_UNIFICATION.md](https://github.com/freqhole/tomb/blob/main/docs/xl-refactor/PHASE_1_MIDDEN_UNIFICATION.md)
-for the full design and extraction plan. this repo is `tomb/client/midden` relocated here as
-the base, absorbing `skein/midden`'s capabilities (opfs-backed persistent blob storage,
-cancel/resume, chunked import sessions); both app-local copies retire once loam and spume are
-repointed at this package.
+## architecture
 
-## what it does
-
-midden provides a `MiddenNode` class that lets browsers connect to freqhole peers over iroh P2P. just need the peer's node_id (public key) to connect - iroh handles discovery via relay.
-
-## building
-
-requires wasm-pack and LLVM toolchain:
-
-```bash
-# install wasm-pack
-cargo install wasm-pack
-
-# on macOS, ensure LLVM is installed
-brew install llvm
-
-# build (dev mode)
-make build
-
-# build (release mode, optimized)
-make build-release
+```mermaid
+graph LR
+    subgraph browser
+        APP[your app / worker]
+        MN[MiddenNode wasm]
+        OPFS[(opfs blob store)]
+    end
+    subgraph peers
+        P1[always-on peer<br/>grimoire / tumulus / any]
+        P2[another browser]
+    end
+    APP --> MN
+    MN --- OPFS
+    MN <-- "iroh p2p (relay discovery + direct)" --> P1 & P2
 ```
 
-output goes to `pkg/` directory.
+the default registered ALPN set is the app-neutral base (`freqhole/1`, automerge sync,
+friendz, admin, events, iroh-blobs). app-specific ALPNs are passed via `extra_alpns` -
+never hardcoded here.
 
-## usage
+## structure
+
+```
+src/
+  lib.rs           MiddenNode + options, bi-streams, blob transfer, import sessions
+  opfs_store/      persistent browser blob store (storage-generic core, native tests)
+  radio.rs         radio streaming
+pkg/               committed wasm-pack output - consumers file:-dep straight at it
+Makefile           build targets
+```
+
+`pkg/` is checked into git: rebuild it whenever `src/` changes or consumers won't see the
+change.
+
+## getting started
 
 ```typescript
-import { MiddenNode } from "midden";
+import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
 
-// create node (waits for relay connection)
-const node = await MiddenNode.create();
-console.log("my node_id:", node.node_id());
+const options = new MiddenNodeOptions();
+options.set_secret_key(mySecretKeyBytes); // omit to generate fresh
+options.set_opfs_store_dir("myapp-blobs"); // persistent blob store
+options.set_extra_alpns(["myapp/1"]); // app protocol ALPNs
+const node = await MiddenNode.create_with_options(options);
+console.log("node id:", node.node_id());
 
-// make API request to peer - accepts plain node_id or full endpoint JSON
-const response = await node.api_request(
-  peerNodeId, // e.g. "abc123def456..." or '{"id":"...","addrs":[...]}'
-  "GET",
-  "/api/music/songs?limit=10",
-  null,
+// request/response to a peer (json over iroh; same dispatch shape as http)
+const resp = await node.api_request(peerAddr, "GET", "/api/hello", null);
+
+// verified blob download with progress
+const bytes = await node.download_verified_with_ensure_progress(
+  peerAddr,
+  blake3Hash,
+  totalSize,
+  (fraction) => {},
+  downloadId,
 );
-console.log(response.status, response.body);
 
-// fetch blob from peer
-const blob = await node.fetch_blob(peerNodeId, blobId);
-console.log(blob.size(), blob.content_type());
-// blob.data() returns Uint8Array
+// raw bidirectional stream for your own protocol
+const stream = await node.open_bi(peerAddr, "myapp/1");
+await stream.write_raw_and_finish(encodedRequest);
+const reply = await stream.read_to_end(64 * 1024);
 ```
 
-### peer address formats
+`peer_addr` accepts a bare 64-hex node id (relay discovery) or a full endpoint json
+(`{"id":"...","addrs":[...]}` with relay/ip hints).
 
-midden accepts two formats for `peer_addr`:
+other surface: `import_blob`/`release_blob` (stage bytes for peers), `ImportSession`
+(chunked streaming import with incremental blake3), `Blake3Hasher`, `CancelToken` +
+`download_cancel` (pause/resume), `protect_blob`/`unprotect_blob` (gc pins),
+`has_complete_blob`, opfs selftests, radio.
 
-1. **plain node_id** (64 hex chars): uses iroh relay for discovery
+## developer quick start
 
-   ```
-   13a257b5367d6b5b7ceb67ec6246c3dafbe886af8ed429408cd7619c7a4787b1
-   ```
+```bash
+cargo install wasm-pack
+brew install llvm          # macos: wasm toolchain needs it
 
-2. **full endpoint JSON**: includes relay URL and/or direct IP hints
-   ```json
-   {
-     "id": "13a257b5...",
-     "addrs": [{ "Relay": "https://..." }, { "Ip": "192.168.1.100:57383" }]
-   }
-   ```
+make build                 # dev build -> pkg/
+make build-release         # optimized
+cargo test                 # native tests (opfs_store core runs without a browser)
+```
+
+consumers today: tomb/spume + rathole, skein/loam, playlistz - all via `file:` deps at
+`pkg/` (e.g. `file:../../midden/pkg`). vite consumers bundling this inside a worker need
+the resolveId-plugin pattern (see @freqhole/reliquary's README).
 
 ## protocol
 
-uses same protocol as grimoire's federation transport:
-
-- ALPN: `freqhole/1`
-- messages: `ApiRequest`, `ApiResponse`, `BlobStreamRequest`, `BlobStreamResponse`
-- blob streaming: length-prefixed header followed by raw bytes
-
-see `grimoire/src/federation/transport/protocol.rs` for details.
+same wire protocol as grimoire's federation transport: ALPN `freqhole/1`, messages
+`ApiRequest`/`ApiResponse`, `EnsureBlobRequest`/`EnsureBlobResponse`, blob streaming as a
+length-prefixed header + raw bytes. see `grimoire/src/federation/transport/protocol.rs`.
 
 ---
 

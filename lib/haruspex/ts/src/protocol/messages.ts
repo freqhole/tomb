@@ -109,6 +109,7 @@ const ProfileResponseSchema = z.object({
   accentColor: z.number().optional(),
   profileDocId: z.string().optional(),
   profileUpdatedAt: z.string().optional(),
+  isHub: z.boolean().optional(),
 });
 
 const FriendRequestSchema = z.object({

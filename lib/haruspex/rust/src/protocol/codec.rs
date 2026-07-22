@@ -173,6 +173,7 @@ mod tests {
                 accent_color: None,
                 profile_doc_id: None,
                 profile_updated_at: None,
+                is_hub: None,
             }),
             FriendzMessage::Core(CoreMessage::FriendRequest {
                 v: 1,
@@ -210,6 +211,7 @@ mod tests {
             accent_color: None,
             profile_doc_id: None,
             profile_updated_at: None,
+            is_hub: None,
         });
 
         let result = encode_message(&msg);

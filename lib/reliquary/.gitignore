@@ -5,3 +5,4 @@ Cargo.lock
 node_modules/
 dist/
 .DS_Store
+ts/README.md
