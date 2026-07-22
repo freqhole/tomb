@@ -1441,6 +1441,149 @@ mod tests {
         assert!(matches!(result, Err(SnatchError::DownloadFailed(_))));
     }
 
+    // -- real network transfer -------------------------------------------
+    //
+    // every test above mocks `PeerProbeTransport` AND never spins up a
+    // second real peer serving `iroh-blobs` - so none of them ever exercise
+    // the engine's actual download step, only the probe/dedup/concurrency
+    // machinery around it. this test is the one place that proves
+    // `scan_and_snatch` really downloads real bytes end to end: a real
+    // second endpoint serves a real blob over `iroh-blobs`, and the engine
+    // (with a real `Downloader` bound to a real local endpoint) fetches it,
+    // verifies it, and ingests it into its own blob store.
+    //
+    // `#[ignore]` for the same reason as `streams.rs`'s real-network tests:
+    // binding real sockets is slower and occasionally flakier than the pure
+    // in-memory tests above. run explicitly with `cargo test -- --ignored`.
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "binds real iroh endpoints; run with --ignored"]
+    async fn scan_and_snatch_downloads_real_bytes_from_a_live_peer() {
+        use iroh::address_lookup::MemoryLookup;
+        use iroh::endpoint::presets;
+        use iroh::protocol::Router;
+        use iroh::RelayMode;
+        use iroh_blobs::store::fs::FsStore as RealFsStore;
+
+        // -- peer A: a real endpoint hosting the blob over iroh-blobs -----
+
+        let tmp_a = tempfile::tempdir().unwrap();
+        let pool_a = crate::db::open_in_memory().await;
+        let blobz_a: Arc<dyn BlobStore> = Arc::new(SqliteBlobStore::new(pool_a, tmp_a.path()));
+        let fs_dir_a = tmp_a.path().join("iroh-blobs");
+        tokio::fs::create_dir_all(&fs_dir_a).await.unwrap();
+        let fs_store_a: &'static RealFsStore = Box::leak(Box::new(
+            RealFsStore::load(fs_dir_a.join("blobs.db")).await.unwrap(),
+        ));
+
+        let payload = b"a blob fetched over a real iroh-blobs connection".to_vec();
+        let record = blobz_a
+            .insert(&payload, NewBlobMeta::default())
+            .await
+            .unwrap();
+        crate::node::import_try_reference(fs_store_a, &blobz_a.path_for(&record))
+            .await
+            .unwrap();
+
+        let endpoint_a = iroh::Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .bind()
+            .await
+            .unwrap();
+        let router_a = Router::builder(endpoint_a)
+            .accept(
+                iroh_blobs::ALPN,
+                iroh_blobs::BlobsProtocol::new(fs_store_a, None),
+            )
+            .spawn();
+        let addr_a = router_a.endpoint().addr();
+        let node_id_a = addr_a.id.to_string();
+
+        // -- peer B: the engine under test, with real discovery of peer A --
+
+        let tmp_b = tempfile::tempdir().unwrap();
+        let discovery_b = MemoryLookup::new();
+        discovery_b.add_endpoint_info(addr_a.clone());
+        let endpoint_b = iroh::Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .address_lookup(discovery_b)
+            .bind()
+            .await
+            .unwrap();
+        let deps_b = engine_deps(tmp_b.path()).await;
+        // engine_deps() builds its own bare endpoint (no discovery) - swap
+        // in the downloader bound to endpoint_b instead, which does know
+        // how to reach peer A.
+        let downloader_b = Downloader::new_with_opts(
+            deps_b.fs_store,
+            &endpoint_b,
+            iroh_blobs::util::connection_pool::Options {
+                connect_timeout: Duration::from_secs(10),
+                ..Default::default()
+            },
+        );
+
+        let source = MockSource::new();
+        source.set_doc(
+            "doc-1",
+            vec![descriptor(&record.blake3, &[node_id_a.as_str()])],
+        );
+        let transport = MockTransport::new();
+        transport.set(&node_id_a, ProbeOutcome::Available);
+
+        // NOTE: deliberately NOT `short_options()` - its 200ms probe/
+        // inactivity timeouts are tuned for the mocked-transport tests
+        // above, where every "network" call resolves instantly. a real
+        // QUIC handshake (plus first-connection discovery overhead) can
+        // easily take longer than that, so reusing it here made the
+        // download inactivity timeout fire before the real transfer had a
+        // chance to complete - a bug in the test, not the engine.
+        let real_network_options = SnatchEngineOptions {
+            probe_timeout: Duration::from_secs(5),
+            download_inactivity_timeout: Duration::from_secs(10),
+            ..short_options()
+        };
+
+        let engine = SnatchEngine::new(
+            deps_b.blobz.clone(),
+            Arc::new(RwLock::new(Some(downloader_b))),
+            deps_b.fs_store,
+            Arc::new(StdMutex::new(HashSet::new())),
+            endpoint_b.id().to_string(),
+            source.clone(),
+            transport,
+            real_network_options,
+        );
+
+        let snatched = engine.scan_and_snatch().await;
+        assert_eq!(
+            snatched, 1,
+            "the engine should have downloaded exactly one blob"
+        );
+        assert_eq!(
+            source.on_snatched_calls(),
+            vec![format!("{}:{}", record.blake3, endpoint_b.id())]
+        );
+
+        let ingested = deps_b
+            .blobz
+            .get(&record.blake3)
+            .await
+            .unwrap()
+            .expect("blobz should now have the downloaded blob's metadata");
+        let bytes = deps_b
+            .blobz
+            .read_bytes(&ingested.blake3)
+            .await
+            .unwrap()
+            .expect("blobz should have the downloaded bytes on disk");
+        assert_eq!(bytes, payload, "downloaded bytes must match byte-for-byte");
+
+        router_a.shutdown().await.ok();
+        endpoint_b.close().await;
+        deps_b.endpoint.close().await;
+    }
+
     // -- misc ------------------------------------------------------------
 
     #[test]
