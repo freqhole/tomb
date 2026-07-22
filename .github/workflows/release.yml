@@ -413,6 +413,12 @@ jobs:
           (cd client-codegen/freqhole-api-client && npm ci)
           (cd client/spume && npm ci)
           (cd client/charnel && npm ci)
+      # spume depends on @freqhole/haruspex + @freqhole/reliquary via `file:`
+      # links; neither ships dist/ in git, so this must run before charnel's
+      # tauri `beforeBuildCommand` builds spume below, or it fails resolving
+      # their subpath exports (e.g. "@freqhole/haruspex/flows").
+      - name: build haruspex + reliquary libs
+        run: make build-libs
       # no explicit spume build here: charnel's tauri `beforeBuildCommand` builds
       # spume (in charnel mode, VITE_CHARNEL_MODE=true) into spume/dist, which is
       # tauri's frontendDist. this mirrors `make build-tauri-android` exactly.

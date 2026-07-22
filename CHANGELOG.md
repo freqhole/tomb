@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.2.1
+
+### Patch Changes
+
+- 4beaf21: android: listen + pause audio on AudioManager.ACTION_AUDIO_BECOMING_NOISY eventz
+- 8104727: extract all the identity-related stuff to haruspex lib, and all the storage-related stuff to reliquary, and wasm stuff to midden.
+
 ## 0.1.35
 
 ### Patch Changes
