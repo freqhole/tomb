@@ -56,6 +56,8 @@ pub struct LocalProfile {
     pub accent_color: Option<i64>,
     pub profile_doc_id: Option<String>,
     pub profile_updated_at: Option<String>,
+    /// self-declared: true if this peer is a reliquary hub node.
+    pub is_hub: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +289,7 @@ async fn handle_profile_request(service: &FriendzService) -> FriendzResponse {
             accent_color: p.accent_color,
             profile_doc_id: p.profile_doc_id.clone(),
             profile_updated_at: p.profile_updated_at.clone(),
+            is_hub: p.is_hub,
         })),
         None => FriendzResponse::None,
     }
@@ -386,6 +389,7 @@ mod tests {
                 accent_color: None,
                 profile_doc_id: Some("doc-1".to_string()),
                 profile_updated_at: Some("2026-07-07T00:00:00Z".to_string()),
+                is_hub: None,
             })
             .await;
 

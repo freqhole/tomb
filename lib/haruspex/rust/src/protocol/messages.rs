@@ -187,6 +187,12 @@ pub enum CoreMessage {
         /// bug-fix: same as `profile_doc_id` above.
         #[serde(skip_serializing_if = "Option::is_none")]
         profile_updated_at: Option<String>,
+        /// self-declared: true if the responding peer is a reliquary hub
+        /// node - mirrors friend-request/friend-accept's own `is_hub`
+        /// field, so a stale or missed hub flag can be corrected simply
+        /// by asking the peer for their current profile.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_hub: Option<bool>,
     },
 
     /// send a friend request to a peer.
@@ -547,6 +553,7 @@ mod tests {
             accent_color: None,
             profile_doc_id: Some("doc-123".to_string()),
             profile_updated_at: Some("2026-07-07T00:00:00Z".to_string()),
+            is_hub: None,
         });
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -567,6 +574,7 @@ mod tests {
             accent_color: None,
             profile_doc_id: None,
             profile_updated_at: None,
+            is_hub: None,
         });
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
