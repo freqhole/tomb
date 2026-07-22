@@ -233,6 +233,18 @@ export class MiddenNode {
      *
      * the caller should check `stream.alpn()` to route the connection
      * to the appropriate handler.
+     *
+     * a single incoming attempt failing during the TLS handshake (e.g. the
+     * peer aborts mid-handshake - normal during connection-path racing, or
+     * a peer that redials before noticing an earlier attempt is still
+     * live) does not end this call: it's logged and the loop moves on to
+     * the next queued incoming connection. propagating that failure to the
+     * caller instead would surface as a JS-level error on every accept()
+     * call, forcing the caller through a full error-handling/backoff cycle
+     * (see `IrohNetworkAdapter`'s accept loop) before the next, perfectly
+     * good, already-queued connection is even looked at - under a burst of
+     * aborted handshakes this can visibly stall new connections from ever
+     * completing.
      */
     accept(): Promise<any>;
     /**

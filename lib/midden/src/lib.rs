@@ -1352,6 +1352,18 @@ impl MiddenNode {
     ///
     /// the caller should check `stream.alpn()` to route the connection
     /// to the appropriate handler.
+    ///
+    /// a single incoming attempt failing during the TLS handshake (e.g. the
+    /// peer aborts mid-handshake - normal during connection-path racing, or
+    /// a peer that redials before noticing an earlier attempt is still
+    /// live) does not end this call: it's logged and the loop moves on to
+    /// the next queued incoming connection. propagating that failure to the
+    /// caller instead would surface as a JS-level error on every accept()
+    /// call, forcing the caller through a full error-handling/backoff cycle
+    /// (see `IrohNetworkAdapter`'s accept loop) before the next, perfectly
+    /// good, already-queued connection is even looked at - under a burst of
+    /// aborted handshakes this can visibly stall new connections from ever
+    /// completing.
     pub async fn accept(&self) -> Result<JsValue, JsError> {
         loop {
             // wait for the next incoming connection
@@ -1360,8 +1372,16 @@ impl MiddenNode {
                 None => return Ok(JsValue::NULL), // endpoint closed
             };
 
-            // accept the connection (completes TLS handshake)
-            let conn = incoming.await.map_err(to_js_err)?;
+            // accept the connection (completes TLS handshake). a failure
+            // here is a single bad connection attempt, not an endpoint-wide
+            // problem - log it and keep accepting.
+            let conn = match incoming.await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    warn!("accept: incoming connection failed during handshake: {}", e);
+                    continue;
+                }
+            };
 
             // extract ALPN before deciding how to handle
             let alpn_bytes = conn.alpn().to_vec();
@@ -1387,7 +1407,21 @@ impl MiddenNode {
             let alpn = String::from_utf8_lossy(&alpn_bytes).to_string();
             let peer_node_id = conn.remote_id().to_string();
 
-            let (send, recv) = conn.accept_bi().await.map_err(to_js_err)?;
+            // the peer completed the handshake but then closed before
+            // opening its first stream (or the connection died right
+            // after) - same reasoning as above, this is a single bad
+            // attempt, not a reason to fail the whole accept() call.
+            let (send, recv) = match conn.accept_bi().await {
+                Ok(streams) => streams,
+                Err(e) => {
+                    warn!(
+                        "accept: connection from {} closed before opening a stream: {}",
+                        &peer_node_id[..std::cmp::min(16, peer_node_id.len())],
+                        e
+                    );
+                    continue;
+                }
+            };
 
             info!(
                 "accepted bi stream from {} on ALPN {}",
