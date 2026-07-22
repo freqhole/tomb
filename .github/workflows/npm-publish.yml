@@ -1,5 +1,15 @@
 name: npm publish
 
+# triggers:
+#   - push of a real `v*.*.*` git tag (e.g. someone pushes a tag by hand)
+#   - workflow_dispatch: dispatched automatically by scripts/release-publish.mjs
+#     right after it flips the draft github release to published. that flip
+#     happens via the api (not a `git push` of the tag), so it never fires a
+#     `push` event on its own - workflow_dispatch is the reliable lever, and is
+#     also the one event type exempt from github's GITHUB_TOKEN recursion guard.
+#     each job below only publishes if the current package.json version isn't
+#     already on npm, so re-dispatching (or catching up several missed
+#     versions at once) is always safe to run manually too.
 on:
   push:
     tags:

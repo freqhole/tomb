@@ -55,3 +55,13 @@ applyReleaseNotes(tag);
 console.log(`publishing draft release ${tag}`);
 gh(["release", "edit", tag, "--draft=false", "--latest"]);
 console.log(`published ${tag}`);
+
+// publishing a release through the api (rather than an actual `git push` of
+// the tag) does not fire a `push` event, so npm-publish.yml's `on: push:
+// tags:` trigger never sees this. `gh workflow run` dispatches a
+// `workflow_dispatch` event instead, which is the one event type exempted
+// from github's usual GITHUB_TOKEN recursion guard - so this reliably starts
+// the publish workflow without needing a PAT.
+console.log("dispatching npm-publish.yml");
+gh(["workflow", "run", "npm-publish.yml", "--ref", "main"]);
+console.log("dispatched npm-publish.yml");
