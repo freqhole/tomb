@@ -16,6 +16,7 @@
 // origin) must be present so a recipient can resolve the entity.
 
 import type { ShareTargetKind } from "../components/share/types";
+import { isCharnelMode } from "../app/services/charnel/mode";
 
 const VALID_KINDS: ShareTargetKind[] = ["album", "playlist", "song", "artist", "radio_station"];
 
@@ -67,11 +68,33 @@ export const DEFAULT_SHARE_WEB_HOST = "https://spume.freqhole.net";
  * served from a real web server or a self-hosted instance). falls back to
  * the canonical spume.freqhole.net host when running inside tauri
  * (origin is `tauri://localhost` or similar) or any other non-http(s) context.
+ *
+ * tauri's internal webview origin isn't always non-http(s): macOS/iOS/Linux
+ * use the custom `tauri://localhost` scheme (caught by the scheme check
+ * below), but android's webview reports an *http(s)-scheme* origin —
+ * `https://tauri.localhost` — which the old scheme-only check let straight
+ * through as if it were a real, shareable host. filter both forms out
+ * explicitly (by hostname, not just scheme), plus fall back whenever
+ * `isCharnelMode()` says we're in tauri at all, regardless of what the
+ * origin string happens to look like on a given platform.
  */
 export function getShareWebHost(): string {
   try {
     const origin = window.location.origin;
-    if (origin && (origin.startsWith("https://") || origin.startsWith("http://"))) {
+    if (isCharnelMode()) return DEFAULT_SHARE_WEB_HOST;
+
+    let hostname = "";
+    try {
+      hostname = new URL(origin).hostname.toLowerCase();
+    } catch {
+      hostname = "";
+    }
+    const isTauriOrigin =
+      origin.startsWith("tauri://") ||
+      hostname === "tauri.localhost" ||
+      hostname.endsWith(".tauri.localhost");
+
+    if (!isTauriOrigin && (origin.startsWith("https://") || origin.startsWith("http://"))) {
       return origin;
     }
   } catch {
