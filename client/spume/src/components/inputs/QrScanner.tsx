@@ -88,8 +88,20 @@ export function QrScanner(props: QrScannerProps) {
         (decodedText) => {
           debug("QrScanner", `scanned: ${decodedText.slice(0, 50)}...`);
           const peerValue = extractPeerValue(decodedText);
-          stopScanner();
-          props.onResult(peerValue);
+          // await the stop BEFORE calling back — `onResult` triggers the
+          // parent to unmount this component (removing the `#qr-reader`
+          // container from the DOM) practically synchronously, and also
+          // fires this component's own `onCleanup` -> `stopScanner()` a
+          // second time. racing an in-flight `scanner.stop()` against that
+          // DOM removal made html5-qrcode throw while tearing down the
+          // live camera/video element, which silently aborted this
+          // callback before `onResult` ever ran — the scan looked like it
+          // did nothing. stopping fully first means the follow-up
+          // `onCleanup` call is a safe no-op (guarded by `isScanning()`).
+          void (async () => {
+            await stopScanner();
+            props.onResult(peerValue);
+          })();
         },
         () => {
           // scan error (no QR found in frame) - ignore
