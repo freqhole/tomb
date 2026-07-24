@@ -202,6 +202,17 @@ pub enum CoreMessage {
         v: u8,
         from_node_id: String,
         from_username: String,
+        /// identity info sent alongside a friend request regardless of
+        /// the sender's own profile visibility setting - the recipient
+        /// hasn't agreed to anything yet, but seeing a name/avatar/bio
+        /// rather than a bare node id is expected for a request the
+        /// sender is actively initiating themselves.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bio: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        avatar_data_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        accent_color: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_hub: Option<bool>,
     },
@@ -213,6 +224,12 @@ pub enum CoreMessage {
         v: u8,
         from_node_id: String,
         from_username: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bio: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        avatar_data_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        accent_color: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_hub: Option<bool>,
     },
@@ -325,7 +342,10 @@ pub enum CoreMessage {
     },
 
     /// proactive identity update: a peer broadcasts its current
-    /// username/avatar to peers it has an established connection with.
+    /// username/bio/avatar to peers it has an established connection
+    /// with, immediately after editing its own profile - so already-
+    /// connected friends see the change right away instead of waiting
+    /// for the next on-demand profile fetch.
     #[serde(rename_all = "camelCase")]
     IdentityUpdate {
         #[serde(default = "default_version")]
@@ -335,6 +355,10 @@ pub enum CoreMessage {
         username: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         avatar_data_url: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bio: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        accent_color: Option<i64>,
     },
 
     /// notify a peer that their role on a resource changed.
