@@ -1,5 +1,16 @@
 # freqhole-release
 
+## 0.2.3
+
+### Patch Changes
+
+- d7d97df: try to avoid local tauri share linkz
+- 408cae4: tomb/lib: carry more identity detail on friend + canvas invites && gossip identity updatez more often
+- 4fe78d6: try to avoid stale or corrupted offline cache causing fatal load errors (like when cf deployment is deleted)
+- a0514bc: try to recover orphaned images lost in reliquary migration
+- 5c5b179: add the global search in to top nav to the all feeds, radio, and shared views
+- 62aa9f4: try to fix qr scanner for adding new remotes
+
 ## 0.2.2
 
 ### Patch Changes
