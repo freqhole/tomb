@@ -170,12 +170,24 @@ pub struct ApiResponse {
 /// the send and recv halves use RefCell<Option<...>> so that async read
 /// and write operations can proceed concurrently (safe because WASM is
 /// single-threaded).
+///
+/// also holds the parent `Connection` handle, purely to keep the QUIC
+/// connection alive for as long as this stream is alive: iroh/quinn tears
+/// a connection down once its last `Connection` handle is dropped, and
+/// neither `accept()` nor `open_bi()` keep any other handle around after
+/// handing a `BiStream` to JS. without this field, the connection was
+/// dropped (and the peer's in-flight read failed with "connection lost")
+/// the moment `accept()`/`open_bi()` returned - often before a response
+/// written moments later on the same stream even finished flushing.
 #[wasm_bindgen]
 pub struct BiStream {
     send: RefCell<Option<SendStream>>,
     recv: RefCell<Option<RecvStream>>,
     peer_node_id: String,
     alpn: String,
+    // never read directly - held purely so the connection stays alive for
+    // as long as this stream does. see the struct doc comment above.
+    _connection: Connection,
 }
 
 #[wasm_bindgen]
@@ -1271,6 +1283,7 @@ impl MiddenNode {
             recv: RefCell::new(Some(recv)),
             peer_node_id,
             alpn: alpn.to_string(),
+            _connection: conn,
         })
     }
 
@@ -1434,6 +1447,7 @@ impl MiddenNode {
                 recv: RefCell::new(Some(recv)),
                 peer_node_id,
                 alpn,
+                _connection: conn,
             };
 
             return Ok(stream.into());
