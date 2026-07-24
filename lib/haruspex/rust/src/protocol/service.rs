@@ -538,6 +538,9 @@ mod tests {
                     v: 1,
                     from_node_id: "node-a".to_string(),
                     from_username: "alice".to_string(),
+                    bio: None,
+                    avatar_data_url: None,
+                    accent_color: None,
                     is_hub: None,
                 }),
             )

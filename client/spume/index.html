@@ -14,6 +14,75 @@
     <link rel="apple-touch-icon" href="/freqhole.png" />
 
     <title>freqhole</title>
+
+    <script>
+      (function () {
+        // a stale index.html (served from a browser/sw cache, or from a
+        // cdn deployment that's since been superseded) can reference a
+        // hashed asset filename that no longer exists once the deployment
+        // that shipped it gets deleted. requesting it then either 404s or,
+        // on cdns with a spa catch-all rewrite, comes back as a 200
+        // text/html document instead - which the browser refuses to parse
+        // as css/js and surfaces as a mime-type error. detect either the
+        // stylesheet or the module script failing to load and force a
+        // one-shot, cache-busted reload to pick up whatever's actually
+        // live. guarded by a sessionStorage flag so a genuinely broken
+        // deployment doesn't reload-loop forever.
+        var RELOAD_GUARD_KEY = "freqhole-stale-asset-reload";
+
+        window.addEventListener(
+          "error",
+          function (event) {
+            var target = event.target;
+            if (!target || typeof target.tagName !== "string") return;
+
+            var isStylesheet = target.tagName === "LINK" && target.rel === "stylesheet";
+            var isModuleScript = target.tagName === "SCRIPT" && target.type === "module";
+            if (!isStylesheet && !isModuleScript) return;
+
+            if (sessionStorage.getItem(RELOAD_GUARD_KEY)) {
+              console.error(
+                "[bootstrap] stale asset failed to load again after a retry, giving up:",
+                target.href || target.src
+              );
+              return;
+            }
+            sessionStorage.setItem(RELOAD_GUARD_KEY, "1");
+            console.warn(
+              "[bootstrap] stale build asset failed to load, forcing a fresh reload:",
+              target.href || target.src
+            );
+
+            var reload = function () {
+              location.reload();
+            };
+
+            if ("caches" in window) {
+              caches
+                .keys()
+                .then(function (names) {
+                  return Promise.all(
+                    names
+                      .filter(function (name) {
+                        return name.startsWith("freqhole-");
+                      })
+                      .map(function (name) {
+                        return caches.delete(name);
+                      })
+                  );
+                })
+                .catch(function () {
+                  // best effort - reload regardless
+                })
+                .finally(reload);
+            } else {
+              reload();
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <link rel="stylesheet" href="/src/design-system/theme.css" />
   </head>
   <body>

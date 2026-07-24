@@ -117,6 +117,14 @@ const FriendRequestSchema = z.object({
   v: wireVersion,
   fromNodeId: z.string(),
   fromUsername: z.string(),
+  // identity info sent alongside a friend request regardless of the
+  // sender's own profile visibility setting - the recipient hasn't
+  // agreed to anything yet, but seeing a name/avatar/bio rather than a
+  // bare node id is expected for a request the sender is actively
+  // initiating themselves.
+  bio: z.string().optional(),
+  avatarDataUrl: z.string().optional(),
+  accentColor: z.number().optional(),
   isHub: z.boolean().optional(),
 });
 
@@ -125,6 +133,9 @@ const FriendAcceptSchema = z.object({
   v: wireVersion,
   fromNodeId: z.string(),
   fromUsername: z.string(),
+  bio: z.string().optional(),
+  avatarDataUrl: z.string().optional(),
+  accentColor: z.number().optional(),
   isHub: z.boolean().optional(),
 });
 
@@ -206,6 +217,8 @@ const IdentityUpdateSchema = z.object({
   nodeId: z.string(),
   username: z.string().optional(),
   avatarDataUrl: z.string().optional(),
+  bio: z.string().optional(),
+  accentColor: z.number().optional(),
 });
 
 const AclChangeSchema = z.object({
