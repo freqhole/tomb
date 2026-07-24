@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.2.2
+
+### Patch Changes
+
+- 1ccce8d: midden lib: improve accept_bi handling
+
 ## 0.2.1
 
 ### Patch Changes
