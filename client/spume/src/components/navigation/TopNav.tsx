@@ -1547,12 +1547,12 @@ export function TopNav(props: TopNavProps) {
               <div class="flex-shrink-0 order-2 flex items-center">{props.rightContent}</div>
             </Show>
 
-            {/* search - last item on right, grows to fill remaining space (hidden on aggregate feed + radio) */}
-            <Show
-              when={
-                !isAggregateFeedRoute() && !isRadioRoute() && !isSharedRoute() && !props.hideSearch
-              }
-            >
+            {/* search - last item on right, grows to fill remaining space.
+                aggregate feed/radio/shared used to hard-exclude search here
+                (no per-source scope to search against), but they now mount
+                a cross-remote searchComponent via topNavSlots the same way
+                the explore view does - hideSearch is the only gate needed. */}
+            <Show when={!props.hideSearch}>
               <div
                 class="order-last"
                 classList={{

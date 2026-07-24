@@ -29,6 +29,8 @@ import { showImageCarousel } from "../hooks/modals";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { type Remote } from "../../app/services/storage/schemas/remote";
 import { RemotePicker } from "../../components/forms/RemotePicker";
+import { useTopNavSlots } from "../../app/shell/topNavSlots";
+import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
 
 // adapt raw API images to app-level ImageMetadata (same as analytics.ts)
 function adaptFeedImages(
@@ -154,6 +156,22 @@ export function AggregateFeedView() {
 
   // load all remotes
   const [remotes] = createResource(getAllRemotes);
+
+  // mount the cross-remote global search into the topnav's search slot -
+  // this is a global (not per-source) view, so there's no single remote
+  // to scope a search to. no pivot handler: row click / enter navigates
+  // straight to the picked item's detail view (see CrossRemoteTopNavSearch).
+  const slots = useTopNavSlots();
+  createEffect(() => {
+    slots.setHideSearch(false);
+    slots.setSearchContent(
+      <CrossRemoteTopNavSearch
+        remotes={() => remotes() ?? []}
+        onNavigate={(path) => navigate(path)}
+        onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
+      />
+    );
+  });
 
   // toggle which remotes are visible
   const [activeRemoteIds, setActiveRemoteIds] = createSignal<Set<string>>(new Set());

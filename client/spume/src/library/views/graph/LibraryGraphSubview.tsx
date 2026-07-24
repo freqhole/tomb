@@ -79,7 +79,7 @@ import type { WalkApi } from "../../../components/graph/WalkCanvas";
 import type { GraphDriver } from "../../../components/graph/drivers/GraphDriver";
 import { createWalkerDriver } from "../../../components/graph/drivers/GraphDriver";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
-import { GraphTopNavSearch } from "./GraphTopNavSearch";
+import { CrossRemoteTopNavSearch } from "./CrossRemoteTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
 import {
   rootId,
@@ -2258,7 +2258,7 @@ function Inner(props: {
   createEffect(() => {
     slots.setHideSearch(false);
     slots.setSearchContent(
-      <GraphTopNavSearch
+      <CrossRemoteTopNavSearch
         remotes={() => props.remotes()}
         onNavigate={(path) => navigate(path)}
         onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
@@ -2628,7 +2628,7 @@ function Inner(props: {
   };
 
   // pivot the walker to a single picked suggestion. only taxon
-  // suggestions get routed here from GraphTopNavSearch; everything
+  // suggestions get routed here from CrossRemoteTopNavSearch; everything
   // else navigates to its detail view via the base topnav. behavior
   // is solo: only the picked taxon's chain (root → remote square →
   // relation hub → taxon) is rendered, prior pins from previous
@@ -2638,7 +2638,7 @@ function Inner(props: {
   const handlePivotToSuggestion = async (
     picked: import("../../../music/data/types").SearchSuggestion,
     pickedRemoteId: string,
-    // kept for backwards-compat with the GraphTopNavSearch signature
+    // kept for backwards-compat with the CrossRemoteTopNavSearch signature
     // (used to carry sibling search hits for multi-pin). intentionally
     // ignored — solo-pivot is the only mode now.
     _all: Array<{

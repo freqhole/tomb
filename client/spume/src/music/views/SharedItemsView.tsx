@@ -1,8 +1,8 @@
 import { useNavigate } from "@solidjs/router";
-import { For, onMount, Show } from "solid-js";
+import { createEffect, createResource, For, onMount, Show } from "solid-js";
 import { toast } from "../../components/feedback/Toast";
 import { Icon } from "../../components/icons/registry";
-import { getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
+import { getAllRemotes, getRemoteByPeerAddr } from "../../app/services/remotes/remoteManager";
 import { getDefaultRoute } from "../utils/routing";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { startSharedRadioStation } from "../../components/share/startSharedRadioStation";
@@ -13,6 +13,8 @@ import {
   sharedItems,
 } from "../../app/services/storage/sharedItems";
 import type { SharedItemEntry } from "../../app/services/storage/types";
+import { useTopNavSlots } from "../../app/shell/topNavSlots";
+import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
 
 function kindLabel(kind: SharedItemEntry["kind"]): string {
   switch (kind) {
@@ -39,6 +41,23 @@ export function SharedItemsView() {
 
   onMount(() => {
     void loadSharedItems();
+  });
+
+  // mount the cross-remote global search into the topnav's search slot -
+  // shared is a global (not per-source) view, so there's no single remote
+  // to scope a search to. no pivot handler: row click / enter navigates
+  // straight to the picked item's detail view (see CrossRemoteTopNavSearch).
+  const [remotes] = createResource(getAllRemotes);
+  const slots = useTopNavSlots();
+  createEffect(() => {
+    slots.setHideSearch(false);
+    slots.setSearchContent(
+      <CrossRemoteTopNavSearch
+        remotes={() => remotes() ?? []}
+        onNavigate={(path) => navigate(path)}
+        onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
+      />
+    );
   });
 
   const openShare = (token: string) => {

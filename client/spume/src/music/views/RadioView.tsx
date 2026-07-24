@@ -11,7 +11,7 @@
 // renders one.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { useSearchParams } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { toast } from "../../components/feedback/Toast";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MediaThumbnail } from "../../components/media/MediaThumbnail";
@@ -46,10 +46,13 @@ import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { Icon } from "../../components/icons/registry";
+import { useTopNavSlots } from "../../app/shell/topNavSlots";
+import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
 
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // peer addrs passed via ?node_id=... or ?node_id=a&node_id=b
   const queryPeerAddrs = createMemo<string[]>(() => {
@@ -99,6 +102,25 @@ export function RadioView() {
   const [stations, setStations] = createSignal<DiscoveredStation[]>([]);
   const [sweeping, setSweeping] = createSignal(false);
   const [knownRemotes, setKnownRemotes] = createSignal<Remote[]>([]);
+
+  // mount the cross-remote global search into the topnav's search slot -
+  // radio is a global (not per-source) view, so there's no single remote
+  // to scope a search to. no pivot handler: row click / enter navigates
+  // straight to the picked item's detail view (see CrossRemoteTopNavSearch).
+  // reuses knownRemotes (already kept fresh for image-fallback lookups
+  // below) rather than fetching a second, separate remote list.
+  const slots = useTopNavSlots();
+  createEffect(() => {
+    slots.setHideSearch(false);
+    slots.setSearchContent(
+      <CrossRemoteTopNavSearch
+        remotes={knownRemotes}
+        onNavigate={(path) => navigate(path)}
+        onExpandedChange={(expanded) => slots.setSearchExpanded(expanded)}
+      />
+    );
+  });
+
   const BASE_POLL_MS = 30_000;
   const MAX_POLL_MS = 120_000;
   const STATION_STALE_GRACE_MS = 2 * 60_000;

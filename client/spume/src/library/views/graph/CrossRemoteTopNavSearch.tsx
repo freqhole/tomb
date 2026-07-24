@@ -1,16 +1,19 @@
-// graph topnav search — fans out search-suggestions across every online
-// remote and merges them into a single flyout. dupes (same display name,
-// case-insensitive) within song/artist/album/playlist categories are
+// cross-remote top nav search — fans out search-suggestions across every
+// online remote and merges them into a single flyout. dupes (same display
+// name, case-insensitive) within song/artist/album/playlist categories are
 // collapsed into one row tracking which remotes contributed it.
 //
 // per-remote loading status is rendered as a small row of colored pills
 // in the input's hint slot so the user can see which peers are still
 // answering.
 //
-// row click / enter-on-highlighted-row hands the picked suggestion +
-// its primary remote off to `onPivotToSuggestion`. the parent maps it
-// to a library node id and repivots the existing library walker —
-// there is no separate search subgraph.
+// `onPivotToSuggestion` is optional: the explore view's graph subview
+// supplies it so row click / enter hands the picked suggestion off to
+// pivot the library walker instead of navigating. every other consumer
+// (aggregate feed, radio, shared) omits it, so selection falls through
+// to normal detail-view navigation. taxon/genre hits (which only make
+// sense as a graph pivot - there's no standalone taxon view) are
+// excluded from the results entirely when there's no pivot handler.
 
 import { createMemo, createSignal, createEffect, on, For, Show } from "solid-js";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
@@ -41,13 +44,17 @@ export interface CrossRemoteTopNavSearchProps {
   currentPath?: string;
   navHovered?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
-  /** picked-suggestion sink. row click or Enter-on-highlighted-row
-   *  hands the parent the chosen suggestion, the remote it should be
-   *  looked up on, and the full current aggregated suggestion list
-   *  (each entry paired with its primary remote) so the parent can
-   *  pin every hit on the graph in addition to pivoting to the pick.
-   *  returning true tells the underlying input to suppress its
-   *  default route-nav (we always handle the pivot ourselves). */
+  /** optional picked-suggestion sink for graph-pivot consumers (the
+   *  explore view). when supplied, row click or Enter-on-highlighted-row
+   *  hands it the chosen suggestion, the remote it should be looked up
+   *  on, and the full current aggregated suggestion list (each entry
+   *  paired with its primary remote) so it can pin every hit on the
+   *  graph in addition to pivoting to the pick. returning true tells the
+   *  underlying input to suppress its default route-nav (we always
+   *  handle the pivot ourselves). when omitted (every non-graph
+   *  consumer), selection instead falls through to normal detail-view
+   *  navigation, and taxon/genre hits are excluded from results
+   *  entirely (they only make sense as a graph pivot). */
   onPivotToSuggestion?: (
     s: APISuggestion,
     primaryRemoteId: string,
@@ -344,6 +351,7 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
   // ---- aggregation ---------------------------------------------------
 
   const aggregatedSuggestions = createMemo<AggSuggestion[]>(() => {
+    const graphMode = !!props.onPivotToSuggestion;
     const byKey = new Map<string, AggSuggestion>();
     const ordered: AggSuggestion[] = [];
     for (const t of searchTargets()) {
@@ -357,6 +365,9 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
           s.suggestion_type !== "artist" &&
           s.suggestion_type !== "album" &&
           s.suggestion_type !== "playlist";
+        // taxon hits only make sense as a graph pivot - skip them
+        // entirely for consumers with no pivot handler.
+        if (isTaxon && !graphMode) continue;
         const key = isTaxon
           ? `${s.suggestion_type}::${t.id}::${slug(s.display)}`
           : `${s.suggestion_type}::${slug(s.display)}`;
@@ -525,39 +536,53 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
     return best;
   };
 
-  /** row click or Enter on a highlighted row. taxon and entity hits
-   *  (artist/album/song) are intercepted and handed to the parent for
-   *  a solo graph pivot so the user stays on the explore view.
-   *  playlists fall through to default detail-view routing. */
+  /** row click or Enter on a highlighted row. when a pivot handler is
+   *  supplied (the explore view's graph subview), taxon and entity hits
+   *  (artist/album/song) are intercepted and handed to it for a solo
+   *  graph pivot so the user stays on the explore view - playlists
+   *  still fall through to default detail-view routing. with no pivot
+   *  handler (every other consumer), every suggestion type falls
+   *  through unconditionally to `TopNavSearch`'s default `routes.*`
+   *  navigation. */
   const onSelectOverride = async (s: InputSuggestion): Promise<boolean> => {
+    if (!props.onPivotToSuggestion) return false;
     const data = s.data as APISuggestion | undefined;
     if (!data) return false;
     if (data.suggestion_type === "playlist") return false;
     const primary = (s.id ?? "").split("::")[0];
     if (!primary) return false;
-    return Boolean(await props.onPivotToSuggestion?.(data, primary, []));
+    return Boolean(await props.onPivotToSuggestion(data, primary, []));
   };
 
-  /** build the detail-view route for a non-pivotable suggestion
-   *  (currently just playlists). */
+  /** build the detail-view route for a suggestion that isn't going
+   *  through the graph pivot path. taxon/genre hits never reach here -
+   *  they're excluded from results entirely when there's no pivot
+   *  handler (see `aggregatedSuggestions`). */
   const detailRouteFor = (s: APISuggestion, remoteId: string): string | null => {
+    const meta = s.metadata as { album_id?: string } | null | undefined;
     switch (s.suggestion_type) {
       case "playlist":
         return routes.playlistOn(remoteId, s.entity_id);
+      case "artist":
+        return routes.artistOn(remoteId, s.entity_id);
+      case "album":
+        return routes.albumOn(remoteId, s.entity_id);
+      case "song":
+        return meta?.album_id ? routes.albumOn(remoteId, meta.album_id) : null;
       default:
         return null;
     }
   };
 
-  /** Enter with no highlighted row. pivots the graph to the top hit
-   *  if it's pivotable; otherwise navigates to that hit's detail view
-   *  (playlists). */
+  /** Enter with no highlighted row. with a pivot handler, pivots the
+   *  graph to the top hit (unless it's a playlist); otherwise navigates
+   *  straight to that hit's detail view. */
   const onSubmit = (): boolean => {
     if (query().length < 2) return false;
     const top = topSuggestion();
     if (!top) return false;
-    if (top.s.suggestion_type !== "playlist") {
-      void props.onPivotToSuggestion?.(top.s, top.remoteId, []);
+    if (props.onPivotToSuggestion && top.s.suggestion_type !== "playlist") {
+      void props.onPivotToSuggestion(top.s, top.remoteId, []);
       return true;
     }
     const route = detailRouteFor(top.s, top.remoteId);
@@ -567,8 +592,12 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
   };
 
   // hint shown between the input and the suggestions flyout: gentle
-  // nudge that Enter / click will jump the walker to a suggestion.
+  // nudge that Enter / click will jump the walker to a suggestion. only
+  // shown for the graph pivot consumer - other consumers fall back to
+  // TopNavSearch's own default hint (a no-op here, since none of their
+  // routes are in FILTERABLE_KEYS).
   const hintOverride = () => {
+    if (!props.onPivotToSuggestion) return null;
     if (query().length < 2) return null;
     if (!hasAnyResults()) return null;
     return {
