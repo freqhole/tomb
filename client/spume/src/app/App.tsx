@@ -63,6 +63,7 @@ import {
 import { initDownloadState } from "../music/services/download";
 import { addToQueue } from "../music/services/queue/queue";
 import { initMusicDB } from "../music/services/storage/db";
+import { recoverLegacyImages } from "../music/services/storage/legacyImageRecovery";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
@@ -652,6 +653,14 @@ export function App() {
               toastId={props.toastId}
               onUpgrade={() => {
                 toast.dismiss(props.toastId);
+                // best-effort, non-blocking: idempotent, so it's safe to
+                // fire alongside the impending reload rather than await it
+                // - a run interrupted by the reload just resumes next time.
+                if (!isCharnelMode()) {
+                  void recoverLegacyImages().catch((err) => {
+                    console.error("legacy image recovery failed:", err);
+                  });
+                }
                 applyServiceWorkerUpdate();
               }}
               onDismiss={() => {
@@ -703,6 +712,14 @@ export function App() {
       // RemoteContextHandler will handle connecting to remotes when navigating
       if (!isCharnelMode()) {
         await useLocalSource();
+
+        // web-only: backfill any artist/album/song/playlist images left
+        // behind by pre-reliquary local blob storage. idempotent and
+        // non-blocking - also re-triggered from the update toast's
+        // "upgrade" button, so this isn't the only chance to run it.
+        void recoverLegacyImages().catch((err) => {
+          console.error("legacy image recovery failed:", err);
+        });
       }
 
       // background health check of ALL remotes (non-blocking)
