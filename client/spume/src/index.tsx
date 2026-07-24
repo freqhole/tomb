@@ -36,3 +36,9 @@ render(
   ),
   root
 );
+
+// reaching this point means the module script (and, by document order,
+// the stylesheet before it) both loaded and parsed fine - clear the
+// one-shot stale-asset reload guard set in index.html so a genuinely new
+// failure later in this session can still trigger a retry.
+sessionStorage.removeItem("freqhole-stale-asset-reload");

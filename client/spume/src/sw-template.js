@@ -4,10 +4,7 @@ const CACHE_VERSION = "__APP_VERSION__";
 const CACHE_NAME = `freqhole-${CACHE_VERSION}`;
 
 // assets to precache on install
-const PRECACHE_URLS = [
-  "/",
-  "/index.html",
-];
+const PRECACHE_URLS = ["/", "/index.html"];
 
 // install: precache core assets
 self.addEventListener("install", (event) => {
@@ -45,7 +42,12 @@ self.addEventListener("activate", (event) => {
   return self.clients.claim();
 });
 
-// fetch: cache-first strategy for offline support
+// fetch: navigation requests (the html document) go network-first, since a
+// stale cached index.html can reference a hashed asset filename that no
+// longer exists once an old deployment gets deleted - always prefer
+// whatever's actually live when online, and only fall back to cache when
+// offline. everything else (hashed build assets, images, etc.) stays
+// cache-first for speed and offline support.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
@@ -64,38 +66,89 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // return cached version
-        return cachedResponse;
-      }
+  const isNavigation =
+    event.request.mode === "navigate" ||
+    event.request.destination === "document" ||
+    url.pathname === "/" ||
+    url.pathname === "/index.html";
 
-      // not in cache - fetch from network and cache it
-      return fetch(event.request)
-        .then((networkResponse) => {
-          // don't cache non-ok responses or opaque responses
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type === "opaque") {
-            return networkResponse;
-          }
-
-          // clone response since we need to use it twice
-          const responseToCache = networkResponse.clone();
-
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-
-          return networkResponse;
-        })
-        .catch((error) => {
-          console.error("[sw] fetch failed:", error);
-          // could return a custom offline page here if needed
-          throw error;
-        });
-    })
-  );
+  event.respondWith(isNavigation ? networkFirst(event.request) : cacheFirst(event.request));
 });
+
+// a cdn's spa catch-all rewrite can serve index.html (200, text/html) in
+// place of a hashed js/css asset that's since been deleted, instead of a
+// real 404. caching that response would poison future loads with a broken
+// stylesheet/script, so refuse to cache (or use) anything whose
+// content-type doesn't match what the file extension expects.
+function looksLikeMismatchedAsset(url, response) {
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  if (url.endsWith(".css")) return !contentType.includes("css");
+  if (url.endsWith(".js") || url.endsWith(".mjs")) {
+    return !contentType.includes("javascript") && !contentType.includes("ecmascript");
+  }
+  return false;
+}
+
+function networkFirst(request) {
+  return fetch(request)
+    .then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200 && networkResponse.type !== "opaque") {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+      }
+      return networkResponse;
+    })
+    .catch((error) => {
+      console.warn("[sw] navigation fetch failed, falling back to cache:", error);
+      return caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        throw error;
+      });
+    });
+}
+
+function cacheFirst(request) {
+  return caches.match(request).then((cachedResponse) => {
+    if (cachedResponse) {
+      // return cached version
+      return cachedResponse;
+    }
+
+    // not in cache - fetch from network and cache it
+    return fetch(request)
+      .then((networkResponse) => {
+        // don't cache non-ok responses or opaque responses
+        if (
+          !networkResponse ||
+          networkResponse.status !== 200 ||
+          networkResponse.type === "opaque"
+        ) {
+          return networkResponse;
+        }
+
+        if (looksLikeMismatchedAsset(request.url, networkResponse)) {
+          console.error("[sw] asset response mime type mismatch, not caching:", request.url);
+          return networkResponse;
+        }
+
+        // clone response since we need to use it twice
+        const responseToCache = networkResponse.clone();
+
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(request, responseToCache);
+        });
+
+        return networkResponse;
+      })
+      .catch((error) => {
+        console.error("[sw] fetch failed:", error);
+        // could return a custom offline page here if needed
+        throw error;
+      });
+  });
+}
 
 // handle messages from the app
 self.addEventListener("message", (event) => {
