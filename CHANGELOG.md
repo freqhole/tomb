@@ -1,5 +1,17 @@
 # freqhole-release
 
+## 0.2.4
+
+### Patch Changes
+
+- 1e2e578: improve playlist detail layout and tidy some bugz; try to fix playerbar height calc with radio is playing.
+
+  **note:** sorting playlist songs is now enabled in "edit" mode on narrow/mobile devices.
+
+- 309edb4: try to improve radio track switching and admin track skipz
+- 018460e: add play + shuffle buttonz to favoritez view
+- 018460e: add more loading state to buttons that add songs to queue
+
 ## 0.2.3
 
 ### Patch Changes
