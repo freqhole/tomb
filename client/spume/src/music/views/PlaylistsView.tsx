@@ -103,6 +103,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     initialPlaylistId
   );
   const [editMode, setEditMode] = createSignal(false);
+  // tracks which of play/add-to-queue/shuffle is currently fetching + queueing
+  // songs, so the buttons can show immediate feedback for however long that
+  // takes (and so a second click can't queue the same songs twice).
+  const [playlistActionPending, setPlaylistActionPending] = createSignal<
+    "play" | "queue" | "shuffle" | null
+  >(null);
   const [showImageCarousel, setShowImageCarousel] = createSignal(false);
   const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
@@ -681,18 +687,82 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // play all songs in selected playlist
   const handlePlayAll = async () => {
+    if (playlistActionPending()) return;
     const songs = playlistSongs();
     if (songs.length > 0) {
+      setPlaylistActionPending("play");
+      try {
+        const playlist = selectedPlaylist();
+        await playQueue(songs, {
+          source: {
+            type: "playlist",
+            label: playlist?.title ?? "playlist",
+            entity_id: playlist?.playlist_id,
+            image: playlist?.images?.[0],
+          },
+        });
+        // fire-and-forget: record initiated playlist play
+        if (playlist?.playlist_id) {
+          try {
+            const remoteClient = await getRemoteClient();
+            if (remoteClient) {
+              void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
+            }
+          } catch (err) {
+            console.warn("[playlist] recordPlaylistPlay failed:", err);
+          }
+        }
+      } finally {
+        setPlaylistActionPending(null);
+      }
+    }
+  };
+
+  // add all songs to queue
+  const handleAddToQueue = async () => {
+    if (playlistActionPending()) return;
+    const songs = playlistSongs();
+    if (songs.length > 0) {
+      setPlaylistActionPending("queue");
+      try {
+        const playlist = selectedPlaylist();
+        await addToQueue(songs, {
+          source: {
+            type: "playlist",
+            label: playlist?.title ?? "playlist",
+            entity_id: playlist?.playlist_id,
+            image: playlist?.images?.[0],
+          },
+        });
+      } finally {
+        setPlaylistActionPending(null);
+      }
+    }
+  };
+
+  // shuffle all songs and replace the current queue. uses fisher-yates
+  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
+  // wipes the existing queue (same behavior as picking an album/playlist).
+  const handleShuffleAll = async () => {
+    if (playlistActionPending()) return;
+    const songs = playlistSongs();
+    if (songs.length === 0) return;
+    setPlaylistActionPending("shuffle");
+    try {
+      const shuffled = songs.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
       const playlist = selectedPlaylist();
-      await playQueue(songs, {
+      await playQueue(shuffled, {
         source: {
-          type: "playlist",
-          label: playlist?.title ?? "playlist",
+          type: "shuffle",
+          label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
           entity_id: playlist?.playlist_id,
           image: playlist?.images?.[0],
         },
       });
-      // fire-and-forget: record initiated playlist play
       if (playlist?.playlist_id) {
         try {
           const remoteClient = await getRemoteClient();
@@ -703,54 +773,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           console.warn("[playlist] recordPlaylistPlay failed:", err);
         }
       }
-    }
-  };
-
-  // add all songs to queue
-  const handleAddToQueue = async () => {
-    const songs = playlistSongs();
-    if (songs.length > 0) {
-      const playlist = selectedPlaylist();
-      await addToQueue(songs, {
-        source: {
-          type: "playlist",
-          label: playlist?.title ?? "playlist",
-          entity_id: playlist?.playlist_id,
-          image: playlist?.images?.[0],
-        },
-      });
-    }
-  };
-
-  // shuffle all songs and replace the current queue. uses fisher-yates
-  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
-  // wipes the existing queue (same behavior as picking an album/playlist).
-  const handleShuffleAll = async () => {
-    const songs = playlistSongs();
-    if (songs.length === 0) return;
-    const shuffled = songs.slice();
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    const playlist = selectedPlaylist();
-    await playQueue(shuffled, {
-      source: {
-        type: "shuffle",
-        label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
-        entity_id: playlist?.playlist_id,
-        image: playlist?.images?.[0],
-      },
-    });
-    if (playlist?.playlist_id) {
-      try {
-        const remoteClient = await getRemoteClient();
-        if (remoteClient) {
-          void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
-        }
-      } catch (err) {
-        console.warn("[playlist] recordPlaylistPlay failed:", err);
-      }
+    } finally {
+      setPlaylistActionPending(null);
     }
   };
 
@@ -1225,6 +1249,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 <Show when={playlistSongs().length > 0}>
                                   <Button
                                     variant="primary"
+                                    loading={playlistActionPending() === "play"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handlePlayAll}
                                     title="play all songs in this playlist"
                                   >
@@ -1232,6 +1258,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   </Button>
                                   <Button
                                     variant="secondary"
+                                    loading={playlistActionPending() === "queue"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handleAddToQueue}
                                     title="add all songs to the end of the queue"
                                   >
@@ -1241,6 +1269,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     icon="shuffle"
                                     size="default"
                                     variant="ghost"
+                                    loading={playlistActionPending() === "shuffle"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handleShuffleAll}
                                     aria-label="shuffle playlist"
                                     title="shuffle playlist"
@@ -1300,6 +1330,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 icon="play"
                                 size="default"
                                 variant="ghost"
+                                loading={playlistActionPending() === "play"}
+                                disabled={playlistActionPending() !== null}
                                 onClick={handlePlayAll}
                                 aria-label="play all songs in this playlist"
                                 title="play all songs in this playlist"
@@ -1308,6 +1340,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 icon="shuffle"
                                 size="default"
                                 variant="ghost"
+                                loading={playlistActionPending() === "shuffle"}
+                                disabled={playlistActionPending() !== null}
                                 onClick={handleShuffleAll}
                                 aria-label="shuffle playlist"
                                 title="shuffle playlist (replaces current queue)"

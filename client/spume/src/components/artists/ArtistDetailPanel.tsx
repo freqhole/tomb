@@ -118,11 +118,11 @@ export interface ArtistDetailPanelProps {
   /** currently playing song id */
   playingSongId?: string;
   /** play all songs handler */
-  onPlayAll?: () => void;
+  onPlayAll?: () => void | Promise<void>;
   /** shuffle all songs handler */
-  onShuffle?: () => void;
+  onShuffle?: () => void | Promise<void>;
   /** add all songs to queue handler */
-  onAddToQueue?: () => void;
+  onAddToQueue?: () => void | Promise<void>;
   /** navigate to album detail */
   onAlbumClick?: (albumId: string) => void;
   /** play specific album */
@@ -267,6 +267,27 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
   // and reveals a "see more" toggle when content overflows).
   const [chipsExpanded, setChipsExpanded] = createSignal(false);
   const [chipsOverflowing, setChipsOverflowing] = createSignal(false);
+
+  // tracks which of play/shuffle/add-to-queue is currently fetching + queueing
+  // songs, so the buttons can show immediate feedback for however long that
+  // takes (and so a second click can't queue the same songs twice).
+  const [pendingAction, setPendingAction] = createSignal<"play" | "shuffle" | "queue" | null>(null);
+
+  const runPendingAction = async (
+    action: "play" | "shuffle" | "queue",
+    fn?: () => void | Promise<void>
+  ) => {
+    if (pendingAction() || !fn) return;
+    setPendingAction(action);
+    try {
+      await fn();
+    } finally {
+      setPendingAction(null);
+    }
+  };
+  const handlePlayAll = () => void runPendingAction("play", props.onPlayAll);
+  const handleShuffle = () => void runPendingAction("shuffle", props.onShuffle);
+  const handleAddToQueue = () => void runPendingAction("queue", props.onAddToQueue);
 
   // create artist abbreviation (up to 3 letters from first words)
   const artistAbbreviation = createMemo(() => getArtistAbbreviation(props.artist.name));
@@ -434,13 +455,31 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     <Icon name={IconNames.edit} size={20} />
                   </button>
                 </Show>
-                <Button variant="primary" size="sm" onClick={props.onPlayAll}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={pendingAction() === "play"}
+                  disabled={pendingAction() !== null}
+                  onClick={handlePlayAll}
+                >
                   play all
                 </Button>
-                <Button variant="secondary" size="sm" onClick={props.onShuffle}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={pendingAction() === "shuffle"}
+                  disabled={pendingAction() !== null}
+                  onClick={handleShuffle}
+                >
                   shuffle
                 </Button>
-                <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={pendingAction() === "queue"}
+                  disabled={pendingAction() !== null}
+                  onClick={handleAddToQueue}
+                >
                   +queue
                 </Button>
                 <Show when={isCharnelMode() || !!getCurrentRemote()}>
@@ -621,13 +660,31 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     <Icon name={IconNames.edit} size={20} />
                   </button>
                 </Show>
-                <Button variant="primary" size="sm" onClick={props.onPlayAll}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={pendingAction() === "play"}
+                  disabled={pendingAction() !== null}
+                  onClick={handlePlayAll}
+                >
                   play
                 </Button>
-                <Button variant="secondary" size="sm" onClick={props.onShuffle}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={pendingAction() === "shuffle"}
+                  disabled={pendingAction() !== null}
+                  onClick={handleShuffle}
+                >
                   shuffle
                 </Button>
-                <Button variant="ghost" size="sm" onClick={props.onAddToQueue}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={pendingAction() === "queue"}
+                  disabled={pendingAction() !== null}
+                  onClick={handleAddToQueue}
+                >
                   +queue
                 </Button>
                 <Show when={isCharnelMode() || !!getCurrentRemote()}>

@@ -1,5 +1,6 @@
 import { JSX, splitProps } from "solid-js";
 import { solidColors } from "../../design-system/colors";
+import { Icon } from "../icons/registry";
 
 export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   /** visual style variant */
@@ -10,10 +11,21 @@ export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement>
   fullWidth?: boolean;
   /** children/content */
   children?: JSX.Element;
+  /** show a spinner ahead of the label and force the disabled state - use
+   *  while an async action triggered by this button is in flight */
+  loading?: boolean;
 }
 
 export function Button(props: ButtonProps) {
-  const [local, others] = splitProps(props, ["variant", "size", "fullWidth", "class", "children"]);
+  const [local, others] = splitProps(props, [
+    "variant",
+    "size",
+    "fullWidth",
+    "class",
+    "children",
+    "loading",
+    "disabled",
+  ]);
 
   const variant = () => local.variant || "primary";
   const size = () => local.size || "md";
@@ -70,8 +82,10 @@ export function Button(props: ButtonProps) {
         gap-2
         ${local.class || ""}
       `}
+      disabled={local.disabled || local.loading}
       {...others}
     >
+      {local.loading && <Icon name="loader" size={14} className="animate-spin" />}
       {local.children}
     </button>
   );

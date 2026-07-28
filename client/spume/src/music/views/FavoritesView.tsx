@@ -4,6 +4,7 @@ import { createEffect, createMemo, on, onCleanup, Show } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
+  type FavoriteFilterType,
 } from "../../components/layout/FavoritesLayout";
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
@@ -306,6 +307,80 @@ export function FavoritesView(props: FavoritesViewProps) {
     // no-op until phase-9 replaces it with a taxon picker.
   };
 
+  // build the song list for "play/shuffle all favorites", expanding any
+  // toggled-on album/artist/playlist categories into their songs (not just
+  // directly-favorited songs). runs the per-item lookups in parallel but
+  // flattens/dedupes in the original favorites order.
+  const collectFavoriteSongs = async (activeFilters: Set<FavoriteFilterType>): Promise<Song[]> => {
+    const dataSource = getDataSource();
+    const items = allFavorites();
+
+    const perItemSongs = await Promise.all(
+      items.map(async (item): Promise<Song[]> => {
+        switch (item.type) {
+          case "song":
+            return activeFilters.has("songs") ? [item] : [];
+          case "album":
+            if (!activeFilters.has("albums")) return [];
+            try {
+              const res = await dataSource.getSongs({ album_id: item.album_id, limit: 1000 });
+              return res.items;
+            } catch (err) {
+              console.error("failed to load album songs for favorites playback:", err);
+              return [];
+            }
+          case "artist":
+            if (!activeFilters.has("artists")) return [];
+            try {
+              const res = await dataSource.getSongs({ artist_id: item.artist_id, limit: 1000 });
+              return res.items;
+            } catch (err) {
+              console.error("failed to load artist songs for favorites playback:", err);
+              return [];
+            }
+          case "playlist":
+            if (!activeFilters.has("playlists") || !dataSource.getPlaylistSongs) return [];
+            try {
+              const res = await dataSource.getPlaylistSongs(item.playlist_id, { limit: 1000 });
+              return res.items;
+            } catch (err) {
+              console.error("failed to load playlist songs for favorites playback:", err);
+              return [];
+            }
+        }
+      })
+    );
+
+    // dedupe while preserving first-seen order
+    const seen = new Set<string>();
+    const songs: Song[] = [];
+    for (const list of perItemSongs) {
+      for (const song of list) {
+        if (seen.has(song.id)) continue;
+        seen.add(song.id);
+        songs.push(song);
+      }
+    }
+    return songs;
+  };
+
+  const handlePlayAllFavorites = async (activeFilters: Set<FavoriteFilterType>) => {
+    const songs = await collectFavoriteSongs(activeFilters);
+    if (songs.length === 0) return;
+    await playQueue(songs, { source: { type: "playlist", label: "favorites" } });
+  };
+
+  const handleShuffleAllFavorites = async (activeFilters: Set<FavoriteFilterType>) => {
+    const songs = await collectFavoriteSongs(activeFilters);
+    if (songs.length === 0) return;
+    const shuffled = songs.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    await playQueue(shuffled, { source: { type: "shuffle", label: "shuffle: favorites" } });
+  };
+
   return (
     <div class="flex flex-col h-full">
       <Show
@@ -337,6 +412,8 @@ export function FavoritesView(props: FavoritesViewProps) {
           height={containerHeight()}
           onSongClick={handleSongClick}
           onSongPlay={handleSongDoubleClick}
+          onPlayAllFavorites={handlePlayAllFavorites}
+          onShuffleAllFavorites={handleShuffleAllFavorites}
           getSongContextMenuActions={getSongContextMenuActions}
           onSongFavoriteToggle={handleSongFavoriteToggle}
           onAlbumClick={handleAlbumClick}

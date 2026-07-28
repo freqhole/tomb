@@ -10,11 +10,22 @@ export interface IconButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElem
   iconSize?: number;
   class?: string;
   "aria-label": string;
+  /** show a spinner in place of the icon and force the disabled state -
+   *  use while an async action triggered by this button is in flight */
+  loading?: boolean;
 }
 
 // icon button with consistent styling and variants
 export function IconButton(props: IconButtonProps) {
-  const [local, rest] = splitProps(props, ["icon", "variant", "size", "iconSize", "class"]);
+  const [local, rest] = splitProps(props, [
+    "icon",
+    "variant",
+    "size",
+    "iconSize",
+    "class",
+    "loading",
+    "disabled",
+  ]);
 
   const variant = () => local.variant || "ghost";
   const size = () => local.size || "md";
@@ -60,15 +71,23 @@ export function IconButton(props: IconButtonProps) {
   };
 
   const disabledClasses = () =>
-    rest.disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer";
+    local.disabled || local.loading
+      ? "opacity-50 cursor-not-allowed pointer-events-none"
+      : "cursor-pointer";
 
   return (
     <button
       type="button"
+      disabled={local.disabled || local.loading}
       class={`${variantClasses()} ${sizeClasses()} ${disabledClasses()} ${local.class || ""}`}
       {...rest}
     >
-      <Icon name={local.icon} size={iconSizeMap()} color="currentColor" />
+      <Icon
+        name={local.loading ? "loader" : local.icon}
+        size={iconSizeMap()}
+        color="currentColor"
+        className={local.loading ? "animate-spin" : undefined}
+      />
     </button>
   );
 }
