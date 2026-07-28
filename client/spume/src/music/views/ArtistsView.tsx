@@ -5,6 +5,7 @@ import { playQueue, addToQueue } from "../services/queue/queue";
 import { MusicIcon } from "../../components/icons/registry";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -49,7 +50,8 @@ export function ArtistsView(props: ArtistsViewProps) {
 
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // restore selected artist from URL params or history state on mount

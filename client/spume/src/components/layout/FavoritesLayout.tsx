@@ -1,6 +1,7 @@
 // favorites layout - presentational component for displaying favorites with toggle filters
 import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
 import { Icon } from "../icons/registry";
+import { IconButton } from "../buttons/IconButton";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { SongCard } from "../cards/SongCard";
@@ -41,6 +42,11 @@ export interface FavoritesLayoutProps {
   compactMode?: boolean;
   /** callback when filter changes */
   onFilterChange?: (activeFilters: Set<FavoriteFilterType>) => void;
+  /** play all favorites matching the currently active filters (expanding
+   *  albums/artists/playlists into their songs) */
+  onPlayAllFavorites?: (activeFilters: Set<FavoriteFilterType>) => void | Promise<void>;
+  /** shuffle-play all favorites matching the currently active filters */
+  onShuffleAllFavorites?: (activeFilters: Set<FavoriteFilterType>) => void | Promise<void>;
   /** song card callbacks */
   onSongClick?: (song: Song) => void;
   onSongPlay?: (song: Song) => void;
@@ -75,6 +81,10 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   const [activeFilters, setActiveFilters] = createSignal<Set<FavoriteFilterType>>(
     new Set(ALL_FILTERS)
   );
+  // tracks which of the play/shuffle actions is currently fetching + queueing
+  // songs, so the buttons can show immediate feedback (loading spinner) for
+  // however long that takes - can be a while for lots of songs/a slow remote.
+  const [pendingAction, setPendingAction] = createSignal<"play" | "shuffle" | null>(null);
   let scrollContainerRef: HTMLDivElement | undefined;
 
   // scroll restoration
@@ -159,16 +169,16 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
   }) => {
     const isActive = () => activeFilters().has(buttonProps.type);
     const iconName = () => filterIcons[buttonProps.type] as any;
-    
+
     // in compact mode, show icon-only between wide-xl
     const compactClasses = () =>
       props.compactMode
         ? "wide:p-2 wide:aspect-square xl:px-4 xl:py-2 xl:aspect-auto"
         : "wide:px-4 wide:py-2";
-    
+
     return (
       <button
-        class={`px-2 py-1.5 ${compactClasses()} text-sm wide:text-base rounded-lg transition-all flex items-center justify-center gap-1 ${
+        class={`flex-shrink-0 px-2 py-1.5 ${compactClasses()} text-sm wide:text-base rounded-lg transition-all flex items-center justify-center gap-1 ${
           isActive()
             ? "bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)]"
             : "bg-[var(--color-bg-elevated)] text-[var(--color-text-disabled)] hover:bg-[var(--color-bg-elevated-hover)] hover:text-[var(--color-text-secondary)]"
@@ -270,6 +280,28 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
     }
   };
 
+  // run play/shuffle-all, tracking which one is in flight so the buttons can
+  // show a loading spinner for however long the fetch + queue takes
+  const handlePlayAll = async () => {
+    if (pendingAction()) return;
+    setPendingAction("play");
+    try {
+      await props.onPlayAllFavorites?.(activeFilters());
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handleShuffleAll = async () => {
+    if (pendingAction()) return;
+    setPendingAction("shuffle");
+    try {
+      await props.onShuffleAllFavorites?.(activeFilters());
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return (
     <div
       style={{ height: `${props.height}px` }}
@@ -278,8 +310,37 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       onScroll={(e) => saveScroll(e.currentTarget)}
     >
       <div class="px-4 wide:px-6 pb-6">
-        {/* filter toggles */}
-        <div class="flex gap-2 overflow-x-auto wide:overflow-x-visible wide:flex-wrap scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-end">
+        {/* play/shuffle all (respecting active filters) + filter toggles, all
+            in one always-horizontally-scrollable row. justify-start on
+            narrow avoids the justify-end + overflow-x-auto clipping bug
+            (start-of-row items get hidden with no way to scroll back to
+            them); wide:justify-end hugs the row to the top-right, away from
+            the floating nav pill in the top-left corner, without needing a
+            permanent vertical offset - wide screens rarely have enough
+            items to overflow, so the clipping risk there is negligible. */}
+        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end">
+          <IconButton
+            icon="play"
+            size="default"
+            variant="ghost"
+            class="flex-shrink-0"
+            disabled={filteredFavorites().length === 0 || pendingAction() !== null}
+            loading={pendingAction() === "play"}
+            onClick={handlePlayAll}
+            aria-label="play all favorites"
+            title="play all favorites"
+          />
+          <IconButton
+            icon="shuffle"
+            size="default"
+            variant="ghost"
+            class="flex-shrink-0"
+            disabled={filteredFavorites().length === 0 || pendingAction() !== null}
+            loading={pendingAction() === "shuffle"}
+            onClick={handleShuffleAll}
+            aria-label="shuffle favorites"
+            title="shuffle favorites (replaces current queue)"
+          />
           <ToggleButton type="songs" label="songs" count={counts().songs} />
           <ToggleButton type="albums" label="albums" count={counts().albums} />
           <ToggleButton type="artists" label="artists" count={counts().artists} />

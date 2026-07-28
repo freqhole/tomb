@@ -33,6 +33,10 @@ interface RadioChunkReadyEvent {
   kind: "chunk_ready";
   json: string;
 }
+interface RadioSkipEvent {
+  kind: "skip";
+  json: string;
+}
 interface RadioClosedEvent {
   kind: "closed";
   reason: string;
@@ -43,6 +47,7 @@ type RadioEvent =
   | RadioMetaEvent
   | RadioLagEvent
   | RadioChunkReadyEvent
+  | RadioSkipEvent
   | RadioClosedEvent;
 
 type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
@@ -91,10 +96,11 @@ export async function tuneRadioCharnel(
         case "meta":
         case "lag":
         case "chunk_ready":
+        case "skip":
           // route every non-Hello control message through on_meta. the
           // payload includes the original `disc` discriminator so spume
-          // can dispatch on Lag / ChunkReady / Meta uniformly with the
-          // wasm path.
+          // can dispatch on Lag / ChunkReady / Skip / Meta uniformly with
+          // the wasm path.
           on_meta(msg.json);
           break;
         case "chunk":
@@ -163,6 +169,7 @@ export async function tuneRadioCharnelLocal(
         case "meta":
         case "lag":
         case "chunk_ready":
+        case "skip":
           on_meta(msg.json);
           break;
         case "chunk":

@@ -16,6 +16,7 @@ import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import { VirtualFeedList } from "../../components/virtualized/VirtualFeedList";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { getClientForRemote } from "../../app/api/client";
@@ -543,7 +544,8 @@ export function AggregateFeedView() {
 
   // responsive height
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // play handler

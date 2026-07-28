@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { setBackgroundImage, clearBackgroundImage } from "../../app/services/backgroundImage";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -16,7 +17,11 @@ import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { DraggableRow, DraggableRowSongContent } from "../../components/lists/DraggableRow";
-import { ContextMenu, ClickDropdownMenu } from "../../components/overlays/ContextMenu";
+import {
+  ContextMenu,
+  ClickDropdownMenu,
+  type MenuAction,
+} from "../../components/overlays/ContextMenu";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
@@ -32,18 +37,22 @@ import {
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
-import { resolveBlobUrl } from "../services/storage/blobResolver";
+import { resolveBlobUrl, isValidHttpUrl } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import { showStationSelector } from "../hooks/stationSelectorState";
+import { showShareModal } from "../hooks/modals";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
 import { canRemoveSongsFromPlaylist, canUpdatePlaylist } from "../data/permissions";
 import { getPlaylistById } from "../services/storage/db";
-import { type Playlist } from "../services/storage/types";
+import { type Playlist, type ImageMetadata } from "../services/storage/types";
 import { getRoutePrefix } from "../utils/routing";
 import { PlaylistEditor } from "./playlists/PlaylistEditor";
-import { DownloadPlaylistZipBundleButton } from "./playlists/DownloadPlaylistZipBundleButton";
+import {
+  DownloadPlaylistZipBundleButton,
+  downloadPlaylistZipWithToast,
+} from "./playlists/DownloadPlaylistZipBundleButton";
 import { debug, error as errorLog } from "../../utils/logger";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
@@ -73,7 +82,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const listHeight = () => {
     const vh = viewportHeight();
     const pb = playerBarHeight();
@@ -93,6 +103,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     initialPlaylistId
   );
   const [editMode, setEditMode] = createSignal(false);
+  // tracks which of play/add-to-queue/shuffle is currently fetching + queueing
+  // songs, so the buttons can show immediate feedback for however long that
+  // takes (and so a second click can't queue the same songs twice).
+  const [playlistActionPending, setPlaylistActionPending] = createSignal<
+    "play" | "queue" | "shuffle" | null
+  >(null);
   const [showImageCarousel, setShowImageCarousel] = createSignal(false);
   const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
@@ -592,40 +608,35 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
-    const remote = getCurrentRemote();
     const songs = playlistSongs();
 
-    // check if this remote needs blob resolution (P2P or tauri-managed)
-    const isTransportBased =
-      remote &&
-      (remote.transport_type === "wasm" ||
-        remote.transport_type === "app" ||
-        remote.is_charnel_managed);
-
-    // collect all images: Map<blobId, ImageMetadata>
-    const imageMap = new Map<string, { blobId: string; url?: string }>();
-
-    // add all playlist images (except waveforms), deduplicate by blob_id
-    if (playlist.images?.length) {
-      for (const img of playlist.images) {
-        if (img.blob_type !== "waveform") {
-          const blobId = img.remote_blob_id || img.local_blob_id;
-          const url = img.remote_url;
-          if (blobId) imageMap.set(blobId, { blobId, url });
-        }
-      }
+    // collect all images, deduplicated by whichever blob id they carry
+    interface CarouselImageEntry {
+      localBlobId?: string;
+      remoteBlobId?: string;
+      remoteServerId?: string;
+      url?: string;
     }
+    const imageMap = new Map<string, CarouselImageEntry>();
 
-    // collect all song images (except waveforms), deduplicate by blob_id
+    const addImage = (img: ImageMetadata) => {
+      if (img.blob_type === "waveform") return;
+      const key = img.remote_blob_id || img.local_blob_id;
+      if (!key) return;
+      imageMap.set(key, {
+        localBlobId: img.local_blob_id,
+        remoteBlobId: img.remote_blob_id,
+        remoteServerId: img.remote_server_id,
+        url: img.remote_url,
+      });
+    };
+
+    if (playlist.images?.length) {
+      for (const img of playlist.images) addImage(img);
+    }
     for (const song of songs) {
       if (song.images?.length) {
-        for (const img of song.images) {
-          if (img.blob_type !== "waveform") {
-            const blobId = img.remote_blob_id || img.local_blob_id;
-            const url = img.remote_url;
-            if (blobId) imageMap.set(blobId, { blobId, url });
-          }
-        }
+        for (const img of song.images) addImage(img);
       }
     }
 
@@ -634,32 +645,35 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       return;
     }
 
-    // resolve images to URLs
-    let resolvedUrls: string[];
-
-    if (isTransportBased && remote) {
-      // transport-based remote: resolve blob IDs through transport
-      const resolvePromises = Array.from(imageMap.values()).map(async ({ blobId }) => {
+    // resolve each image to a displayable URL, same priority order used
+    // elsewhere in the app (see blobResolver.ts's resolveImageUrlSync /
+    // MediaThumbnail's resolveImageUrl): a local blob already on this
+    // device wins first (this is what makes downloaded/synced-to-local
+    // images work even while viewing the local library with no remote
+    // selected), then the image's own recorded remote server (not
+    // necessarily whichever remote happens to be selected right now),
+    // and only then a URL that's already a full http(s) address - a bare
+    // relative path like "/api/blobs/{id}" (e.g. a stale reference kept
+    // as a fallback from before an image was downloaded locally) is never
+    // trusted directly, since it has no origin to resolve against once
+    // there's no active remote/transport context.
+    const resolvePromises = Array.from(imageMap.values()).map(async (entry) => {
+      if (entry.localBlobId) {
+        const resolved = await getBlobObjectURL(entry.localBlobId);
+        if (resolved) return resolved;
+      }
+      if (entry.remoteBlobId && entry.remoteServerId) {
         try {
-          return await resolveBlobUrl(blobId, remote.remote_id, "image");
+          return await resolveBlobUrl(entry.remoteBlobId, entry.remoteServerId, "image");
         } catch {
-          return null;
+          // fall through to the URL check below
         }
-      });
-      const results = await Promise.all(resolvePromises);
-      resolvedUrls = results.filter((url): url is string => url !== null);
-    } else {
-      // HTTP remote or local: use URLs directly, or resolve local blob IDs
-      const resolvePromises = Array.from(imageMap.values()).map(async ({ blobId, url }) => {
-        // prefer URL if available (http remote)
-        if (url) return url;
-        // otherwise resolve from OPFS
-        const resolved = await getBlobObjectURL(blobId);
-        return resolved ?? null;
-      });
-      const results = await Promise.all(resolvePromises);
-      resolvedUrls = results.filter((url): url is string => url !== null);
-    }
+      }
+      if (isValidHttpUrl(entry.url)) return entry.url!;
+      return null;
+    });
+    const results = await Promise.all(resolvePromises);
+    const resolvedUrls = results.filter((url): url is string => url !== null);
 
     if (resolvedUrls.length === 0) {
       toast.info("no images available for this playlist");
@@ -673,18 +687,82 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // play all songs in selected playlist
   const handlePlayAll = async () => {
+    if (playlistActionPending()) return;
     const songs = playlistSongs();
     if (songs.length > 0) {
+      setPlaylistActionPending("play");
+      try {
+        const playlist = selectedPlaylist();
+        await playQueue(songs, {
+          source: {
+            type: "playlist",
+            label: playlist?.title ?? "playlist",
+            entity_id: playlist?.playlist_id,
+            image: playlist?.images?.[0],
+          },
+        });
+        // fire-and-forget: record initiated playlist play
+        if (playlist?.playlist_id) {
+          try {
+            const remoteClient = await getRemoteClient();
+            if (remoteClient) {
+              void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
+            }
+          } catch (err) {
+            console.warn("[playlist] recordPlaylistPlay failed:", err);
+          }
+        }
+      } finally {
+        setPlaylistActionPending(null);
+      }
+    }
+  };
+
+  // add all songs to queue
+  const handleAddToQueue = async () => {
+    if (playlistActionPending()) return;
+    const songs = playlistSongs();
+    if (songs.length > 0) {
+      setPlaylistActionPending("queue");
+      try {
+        const playlist = selectedPlaylist();
+        await addToQueue(songs, {
+          source: {
+            type: "playlist",
+            label: playlist?.title ?? "playlist",
+            entity_id: playlist?.playlist_id,
+            image: playlist?.images?.[0],
+          },
+        });
+      } finally {
+        setPlaylistActionPending(null);
+      }
+    }
+  };
+
+  // shuffle all songs and replace the current queue. uses fisher-yates
+  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
+  // wipes the existing queue (same behavior as picking an album/playlist).
+  const handleShuffleAll = async () => {
+    if (playlistActionPending()) return;
+    const songs = playlistSongs();
+    if (songs.length === 0) return;
+    setPlaylistActionPending("shuffle");
+    try {
+      const shuffled = songs.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
       const playlist = selectedPlaylist();
-      await playQueue(songs, {
+      await playQueue(shuffled, {
         source: {
-          type: "playlist",
-          label: playlist?.title ?? "playlist",
+          type: "shuffle",
+          label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
           entity_id: playlist?.playlist_id,
           image: playlist?.images?.[0],
         },
       });
-      // fire-and-forget: record initiated playlist play
       if (playlist?.playlist_id) {
         try {
           const remoteClient = await getRemoteClient();
@@ -695,54 +773,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
           console.warn("[playlist] recordPlaylistPlay failed:", err);
         }
       }
-    }
-  };
-
-  // add all songs to queue
-  const handleAddToQueue = async () => {
-    const songs = playlistSongs();
-    if (songs.length > 0) {
-      const playlist = selectedPlaylist();
-      await addToQueue(songs, {
-        source: {
-          type: "playlist",
-          label: playlist?.title ?? "playlist",
-          entity_id: playlist?.playlist_id,
-          image: playlist?.images?.[0],
-        },
-      });
-    }
-  };
-
-  // shuffle all songs and replace the current queue. uses fisher-yates
-  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
-  // wipes the existing queue (same behavior as picking an album/playlist).
-  const handleShuffleAll = async () => {
-    const songs = playlistSongs();
-    if (songs.length === 0) return;
-    const shuffled = songs.slice();
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    const playlist = selectedPlaylist();
-    await playQueue(shuffled, {
-      source: {
-        type: "shuffle",
-        label: playlist?.title ? `shuffle: ${playlist.title}` : "shuffle",
-        entity_id: playlist?.playlist_id,
-        image: playlist?.images?.[0],
-      },
-    });
-    if (playlist?.playlist_id) {
-      try {
-        const remoteClient = await getRemoteClient();
-        if (remoteClient) {
-          void remoteClient.music.recordPlaylistPlay(playlist.playlist_id);
-        }
-      } catch (err) {
-        console.warn("[playlist] recordPlaylistPlay failed:", err);
-      }
+    } finally {
+      setPlaylistActionPending(null);
     }
   };
 
@@ -752,6 +784,56 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     if (!playlist) return;
 
     setEditMode(!editMode());
+  };
+
+  // narrow view: most header actions collapse into a "..." flyout to save
+  // horizontal space - play, shuffle, image carousel, and the favorite
+  // toggle stay directly visible (see PlaylistsView narrow header row below).
+  const narrowOverflowActions = (): MenuAction[] => {
+    const playlist = selectedPlaylist();
+    const hasSongs = playlistSongs().length > 0;
+    const actions: MenuAction[] = [];
+
+    if (canUpdatePlaylist(playlist?.created_by_id ?? null)) {
+      actions.push({ label: "edit playlist", icon: "edit", onClick: handleEditToggle });
+    }
+    if (hasSongs) {
+      actions.push({
+        label: "add to queue",
+        icon: "queue",
+        onClick: () => void handleAddToQueue(),
+      });
+      // radio is a remote/server feature - not available for local-library-only playlists
+      if (isViewingRemote()) {
+        actions.push({
+          label: "send to radio station",
+          icon: "radioTower",
+          onClick: () => void handleAddToStation(),
+        });
+      }
+    }
+    actions.push({
+      label: "share",
+      icon: "share",
+      onClick: () =>
+        showShareModal({
+          target: {
+            kind: "playlist",
+            id: playlist?.playlist_id || "",
+            displayTitle: playlist?.title || "",
+          },
+          source: () => currentRemoteFull(),
+          buildSendPayload: buildPlaylistSendPayload,
+        }),
+    });
+    if (hasSongs && playlist) {
+      actions.push({
+        label: "download zip",
+        icon: "downloadZip",
+        onClick: () => void downloadPlaylistZipWithToast(playlist, playlistSongs()),
+      });
+    }
+    return actions;
   };
 
   // combined dragged song id (pointer drag for charnel/touch, HTML5 drag otherwise)
@@ -1065,7 +1147,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                       }
                     >
                       <div
-                        class={`flex flex-col h-full relative ${isNarrow() ? "overflow-auto" : ""}`}
+                        class={`flex flex-col h-full min-h-0 relative ${isNarrow() ? "overflow-auto" : ""}`}
                       >
                         {/* sticky header with back button for mobile */}
                         <Show when={isNarrow() && showingDetailOnNarrow()}>
@@ -1167,6 +1249,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 <Show when={playlistSongs().length > 0}>
                                   <Button
                                     variant="primary"
+                                    loading={playlistActionPending() === "play"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handlePlayAll}
                                     title="play all songs in this playlist"
                                   >
@@ -1174,6 +1258,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   </Button>
                                   <Button
                                     variant="secondary"
+                                    loading={playlistActionPending() === "queue"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handleAddToQueue}
                                     title="add all songs to the end of the queue"
                                   >
@@ -1183,6 +1269,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                     icon="shuffle"
                                     size="default"
                                     variant="ghost"
+                                    loading={playlistActionPending() === "shuffle"}
+                                    disabled={playlistActionPending() !== null}
                                     onClick={handleShuffleAll}
                                     aria-label="shuffle playlist"
                                     title="shuffle playlist"
@@ -1195,7 +1283,8 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                   aria-label="view all images"
                                   title="view all playlist images"
                                 />
-                                <Show when={playlistSongs().length > 0}>
+                                {/* radio is a remote/server feature - not available for local-library-only playlists */}
+                                <Show when={playlistSongs().length > 0 && isViewingRemote()}>
                                   <IconButton
                                     icon="radioTower"
                                     size="default"
@@ -1230,44 +1319,29 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                           </div>
                         </div>
 
-                        {/* sticky action buttons for narrow - direct child of scroll container */}
+                        {/* sticky action buttons for narrow - direct child of scroll container.
+                            most actions collapse into the "..." flyout to save horizontal
+                            space; play, shuffle, image carousel, and favorite stay directly
+                            visible. */}
                         <Show when={!editMode() && isNarrow()}>
                           <div class="flex gap-2 justify-between flex-wrap sticky top-12 backdrop-blur-sm px-6 py-2 z-20">
-                            <Show
-                              when={canUpdatePlaylist(selectedPlaylist()?.created_by_id ?? null)}
-                            >
+                            <Show when={playlistSongs().length > 0}>
                               <IconButton
-                                icon="edit"
+                                icon="play"
                                 size="default"
                                 variant="ghost"
-                                onClick={handleEditToggle}
-                                aria-label="edit playlist"
-                                title="edit playlist"
-                              />
-                            </Show>
-                            <Show when={playlistSongs().length > 0}>
-                              <Button
-                                variant="primary"
+                                loading={playlistActionPending() === "play"}
+                                disabled={playlistActionPending() !== null}
                                 onClick={handlePlayAll}
+                                aria-label="play all songs in this playlist"
                                 title="play all songs in this playlist"
-                              >
-                                <Show when={!isNarrow()} fallback={"play"}>
-                                  play all
-                                </Show>
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                onClick={handleAddToQueue}
-                                title="add all songs to the end of the queue"
-                              >
-                                <Show when={!isNarrow()} fallback={"queue"}>
-                                  add to queue
-                                </Show>
-                              </Button>
+                              />
                               <IconButton
                                 icon="shuffle"
                                 size="default"
                                 variant="ghost"
+                                loading={playlistActionPending() === "shuffle"}
+                                disabled={playlistActionPending() !== null}
                                 onClick={handleShuffleAll}
                                 aria-label="shuffle playlist"
                                 title="shuffle playlist (replaces current queue)"
@@ -1280,36 +1354,24 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               aria-label="view all images"
                               title="view all playlist images"
                             />
-                            <Show when={playlistSongs().length > 0}>
-                              <IconButton
-                                icon="radioTower"
-                                size="default"
-                                variant="ghost"
-                                onClick={handleAddToStation}
-                                aria-label="send playlist to a radio station"
-                                title="send playlist to a radio station"
-                              />
-                            </Show>
                             <FavoriteToggle
                               targetType="playlist"
                               targetId={selectedPlaylist()?.playlist_id || ""}
                               isFavorite={selectedPlaylist()?.is_favorite ?? false}
                             />
-                            <ShareButton
-                              target={{
-                                kind: "playlist",
-                                id: selectedPlaylist()?.playlist_id || "",
-                                displayTitle: selectedPlaylist()?.title || "",
-                              }}
-                              source={() => currentRemoteFull()}
-                              buildSendPayload={buildPlaylistSendPayload}
+                            <ClickDropdownMenu
+                              trigger={
+                                <IconButton
+                                  icon="more"
+                                  size="default"
+                                  variant="ghost"
+                                  aria-label="more playlist actions"
+                                  title="more playlist actions"
+                                  data-testid="btn-more-playlist"
+                                />
+                              }
+                              actions={narrowOverflowActions()}
                             />
-                            <Show when={playlistSongs().length > 0}>
-                              <DownloadPlaylistZipBundleButton
-                                playlist={selectedPlaylist()!}
-                                songs={playlistSongs()}
-                              />
-                            </Show>
                           </div>
                         </Show>
 
@@ -1369,7 +1431,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                             ...(song.album_images || []),
                                           ]}
                                           disabled={isCharnelMode()}
-                                          showDragHandle={isTouch}
+                                          showDragHandle={isTouch && editMode()}
                                         >
                                           <DraggableRowSongContent
                                             title={song.title}
@@ -1381,6 +1443,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                             songId={song.id}
                                             sha256={song.sha256}
                                             alwaysShowActions={isTouch}
+                                            compact={isNarrow()}
                                             onFavoriteToggle={(songId, isFavorite) => {
                                               toggleFavoriteMutation.mutate({
                                                 targetType: "song",
@@ -1408,9 +1471,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                                   />
                                                 </Show>
                                                 <Show
-                                                  when={canRemoveSongsFromPlaylist(
-                                                    selectedPlaylist()?.created_by_id ?? null
-                                                  )}
+                                                  when={
+                                                    !isNarrow() &&
+                                                    canRemoveSongsFromPlaylist(
+                                                      selectedPlaylist()?.created_by_id ?? null
+                                                    )
+                                                  }
                                                   fallback={null}
                                                 >
                                                   <IconButton

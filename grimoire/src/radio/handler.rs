@@ -18,7 +18,7 @@ use crate::radio::broadcaster::{
 use crate::radio::chunk::Chunk;
 use crate::radio::messages::{
     ChunkReadyMessage, ControlMessage, GoodbyeMessage, HelloMessage, LagMessage, MetaMessage,
-    RADIO_CODEC,
+    SkipMessage, RADIO_CODEC,
 };
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
 use crate::radio::stations::get_station;
@@ -297,11 +297,20 @@ async fn forward_meta(
 ) -> GrimoireResult<SessionEnd> {
     loop {
         match rx.recv().await {
-            Ok(update) => {
+            Ok(MetaUpdate::SkipFlush) => {
+                let msg = ControlMessage::Skip(SkipMessage {});
+                if ctrl_tx.send(msg).await.is_err() {
+                    return Ok(SessionEnd::Finished);
+                }
+            }
+            Ok(MetaUpdate::Meta {
+                now_playing,
+                init_seq,
+            }) => {
                 let msg = ControlMessage::Meta(MetaMessage {
-                    now_playing: (*update.now_playing).clone(),
+                    now_playing: (*now_playing).clone(),
                     listener_count: bc.listener_count(),
-                    init_seq: update.init_seq,
+                    init_seq,
                 });
                 if ctrl_tx.send(msg).await.is_err() {
                     return Ok(SessionEnd::Finished);

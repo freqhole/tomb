@@ -12,6 +12,7 @@ import { VirtualAlbumGrid } from "../../components/virtualized/VirtualAlbumGrid"
 import { getDataSource } from "../data";
 import { RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { useAlbumsQuery, type AlbumSortField } from "../queries/songs";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { useTagsQuery } from "../queries/tags";
@@ -61,7 +62,8 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const gridHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   onMount(() => {

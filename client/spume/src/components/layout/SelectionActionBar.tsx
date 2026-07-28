@@ -22,7 +22,7 @@ export interface SelectionActionBarProps {
   /** called when add to playlist button clicked */
   onAddToPlaylist: () => void;
   /** called when add to queue button clicked */
-  onAddToQueue: () => void;
+  onAddToQueue: () => void | Promise<void>;
   /** called when delete songs button clicked */
   onDeleteSongs: () => void;
   /** called when clear selection button clicked */
@@ -32,6 +32,20 @@ export interface SelectionActionBarProps {
 export function SelectionActionBar(props: SelectionActionBarProps) {
   // only show when 2+ selected
   const shouldShow = () => props.count >= 2;
+
+  // fetching + queueing the selected songs can take a while for a large
+  // selection or a slow remote - show a spinner and block re-clicks while
+  // it's in flight.
+  const [queuePending, setQueuePending] = createSignal(false);
+  const handleAddToQueue = async () => {
+    if (queuePending()) return;
+    setQueuePending(true);
+    try {
+      await props.onAddToQueue();
+    } finally {
+      setQueuePending(false);
+    }
+  };
 
   // track visibility for animation
   const [isVisible, setIsVisible] = createSignal(false);
@@ -180,7 +194,13 @@ export function SelectionActionBar(props: SelectionActionBarProps) {
             <span class="ml-1 whitespace-nowrap">playlist</span>
           </Button>
 
-          <Button variant="ghost" size="sm" onClick={props.onAddToQueue} title="add to queue">
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={queuePending()}
+            onClick={handleAddToQueue}
+            title="add to queue"
+          >
             <Icon name={IconNames.queue} size={16} />
             <span class="ml-1 whitespace-nowrap">queue</span>
           </Button>

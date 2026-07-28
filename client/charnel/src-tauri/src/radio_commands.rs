@@ -71,6 +71,10 @@ pub enum RadioEvent {
     /// server → client heartbeat. JSON of `ChunkReadyMessage`. used by
     /// spume to detect "broadcaster alive but my socket is silent" cases.
     ChunkReady { json: String },
+    /// server → client admin-skip notice. JSON of `SkipMessage`. spume
+    /// should flush whatever of the outgoing track it still has buffered
+    /// rather than letting it play out.
+    Skip { json: String },
     /// audio chunk. `bytes_b64` is the raw fMP4 fragment, base64-encoded
     /// because tauri channels serialize via JSON.
     Chunk {
@@ -407,17 +411,31 @@ async fn run_local_meta_loop(
     cancel: &CancellationToken,
     bc: std::sync::Arc<grimoire::radio::broadcaster::Broadcaster>,
 ) -> String {
-    use grimoire::radio::messages::{ControlMessage, MetaMessage};
+    use grimoire::radio::broadcaster::MetaUpdate;
+    use grimoire::radio::messages::{ControlMessage, MetaMessage, SkipMessage};
     use tokio::sync::broadcast::error::RecvError;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return "cancelled".into(),
             res = rx.recv() => match res {
-                Ok(update) => {
+                Ok(MetaUpdate::SkipFlush) => {
+                    let msg = ControlMessage::Skip(SkipMessage {});
+                    match serde_json::to_string(&msg) {
+                        Ok(json) => {
+                            if events.send(RadioEvent::Skip { json }).is_err() {
+                                return "channel closed".into();
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "[radio-charnel-local] skip serialize failed");
+                        }
+                    }
+                }
+                Ok(MetaUpdate::Meta { now_playing, init_seq }) => {
                     let msg = ControlMessage::Meta(MetaMessage {
-                        now_playing: (*update.now_playing).clone(),
+                        now_playing: (*now_playing).clone(),
                         listener_count: bc.listener_count(),
-                        init_seq: update.init_seq,
+                        init_seq,
                     });
                     match serde_json::to_string(&msg) {
                         Ok(json) => {
@@ -488,15 +506,16 @@ async fn run_meta_loop(
                     }
                     match serde_json::to_string(&msg) {
                         Ok(json) => {
-                            let event = match msg {
-                                ControlMessage::Hello(_) => RadioEvent::Hello { json },
-                                ControlMessage::Meta(_) => RadioEvent::Meta { json },
-                                ControlMessage::Timeline(_) => RadioEvent::Meta { json },
-                                ControlMessage::Lag(_) => RadioEvent::Lag { json },
-                                ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
-                                ControlMessage::Goodbye(_) => RadioEvent::Meta { json },
-                                ControlMessage::Tune(_) => continue,
-                            };
+                                let event = match msg {
+                                    ControlMessage::Hello(_) => RadioEvent::Hello { json },
+                                    ControlMessage::Meta(_) => RadioEvent::Meta { json },
+                                    ControlMessage::Timeline(_) => RadioEvent::Meta { json },
+                                    ControlMessage::Lag(_) => RadioEvent::Lag { json },
+                                    ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
+                                    ControlMessage::Skip(_) => RadioEvent::Skip { json },
+                                    ControlMessage::Goodbye(_) => RadioEvent::Meta { json },
+                                    ControlMessage::Tune(_) => continue,
+                                };
                             if events.send(event).is_err() {
                                 return "channel closed".into();
                             }

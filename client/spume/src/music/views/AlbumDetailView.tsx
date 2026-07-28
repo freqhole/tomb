@@ -165,23 +165,35 @@ export function AlbumDetailView() {
 
   // play entire album
   const handlePlayAlbum = async () => {
+    if (albumActionPending()) return;
     const songList = songs();
     if (songList.length === 0) return;
-    const info = albumInfo();
-    await playQueue(songList, {
-      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
-    });
+    setAlbumActionPending("play");
+    try {
+      const info = albumInfo();
+      await playQueue(songList, {
+        source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+      });
+    } finally {
+      setAlbumActionPending(null);
+    }
   };
 
   // append album to current queue (does not interrupt playback)
   const handleQueueAlbum = async () => {
+    if (albumActionPending()) return;
     const songList = songs();
     if (songList.length === 0) return;
-    const info = albumInfo();
-    await addToQueue(songList, {
-      position: "end",
-      source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
-    });
+    setAlbumActionPending("queue");
+    try {
+      const info = albumInfo();
+      await addToQueue(songList, {
+        position: "end",
+        source: { type: "album", label: info?.title ?? "album", entity_id: info?.album_id },
+      });
+    } finally {
+      setAlbumActionPending(null);
+    }
   };
 
   const handleSongDoubleClick = async (song: Song) => {
@@ -320,6 +332,10 @@ export function AlbumDetailView() {
   // genres/tags overflow state (collapse to 2 lines on narrow screens)
   const [tagsExpanded, setTagsExpanded] = createSignal(false);
   const [tagsOverflowing, setTagsOverflowing] = createSignal(false);
+  // tracks which of play/add-to-queue is currently fetching + queueing songs,
+  // so the buttons can show immediate feedback for however long that takes
+  // (and so a second click can't queue the same songs twice).
+  const [albumActionPending, setAlbumActionPending] = createSignal<"play" | "queue" | null>(null);
 
   // reset when album changes
   createEffect(() => {
@@ -425,12 +441,19 @@ export function AlbumDetailView() {
 
                   {/* play button, edit button, and favorite toggle */}
                   <div class="mt-0 wide:mt-4 flex items-center wide:justify-start gap-2 wide:gap-3">
-                    <Button variant="primary" onClick={handlePlayAlbum}>
+                    <Button
+                      variant="primary"
+                      loading={albumActionPending() === "play"}
+                      disabled={albumActionPending() !== null}
+                      onClick={handlePlayAlbum}
+                    >
                       <span class="hidden wide:inline">play album</span>
                       <span class="wide:hidden">play</span>
                     </Button>
                     <Button
                       variant="ghost"
+                      loading={albumActionPending() === "queue"}
+                      disabled={albumActionPending() !== null}
                       onClick={handleQueueAlbum}
                       title="add album to queue"
                       aria-label="add album to queue"

@@ -91,7 +91,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on wide: always visible, fills remaining space */}
       {/* back button is now rendered by the detail view itself for better layout control */}
       <div
-        class={`flex-1 flex flex-col min-w-0
+        class={`flex-1 flex flex-col min-w-0 min-h-0
           ${local.showDetail ? "flex" : "hidden wide:flex"}
           wide:relative`}
       >

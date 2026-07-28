@@ -37,6 +37,13 @@ pub enum ControlMessage {
     /// up. clients should tear down their MediaSource and discard chunks
     /// until they see `seq >= resync_at_seq && is_init`.
     Lag(LagMessage),
+    /// server → client, sent the moment an admin skip is accepted -
+    /// before the next track's init chunk even exists yet. tells the
+    /// listener to flush whatever of the outgoing track it still has
+    /// buffered so the cut is silent rather than letting the stale tail
+    /// play out, then wait for the next init chunk (whatever seq it
+    /// turns out to have).
+    Skip(SkipMessage),
     /// server → client, optional heartbeat. lets the listener detect a
     /// hung uni stream (audio gone silent while the control stream is
     /// fine over QUIC keepalives). carries the broadcaster's most recent
@@ -61,6 +68,13 @@ pub struct LagMessage {
     /// the seq of the next init chunk the listener should latch onto.
     pub resync_at_seq: u32,
 }
+
+/// server → client admin-skip notice. see [`ControlMessage::Skip`].
+/// carries no payload — the listener just needs to know "flush now and
+/// wait for the next init", not a specific target seq (there's no way
+/// to know the next track's init seq until it actually starts).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkipMessage {}
 
 /// server → client heartbeat. see [`ControlMessage::ChunkReady`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
