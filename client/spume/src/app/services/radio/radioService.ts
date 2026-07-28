@@ -1127,23 +1127,36 @@ export async function tuneIntoRadio(
         }
       }
     }
-    // jump to the live edge once after the first append settles. catchup
-    // chunks carry mid-track media timestamps, so the playhead at 0 sits
-    // in an empty range until we seek forward. when the player has
-    // stalled before, `liveEdgeBufferMs` shifts the target back from the
-    // true edge so MSE has more headroom. seek in either direction so a
-    // playhead stranded ahead of a rebuilt (post-lag) buffer also re-anchors.
+    // jump to the live edge once enough of a cushion has actually
+    // accumulated. catchup chunks carry mid-track media timestamps, so
+    // the playhead at 0 sits in an empty range until we seek forward.
+    // when the player has stalled before, `liveEdgeBufferMs` shifts the
+    // target back from the true edge so MSE has more headroom — but
+    // requiring only `buffered.length > 0` (as little as a single
+    // fragment) meant that headroom was silently clamped away to
+    // whatever scraps existed yet (`Math.max(0, end - liveEdgeBufferMs)`
+    // going negative and landing on 0) instead of actually being
+    // honored, so cold-start playback used to begin essentially AT the
+    // live edge with no real cushion at all — a knife's edge that
+    // stalled the moment the next real-time-paced chunk was even
+    // slightly late. waiting for the buffer to actually hold
+    // `liveEdgeBufferMs` worth of media before seeking/starting means
+    // the cushion is real by the time playback begins. seek in either
+    // direction so a playhead stranded ahead of a rebuilt (post-lag)
+    // buffer also re-anchors.
     if (!seekedToLive && sb.buffered.length > 0) {
       const start = sb.buffered.start(0);
       const end = sb.buffered.end(sb.buffered.length - 1);
-      const targetFromEnd = Math.max(0, end - liveEdgeBufferMs / 1000);
-      const target = Math.max(start, targetFromEnd);
-      if (audio.currentTime < target || audio.currentTime > end) {
-        audio.currentTime = target;
+      const ready = end - start >= liveEdgeBufferMs / 1000;
+      if (ready) {
+        const target = Math.max(start, end - liveEdgeBufferMs / 1000);
+        if (audio.currentTime < target || audio.currentTime > end) {
+          audio.currentTime = target;
+        }
+        seekedToLive = true;
       }
-      seekedToLive = true;
     }
-    if (!useTimelineMode() && sb.buffered.length > 0) {
+    if (!useTimelineMode() && seekedToLive) {
       tryStartChunkPlayback("buffer ready");
     }
   };
@@ -1269,18 +1282,31 @@ export async function tuneIntoRadio(
   // stall up to `MAX_LIVE_EDGE_BUFFER_MS`, letting a struggling listener
   // gracefully fall behind the live edge instead of dropping out.
   //
-  // the very first tune-in of a browser session starts with extra
-  // headroom: there's no prior track's buffered cushion to fall back on,
-  // so a slow first connection is more likely to underflow than a
-  // reconnect/re-tune later in the same session.
-  const BASELINE_LIVE_EDGE_BUFFER_MS = hasStartedChunkPlaybackThisSession
+  // every fresh tune-in (the very first station this session, or
+  // switching to a completely different station later) connects to a
+  // brand new broadcast stream with no burst of chunks to jump-start the
+  // buffer — it's purely real-time-paced fragments arriving roughly every
+  // `frag_ms` (nominally 3000ms), so the initial cushion needs real
+  // margin above that cadence or the very first chunks after playback
+  // starts run out before the next one lands. an earlier version of this
+  // baseline dropped to 2500ms once any station had played this session,
+  // on the assumption that a "warmed up" session needed less headroom —
+  // but that's below the fragment cadence itself, so switching stations
+  // started every listen on a knife's edge and stalled almost every
+  // cycle. a fresh tune always gets the full margin regardless of prior
+  // session history.
+  const INITIAL_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 8000 : 6000;
+  // post-skip reset target: smaller, because an admin skip's burst of
+  // chunks (sent unpaced, see SKIP_BURST_CHUNKS server-side) gives the
+  // buffer a real head start that a fresh tune never gets.
+  const POST_SKIP_LIVE_EDGE_BUFFER_MS = hasStartedChunkPlaybackThisSession
     ? stabilityMode()
       ? 4000
       : 2500
     : stabilityMode()
       ? 8000
       : 6000;
-  let liveEdgeBufferMs = BASELINE_LIVE_EDGE_BUFFER_MS;
+  let liveEdgeBufferMs = INITIAL_LIVE_EDGE_BUFFER_MS;
   const LIVE_EDGE_BUMP_MS = stabilityMode() ? 2000 : 1500;
   const MAX_LIVE_EDGE_BUFFER_MS = stabilityMode() ? 20000 : 12000;
   let stallCount = 0;
@@ -1597,8 +1623,8 @@ export async function tuneIntoRadio(
     // took many cycles to recover from. resetting to the session's
     // baseline still lets it grow back up if this track's connection is
     // genuinely struggling too.
-    if (liveEdgeBufferMs > BASELINE_LIVE_EDGE_BUFFER_MS) {
-      liveEdgeBufferMs = BASELINE_LIVE_EDGE_BUFFER_MS;
+    if (liveEdgeBufferMs > POST_SKIP_LIVE_EDGE_BUFFER_MS) {
+      liveEdgeBufferMs = POST_SKIP_LIVE_EDGE_BUFFER_MS;
     }
     // mute rather than pause: keeps the media element's playback state
     // machine (and the browser's own auto-resume-on-data behavior) alone,
@@ -2041,8 +2067,9 @@ export async function tuneIntoRadio(
       );
     }
     const now = Date.now();
-    if (lastChunkAtMs !== null) {
-      pushChunkGapSample(Math.max(0, now - lastChunkAtMs));
+    const chunkGapMs = lastChunkAtMs !== null ? now - lastChunkAtMs : null;
+    if (chunkGapMs !== null) {
+      pushChunkGapSample(Math.max(0, chunkGapMs));
     }
     lastChunkAtMs = now;
     // post-Lag / post-skip: discard everything until we see the init
