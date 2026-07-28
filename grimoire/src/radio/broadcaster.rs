@@ -78,9 +78,18 @@ pub struct Subscription {
 /// payload pushed on the meta channel. carries the init_seq so handlers
 /// can include it in `MetaMessage` without holding the broadcaster lock.
 #[derive(Clone)]
-pub struct MetaUpdate {
-    pub now_playing: Arc<NowPlaying>,
-    pub init_seq: u32,
+pub enum MetaUpdate {
+    /// a `NowPlaying` change: track boundary, interstitial placeholder,
+    /// or idle announcement.
+    Meta {
+        now_playing: Arc<NowPlaying>,
+        init_seq: u32,
+    },
+    /// an admin skip was just accepted. tells every listener to flush
+    /// whatever of the outgoing track it still has buffered client-side
+    /// instead of letting it play out - a `NowPlaying` change follows
+    /// separately once the next track actually starts.
+    SkipFlush,
 }
 
 struct State {
@@ -657,7 +666,7 @@ impl Broadcaster {
             let mut s = self.state.write().await;
             s.now_playing = placeholder.clone();
         }
-        let _ = self.meta_tx.send(MetaUpdate {
+        let _ = self.meta_tx.send(MetaUpdate::Meta {
             now_playing: placeholder,
             init_seq,
         });
@@ -733,7 +742,7 @@ impl Broadcaster {
             let mut s = self.state.write().await;
             s.now_playing = placeholder.clone();
         }
-        let _ = self.meta_tx.send(MetaUpdate {
+        let _ = self.meta_tx.send(MetaUpdate::Meta {
             now_playing: placeholder,
             init_seq,
         });
@@ -837,7 +846,7 @@ impl Broadcaster {
             s.now_playing = now_playing.clone();
         }
 
-        let _ = self.meta_tx.send(MetaUpdate {
+        let _ = self.meta_tx.send(MetaUpdate::Meta {
             now_playing: now_playing.clone(),
             init_seq,
         });
@@ -937,6 +946,10 @@ impl Broadcaster {
                     if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
                         skipped_by_admin = true;
                         encoder.interrupt();
+                        // tell every listener to flush their buffered audio
+                        // for this track immediately, rather than letting
+                        // the already-sent tail play out.
+                        let _ = self.meta_tx.send(MetaUpdate::SkipFlush);
                         None
                     } else {
                         continue;
@@ -969,6 +982,7 @@ impl Broadcaster {
                                 if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
                                     skipped_by_admin = true;
                                     encoder.interrupt();
+                                    let _ = self.meta_tx.send(MetaUpdate::SkipFlush);
                                     break None;
                                 }
                             }

@@ -13,7 +13,7 @@ use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::radio::stations;
 use sqlx::FromRow;
-use tracing::info;
+use tracing::{debug, info};
 
 /// how many recent play_history rows to consult when avoiding repeats.
 /// small enough not to starve tiny stations, large enough that 4-track
@@ -195,7 +195,7 @@ async fn pick_for_station_after_with_options(
         if mode == "album" {
             // get all songs to apply mode logic to full library.
             candidates = all_playable_songs().await?;
-            info!(
+            debug!(
                 "[radio-picker] station {} (mode: {}) has no explicit source; using full library ({} songs)",
                 station_id,
                 mode,
@@ -207,7 +207,7 @@ async fn pick_for_station_after_with_options(
                 });
             }
         } else {
-            info!(
+            debug!(
                 "[radio-picker] station {} (mode: shuffle) has no explicit source; using random fallback",
                 station_id
             );
