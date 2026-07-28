@@ -3,8 +3,7 @@
 import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { appState } from "../../app/services/storage/db";
-import { radioStatus } from "../../app/services/radio/radioService";
-import { currentRadioStation } from "../../app/services/storage/currentRadioStation";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
@@ -85,8 +84,7 @@ export function SongsView(props: SongsViewProps) {
   // station, so we need to account for all three (otherwise the table header
   // gets covered by the bar when listening to radio).
   const viewportHeight = useViewportHeight();
-  const isPlayerBarVisible = () =>
-    (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation();
+  const isPlayerBarVisible = () => (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive();
   const playerBarHeight = () => (isPlayerBarVisible() ? 80 : 0);
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 

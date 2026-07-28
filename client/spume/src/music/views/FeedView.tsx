@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "sol
 import { confirm } from "../../app/services/confirmState";
 import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { Button } from "../../components/buttons/Button";
 import { LoadingMoreIndicator, LoadingState } from "../../components/feedback";
 import { toast } from "../../components/feedback/Toast";
@@ -95,7 +96,8 @@ export function FeedView() {
 
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // set page info with feed filter controls

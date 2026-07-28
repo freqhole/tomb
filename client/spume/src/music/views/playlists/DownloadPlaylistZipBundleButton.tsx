@@ -11,6 +11,32 @@ interface Props {
   songs: Song[];
 }
 
+// shared download logic - reused by the icon button below and by narrow-view
+// overflow flyout menus that just need the click behavior without the
+// standalone icon button chrome.
+export async function downloadPlaylistZipWithToast(playlist: Playlist, songs: Song[]) {
+  try {
+    const result = await downloadPlaylistZip(playlist, songs);
+    if (result.kind === "tauri") {
+      const filePath = result.filePath;
+      toast.success("zip saved to downloads", {
+        action: {
+          label: "open folder",
+          onClick: async () => {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("open_path_in_folder", { path: filePath }).catch((e: unknown) =>
+              console.error("open_path_in_folder failed:", e)
+            );
+          },
+        },
+      });
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    toast.error(`zip download failed: ${msg}`);
+  }
+}
+
 export function DownloadPlaylistZipBundleButton(props: Props) {
   const [isDownloading, setIsDownloading] = createSignal(false);
 
@@ -18,24 +44,7 @@ export function DownloadPlaylistZipBundleButton(props: Props) {
     if (isDownloading()) return;
     setIsDownloading(true);
     try {
-      const result = await downloadPlaylistZip(props.playlist, props.songs);
-      if (result.kind === "tauri") {
-        const filePath = result.filePath;
-        toast.success("zip saved to downloads", {
-          action: {
-            label: "open folder",
-            onClick: async () => {
-              const { invoke } = await import("@tauri-apps/api/core");
-              await invoke("open_path_in_folder", { path: filePath }).catch((e: unknown) =>
-                console.error("open_path_in_folder failed:", e)
-              );
-            },
-          },
-        });
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`zip download failed: ${msg}`);
+      await downloadPlaylistZipWithToast(props.playlist, props.songs);
     } finally {
       setIsDownloading(false);
     }

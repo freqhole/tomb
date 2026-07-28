@@ -20,7 +20,10 @@ import {
 } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
-import { setCurrentRadioStationPersisted } from "../storage/currentRadioStation";
+import {
+  currentRadioStation,
+  setCurrentRadioStationPersisted,
+} from "../storage/currentRadioStation";
 import { getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
 
@@ -287,6 +290,13 @@ export const radioModeCapabilities = modeCapabilities;
 export const radioTimelineSeedActive = timelineSeedActive;
 export const radioTimelineSnapshot = timelineSnapshot;
 export const radioUseTimelineMode = useTimelineMode;
+
+// true whenever the player bar shows radio playback state (connecting,
+// playing, paused, or a station queued up) - used by list views to reserve
+// bottom space for the player bar even when the regular song queue is empty.
+export function isRadioPlayerBarActive(): boolean {
+  return status() !== "idle" || !!currentRadioStation();
+}
 
 export function recordCurrentRadioTrackHistory(track: {
   songId: string | null;

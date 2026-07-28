@@ -193,6 +193,10 @@ export interface DraggableRowSongContentProps {
   alwaysShowActions?: boolean;
   /** total play count to show inline (omit or null/0 to hide) */
   playCount?: number | null;
+  /** tighter spacing + a backdrop behind the favorite toggle - use on
+   *  narrow/mobile rows where there's less room and less legible contrast
+   *  against a playlist background image. */
+  compact?: boolean;
   /** additional classes */
   class?: string;
 }
@@ -200,7 +204,7 @@ export interface DraggableRowSongContentProps {
 // song content for draggable rows
 export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
   return (
-    <div class={`flex items-center gap-4 ${props.class || ""}`}>
+    <div class={`flex items-center ${props.compact ? "gap-2" : "gap-4"} ${props.class || ""}`}>
       {/* song info */}
       <div class="flex-1 min-w-0">
         <div class="text-[var(--color-text-primary)] font-medium text-sm truncate group-hover:text-[var(--color-accent-400)] transition-colors">
@@ -226,7 +230,7 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
 
       {/* favorite */}
       <Show when={props.isFavorite !== undefined && props.songId}>
-        <div class="flex-shrink-0">
+        <div class={`flex-shrink-0 ${props.compact ? "p-1 bg-black/20 rounded" : ""}`}>
           <FavoriteHeart
             isFavorite={props.isFavorite ?? false}
             onToggle={(isFavorite) => props.onFavoriteToggle?.(props.songId!, isFavorite)}
@@ -237,7 +241,11 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
 
       {/* duration */}
       <Show when={props.durationSeconds !== undefined}>
-        <div class="text-[var(--color-accent-500)] text-xs font-mono flex-shrink-0 text-right p-1 bg-black/20 group-hover:bg-transparent rounded">
+        <div
+          class={`text-[var(--color-accent-500)] text-xs font-mono flex-shrink-0 text-right bg-black/20 group-hover:bg-transparent rounded ${
+            props.compact ? "px-1 py-0.5" : "p-1"
+          }`}
+        >
           {formatDuration(props.durationSeconds!)}
         </div>
       </Show>

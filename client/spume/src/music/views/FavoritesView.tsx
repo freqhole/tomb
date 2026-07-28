@@ -9,6 +9,7 @@ import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { getDataSource, RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
+import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import type {
   FavoriteItem,
   Song,
@@ -38,7 +39,8 @@ export function FavoritesView(props: FavoritesViewProps) {
 
   // responsive height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
-  const playerBarHeight = () => ((appState()?.queue.length || 0) > 0 ? 80 : 0);
+  const playerBarHeight = () =>
+    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
   const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
 
   // infinite query for favorites
