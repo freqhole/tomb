@@ -323,7 +323,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             icon="play"
             size="default"
             variant="ghost"
-            class="flex-shrink-0"
+            class="flex-shrink-0 bg-[var(--color-bg-elevated)]/70 backdrop-blur-sm"
             disabled={filteredFavorites().length === 0 || pendingAction() !== null}
             loading={pendingAction() === "play"}
             onClick={handlePlayAll}
@@ -334,7 +334,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             icon="shuffle"
             size="default"
             variant="ghost"
-            class="flex-shrink-0"
+            class="flex-shrink-0 bg-[var(--color-bg-elevated)]/70 backdrop-blur-sm"
             disabled={filteredFavorites().length === 0 || pendingAction() !== null}
             loading={pendingAction() === "shuffle"}
             onClick={handleShuffleAll}
