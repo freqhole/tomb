@@ -5965,7 +5965,9 @@ export const SuggestionSchema = z.object({
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
-  is_favorite: z.boolean()
+  is_favorite: z.boolean(),
+  matched_field: z.string().nullish(),
+  match_snippet: z.string().nullish()
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
@@ -5999,7 +6001,9 @@ export const SuggestionsResponseSchema = z.object({
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
-  is_favorite: z.boolean()
+  is_favorite: z.boolean(),
+  matched_field: z.string().nullish(),
+  match_snippet: z.string().nullish()
 })),
   query_time_ms: z.number(),
   total_count: z.number(),

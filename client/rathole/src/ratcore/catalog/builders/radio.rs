@@ -248,23 +248,47 @@ pub(in crate::ratcore::catalog) fn filters_add() -> AdminCommand {
                 name: "filter_type".to_string(),
                 kind: ArgKind::OneOf {
                     choices: vec![
+                        // reference types — filter_value is a record id.
                         "artist".to_string(),
                         "album".to_string(),
-                        "song".to_string(),
-                        "genre".to_string(),
+                        "taxon".to_string(),
                         "tag".to_string(),
+                        "track".to_string(),
+                        "playlist".to_string(),
+                        // criteria types (migration 051) — cascade to whole
+                        // matched albums/artists/playlists; filter_value is
+                        // a plain number (blank for favorite).
+                        "favorite".to_string(),
+                        "rating_gte".to_string(),
+                        "rating_lte".to_string(),
+                        "play_count_gte".to_string(),
+                        "play_count_lte".to_string(),
+                        "duration_gte".to_string(),
+                        "duration_lte".to_string(),
+                        "added_days_gte".to_string(),
+                        "added_days_lte".to_string(),
                     ],
                 },
                 required: true,
-                help: Some("what kind of thing the filter matches".to_string()),
+                help: Some(
+                    "reference types (artist/album/taxon/tag/track/playlist) match a specific \
+                     record by id; criteria types (favorite/rating/play_count/duration/\
+                     added_days) match against any user's data"
+                        .to_string(),
+                ),
             },
             ArgSpec {
                 name: "filter_value".to_string(),
                 kind: ArgKind::Text {
-                    placeholder: "id or value to match".to_string(),
+                    placeholder: "record id, or number for criteria types".to_string(),
                 },
                 required: true,
-                help: None,
+                help: Some(
+                    "rating is 1-5; play_count/duration(seconds)/added_days(days) are \
+                     non-negative integers; favorite ignores this value, so any \
+                     placeholder (e.g. \"-\") works"
+                        .to_string(),
+                ),
             },
             ArgSpec {
                 name: "mode".to_string(),

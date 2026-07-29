@@ -17,7 +17,7 @@ import {
 } from "../../music/hooks/stationSelectorState";
 
 // dispatch the add operation for a given target. every clause is now a
-// real filter row keyed by FK id (track / artist / album / genre).
+// real filter row keyed by FK id (track / artist / album / taxon).
 async function addTargetToStation(
   client: AdminClient,
   stationId: string,
@@ -47,9 +47,12 @@ async function addTargetToStation(
       mode: "include",
     });
   } else if (target.kind === "genre") {
+    // genreId is a taxon id (taxon kind = "genre") — migration 038
+    // renamed the FK column/filter_type from genre_id/"genre" to the
+    // kind-agnostic taxon_id/"taxon".
     await client.dispatchOrThrow("radio_filters_add", {
       station_id: stationId,
-      filter_type: "genre",
+      filter_type: "taxon",
       filter_value: target.genreId,
       mode: "include",
     });
