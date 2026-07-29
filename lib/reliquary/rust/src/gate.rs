@@ -150,7 +150,6 @@ pub fn build_gated_blobs_events(gate: Arc<dyn AccessGate>) -> EventSender {
         }
     });
 
-
     tx
 }
 

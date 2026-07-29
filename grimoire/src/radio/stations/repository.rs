@@ -193,6 +193,19 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
     .map_err(GrimoireError::from)
 }
 
+/// (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)
+/// — exactly one of these seven is `Some` for a given filter row (or none,
+/// for `favorite`), per the CHECK constraint added in migration 051.
+type FilterInsertCols<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<i64>,
+);
+
 pub async fn add_filter(
     station_id: &str,
     filter_type: &str,
@@ -227,15 +240,8 @@ pub async fn add_filter(
     // route the supplied value into the right column. all other FK
     // columns (and criteria_value, for reference types) are left null —
     // the schema CHECK constraint enforces this.
-    let (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value): (
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<i64>,
-    ) = match kind {
+    let (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value): FilterInsertCols =
+        match kind {
         StationFilterType::Artist => (Some(filter_value), None, None, None, None, None, None),
         StationFilterType::Album => (None, Some(filter_value), None, None, None, None, None),
         StationFilterType::Taxon => (None, None, Some(filter_value), None, None, None, None),
