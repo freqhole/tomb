@@ -350,94 +350,105 @@ export function AlbumDetailView() {
           {(info) => (
             <>
               {/* header with album info - responsive layout */}
-              <div class="flex flex justify-between px-1 wide:gap-6 wide:p-6">
+              <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
                 {/* album info */}
                 <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
-                  <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
-                    <MarqueeText text={info().title} class="pb-1" />
-                  </h1>
-                  <div class="flex flex-col wide:flex-wrap gap-y-0.5 wide:gap-x-2 wide:gap-y-1 wide:text-xl text-[var(--color-text-secondary)]">
-                    <button
-                      onClick={handleArtistClick}
-                      class="hover:text-[var(--color-text-primary)] hover:underline text-left"
-                    >
-                      <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
-                    </button>
-                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      {info().year && <span>{info().year}</span>}
-                      <span>•</span>
-                      <span>
-                        {songs().length} {songs().length === 1 ? "song" : "songs"}
-                      </span>
-                      <span>•</span>
-                      <span>{formatLongDuration(totalDuration())}</span>
-                    </div>
-                  </div>
-
-                  {/* genres, tags, and links — collapsed to ~2 lines on
-                      all breakpoints with a see-more toggle. entity urls
-                      get their own collapsible row below so the two can
-                      expand/collapse independently. */}
-                  <Show
-                    when={
-                      (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
-                      (songs()[0]?.album_tags?.length ?? 0) > 0
-                    }
-                  >
-                    <div class="mt-1">
-                      <div
-                        ref={(el) => {
-                          const check = () => {
-                            if (!tagsExpanded()) {
-                              setTagsOverflowing(el.scrollHeight > el.clientHeight);
-                            }
-                          };
-                          requestAnimationFrame(check);
-                          const obs = new ResizeObserver(check);
-                          obs.observe(el);
-                        }}
-                        class={`flex flex-wrap gap-1.5 wide:justify-start ${
-                          !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
-                        }`}
+                  {/* everything above the action-buttons row gets a min-h
+                      matching the artwork box (w-32/w-64 → h-32/h-64) so a
+                      sparsely populated album (short title, no tags) can't
+                      leave this shorter than the artwork — which would let
+                      the action-buttons row start high enough to overlap
+                      the artwork's bottom edge. */}
+                  <div class="min-h-32 wide:min-h-64">
+                    <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
+                      <MarqueeText text={info().title} class="pb-1" />
+                    </h1>
+                    <div class="flex flex-col wide:flex-wrap gap-y-0.5 wide:gap-x-2 wide:gap-y-1 wide:text-xl text-[var(--color-text-secondary)]">
+                      <button
+                        onClick={handleArtistClick}
+                        class="hover:text-[var(--color-text-primary)] hover:underline text-left"
                       >
-                        <For
-                          each={
-                            songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ?? []
-                          }
-                        >
-                          {(genre) => (
-                            <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
-                              {formatTaxonLabel(genre.label)}
-                            </span>
-                          )}
-                        </For>
-                        {/* non-genre taxons (label, mood, era, region, ...) */}
-                        <TaxonChipList taxons={songs()[0]?.album_taxons} excludeKinds={["genre"]} />
-                        <For each={songs()[0]?.album_tags ?? []}>
-                          {(tag) => (
-                            <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
-                              #{tag}
-                            </span>
-                          )}
-                        </For>
+                        <MarqueeText text={songs()[0]?.artist_name || "unknown artist"} />
+                      </button>
+                      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                        {info().year && <span>{info().year}</span>}
+                        <span>•</span>
+                        <span>
+                          {songs().length} {songs().length === 1 ? "song" : "songs"}
+                        </span>
+                        <span>•</span>
+                        <span>{formatLongDuration(totalDuration())}</span>
                       </div>
-                      <Show when={tagsOverflowing() || tagsExpanded()}>
-                        <button
-                          onClick={() => setTagsExpanded((v) => !v)}
-                          class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                        >
-                          {tagsExpanded() ? "see less" : "see more"}
-                        </button>
-                      </Show>
                     </div>
-                  </Show>
 
-                  {/* entity links — independently collapsible row */}
-                  <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
-                    <div class="mt-1">
-                      <EntityLinks urls={albumQuery.data?.urls} collapsible />
-                    </div>
-                  </Show>
+                    {/* genres, tags, and links — collapsed to ~2 lines on
+                        all breakpoints with a see-more toggle. entity urls
+                        get their own collapsible row below so the two can
+                        expand/collapse independently. */}
+                    <Show
+                      when={
+                        (songs()[0]?.album_taxons?.length ?? 0) > 0 ||
+                        (songs()[0]?.album_tags?.length ?? 0) > 0
+                      }
+                    >
+                      <div class="mt-1">
+                        <div
+                          ref={(el) => {
+                            const check = () => {
+                              if (!tagsExpanded()) {
+                                setTagsOverflowing(el.scrollHeight > el.clientHeight);
+                              }
+                            };
+                            requestAnimationFrame(check);
+                            const obs = new ResizeObserver(check);
+                            obs.observe(el);
+                          }}
+                          class={`flex flex-wrap gap-1.5 wide:justify-start ${
+                            !tagsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
+                          }`}
+                        >
+                          <For
+                            each={
+                              songs()[0]?.album_taxons?.filter((t) => t.kind_slug === "genre") ?? []
+                            }
+                          >
+                            {(genre) => (
+                              <span class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs">
+                                {formatTaxonLabel(genre.label)}
+                              </span>
+                            )}
+                          </For>
+                          {/* non-genre taxons (label, mood, era, region, ...) */}
+                          <TaxonChipList
+                            taxons={songs()[0]?.album_taxons}
+                            excludeKinds={["genre"]}
+                          />
+                          <For each={songs()[0]?.album_tags ?? []}>
+                            {(tag) => (
+                              <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                                #{tag}
+                              </span>
+                            )}
+                          </For>
+                        </div>
+                        <Show when={tagsOverflowing() || tagsExpanded()}>
+                          <button
+                            onClick={() => setTagsExpanded((v) => !v)}
+                            class="pb-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                          >
+                            {tagsExpanded() ? "see less" : "see more"}
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+
+                    {/* entity links — independently collapsible row */}
+                    <Show when={(albumQuery.data?.urls?.length ?? 0) > 0}>
+                      <div class="mt-1">
+                        <EntityLinks urls={albumQuery.data?.urls} collapsible />
+                      </div>
+                    </Show>
+                  </div>
 
                   {/* play button, edit button, and favorite toggle */}
                   <div class="mt-0 wide:mt-4 flex items-center wide:justify-start gap-2 wide:gap-3">

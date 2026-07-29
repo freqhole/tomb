@@ -328,243 +328,255 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         />
       </Show>
 
-      {/* DESKTOP: fixed header with artist info, stats, and buttons */}
-      <div class="hidden wide:block flex-shrink-0 border-b border-[var(--color-bg-tertiary)]">
-        <div class="p-6 space-y-4">
-          <div class="flex gap-6 items-start">
-            {/* artist avatar */}
-            <ContextMenu actions={artistContextMenuActions()}>
-              <div
-                class="relative group w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
-                onClick={props.onImageClick}
-              >
-                <Show
-                  when={hasArtistImages()}
-                  fallback={
-                    <span class="text-4xl font-bold text-[var(--color-text-tertiary)]">
-                      {artistAbbreviation()}
-                    </span>
-                  }
+      {/* scrollable content — the entire detail view (header + albums)
+          scrolls together as one region on desktop/wide widths too, so a
+          long bio + many tags/genres can't starve the albums list of
+          vertical space (previously the desktop header was pinned outside
+          this scroll container with its own fixed height). */}
+      <div class="flex-1 overflow-y-auto">
+        {/* DESKTOP: artist header with image, info, stats, and buttons - scrolls */}
+        <div class="hidden wide:block border-b border-[var(--color-bg-tertiary)]">
+          <div class="p-6 space-y-4">
+            <div class="flex gap-6 items-start">
+              {/* artist avatar */}
+              <ContextMenu actions={artistContextMenuActions()}>
+                <div
+                  class="relative group w-32 h-32 bg-[var(--color-bg-elevated)] rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden"
+                  onClick={props.onImageClick}
                 >
-                  <MediaImage
-                    images={props.artist.images}
-                    alt={props.artist.name}
-                    class="w-full h-full object-cover"
-                    domainType="artist"
-                    thumbnailSize={200}
-                  />
-                </Show>
-                <Show when={hasArtistImages()}>
-                  <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
-                    <Icon
-                      name={IconNames.carousel}
-                      size={28}
-                      className="text-white drop-shadow-lg"
-                    />
-                  </div>
-                </Show>
-              </div>
-            </ContextMenu>
-
-            {/* artist info */}
-            <div class="flex flex-col justify-center gap-2 min-w-0 flex-1">
-              <h1 class="text-3xl font-bold text-[var(--color-text-primary)]">
-                <MarqueeText text={props.artist.name} hoverOnly={true} />
-              </h1>
-
-              {/* bio (truncated with see-more, renders html so links
-                  + lightweight markup from upstream sources show up) */}
-              <Show when={props.artist.bio}>
-                <ArtistBio bio={props.artist.bio!} />
-              </Show>
-
-              {/* genres, taxons, tags — collapsed to ~2 lines on all
-                  breakpoints with a see-more toggle. entity urls live
-                  in their own collapsible row below. */}
-              <Show
-                when={
-                  artistGenres().length > 0 ||
-                  aggregatedTaxons().some((t) => t.kind_slug !== "genre") ||
-                  artistTags().length > 0
-                }
-              >
-                <div class="text-sm">
-                  <div
-                    ref={(el) => {
-                      const check = () => {
-                        if (!chipsExpanded()) {
-                          setChipsOverflowing(el.scrollHeight > el.clientHeight);
-                        }
-                      };
-                      requestAnimationFrame(check);
-                      const obs = new ResizeObserver(check);
-                      obs.observe(el);
-                    }}
-                    class={`flex flex-wrap gap-1.5 items-center ${
-                      !chipsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
-                    }`}
-                  >
-                    <For each={artistGenres()}>
-                      {(genre) => (
-                        <button
-                          class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
-                          onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
-                          disabled={!genre.id}
-                        >
-                          {formatTaxonLabel(genre.name)}
-                        </button>
-                      )}
-                    </For>
-                    {/* non-genre taxons (label, mood, era, region, ...) */}
-                    <TaxonChipList taxons={aggregatedTaxons()} excludeKinds={["genre"]} />
-                    <For each={artistTags()}>
-                      {(tag) => (
-                        <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
-                          #{tag}
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                  <Show when={chipsOverflowing() || chipsExpanded()}>
-                    <button
-                      onClick={() => setChipsExpanded((v) => !v)}
-                      class="pb-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      {chipsExpanded() ? "see less" : "see more"}
-                    </button>
-                  </Show>
-                </div>
-              </Show>
-
-              {/* entity links — independently collapsible row */}
-              <Show when={(props.artist.urls?.length ?? 0) > 0}>
-                <div class="text-sm">
-                  <EntityLinks urls={props.artist.urls} collapsible />
-                </div>
-              </Show>
-
-              {/* artist actions: edit, play controls, favorite, rating */}
-              <div class="flex items-center gap-2">
-                <Show when={props.onEditArtist && canUpdateArtist()}>
-                  <button
-                    onClick={props.onEditArtist}
-                    class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                    title="edit artist info"
-                    aria-label="edit artist info"
-                  >
-                    <Icon name={IconNames.edit} size={20} />
-                  </button>
-                </Show>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  loading={pendingAction() === "play"}
-                  disabled={pendingAction() !== null}
-                  onClick={handlePlayAll}
-                >
-                  play all
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={pendingAction() === "shuffle"}
-                  disabled={pendingAction() !== null}
-                  onClick={handleShuffle}
-                >
-                  shuffle
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={pendingAction() === "queue"}
-                  disabled={pendingAction() !== null}
-                  onClick={handleAddToQueue}
-                >
-                  +queue
-                </Button>
-                <Show when={isCharnelMode() || !!getCurrentRemote()}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void showStationSelector(
-                        {
-                          kind: "artist",
-                          artistId: props.artist.artist_id,
-                          artistName: props.artist.name,
-                        },
-                        getCurrentRemote()?.remote_id
-                      )
+                  <Show
+                    when={hasArtistImages()}
+                    fallback={
+                      <span class="text-4xl font-bold text-[var(--color-text-tertiary)]">
+                        {artistAbbreviation()}
+                      </span>
                     }
                   >
-                    +radio
-                  </Button>
+                    <MediaImage
+                      images={props.artist.images}
+                      alt={props.artist.name}
+                      class="w-full h-full object-cover"
+                      domainType="artist"
+                      thumbnailSize={200}
+                    />
+                  </Show>
+                  <Show when={hasArtistImages()}>
+                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
+                      <Icon
+                        name={IconNames.carousel}
+                        size={28}
+                        className="text-white drop-shadow-lg"
+                      />
+                    </div>
+                  </Show>
+                </div>
+              </ContextMenu>
+
+              {/* artist info */}
+              <div class="flex flex-col justify-center gap-2 min-w-0 flex-1">
+                <h1 class="text-3xl font-bold text-[var(--color-text-primary)]">
+                  <MarqueeText text={props.artist.name} hoverOnly={true} />
+                </h1>
+
+                {/* bio (truncated with see-more, renders html so links
+                    + lightweight markup from upstream sources show up) */}
+                <Show when={props.artist.bio}>
+                  <ArtistBio bio={props.artist.bio!} />
                 </Show>
-                <Show when={props.onExplore}>
+
+                {/* genres, taxons, tags — collapsed to ~2 lines on all
+                    breakpoints with a see-more toggle. entity urls live
+                    in their own collapsible row below. */}
+                <Show
+                  when={
+                    artistGenres().length > 0 ||
+                    aggregatedTaxons().some((t) => t.kind_slug !== "genre") ||
+                    artistTags().length > 0
+                  }
+                >
+                  <div class="text-sm">
+                    <div
+                      ref={(el) => {
+                        const check = () => {
+                          if (!chipsExpanded()) {
+                            setChipsOverflowing(el.scrollHeight > el.clientHeight);
+                          }
+                        };
+                        requestAnimationFrame(check);
+                        const obs = new ResizeObserver(check);
+                        obs.observe(el);
+                      }}
+                      class={`flex flex-wrap gap-1.5 items-center ${
+                        !chipsExpanded() ? "max-h-[3.25rem] overflow-hidden" : ""
+                      }`}
+                    >
+                      <For each={artistGenres()}>
+                        {(genre) => (
+                          <button
+                            class="px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer"
+                            onClick={() => genre.id && props.onGenreClick?.(genre.id, genre.name)}
+                            disabled={!genre.id}
+                          >
+                            {formatTaxonLabel(genre.name)}
+                          </button>
+                        )}
+                      </For>
+                      {/* non-genre taxons (label, mood, era, region, ...) */}
+                      <TaxonChipList taxons={aggregatedTaxons()} excludeKinds={["genre"]} />
+                      <For each={artistTags()}>
+                        {(tag) => (
+                          <span class="px-2 py-0.5 bg-[var(--color-accent-primary)]/10 text-[var(--color-accent-primary)] rounded-full text-xs">
+                            #{tag}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={chipsOverflowing() || chipsExpanded()}>
+                      <button
+                        onClick={() => setChipsExpanded((v) => !v)}
+                        class="pb-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                      >
+                        {chipsExpanded() ? "see less" : "see more"}
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                {/* entity links — independently collapsible row */}
+                <Show when={(props.artist.urls?.length ?? 0) > 0}>
+                  <div class="text-sm">
+                    <EntityLinks urls={props.artist.urls} collapsible />
+                  </div>
+                </Show>
+
+                {/* artist actions: edit, play controls, favorite, rating.
+                    flex-wrap so this doesn't overflow when the available
+                    width shrinks (e.g. the queue panel open alongside a
+                    narrower main content column) even though the viewport
+                    itself is at the "wide" breakpoint. */}
+                <div class="flex items-center flex-wrap gap-2">
+                  <Show when={props.onEditArtist && canUpdateArtist()}>
+                    <button
+                      onClick={props.onEditArtist}
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="edit artist info"
+                      aria-label="edit artist info"
+                    >
+                      <Icon name={IconNames.edit} size={20} />
+                    </button>
+                  </Show>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={pendingAction() === "play"}
+                    disabled={pendingAction() !== null}
+                    onClick={handlePlayAll}
+                  >
+                    play all
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={pendingAction() === "shuffle"}
+                    disabled={pendingAction() !== null}
+                    onClick={handleShuffle}
+                  >
+                    shuffle
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={props.onExplore}
-                    title="explore artist in graph"
-                    aria-label="explore artist in graph"
+                    loading={pendingAction() === "queue"}
+                    disabled={pendingAction() !== null}
+                    onClick={handleAddToQueue}
                   >
-                    explore
+                    +queue
                   </Button>
-                </Show>
-                <FavoriteHeart
-                  isFavorite={props.artist.is_favorite ?? false}
-                  onToggle={props.onFavoriteToggle}
-                />
-                <Show when={props.remote}>
-                  <ShareButton
-                    target={{
-                      kind: "artist",
-                      id: props.artist.artist_id,
-                      displayTitle: props.artist.name,
-                    }}
-                    source={() => props.remote!()}
+                  <Show when={isCharnelMode() || !!getCurrentRemote()}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void showStationSelector(
+                          {
+                            kind: "artist",
+                            artistId: props.artist.artist_id,
+                            artistName: props.artist.name,
+                          },
+                          getCurrentRemote()?.remote_id
+                        )
+                      }
+                    >
+                      +radio
+                    </Button>
+                  </Show>
+                  <Show when={props.onExplore}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={props.onExplore}
+                      title="explore artist in graph"
+                      aria-label="explore artist in graph"
+                    >
+                      explore
+                    </Button>
+                  </Show>
+                  <FavoriteHeart
+                    isFavorite={props.artist.is_favorite ?? false}
+                    onToggle={props.onFavoriteToggle}
                   />
-                </Show>
-                <Rating
-                  rating={props.artist.user_rating ?? 0}
-                  size="md"
-                  onRatingChange={props.onRatingChange}
-                />
+                  <Show when={props.remote}>
+                    <ShareButton
+                      target={{
+                        kind: "artist",
+                        id: props.artist.artist_id,
+                        displayTitle: props.artist.name,
+                      }}
+                      source={() => props.remote!()}
+                    />
+                  </Show>
+                  <Rating
+                    rating={props.artist.user_rating ?? 0}
+                    size="md"
+                    onRatingChange={props.onRatingChange}
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* stats cards - only show in fixed header at xl+ */}
-          <div class="hidden xl:block">
-            <StatsGrid columns={5} gap="sm">
-              <StatsCard label="songs" value={formatNumber(props.artist.song_count)} icon="music" />
-              <StatsCard
-                label="albums"
-                value={formatNumber(props.artist.album_count)}
-                icon="album"
-              />
-              <StatsCard
-                label="duration"
-                value={formatDuration(props.artist.total_duration)}
-                icon="recent"
-              />
-              <Show when={artistGenres().length > 0}>
+            {/* stats cards - only show in fixed header at xl+ */}
+            <div class="hidden xl:block">
+              <StatsGrid columns={5} gap="sm">
                 <StatsCard
-                  label="genres"
-                  value={formatNumber(artistGenres().length)}
+                  label="songs"
+                  value={formatNumber(props.artist.song_count)}
                   icon="music"
                 />
-              </Show>
-              <Show when={artistTags().length > 0}>
-                <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
-              </Show>
-            </StatsGrid>
+                <StatsCard
+                  label="albums"
+                  value={formatNumber(props.artist.album_count)}
+                  icon="album"
+                />
+                <StatsCard
+                  label="duration"
+                  value={formatDuration(props.artist.total_duration)}
+                  icon="recent"
+                />
+                <Show when={artistGenres().length > 0}>
+                  <StatsCard
+                    label="genres"
+                    value={formatNumber(artistGenres().length)}
+                    icon="music"
+                  />
+                </Show>
+                <Show when={artistTags().length > 0}>
+                  <StatsCard label="tags" value={formatNumber(artistTags().length)} icon="music" />
+                </Show>
+              </StatsGrid>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* scrollable content */}
-      <div class="flex-1 overflow-y-auto">
         {/* MOBILE: artist header with image, info, stats, and buttons - scrolls */}
         <div class="wide:hidden p-4 space-y-4">
           <div class="flex flex-col gap-4 items-center">
@@ -648,7 +660,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
               {/* entity links */}
               <EntityLinks urls={props.artist.urls} class="justify-center" collapsible />
 
-              {/* artist actions: edit, play controls, favorite, rating */}
+              {/* artist actions: edit, play controls, favorite, rating.
+                  flex-wrap so this doesn't overflow at narrow widths —
+                  the icon-only buttons above buy some room but can't
+                  guarantee everything fits on one line in every case. */}
               <div class="mt-2 flex items-center justify-center flex-wrap gap-2">
                 <Show when={props.onEditArtist && canUpdateArtist()}>
                   <button
@@ -675,8 +690,13 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   loading={pendingAction() === "shuffle"}
                   disabled={pendingAction() !== null}
                   onClick={handleShuffle}
+                  title="shuffle"
+                  aria-label="shuffle"
                 >
-                  shuffle
+                  <span class="hidden wide:inline">shuffle</span>
+                  <span class="wide:hidden inline-flex items-center">
+                    <Icon name={IconNames.shuffle} />
+                  </span>
                 </Button>
                 <Button
                   variant="ghost"
@@ -684,8 +704,13 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   loading={pendingAction() === "queue"}
                   disabled={pendingAction() !== null}
                   onClick={handleAddToQueue}
+                  title="add to queue"
+                  aria-label="add to queue"
                 >
-                  +queue
+                  <span class="hidden wide:inline">+queue</span>
+                  <span class="wide:hidden inline-flex items-center">
+                    <Icon name={IconNames.queue} />
+                  </span>
                 </Button>
                 <Show when={isCharnelMode() || !!getCurrentRemote()}>
                   <Button
@@ -701,8 +726,13 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                         getCurrentRemote()?.remote_id
                       )
                     }
+                    title="start radio from artist"
+                    aria-label="start radio from artist"
                   >
-                    +radio
+                    <span class="hidden wide:inline">+radio</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.radioTower} />
+                    </span>
                   </Button>
                 </Show>
                 <Show when={props.onExplore}>
@@ -713,7 +743,10 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     title="explore artist in graph"
                     aria-label="explore artist in graph"
                   >
-                    explore
+                    <span class="hidden wide:inline">explore</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.library} />
+                    </span>
                   </Button>
                 </Show>
                 <FavoriteHeart

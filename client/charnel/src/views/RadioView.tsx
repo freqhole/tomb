@@ -32,7 +32,7 @@ interface StationFilter {
   created_at: number;
 }
 
-const FILTER_TYPES = [
+const REFERENCE_FILTER_TYPES = [
   "tag",
   "taxon",
   "artist",
@@ -40,8 +40,64 @@ const FILTER_TYPES = [
   "playlist",
   "track",
 ] as const;
+const CRITERIA_FILTER_TYPES = [
+  "favorite",
+  "rating_gte",
+  "rating_lte",
+  "play_count_gte",
+  "play_count_lte",
+  "duration_gte",
+  "duration_lte",
+  "added_days_gte",
+  "added_days_lte",
+] as const;
+const FILTER_TYPES = [
+  ...REFERENCE_FILTER_TYPES,
+  ...CRITERIA_FILTER_TYPES,
+] as const;
 type FilterType = (typeof FILTER_TYPES)[number];
+type ReferenceFilterType = (typeof REFERENCE_FILTER_TYPES)[number];
 const FILTER_MODES = ["include", "exclude"];
+
+// criteria filters cascade to whole matched albums/artists/playlists (see
+// grimoire's radio/stations/repository.rs) — favorite has no value at
+// all, rating is clamped 1-5, the rest are plain non-negative integers.
+function isReferenceFilterType(t: FilterType): t is ReferenceFilterType {
+  return (REFERENCE_FILTER_TYPES as readonly string[]).includes(t);
+}
+
+function isRatingFilterType(t: FilterType): boolean {
+  return t === "rating_gte" || t === "rating_lte";
+}
+
+// friendly label for criteria-type filters, which have no filter_label
+// from the backend (only reference types get a joined name).
+function filterDisplayValue(f: StationFilter): string {
+  switch (f.filter_type as FilterType) {
+    case "favorite":
+      return "favorited (any user)";
+    case "rating_gte":
+      return `rating >= ${f.filter_value}`;
+    case "rating_lte":
+      return `rating <= ${f.filter_value}`;
+    case "play_count_gte":
+      return `play count >= ${f.filter_value}`;
+    case "play_count_lte":
+      return `play count <= ${f.filter_value}`;
+    case "duration_gte":
+      return `duration >= ${f.filter_value}s`;
+    case "duration_lte":
+      return `duration <= ${f.filter_value}s`;
+    case "added_days_gte":
+      return `added at least ${f.filter_value}d ago`;
+    case "added_days_lte":
+      return `added at most ${f.filter_value}d ago`;
+    default:
+      return f.filter_label && f.filter_label.length > 0
+        ? f.filter_label
+        : f.filter_value;
+  }
+}
 
 function stationShallowEqual(a: RadioStation, b: RadioStation): boolean {
   return (
@@ -597,8 +653,8 @@ export default function RadioView() {
                           !ffmpegAvailable()
                             ? "ffmpeg is unavailable on this node"
                             : s.timeline_only_mode
-                              ? "switch to ffmpeg chunk streaming"
-                              : "switch to timeline-only mode (no ffmpeg)"
+                            ? "switch to ffmpeg chunk streaming"
+                            : "switch to timeline-only mode (no ffmpeg)"
                         }
                       >
                         ffmpeg
@@ -707,7 +763,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
 
   async function addFilter(e: Event) {
     e.preventDefault();
-    if (!fValue().trim()) {
+    if (fType() !== "favorite" && !fValue().trim()) {
       setError("filter value required");
       return;
     }
@@ -717,7 +773,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
       await props.dispatch("radio_filters_add", {
         station_id: props.stationId,
         filter_type: fType(),
-        filter_value: fValue().trim(),
+        filter_value: fType() === "favorite" ? "" : fValue().trim(),
         mode: fMode(),
       });
       setFValue("");
@@ -798,9 +854,7 @@ function StationSeedEditor(props: StationSeedEditorProps) {
                   }}
                   title={f.filter_value}
                 >
-                  {f.filter_label && f.filter_label.length > 0
-                    ? f.filter_label
-                    : f.filter_value}
+                  {filterDisplayValue(f)}
                 </span>
                 <button
                   class="danger small"
@@ -849,28 +903,56 @@ function StationSeedEditor(props: StationSeedEditorProps) {
             }}
             style={{ "font-size": "0.8rem" }}
           >
-            <For each={FILTER_TYPES}>
-              {(t) => <option value={t}>{t}</option>}
-            </For>
+            <optgroup label="reference">
+              <For each={REFERENCE_FILTER_TYPES}>
+                {(t) => <option value={t}>{t}</option>}
+              </For>
+            </optgroup>
+            <optgroup label="criteria (any user)">
+              <For each={CRITERIA_FILTER_TYPES}>
+                {(t) => <option value={t}>{t}</option>}
+              </For>
+            </optgroup>
           </select>
-          <Show
-            when={fType() === "track"}
-            fallback={
-              <SeedSuggestInput
-                kind={
-                  fType() as "tag" | "taxon" | "artist" | "album" | "playlist"
-                }
+          <Show when={isReferenceFilterType(fType())}>
+            <Show
+              when={fType() === "track"}
+              fallback={
+                <SeedSuggestInput
+                  kind={
+                    fType() as "tag" | "taxon" | "artist" | "album" | "playlist"
+                  }
+                  value={fValue()}
+                  onChange={setFValue}
+                  dispatch={props.dispatch}
+                  placeholder={`${fType()} name`}
+                />
+              }
+            >
+              <SongSuggestInput
                 value={fValue()}
                 onChange={setFValue}
                 dispatch={props.dispatch}
-                placeholder={`${fType()} name`}
               />
-            }
+            </Show>
+          </Show>
+          <Show when={fType() === "favorite"}>
+            <span class="item-meta" style={{ "font-size": "0.75rem" }}>
+              no value needed
+            </span>
+          </Show>
+          <Show
+            when={!isReferenceFilterType(fType()) && fType() !== "favorite"}
           >
-            <SongSuggestInput
+            <input
+              type="number"
+              min={isRatingFilterType(fType()) ? 1 : 0}
+              max={isRatingFilterType(fType()) ? 5 : undefined}
+              step={1}
+              placeholder={isRatingFilterType(fType()) ? "1-5" : "0"}
               value={fValue()}
-              onChange={setFValue}
-              dispatch={props.dispatch}
+              onInput={(e) => setFValue(e.currentTarget.value)}
+              style={{ "font-size": "0.8rem", width: "5rem" }}
             />
           </Show>
           <button type="submit" class="primary small" disabled={busy()}>

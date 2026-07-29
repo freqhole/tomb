@@ -277,10 +277,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             // fill the peer id/url field and kick off the same connection
             // test a manually-typed + submitted value would trigger. the
             // "url" step's input box is local state (see the "url" Match
-            // block below) with no wiring back to this handler, so
-            // dispatching QR_SCAN alone (which only updates the machine's
-            // internal ctx.input, never projected into AddPeerState) left
-            // the scan looking like a no-op.
+            // block below);
+            // dispatching QR_SCAN only updates the machine's internal ctx.input,
+            // never projected into AddPeerState) left the scan looking like a no-op.
             handleTestConnection(text);
           }}
           onError={(err) => {

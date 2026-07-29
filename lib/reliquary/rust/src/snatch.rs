@@ -132,6 +132,24 @@ pub enum SnatchError {
     #[error("download failed: {0}")]
     DownloadFailed(String),
 
+    /// the download progress stream ended cleanly (no error event) but no
+    /// bytes were ever reported transferred either. this is ambiguous by
+    /// construction (see `consume_download_progress`'s doc comment): it's
+    /// what a genuine silent provider denial/connection-drop looks like,
+    /// but it's ALSO exactly what iroh-blobs' own `execute_get` produces
+    /// when its local store already has the blob fully downloaded from a
+    /// previous attempt (`local.is_complete()` short-circuits to `Ok(())`
+    /// before trying the network at all) - `download_blob` disambiguates
+    /// by checking `fs_store.blobs().has(hash)` before surfacing this.
+    #[error(
+        "stream ended with no error but no data transferred \
+         (providers_tried={providers_tried}, providers_failed={providers_failed})"
+    )]
+    NoDataTransferred {
+        providers_tried: u32,
+        providers_failed: u32,
+    },
+
     #[error("download timed out")]
     DownloadTimeout,
 
@@ -210,6 +228,57 @@ pub struct SnatchEngine<S: BlobRefSource, T: PeerProbeTransport> {
     /// via [`SnatchEngine::offer_peer_blobs`] - the engine never fills this
     /// in on its own.
     peer_blob_inventory: StdMutex<HashMap<String, HashSet<String>>>,
+    /// blobs currently mid-transfer (provider confirmed, real iroh-blobs
+    /// download in flight) - keyed by blake3, purely for observability
+    /// (CLI/dashboard status text), see [`SnatchEngine::active_downloads`].
+    active_downloads: Arc<StdMutex<HashMap<String, ActiveDownload>>>,
+}
+
+/// a blob currently being downloaded from a peer - see
+/// [`SnatchEngine::active_downloads`].
+#[derive(Debug, Clone)]
+pub struct ActiveDownload {
+    pub blake3: String,
+    pub filename: String,
+    pub peer: String,
+    pub started_at: std::time::Instant,
+}
+
+/// RAII registration for one [`ActiveDownload`]: inserted on construction,
+/// removed on drop (covers success, error-return, and panic-unwind alike).
+struct ActiveDownloadGuard {
+    registry: Arc<StdMutex<HashMap<String, ActiveDownload>>>,
+    blake3: String,
+}
+
+impl ActiveDownloadGuard {
+    fn new(
+        registry: Arc<StdMutex<HashMap<String, ActiveDownload>>>,
+        blake3: String,
+        filename: String,
+        peer: String,
+    ) -> Self {
+        if let Ok(mut map) = registry.lock() {
+            map.insert(
+                blake3.clone(),
+                ActiveDownload {
+                    blake3: blake3.clone(),
+                    filename,
+                    peer,
+                    started_at: std::time::Instant::now(),
+                },
+            );
+        }
+        Self { registry, blake3 }
+    }
+}
+
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.registry.lock() {
+            map.remove(&self.blake3);
+        }
+    }
 }
 
 impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
@@ -235,6 +304,18 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             options,
             peer_semaphores: TokioMutex::new(HashMap::new()),
             peer_blob_inventory: StdMutex::new(HashMap::new()),
+            active_downloads: Arc::new(StdMutex::new(HashMap::new())),
+        }
+    }
+
+    /// snapshot of blobs currently mid-transfer - for CLI/dashboard status
+    /// text. best-effort and not ordered: only covers descriptors where a
+    /// provider has already been confirmed via probe and the real
+    /// iroh-blobs download has started (probing itself isn't included).
+    pub fn active_downloads(&self) -> Vec<ActiveDownload> {
+        match self.active_downloads.lock() {
+            Ok(map) => map.values().cloned().collect(),
+            Err(_) => Vec::new(),
         }
     }
 
@@ -376,18 +457,43 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
     /// drop descriptors with no blake3, and descriptors we already have -
     /// via `get_any`, so a soft-deleted blob is never re-snatched (an admin
     /// soft-deleting a blob must not have it immediately resurrected by the
-    /// next scan).
+    /// next scan). an already-active (non-soft-deleted) local copy still
+    /// counts as a genuine snatch for bookkeeping purposes - see
+    /// `local_blob_presence`'s doc comment for why.
     async fn resolve_missing(&self, descriptors: Vec<BlobDescriptor>) -> Vec<BlobDescriptor> {
         let mut missing = Vec::with_capacity(descriptors.len());
         for descriptor in descriptors {
             if descriptor.blake3.is_empty() {
                 continue;
             }
-            if self.check_blob_exists(&descriptor.blake3).await {
-                continue;
+            match self.local_blob_presence(&descriptor.blake3).await {
+                LocalBlobPresence::Active => {
+                    tracing::debug!(
+                        blake3 = trunc(&descriptor.blake3),
+                        "resolve_missing: already have this blob, skipping \
+                         download, but still registering self as a holder"
+                    );
+                    self.source
+                        .on_snatched(&descriptor, &self.local_node_id)
+                        .await;
+                    continue;
+                }
+                LocalBlobPresence::SoftDeleted => {
+                    tracing::debug!(
+                        blake3 = trunc(&descriptor.blake3),
+                        "resolve_missing: already have this blob (soft-deleted), skipping"
+                    );
+                    continue;
+                }
+                LocalBlobPresence::Missing => {}
             }
             missing.push(descriptor);
         }
+        tracing::info!(
+            input = missing.capacity(),
+            missing = missing.len(),
+            "resolve_missing: resolved descriptor batch"
+        );
         missing
     }
 
@@ -397,6 +503,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         if descriptors.is_empty() {
             return 0;
         }
+        tracing::info!(count = descriptors.len(), "snatch_all: starting batch");
 
         let snatched = AtomicUsize::new(0);
         stream::iter(descriptors.iter())
@@ -434,9 +541,19 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         }
 
         // double-check local availability - may have been snatched by
-        // another concurrent cycle since `resolve_missing` ran.
-        if self.check_blob_exists(&descriptor.blake3).await {
-            return Ok(());
+        // another concurrent cycle since `resolve_missing` ran. still
+        // register self as a holder for an active copy, same rationale as
+        // `resolve_missing`'s own check - see `local_blob_presence`'s doc
+        // comment.
+        match self.local_blob_presence(&descriptor.blake3).await {
+            LocalBlobPresence::Active => {
+                self.source
+                    .on_snatched(descriptor, &self.local_node_id)
+                    .await;
+                return Ok(());
+            }
+            LocalBlobPresence::SoftDeleted => return Ok(()),
+            LocalBlobPresence::Missing => {}
         }
 
         let target_peers = self.target_peers_for(descriptor);
@@ -445,7 +562,25 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         }
 
         let provider = self.probe_peers(&descriptor.blake3, &target_peers).await?;
-        self.download_blob(&descriptor.blake3, &provider).await?;
+        tracing::debug!(
+            blake3 = trunc(&descriptor.blake3),
+            provider = trunc(&provider),
+            local_node_id = trunc(&self.local_node_id),
+            "snatch_descriptor: provider confirmed via probe, starting real \
+             iroh-blobs download - if this fails with no data transferred, \
+             check the PROVIDER's own acl-gate log for this exact (peer, \
+             blake3) pair - the probe above isn't acl-gated, only the real \
+             download is"
+        );
+        {
+            let _download_guard = ActiveDownloadGuard::new(
+                Arc::clone(&self.active_downloads),
+                descriptor.blake3.clone(),
+                descriptor.filename.clone(),
+                provider.clone(),
+            );
+            self.download_blob(&descriptor.blake3, &provider).await?;
+        }
         self.ingest_blob(descriptor).await?;
         self.source
             .on_snatched(descriptor, &self.local_node_id)
@@ -568,23 +703,74 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             .stream()
             .await
             .map_err(|e| SnatchError::DownloadFailed(format!("stream: {e}")))?;
-        consume_download_progress(
+        match consume_download_progress(
             stream,
             self.options.download_inactivity_timeout,
             blake3_hash,
         )
-        .await?;
+        .await
+        {
+            Ok(()) => {}
+            Err(SnatchError::NoDataTransferred {
+                providers_tried,
+                providers_failed,
+            }) => {
+                // ambiguous by construction (see `consume_download_progress`'s
+                // doc comment) - ask the fs store directly rather than
+                // guessing. `local.is_complete()` (iroh-blobs' own internal
+                // check, inside `execute_get`) short-circuits to `Ok(())`
+                // with zero progress events whenever it already has the
+                // full blob locally - e.g. a prior attempt fully downloaded
+                // the bytes but a LATER step (this fn's own export, below)
+                // failed and was never retried, so blobz never got a row
+                // for it even though iroh-blobs' own store already has it.
+                let already_complete = self.fs_store.blobs().has(hash).await.unwrap_or(false);
+                if !already_complete {
+                    tracing::warn!(
+                        blake3 = blake3_hash,
+                        provider_node_id,
+                        providers_tried,
+                        providers_failed,
+                        "download_blob: no data transferred and fs_store \
+                         doesn't have this blob either - a genuine failed/\
+                         denied download, not a resume case (check the \
+                         provider's own logs for this exact peer+blake3 pair)"
+                    );
+                    return Err(SnatchError::NoDataTransferred {
+                        providers_tried,
+                        providers_failed,
+                    });
+                }
+                tracing::info!(
+                    blake3 = blake3_hash,
+                    "download_blob: no data transferred this attempt, but \
+                     fs_store already has this blob complete locally (an \
+                     earlier attempt likely finished the transfer but a \
+                     later step - e.g. export - failed before) - treating \
+                     as a resume, proceeding straight to export"
+                );
+            }
+            Err(e) => return Err(e),
+        }
 
         let target = self
             .blobz
             .prepare_canonical_path(blake3_hash)
             .await
-            .map_err(|e| SnatchError::DownloadFailed(format!("prepare blobz path: {e}")))?;
+            .map_err(|e| {
+                tracing::warn!(
+                    blake3 = blake3_hash,
+                    error = ?e,
+                    "download_blob: prepare_canonical_path failed"
+                );
+                SnatchError::DownloadFailed(format!("prepare blobz path: {e}"))
+            })?;
         // TryReference renames the fs store's data file to the blobz
         // canonical path (same filesystem => no copy; EXDEV falls back to
         // copy). the fs store then tracks it as External and keeps serving
         // it for p2p.
-        self.fs_store
+        if let Err(e) = self
+            .fs_store
             .blobs()
             .export_with_opts(ExportOptions {
                 hash,
@@ -592,7 +778,40 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
                 target: target.clone(),
             })
             .await
-            .map_err(|e| SnatchError::DownloadFailed(format!("export to blobz path: {e}")))?;
+        {
+            // the in-flight set only marks a hash as "don't gc me", it
+            // doesn't serialize duplicate concurrent callers (e.g. the same
+            // blob referenced from two widgets/canvases, both resolved in
+            // the same scan pass) - so two `download_blob` calls for the
+            // same hash can both reach this rename concurrently. the rename
+            // is atomic and consumes the source, so whichever caller loses
+            // the race sees the source vanish/truncate mid-read
+            // ("No such file or directory" / "failed to fill whole
+            // buffer") even though the download itself succeeded. check
+            // whether the target now exists before treating this as a real
+            // failure - if it does, a concurrent duplicate already
+            // finished the export for us.
+            if tokio::fs::try_exists(&target).await.unwrap_or(false) {
+                tracing::info!(
+                    blake3 = blake3_hash,
+                    target = %target.display(),
+                    "download_blob: export_with_opts failed, but the target \
+                     already exists - a concurrent duplicate download for \
+                     the same hash won the race and exported it first, \
+                     treating this attempt as a success"
+                );
+                return Ok(());
+            }
+            tracing::warn!(
+                blake3 = blake3_hash,
+                target = %target.display(),
+                error = ?e,
+                "download_blob: export_with_opts failed"
+            );
+            return Err(SnatchError::DownloadFailed(format!(
+                "export to blobz path: {e:?}"
+            )));
+        }
 
         Ok(())
     }
@@ -622,15 +841,33 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         Ok(())
     }
 
-    /// whether a blob already exists locally, including soft-deleted rows -
-    /// `get_any` (not `get`) so a soft-deleted blob is treated as present
-    /// and never re-downloaded, which would resurrect it.
-    async fn check_blob_exists(&self, blake3: &str) -> bool {
+    /// whether a blob already exists locally, and if so, whether it's an
+    /// active copy or a soft-deleted one. uses `get_any` (not `get`) so a
+    /// soft-deleted blob is still detected as present (never re-downloaded,
+    /// which would resurrect it) while remaining distinguishable from a
+    /// genuine active copy: an active local copy is a real, useful holder
+    /// of this content (whether snatched for *this* descriptor or another
+    /// one referencing the same bytes) and callers should register self as
+    /// a holder via `on_snatched` for it; a soft-deleted copy must not be,
+    /// since that would resurrect deleted content's holder-tracking too.
+    async fn local_blob_presence(&self, blake3: &str) -> LocalBlobPresence {
         if blake3.is_empty() {
-            return false;
+            return LocalBlobPresence::Missing;
         }
-        matches!(self.blobz.get_any(blake3).await, Ok(Some(_)))
+        match self.blobz.get_any(blake3).await {
+            Ok(Some(record)) if record.soft_deleted_at.is_some() => LocalBlobPresence::SoftDeleted,
+            Ok(Some(_)) => LocalBlobPresence::Active,
+            _ => LocalBlobPresence::Missing,
+        }
     }
+}
+
+/// result of [`SnatchEngine::local_blob_presence`] - see its doc comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalBlobPresence {
+    Missing,
+    Active,
+    SoftDeleted,
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +898,25 @@ where
     let mut had_error = false;
     let mut last_error: Option<String> = None;
     let mut event_count: u32 = 0;
+    // set once we see real evidence that bytes actually moved (as opposed
+    // to just "we picked a provider to try") - `TryProvider`/`ProviderFailed`
+    // alone don't mean any data was transferred, and a stream that ends
+    // right after `TryProvider` with no error event at all (the provider's
+    // connection/stream simply closing rather than reporting a protocol
+    // error) is otherwise indistinguishable from a real success.
+    let mut saw_progress = false;
+    // `ProviderFailed` fires when either `conn.await` (connect) or
+    // `execute_get_sink` (the actual get, incl. any acl-gate rejection on
+    // the provider's side) failed for that candidate - iroh-blobs
+    // (0.103.0's `execute_get`) unfortunately discards the real underlying
+    // cause in both cases (`let Ok(conn) = conn.await else { ... }` /
+    // `Err(_cause) => { ... }`), so we can only ever know THAT a candidate
+    // failed, never WHY, from this stream alone - see this fn's expanded
+    // warn message below for what to check instead (peer's own acl-gate
+    // log, or `iroh=debug,iroh_blobs=debug` tracing on this process for
+    // any lower-level connection detail).
+    let mut providers_tried: u32 = 0;
+    let mut providers_failed: u32 = 0;
 
     loop {
         let maybe_event = tokio::time::timeout(inactivity_timeout, stream.next())
@@ -691,12 +947,33 @@ where
                     "download progress: download error event"
                 );
             }
-            other => {
+            DownloadProgressItem::Progress(_) | DownloadProgressItem::PartComplete { .. } => {
+                // these fire once per chunk (potentially thousands of times
+                // for a large file) - way too noisy for `debug`, which is
+                // otherwise on by default in dev. no log here at all; the
+                // less-frequent `other` events below (TryProvider,
+                // ProviderFailed, etc.) already cover what's actionable.
+                saw_progress = true;
+            }
+            DownloadProgressItem::TryProvider { id, .. } => {
+                providers_tried += 1;
                 tracing::debug!(
                     blake3 = trunc(blake3_label),
-                    event = ?other,
+                    provider = %id,
                     event_index = event_count,
-                    "download progress event"
+                    "download progress: trying provider"
+                );
+            }
+            DownloadProgressItem::ProviderFailed { id, .. } => {
+                providers_failed += 1;
+                tracing::warn!(
+                    blake3 = trunc(blake3_label),
+                    provider = %id,
+                    event_index = event_count,
+                    "download progress: provider failed (connect or get - \
+                     iroh-blobs doesn't surface which, or why - check the \
+                     provider's own acl-gate log for this blake3/peer, or \
+                     enable iroh=debug,iroh_blobs=debug on this process)"
                 );
             }
         }
@@ -706,6 +983,24 @@ where
         return Err(SnatchError::DownloadFailed(
             last_error.unwrap_or_else(|| "unknown error".to_string()),
         ));
+    }
+
+    if !saw_progress {
+        tracing::warn!(
+            blake3 = trunc(blake3_label),
+            event_count,
+            providers_tried,
+            providers_failed,
+            "download progress stream ended with no error but no actual data \
+             transfer either - could be the provider silently closing the \
+             connection/denying the request, OR iroh-blobs' local-store \
+             already-complete fast path (caller checks fs_store directly to \
+             tell these apart)"
+        );
+        return Err(SnatchError::NoDataTransferred {
+            providers_tried,
+            providers_failed,
+        });
     }
 
     Ok(())
@@ -999,12 +1294,21 @@ mod tests {
             deps.fs_store,
             Arc::new(StdMutex::new(HashSet::new())),
             "local-node",
-            source,
+            source.clone(),
             transport,
             short_options(),
         );
 
         assert_eq!(engine.scan_and_snatch().await, 0);
+        // an already-active local copy is still a genuine holder of this
+        // content - the source must be told so via `on_snatched`, even
+        // though no network download happened, or app-level holder
+        // tracking (e.g. tumulus's `snatchedBy`) never learns this node
+        // has it (see this file's `resolve_missing` doc comment).
+        assert_eq!(
+            source.on_snatched_calls(),
+            vec![format!("{}:local-node", record.blake3)]
+        );
         deps.endpoint.close().await;
     }
 

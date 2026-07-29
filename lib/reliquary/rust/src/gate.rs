@@ -68,17 +68,31 @@ pub fn build_gated_blobs_events(gate: Arc<dyn AccessGate>) -> EventSender {
         while let Some(msg) = rx.recv().await {
             match msg {
                 ProviderMessage::ClientConnected(msg) => {
-                    if let Some(endpoint_id) = msg.endpoint_id {
-                        connections
-                            .lock()
-                            .await
-                            .insert(msg.connection_id, endpoint_id.to_string());
+                    match msg.endpoint_id {
+                        Some(endpoint_id) => {
+                            tracing::info!(
+                                connection_id = msg.connection_id,
+                                peer = %endpoint_id,
+                                "gate: client connected"
+                            );
+                            connections
+                                .lock()
+                                .await
+                                .insert(msg.connection_id, endpoint_id.to_string());
+                        }
+                        None => {
+                            tracing::warn!(
+                                connection_id = msg.connection_id,
+                                "gate: client connected with no endpoint_id — every request on this connection will be denied (fail closed)"
+                            );
+                        }
                     }
                     // always accept the connection itself; gating happens
                     // per-request below, once we know which hash is asked for.
                     msg.tx.send(Ok(())).await.ok();
                 }
                 ProviderMessage::ConnectionClosed(msg) => {
+                    tracing::debug!(connection_id = msg.connection_id, "gate: connection closed");
                     connections.lock().await.remove(&msg.connection_id);
                 }
                 ProviderMessage::GetRequestReceived(msg) => {
@@ -88,7 +102,9 @@ pub fn build_gated_blobs_events(gate: Arc<dyn AccessGate>) -> EventSender {
                         Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
                         None => false,
                     };
-                    if !allowed {
+                    if allowed {
+                        tracing::info!(peer = ?peer, %hash, "gate: allowed get request");
+                    } else {
                         tracing::warn!(peer = ?peer, %hash, "gate: denied get request");
                     }
                     let res: EventResult = if allowed {
@@ -113,7 +129,13 @@ pub fn build_gated_blobs_events(gate: Arc<dyn AccessGate>) -> EventSender {
                         }
                         None => false,
                     };
-                    if !allowed {
+                    if allowed {
+                        tracing::info!(
+                            peer = ?peer,
+                            hash_count = msg.request.hashes.len(),
+                            "gate: allowed get_many request"
+                        );
+                    } else {
                         tracing::warn!(peer = ?peer, "gate: denied get_many request");
                     }
                     let res: EventResult = if allowed {

@@ -76,27 +76,34 @@ pub struct UpdateStationRequest {
 
 /// one filter clause attached to a station.
 ///
-/// every clause references a real record id via exactly one of the FK
-/// columns (`artist_id` / `album_id` / `genre_id` / `tag_id` /
-/// `song_id`), matching `filter_type`. the wire shape exposes
+/// reference-type clauses (artist/album/taxon/tag/track/playlist)
+/// reference a real record id via exactly one of the FK columns
+/// (`artist_id` / `album_id` / `taxon_id` / `tag_id` / `song_id` /
+/// `playlist_id`), matching `filter_type`. the wire shape exposes
 /// `filter_value` as the chosen FK id so existing ui code keeps
 /// working — the picker no longer falls back to name lookups.
+///
+/// criteria-type clauses (favorite/rating/play_count/duration/
+/// added_days) carry a plain numeric threshold in `criteria_value`
+/// instead — see `StationFilterType` for the full list. `filter_value`
+/// surfaces that threshold as a string for these (empty for
+/// `favorite`, which needs no value at all).
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, FromRow, PartialEq)]
 pub struct StationFilter {
     pub id: String,
     pub station_id: String,
-    /// 'artist' | 'album' | 'genre' | 'tag' | 'track' | 'playlist'
+    /// see `StationFilterType` for every accepted value.
     pub filter_type: String,
-    /// the FK id matching `filter_type` (artist_id when type='artist',
-    /// song_id when type='track', playlist_id when type='playlist',
-    /// etc.). always set — the schema's CHECK constraint guarantees
-    /// one FK column is non-null per row.
+    /// the FK id matching `filter_type` for reference types, or the
+    /// numeric threshold (as a string) for criteria types. empty for
+    /// `favorite`, which has no value.
     pub filter_value: String,
     /// human-readable label for `filter_value` (artist name, album
-    /// title, genre name, tag name, song title). populated by the
+    /// title, taxon label, tag name, song title). populated by the
     /// repository via a left-join so the UI can render names without a
-    /// second round-trip. may be empty if the referenced row was
-    /// deleted out from under the filter.
+    /// second round-trip. empty for criteria types (no referenced
+    /// record) or if the referenced row was deleted out from under the
+    /// filter.
     #[serde(default)]
     pub filter_label: String,
     /// 'include' | 'exclude'
@@ -111,6 +118,12 @@ pub struct StationFilter {
 /// era, region, ... — so a single station can mix kinds in its seed
 /// filters. legacy `"genre"` strings are accepted on input as an alias
 /// for `"taxon"`.
+///
+/// migration 051 added nine "criteria" types alongside the six
+/// reference types above. these carry a plain numeric threshold in
+/// `criteria_value` (or no value at all, for `favorite`) instead of an
+/// FK id — see `StationFilter` and `repository::song_ids_for_clause`
+/// for resolution details.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StationFilterType {
@@ -120,6 +133,27 @@ pub enum StationFilterType {
     Tag,
     Track,
     Playlist,
+    /// song is favorited, or belongs to a favorited album/artist/
+    /// playlist — any user, existential (see repository.rs). no value.
+    Favorite,
+    /// any user rated the song (or its album/artist, or a playlist
+    /// containing it) at least this many stars (1-5).
+    RatingGte,
+    /// any user rated the song (or its album/artist, or a playlist
+    /// containing it) at most this many stars (1-5).
+    RatingLte,
+    PlayCountGte,
+    PlayCountLte,
+    /// song duration in seconds, inclusive lower bound.
+    DurationGte,
+    /// song duration in seconds, inclusive upper bound.
+    DurationLte,
+    /// added at least this many days ago (i.e. older than the cutoff —
+    /// see repository.rs for the days-ago-vs-timestamp inversion).
+    AddedDaysGte,
+    /// added at most this many days ago (i.e. more recent than the
+    /// cutoff).
+    AddedDaysLte,
 }
 
 impl StationFilterType {
@@ -131,6 +165,15 @@ impl StationFilterType {
             Self::Tag => "tag",
             Self::Track => "track",
             Self::Playlist => "playlist",
+            Self::Favorite => "favorite",
+            Self::RatingGte => "rating_gte",
+            Self::RatingLte => "rating_lte",
+            Self::PlayCountGte => "play_count_gte",
+            Self::PlayCountLte => "play_count_lte",
+            Self::DurationGte => "duration_gte",
+            Self::DurationLte => "duration_lte",
+            Self::AddedDaysGte => "added_days_gte",
+            Self::AddedDaysLte => "added_days_lte",
         }
     }
 
@@ -143,8 +186,26 @@ impl StationFilterType {
             "tag" => Some(Self::Tag),
             "track" => Some(Self::Track),
             "playlist" => Some(Self::Playlist),
+            "favorite" => Some(Self::Favorite),
+            "rating_gte" => Some(Self::RatingGte),
+            "rating_lte" => Some(Self::RatingLte),
+            "play_count_gte" => Some(Self::PlayCountGte),
+            "play_count_lte" => Some(Self::PlayCountLte),
+            "duration_gte" => Some(Self::DurationGte),
+            "duration_lte" => Some(Self::DurationLte),
+            "added_days_gte" => Some(Self::AddedDaysGte),
+            "added_days_lte" => Some(Self::AddedDaysLte),
             _ => None,
         }
+    }
+
+    /// true for the nine criteria types added in migration 051 (numeric
+    /// threshold or no value, as opposed to an FK reference id).
+    pub fn is_criteria(self) -> bool {
+        !matches!(
+            self,
+            Self::Artist | Self::Album | Self::Taxon | Self::Tag | Self::Track | Self::Playlist
+        )
     }
 }
 
