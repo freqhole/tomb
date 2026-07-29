@@ -91,7 +91,7 @@ walkdir = "2.4"
 inquire = "0.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
-iroh = "1.0.2"
+iroh = "1.0.3"
 iroh-blobs = "0.103"
 blake3 = "1.5"
 getrandom = "0.2"
