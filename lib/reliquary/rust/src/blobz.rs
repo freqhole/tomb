@@ -302,8 +302,32 @@ pub struct SqliteBlobStore {
 }
 
 impl SqliteBlobStore {
+    /// `data_dir` is absolutized (lexically, via `std::path::absolute` -
+    /// joined against the current process cwd if relative, no filesystem
+    /// access, no requirement that it already exist) before being joined
+    /// into `blob_dir`.
+    ///
+    /// this matters because `iroh_blobs::store::fs`'s `export_path_impl`
+    /// hard-requires `target.is_absolute()` and returns `io::ErrorKind::
+    /// InvalidInput` ("path is not absolute") otherwise - a relative
+    /// `data_dir` (e.g. a relative path straight out of a toml config,
+    /// which is exactly what tumulus passes in) used to make every single
+    /// `download_blob()` export fail with that error, permanently, for
+    /// every blob (confirmed via `tumulus.log`: `target=tumulus/hub-dev-
+    /// data/blob-files/...` - a path relative to whatever cwd tumulus
+    /// happened to be launched from, not an absolute one) - see
+    /// `/memories/repo/blob-fetch-linux-bug.md`-adjacent
+    /// `/memories/repo/skein-tumulus-*` notes for the broader hub sync
+    /// bug hunt this was found during.
     pub fn new(pool: SqlitePool, data_dir: &Path) -> Self {
-        let blob_dir = data_dir.join(BLOB_FILES_DIR);
+        let blob_dir = std::path::absolute(data_dir.join(BLOB_FILES_DIR))
+            .unwrap_or_else(|_| data_dir.join(BLOB_FILES_DIR));
+        tracing::info!(
+            data_dir = %data_dir.display(),
+            blob_dir = %blob_dir.display(),
+            is_absolute = blob_dir.is_absolute(),
+            "SqliteBlobStore::new: resolved blob_dir"
+        );
         Self { pool, blob_dir }
     }
 
