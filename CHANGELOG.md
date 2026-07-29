@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.2.5
+
+### Patch Changes
+
+- 1f192b6: tidy artist + album detail view's action buttons row; add backdrop to fav play + shuffle btnz;
+- a3c73b3: improve reliquary lib snatch stuff
+- ac4bcb2: add more radio station filterz: favorite boolean, rating gte lte, play count lte gte, song length time gte lte, recently added days gte lte
+
 ## 0.2.4
 
 ### Patch Changes
