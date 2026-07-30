@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.2.6
+
+### Patch Changes
+
+- 908e753: bump some depz
+- 51375c8: lib/reliquary: handle 0 byte and incomplete download blobz
+- 1437830: show entity image buttonz always on touch device (no hoverz)
+
 ## 0.2.5
 
 ### Patch Changes
