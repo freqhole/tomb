@@ -4,6 +4,7 @@ import { Icon } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickFile } from "../../utils/filePicker";
+import { isTouchDevice } from "../../utils/isMobile";
 
 export interface EntityImagesProps {
   images: ImageMetadata[];
@@ -25,6 +26,10 @@ export interface EntityImagesProps {
 }
 
 export function EntityImages(props: EntityImagesProps) {
+  // on touch devices there's no hover state, so hovering-to-reveal the
+  // set-primary/delete buttons is unreachable - show them always instead.
+  const isTouch = isTouchDevice();
+
   const handleUploadClick = async () => {
     // on desktop tauri when the caller supplied onUploadPath, prefer the
     // path-only flow (no bytes read). otherwise fall through to bytes +
@@ -74,9 +79,14 @@ export function EntityImages(props: EntityImagesProps) {
                 </div>
               </Show>
 
-              {/* action buttons - show on hover */}
+              {/* action buttons - always shown on touch devices (no hover
+                  state to reveal them); fade in on hover otherwise */}
               <Show when={!props.disabled}>
-                <div class="absolute top-1 right-1 z-40 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div
+                  class={`absolute top-1 right-1 z-40 flex gap-1 transition-opacity ${
+                    isTouch ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                >
                   <Show when={!image.is_primary && props.onSetPrimary}>
                     <button
                       class="p-1.5 bg-black/70 hover:bg-[var(--color-accent-500)] rounded transition-colors"
