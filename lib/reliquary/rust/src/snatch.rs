@@ -153,6 +153,14 @@ pub enum SnatchError {
     #[error("download timed out")]
     DownloadTimeout,
 
+    /// the exported/existing target file's on-disk size doesn't match what
+    /// the descriptor (or a previously-registered row) claims. this catches
+    /// a corrupt/incomplete blob-files entry (e.g. a 0-byte file left over
+    /// from a bad resume/export race) so it's treated as a failed snatch and
+    /// gets retried on the next scan, instead of being trusted forever.
+    #[error("exported blob size mismatch: expected {expected} bytes, found {actual}")]
+    SizeMismatch { expected: u64, actual: u64 },
+
     #[error("failed to ingest blob: {0}")]
     Ingest(String),
 
@@ -579,7 +587,8 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
                 descriptor.filename.clone(),
                 provider.clone(),
             );
-            self.download_blob(&descriptor.blake3, &provider).await?;
+            self.download_blob(&descriptor.blake3, &provider, descriptor.size)
+                .await?;
         }
         self.ingest_blob(descriptor).await?;
         self.source
@@ -668,6 +677,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         &self,
         blake3_hash: &str,
         provider_node_id: &str,
+        expected_size: u64,
     ) -> Result<(), SnatchError> {
         // check first: no live endpoint means no point parsing the hash or
         // reserving a semaphore slot.
@@ -800,7 +810,9 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
                      the same hash won the race and exported it first, \
                      treating this attempt as a success"
                 );
-                return Ok(());
+                return self
+                    .verify_exported_size(blake3_hash, &target, expected_size)
+                    .await;
             }
             tracing::warn!(
                 blake3 = blake3_hash,
@@ -813,6 +825,42 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             )));
         }
 
+        self.verify_exported_size(blake3_hash, &target, expected_size)
+            .await
+    }
+
+    /// confirm the file just exported to `target` actually has bytes, and
+    /// matches `expected_size` when the descriptor supplied a known one (a
+    /// descriptor with no known size, i.e. `0`, only gets the weaker
+    /// non-empty check). guards against a truncated/0-byte export being
+    /// silently ingested as if it were a real, complete blob - see this
+    /// module's `local_blob_presence` for the matching check applied to
+    /// already-registered rows.
+    async fn verify_exported_size(
+        &self,
+        blake3_hash: &str,
+        target: &std::path::Path,
+        expected_size: u64,
+    ) -> Result<(), SnatchError> {
+        let actual = tokio::fs::metadata(target)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if actual == 0 || (expected_size > 0 && actual != expected_size) {
+            tracing::warn!(
+                blake3 = blake3_hash,
+                target = %target.display(),
+                expected_size,
+                actual_size = actual,
+                "download_blob: exported file size doesn't match - treating \
+                 this snatch as failed so it gets retried instead of \
+                 ingesting a corrupt/incomplete blob"
+            );
+            return Err(SnatchError::SizeMismatch {
+                expected: expected_size,
+                actual,
+            });
+        }
         Ok(())
     }
 
@@ -854,11 +902,35 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         if blake3.is_empty() {
             return LocalBlobPresence::Missing;
         }
-        match self.blobz.get_any(blake3).await {
-            Ok(Some(record)) if record.soft_deleted_at.is_some() => LocalBlobPresence::SoftDeleted,
-            Ok(Some(_)) => LocalBlobPresence::Active,
-            _ => LocalBlobPresence::Missing,
+        let record = match self.blobz.get_any(blake3).await {
+            Ok(Some(record)) => record,
+            _ => return LocalBlobPresence::Missing,
+        };
+        if record.soft_deleted_at.is_some() {
+            return LocalBlobPresence::SoftDeleted;
         }
+        // a registered row isn't necessarily backed by real bytes on disk -
+        // e.g. a prior snatch treated an ambiguous "no data transferred"
+        // resume (see `download_blob`) as complete when it wasn't, and
+        // ingested a truncated/0-byte file. validate the row's recorded
+        // size against the actual file on disk before trusting it, so a
+        // corrupt/incomplete blob gets re-queued for download instead of
+        // being silently treated as present forever.
+        let path = self.blobz.path_for(&record);
+        let actual_size = tokio::fs::metadata(&path).await.map(|m| m.len()).ok();
+        if actual_size != Some(record.size) || record.size == 0 {
+            tracing::warn!(
+                blake3 = trunc(blake3),
+                recorded_size = record.size,
+                actual_size = ?actual_size,
+                path = %path.display(),
+                "local_blob_presence: registered blob's bytes are missing or \
+                 don't match the recorded size - treating as missing so it \
+                 gets re-snatched"
+            );
+            return LocalBlobPresence::Missing;
+        }
+        LocalBlobPresence::Active
     }
 }
 
@@ -1309,6 +1381,50 @@ mod tests {
             source.on_snatched_calls(),
             vec![format!("{}:local-node", record.blake3)]
         );
+        deps.endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn corrupt_zero_byte_local_copy_is_treated_as_missing_and_reprobed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deps = engine_deps(tmp.path()).await;
+        let record = deps
+            .blobz
+            .insert(b"real bytes here", NewBlobMeta::default())
+            .await
+            .unwrap();
+
+        // simulate a corrupt/truncated blob-files entry - e.g. a bad
+        // resume/export race left a 0-byte file even though blobz still has
+        // a row claiming the real size for it.
+        let path = deps.blobz.path_for(&record);
+        tokio::fs::write(&path, b"").await.unwrap();
+
+        let source = MockSource::new();
+        source.set_doc("doc-1", vec![descriptor(&record.blake3, &["peer-b"])]);
+        let transport = MockTransport::new();
+        transport.set("peer-b", ProbeOutcome::Unavailable);
+
+        let engine = SnatchEngine::new(
+            deps.blobz,
+            deps.downloader,
+            deps.fs_store,
+            Arc::new(StdMutex::new(HashSet::new())),
+            "local-node",
+            source.clone(),
+            transport.clone(),
+            short_options(),
+        );
+
+        // a genuinely-present blob would skip probing entirely (see
+        // `already_present_blob_is_skipped_without_probing`) - this proves
+        // the 0-byte corruption is detected and the blob is instead treated
+        // as missing, triggering a real probe attempt.
+        let snatched = engine.scan_and_snatch().await;
+        assert_eq!(snatched, 0);
+        assert_eq!(transport.calls(), vec!["peer-b".to_string()]);
+        assert!(source.on_snatched_calls().is_empty());
+
         deps.endpoint.close().await;
     }
 

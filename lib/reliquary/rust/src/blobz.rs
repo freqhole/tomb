@@ -439,13 +439,50 @@ impl BlobStore for SqliteBlobStore {
         blake3: &str,
         meta: NewBlobMeta,
     ) -> Result<BlobRecord, BlobStoreError> {
-        if let Some(existing) = self.get_any(blake3).await? {
-            return Ok(existing);
-        }
-
         let (prefix, rest) = blake3.split_at(2);
         let rel_path = format!("{prefix}/{rest}");
         let abs_path = self.blob_dir.join(prefix).join(rest);
+
+        if let Some(existing) = self.get_any(blake3).await? {
+            // a previously-ingested row can be stale: a prior snatch may
+            // have treated a truncated/0-byte export as complete (see
+            // reliquary's snatch engine's "no data transferred, but
+            // fs_store already has this blob" resume path), registering a
+            // row whose `size` doesn't match what's actually on disk. if
+            // the file has SINCE been re-exported with real bytes (e.g. a
+            // later successful re-download after the caller detected the
+            // mismatch and retried), repair the row instead of handing back
+            // a permanently-wrong size forever - otherwise every future
+            // caller that trusts this row's size to validate its own copy
+            // (see `SnatchEngine::local_blob_presence`) would treat it as
+            // corrupt again and re-download in an endless loop.
+            if !existing.external {
+                if let Ok(actual_meta) = tokio::fs::metadata(&abs_path).await {
+                    let actual_size = actual_meta.len() as i64;
+                    if actual_size > 0 && actual_size != existing.size as i64 {
+                        tracing::warn!(
+                            blake3,
+                            recorded_size = existing.size,
+                            actual_size,
+                            "register_ingested: existing row's size didn't \
+                             match the file on disk - repairing"
+                        );
+                        sqlx::query("UPDATE blobz SET size = ?1 WHERE blake3 = ?2")
+                            .bind(actual_size)
+                            .bind(blake3)
+                            .execute(&self.pool)
+                            .await?;
+                        return self.get_any(blake3).await?.ok_or_else(|| {
+                            BlobStoreError::Storage(
+                                "row vanished immediately after repair update".to_string(),
+                            )
+                        });
+                    }
+                }
+            }
+            return Ok(existing);
+        }
+
         let size = tokio::fs::metadata(&abs_path).await?.len() as i64;
 
         self.insert_row(blake3, blake3, &rel_path, size, false, meta)
@@ -1123,6 +1160,55 @@ mod tests {
         let (rows, total) = store.list(100, 0).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(total, 1);
+    }
+
+    #[tokio::test]
+    async fn register_ingested_records_the_file_already_at_the_canonical_path() {
+        let (store, _pool, _tmp) = make_store().await;
+        let bytes = b"ingested content";
+        let blake3 = blake3::hash(bytes).to_hex().to_string();
+
+        let target = store.prepare_canonical_path(&blake3).await.unwrap();
+        tokio::fs::write(&target, bytes).await.unwrap();
+
+        let record = store
+            .register_ingested(&blake3, NewBlobMeta::default())
+            .await
+            .unwrap();
+        assert_eq!(record.size, bytes.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn register_ingested_repairs_a_stale_size_once_real_bytes_are_on_disk() {
+        // simulates the bug this fixes: an earlier snatch ingested a
+        // truncated/0-byte export (a bad resume race), leaving a row with
+        // size=0. a later successful re-download replaces the file on disk
+        // with the real bytes; re-registering must repair the row's size
+        // instead of handing back the stale one forever.
+        let (store, _pool, _tmp) = make_store().await;
+        let blake3 = "deadbeef".repeat(8); // 64 hex chars, arbitrary test hash
+
+        let target = store.prepare_canonical_path(&blake3).await.unwrap();
+        tokio::fs::write(&target, b"").await.unwrap();
+        let stale = store
+            .register_ingested(&blake3, NewBlobMeta::default())
+            .await
+            .unwrap();
+        assert_eq!(stale.size, 0);
+
+        // a later re-download overwrites the file with real bytes.
+        let real_bytes = b"the real, complete content";
+        tokio::fs::write(&target, real_bytes).await.unwrap();
+
+        let repaired = store
+            .register_ingested(&blake3, NewBlobMeta::default())
+            .await
+            .unwrap();
+        assert_eq!(repaired.size, real_bytes.len() as u64);
+
+        // the repair persisted, not just returned for this one call.
+        let refetched = store.get_any(&blake3).await.unwrap().unwrap();
+        assert_eq!(refetched.size, real_bytes.len() as u64);
     }
 
     #[tokio::test]
