@@ -137,7 +137,11 @@ const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<
 const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(
   null,
 );
-const [stabilityMode, setStabilityMode] = createSignal<boolean>(false);
+// conservative buffering (bigger live-edge cushion, slower resync triggers —
+// see INITIAL_LIVE_EDGE_BUFFER_MS et al below) defaults on now: nothing ever
+// called setRadioStabilityMode to flip this true, so every listener has
+// always run on the smaller/tighter baseline regardless of link quality.
+const [stabilityMode, setStabilityMode] = createSignal<boolean>(true);
 const [modeCapabilities, setModeCapabilities] = createSignal<
   RadioModeCapability[]
 >([]);

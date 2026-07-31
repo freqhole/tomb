@@ -1621,7 +1621,16 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onImageClick = () => {
             if (isRadio()) {
-              navigate("/radio");
+              const artUrl = radioArtUrl();
+              if (!artUrl) {
+                navigate("/radio");
+                return;
+              }
+              const np = radioNowPlaying();
+              showImageCarousel({
+                images: [artUrl],
+                title: formatImageCarouselTitle(np?.title),
+              });
               return;
             }
             handlePlayerImageClick();

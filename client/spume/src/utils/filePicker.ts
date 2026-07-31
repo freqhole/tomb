@@ -141,6 +141,23 @@ async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
   return (await import("@tauri-apps/plugin-fs" as any)) as { readFile: TauriFsReadFileFn };
 }
 
+/**
+ * read a tauri filesystem path into a real `File` object (desktop tauri
+ * only). used by upload flows that were handed a bare path (tauri's native
+ * file dialog never returns a `File`) but need actual bytes because the
+ * destination doesn't support path-based upload — e.g. a plain http remote,
+ * which can't read a path off the client's own local disk the way a
+ * charnel-local/P2P transport can.
+ */
+export async function readTauriPathAsFile(path: string, kind: FileKind = "image"): Promise<File> {
+  const fs = await loadFs();
+  const data = await fs.readFile(path);
+  const name = nameFromPathOrUri(path);
+  // cast: tauri-plugin-fs returns `Uint8Array<ArrayBufferLike>` which newer
+  // ts lib.dom typings reject as a BlobPart; the runtime accepts it fine.
+  return new File([data as BlobPart], name, { type: guessMime(name, kind) });
+}
+
 async function pickViaInputElement(opts: PickFilesOptions): Promise<PickedFile[]> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
