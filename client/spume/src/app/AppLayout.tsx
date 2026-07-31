@@ -709,6 +709,7 @@ export function AppLayout(props: AppLayoutProps) {
       artworkUrl,
       isPlaying: isPlayingNow,
       isLive: true,
+      isFavorite: radioCurrentFavorite() ?? false,
       onPlay: () => {
         if (radioStatus() === "paused") {
           radioResume();
@@ -727,6 +728,14 @@ export function AppLayout(props: AppLayoutProps) {
           }
         : undefined,
       onPreviousTrack: undefined,
+      onFavoriteToggle: () => {
+        const songId = radioNowPlaying()?.song_id;
+        if (!songId) return;
+        const next = !(radioCurrentFavorite() ?? false);
+        void setRadioFavorite(songId, next).catch((e) => {
+          debug("AppLayout", "radio favorite toggle (media session) failed:", e);
+        });
+      },
     });
   });
 
@@ -1621,7 +1630,16 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onImageClick = () => {
             if (isRadio()) {
-              navigate("/radio");
+              const artUrl = radioArtUrl();
+              if (!artUrl) {
+                navigate("/radio");
+                return;
+              }
+              const np = radioNowPlaying();
+              showImageCarousel({
+                images: [artUrl],
+                title: formatImageCarouselTitle(np?.title),
+              });
               return;
             }
             handlePlayerImageClick();

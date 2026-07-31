@@ -34,6 +34,16 @@ pub async fn set_position<R: Runtime>(
 }
 
 #[command]
+pub async fn set_favorite<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SetFavoritePayload,
+) -> Result<(), String> {
+    app.media_session()
+        .set_favorite(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
 pub async fn clear<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     app.media_session().clear().map_err(|e| e.to_string())
 }

@@ -41,7 +41,7 @@ import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteMa
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
-import { showShareModal } from "../hooks/modals";
+import { showShareModal, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
@@ -270,10 +270,24 @@ export function RadioView() {
   // remote in another tab) between mount and a share click; without this
   // refresh remoteForSource would miss the new row and the share button
   // would fail with "could not resolve source for sharing".
+  //
+  // stations() polls every 30-120s (see the adaptive poll loop above), so
+  // this effect re-runs on the same cadence. getAllRemotes() always
+  // returns a fresh array reference even when the underlying remotes
+  // haven't actually changed — pushing that straight into setKnownRemotes
+  // made every knownRemotes() consumer re-render on every poll tick, which
+  // is what caused the view to visibly flash. only replace the signal
+  // when the remote id list actually changed.
   createEffect(() => {
     stations();
     void getAllRemotes()
-      .then(setKnownRemotes)
+      .then((next) => {
+        setKnownRemotes((prev) => {
+          const prevKey = prev.map((r) => r.remote_id).join(",");
+          const nextKey = next.map((r) => r.remote_id).join(",");
+          return prevKey === nextKey ? prev : next;
+        });
+      })
       .catch((e) => debug("radio-view", "failed to refresh remotes:", e));
   });
 
@@ -902,7 +916,21 @@ export function RadioView() {
               >
                 <header class="flex items-center gap-4 mb-6">
                   <div class="flex-shrink-0">
-                    <div class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center">
+                    <button
+                      type="button"
+                      class="w-32 h-32 sm:w-40 sm:h-40 rounded-lg overflow-hidden bg-gradient-to-br from-purple-700 to-indigo-900 flex items-center justify-center"
+                      classList={{ "cursor-pointer": !!radioArtUrl() }}
+                      disabled={!radioArtUrl()}
+                      onClick={() => {
+                        const url = radioArtUrl();
+                        if (!url) return;
+                        showImageCarousel({
+                          images: [url],
+                          title: formatImageCarouselTitle(radioNowPlaying()?.title),
+                        });
+                      }}
+                      aria-label="view station artwork"
+                    >
                       <Show
                         when={radioArtUrl()}
                         fallback={
@@ -931,7 +959,7 @@ export function RadioView() {
                       >
                         {(url) => <img src={url()} alt="" class="w-full h-full object-cover" />}
                       </Show>
-                    </div>
+                    </button>
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between gap-3 mb-1 min-h-8">

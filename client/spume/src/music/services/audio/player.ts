@@ -48,6 +48,7 @@ import { canGoNext, markPlaybackEnded } from "../queue/queueState";
 import { stopServerSession } from "../queue/serverSession";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
+import { toggleSongFavoriteDirect } from "../../queries/favorites";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 import { resolveSongOrId } from "./facadeHelpers";
 
@@ -108,12 +109,32 @@ registerMediaActions(
     playNext,
     playPrevious,
     seek,
+    toggleFavorite: toggleCurrentSongFavorite,
   },
   async (id: string): Promise<Song | null> => {
     return (await getDataSource().getSongById(id)) ?? null;
   },
   getMediaSessionArtwork,
 );
+
+// android lock-screen "favorite" button for regular (non-radio) queue
+// playback. resolves the currently-playing song (queue first, falling
+// back to the data source) and toggles its favorite status via the
+// same data-source call the in-app heart button uses.
+async function toggleCurrentSongFavorite(): Promise<void> {
+  const state = appState();
+  const sha256 = state?.current_sha256;
+  if (!sha256) return;
+  const song =
+    state.queue.find((s) => s.sha256 === sha256) ??
+    (await getDataSource().getSongById(sha256));
+  if (!song) return;
+  try {
+    await toggleSongFavoriteDirect(song);
+  } catch (err) {
+    warn("player", "toggleCurrentSongFavorite failed:", err);
+  }
+}
 
 // runtime-selected. either `htmlBackend` (same instance!) or a
 // fresh `RodioBackend` / `DummyBackend`. callers should NEVER

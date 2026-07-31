@@ -31,6 +31,7 @@ import { markRemoteOffline, markRemoteOnline, getRemoteById } from "../../../app
 import { getCurrentUser } from "../currentState";
 import { debug, error } from "../../../utils/logger";
 import { getRemoteMediaUrl } from "../../../utils/urls";
+import { readTauriPathAsFile } from "../../../utils/filePicker";
 import { toast } from "../../../components/feedback/Toast";
 
 // custom error class for remote offline errors - views can check for this type
@@ -1172,10 +1173,31 @@ export class RemoteMusicDataSource implements MusicDataSource {
       },
     };
 
-    // prefer filePath when available (tauri-local: skips base64 encoding)
+    // path-based upload (client.upload.imageByPath) only works for the
+    // local charnel-managed library: CharnelLocalTransport's server IS the
+    // same process/filesystem, so the server can read `file_path` off its
+    // own disk directly (see grimoire's offal/upload — that mode is
+    // explicitly documented as a same-machine/IPC optimization). for a
+    // genuine P2P remote (a different machine), CharnelTransport's
+    // uploadByPath just forwards the raw local path as JSON — the remote
+    // peer has no access to that path and 400s trying to read it (this was
+    // the actual "p2p image upload fails" bug: the request looked
+    // identical to a normal http POST since both hit the same
+    // /api/upload/image route, but the body only contained an
+    // unreachable file_path instead of image bytes). a plain http remote
+    // can't use file_path either (transport.uploadByPath is undefined for
+    // HttpTransport, so imageByPath would fail with "not supported by this
+    // transport"). tauri's native file dialog only ever hands back a path
+    // (never a `File`) though, so for anything other than the local
+    // library we read the bytes ourselves and upload those instead.
+    const canUploadByPath = !!params.filePath && !!this.remote.is_charnel_managed;
+
     let result;
-    if (params.filePath) {
-      result = await client.upload.imageByPath(params.filePath, associateOpts);
+    if (canUploadByPath) {
+      result = await client.upload.imageByPath(params.filePath!, associateOpts);
+    } else if (params.filePath) {
+      const file = await readTauriPathAsFile(params.filePath);
+      result = await client.upload.image(file, associateOpts);
     } else if (params.file) {
       result = await client.upload.image(params.file, associateOpts);
     } else {

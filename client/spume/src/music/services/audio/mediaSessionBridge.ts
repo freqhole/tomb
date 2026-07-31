@@ -40,10 +40,15 @@ export interface ExternalMediaSessionOptions {
   artworkUrl?: string | null;
   isPlaying: boolean;
   isLive?: boolean;
+  isFavorite?: boolean;
   onPlay?: () => void;
   onPause?: () => void;
   onNextTrack?: () => void;
   onPreviousTrack?: () => void;
+  // android-only: lock-screen notification "favorite" toggle (see
+  // `androidMediaSession.ts`). ignored on platforms without the
+  // custom `navigator.mediaSession.setFavoriteState` extension.
+  onFavoriteToggle?: () => void;
 }
 
 let installed = false;
@@ -94,6 +99,9 @@ export interface MediaActions {
   playNext: () => void | Promise<void>;
   playPrevious: () => void | Promise<void>;
   seek: (seconds: number) => void;
+  // android-only: lock-screen notification "favorite" toggle for the
+  // currently-playing queue song (see `androidMediaSession.ts`).
+  toggleFavorite: () => void | Promise<void>;
 }
 
 let mediaActions: MediaActions | null = null;
@@ -157,6 +165,30 @@ export function installMediaSessionBridge(): void {
       }),
     );
 
+    // favorite state — reflects live in-app favorite toggles (e.g. the
+    // user tapping the heart in the queue/player UI) onto the android
+    // lock-screen notification without waiting for a full metadata
+    // refresh. `appState().queue` updates reactively via `updateSongInQueue`,
+    // so this fires whenever the currently-playing song's favorite flag
+    // changes, from either the in-app UI or the lock-screen button itself.
+    createEffect(
+      on(
+        () => {
+          const state = appState();
+          if (!state?.current_sha256) return null;
+          const song = state.queue.find(
+            (s) => s.sha256 === state.current_sha256,
+          );
+          return song?.is_favorite ?? false;
+        },
+        (isFavorite) => {
+          if (externalActive) return;
+          if (isFavorite === null) return;
+          pushFavoriteState(isFavorite);
+        },
+      ),
+    );
+
     // position state — feeds the lock-screen scrubber. update lazily;
     // mediaSession spec recommends updating on seek/significant change
     // rather than every tick, but most platforms tolerate per-tick fine.
@@ -178,6 +210,26 @@ export function installMediaSessionBridge(): void {
       }),
     );
   });
+}
+
+/**
+ * push favorite state onto the platform's lock-screen surface. this is
+ * a non-standard extension (`navigator.mediaSession.setFavoriteState`)
+ * only implemented by the android polyfill (`androidMediaSession.ts`) —
+ * a guarded no-op everywhere else.
+ */
+function pushFavoriteState(isFavorite: boolean): void {
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
+    return;
+  }
+  const ext = navigator.mediaSession as MediaSession & {
+    setFavoriteState?: (isFavorite: boolean) => void;
+  };
+  try {
+    ext.setFavoriteState?.(isFavorite);
+  } catch {
+    // android-only extension; safe to ignore elsewhere.
+  }
 }
 
 /**
@@ -237,6 +289,15 @@ export function setExternalMediaSession(
     "previoustrack",
     options.onPreviousTrack ?? null,
   );
+  try {
+    navigator.mediaSession.setActionHandler(
+      "favorite" as MediaSessionAction,
+      options.onFavoriteToggle ?? null,
+    );
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
+  }
+  pushFavoriteState(options.isFavorite ?? false);
 
   if (options.isLive) {
     navigator.mediaSession.setActionHandler("seekto", null);
@@ -263,6 +324,11 @@ export function clearExternalMediaSession(): void {
   navigator.mediaSession.setActionHandler("nexttrack", null);
   navigator.mediaSession.setActionHandler("previoustrack", null);
   navigator.mediaSession.setActionHandler("seekto", null);
+  try {
+    navigator.mediaSession.setActionHandler("favorite" as MediaSessionAction, null);
+  } catch {
+    // some browsers reject unknown action names; safe to ignore.
+  }
   try {
     navigator.mediaSession.setPositionState();
   } catch {
@@ -372,7 +438,19 @@ async function refreshMetadata(): Promise<void> {
     navigator.mediaSession.setActionHandler("seekto", (details) => {
       if (details.seekTime !== undefined) actions.seek(details.seekTime);
     });
+    try {
+      navigator.mediaSession.setActionHandler(
+        "favorite" as MediaSessionAction,
+        () => void actions.toggleFavorite(),
+      );
+    } catch {
+      // some browsers reject unknown action names; safe to ignore.
+    }
   }
+
+  // android-only: reflect this song's favorite state on the lock-screen
+  // notification (no-op extension everywhere else).
+  pushFavoriteState(song.is_favorite ?? false);
 
   // android plugin "expectedend" watchdog. fires shortly after the
   // expected end of the current track when the webview has throttled

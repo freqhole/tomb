@@ -6,6 +6,7 @@ permissions = [
     "allow-set-metadata",
     "allow-set-playback-state",
     "allow-set-position",
+    "allow-set-favorite",
     "allow-clear",
     "allow-register-listener",
     "allow-remove-listener",
