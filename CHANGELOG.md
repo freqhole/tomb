@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.2.7
+
+### Patch Changes
+
+- 5a464ae: show image carousel for radio art; try once again to fix remote image uploadz; try to tune radio stream buffer a bit more; lib/reliquary: try to handle locking and race conditionz better
+- 7a4c8e3: android: add favorite song toggle to lock screen/media session controlz
+
 ## 0.2.6
 
 ### Patch Changes
