@@ -14,6 +14,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.support.v4.media.MediaMetadataCompat
@@ -55,6 +56,11 @@ class PositionArgs {
     var playbackRate: Float = 1f
 }
 
+@InvokeArg
+class FavoriteArgs {
+    var isFavorite: Boolean = false
+}
+
 @TauriPlugin
 class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
 
@@ -65,6 +71,13 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     private var currentSpeed: Float = 1f
     private var currentBitmap: Bitmap? = null
     private var currentDurationMs: Long = 0L
+
+    // favorite state for the currently-playing song/track. surfaced as a
+    // custom action button on the notification (there's no standard
+    // `PlaybackStateCompat` action for "favorite"). pushed from js via the
+    // `setFavorite` command whenever the current song/track's favorite
+    // flag changes.
+    private var currentFavorite: Boolean = false
 
     // last notification signature (title|artist|album|isPlaying|art-id),
     // used to skip redundant rebuilds. see updateNotification().
@@ -103,12 +116,20 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     // pause already goes through.
     private var noisyReceiver: BroadcastReceiver? = null
 
+    // dynamically-registered receiver for the custom "favorite" notification
+    // action (see `updateNotification()`/`ACTION_FAVORITE`). there's no
+    // `MediaSessionCompat.Callback` method for custom actions fired from a
+    // `NotificationCompat.Action`'s `PendingIntent.getBroadcast`, so we
+    // dispatch it ourselves straight to `emitAction`, same as onPlay/onPause.
+    private var favoriteReceiver: BroadcastReceiver? = null
+
     override fun load(webView: WebView) {
         super.load(webView)
         createNotificationChannel()
         requestNotificationPermission()
         initSession()
         registerNoisyReceiver()
+        registerFavoriteActionReceiver()
     }
 
     private fun registerNoisyReceiver() {
@@ -131,6 +152,39 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             noisyReceiver = receiver
         } catch (t: Throwable) {
             Log.w(TAG, "failed to register noisy receiver", t)
+        }
+    }
+
+    private fun registerFavoriteActionReceiver() {
+        favoriteReceiver?.let {
+            try {
+                activity.unregisterReceiver(it)
+            } catch (t: Throwable) {
+                Log.w(TAG, "failed to unregister previous favorite receiver", t)
+            }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == ACTION_FAVORITE) {
+                    emitAction("favorite")
+                }
+            }
+        }
+        try {
+            val filter = IntentFilter(ACTION_FAVORITE)
+            // ACTION_FAVORITE is an app-defined action (unlike
+            // ACTION_AUDIO_BECOMING_NOISY above, a system broadcast which is
+            // exempt) - apps targeting API 33+ must explicitly declare
+            // exported/not-exported for context-registered receivers or
+            // registration throws SecurityException.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                activity.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                activity.registerReceiver(receiver, filter)
+            }
+            favoriteReceiver = receiver
+        } catch (t: Throwable) {
+            Log.w(TAG, "failed to register favorite action receiver", t)
         }
     }
 
@@ -205,6 +259,17 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
                 o.put("action", "seekto")
                 o.put("positionMs", pos)
                 trigger("action", o)
+            }
+            // android 11+'s redesigned media notification renders custom
+            // actions from PlaybackState (see `buildFavoriteCustomAction()`)
+            // and, on tap, calls this via `TransportControls.sendCustomAction`
+            // instead of firing the notification action's own PendingIntent -
+            // `favoriteReceiver` only catches taps on older/other renderings
+            // of the plain `NotificationCompat.Action`. handle both.
+            override fun onCustomAction(action: String?, extras: Bundle?) {
+                if (action == ACTION_FAVORITE) {
+                    emitAction("favorite")
+                }
             }
         })
         // explicitly route media-button broadcasts (headset, bluetooth,
@@ -335,6 +400,19 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    @Command
+    fun setFavorite(invoke: Invoke) {
+        val args = invoke.parseArgs(FavoriteArgs::class.java)
+        currentFavorite = args.isFavorite
+        applyPlaybackState()
+        // favorite state isn't part of the notification's coalescing
+        // signature otherwise (title/artist/album/isPlaying/art), so force
+        // a rebuild to pick up the new heart icon.
+        lastNotificationSignature = null
+        updateNotification()
+        invoke.resolve()
+    }
+
     private fun applyPlaybackState() {
         val actions = PlaybackStateCompat.ACTION_PLAY or
             PlaybackStateCompat.ACTION_PAUSE or
@@ -346,8 +424,19 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         val state = PlaybackStateCompat.Builder()
             .setActions(actions)
             .setState(currentState, currentPosition, currentSpeed)
+            .addCustomAction(buildFavoriteCustomAction())
             .build()
         mediaSession?.setPlaybackState(state)
+    }
+
+    private fun buildFavoriteCustomAction(): PlaybackStateCompat.CustomAction {
+        val icon = if (currentFavorite) {
+            R.drawable.ic_media_favorite_filled
+        } else {
+            R.drawable.ic_media_favorite_outline
+        }
+        val label = if (currentFavorite) "Remove favorite" else "Add favorite"
+        return PlaybackStateCompat.CustomAction.Builder(ACTION_FAVORITE, label, icon).build()
     }
 
     private fun decodeArtwork(b64: String): Bitmap? = try {
@@ -382,7 +471,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         // restarts the foreground service — we observed 28 onStartCommand
         // calls in 5 minutes, several within 5ms of each other, which
         // causes service-binder thrash and contributed to a webview crash.
-        val signature = "$title|$artist|$album|$isPlaying|${art?.generationId ?: 0}"
+        val signature = "$title|$artist|$album|$isPlaying|$currentFavorite|${art?.generationId ?: 0}"
         if (signature == lastNotificationSignature) {
             return
         }
@@ -412,6 +501,32 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
                 activity, PlaybackStateCompat.ACTION_SKIP_TO_NEXT,
             ),
         )
+        // favorite toggle. not a standard MediaButtonReceiver action (no
+        // PlaybackStateCompat.ACTION_* for it), so this fires a broadcast
+        // straight to `favoriteReceiver` (registered in `load()`), which
+        // then calls `emitAction("favorite")` - same js-facing path as
+        // play/pause/skip. kept out of `setShowActionsInCompactView` below
+        // (matches how most music apps surface "like"/"favorite" as an
+        // extra action alongside, not instead of, the transport controls) -
+        // whether android 11+'s redesigned media card surfaces it on the
+        // lock screen without being in the compact set needs on-device
+        // verification.
+        val favoriteIcon = if (currentFavorite) {
+            R.drawable.ic_media_favorite_filled
+        } else {
+            R.drawable.ic_media_favorite_outline
+        }
+        val favoritePendingIntent = PendingIntent.getBroadcast(
+            activity,
+            REQ_FAVORITE,
+            Intent(ACTION_FAVORITE).setPackage(activity.packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val favoriteAction = NotificationCompat.Action(
+            favoriteIcon,
+            if (currentFavorite) "Remove favorite" else "Add favorite",
+            favoritePendingIntent,
+        )
 
         val contentIntent: PendingIntent? = activity.packageManager
             .getLaunchIntentForPackage(activity.packageName)
@@ -440,6 +555,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
             .addAction(prevAction)
             .addAction(playPauseAction)
             .addAction(nextAction)
+            .addAction(favoriteAction)
             .setStyle(
                 MediaNotificationCompat.MediaStyle()
                     .setMediaSession(session.sessionToken)
@@ -473,5 +589,7 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
         const val CHANNEL_ID = "freqhole-playback"
         private const val TAG = "MediaSessionPlugin"
         private const val REQ_POST_NOTIFICATIONS = 0xBEEF
+        private const val REQ_FAVORITE = 0xFA7
+        private const val ACTION_FAVORITE = "net.freqhole.plugin.mediasession.ACTION_FAVORITE"
     }
 }

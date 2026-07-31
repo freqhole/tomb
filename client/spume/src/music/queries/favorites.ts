@@ -8,10 +8,12 @@ import type { Accessor } from "solid-js";
 import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
 import { debug, error as logError } from "../../utils/logger";
+import { queryClient } from "../../queryClient";
 import { getDataSource } from "../data";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { FavoriteTarget, ListFavoritesParams } from "../data/types";
+import type { Song } from "../services/storage/types";
 import {
   updateAlbumInCache,
   updateArtistInCache,
@@ -196,6 +198,59 @@ export function useToggleFavoriteMutation() {
       });
     },
   }));
+}
+
+// plain (non-hook) song favorite toggle, for callers outside a solid-query
+// reactive/component context (e.g. the media session bridge, which lives as
+// a module-level singleton and can't call `useQueryClient()`). mirrors the
+// "song" branch of `useToggleFavoriteMutation` above - optimistic cache +
+// queue update, call the data source, then invalidate on success/error -
+// just using the module-level `queryClient` singleton directly instead of
+// the hook.
+export async function toggleSongFavoriteDirect(song: Song): Promise<boolean> {
+  const nextFavorite = !(song.is_favorite ?? false);
+  const dataSource = getDataSource();
+  if (!dataSource.setFavorite) {
+    throw new Error("current data source does not support favorites");
+  }
+
+  debug("favorites", "toggleSongFavoriteDirect:", {
+    songId: song.id,
+    sha256: song.sha256,
+    nextFavorite,
+  });
+
+  // optimistic update - cache + queue (indexeddb), same as onMutate above
+  updateSongInCache(queryClient, song.id, song.sha256, {
+    is_favorite: nextFavorite,
+  });
+  await updateSongInQueue(song.id, song.sha256, {
+    is_favorite: nextFavorite,
+  });
+
+  try {
+    await dataSource.setFavorite({
+      targetType: "song",
+      targetId: song.id,
+      isFavorite: nextFavorite,
+    });
+
+    getQueryKeysToInvalidate("song").forEach((queryKey) => {
+      queryClient.invalidateQueries({ queryKey, exact: false });
+    });
+
+    return nextFavorite;
+  } catch (err) {
+    logError("favorites", "toggleSongFavoriteDirect failed:", err);
+    const action = nextFavorite ? "add to" : "remove from";
+    toast.error(`failed to ${action} favorites`, { title: "error" });
+
+    getQueryKeysToInvalidate("song").forEach((queryKey) => {
+      queryClient.invalidateQueries({ queryKey, exact: false });
+    });
+
+    throw err;
+  }
 }
 
 // helper to invalidate queries for a target type

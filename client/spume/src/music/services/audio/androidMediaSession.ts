@@ -66,6 +66,14 @@ async function nativeSetPosition(payload: {
   }
 }
 
+async function nativeSetFavorite(isFavorite: boolean): Promise<void> {
+  try {
+    await invoke(`${NS}|set_favorite`, { payload: { isFavorite } });
+  } catch (e) {
+    debug("androidMediaSession", "set_favorite failed:", e);
+  }
+}
+
 // fetch an image URL (blob:, data:, http(s):) and return raw base64 bytes.
 // strips any data-URL prefix so the kotlin side can just Base64.decode().
 async function artworkToBase64(src: string): Promise<string | undefined> {
@@ -201,6 +209,14 @@ export function installAndroidMediaSessionShim(): boolean {
       handler: MediaSessionActionHandler | null,
     ): void {
       handlers.set(String(action).toLowerCase(), handler);
+    },
+    // non-standard extension consumed by `mediaSessionBridge.ts` to
+    // reflect the current song/track's favorite state as a custom
+    // action on the android notification. no equivalent exists on
+    // `navigator.mediaSession` elsewhere, so callers must feature-detect
+    // (`"setFavoriteState" in navigator.mediaSession`) before calling it.
+    setFavoriteState(isFavorite: boolean): void {
+      void nativeSetFavorite(isFavorite);
     },
     setCameraActive(_active: boolean): void {
       // no-op on android notification

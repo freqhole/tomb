@@ -2,6 +2,7 @@ const COMMANDS: &[&str] = &[
     "set_metadata",
     "set_playback_state",
     "set_position",
+    "set_favorite",
     "clear",
 ];
 

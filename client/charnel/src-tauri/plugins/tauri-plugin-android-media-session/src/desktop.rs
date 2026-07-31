@@ -27,6 +27,9 @@ impl<R: Runtime> MediaSessionImpl<R> {
     pub fn set_position(&self, _p: SetPositionPayload) -> Result<()> {
         Ok(())
     }
+    pub fn set_favorite(&self, _p: SetFavoritePayload) -> Result<()> {
+        Ok(())
+    }
     pub fn clear(&self) -> Result<()> {
         Ok(())
     }

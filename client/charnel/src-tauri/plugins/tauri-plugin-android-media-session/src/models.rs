@@ -26,3 +26,9 @@ pub struct SetPositionPayload {
     pub duration_ms: i64,
     pub playback_rate: f32,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFavoritePayload {
+    pub is_favorite: bool,
+}

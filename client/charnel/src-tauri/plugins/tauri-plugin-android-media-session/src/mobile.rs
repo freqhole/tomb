@@ -52,6 +52,13 @@ impl<R: Runtime> MediaSessionImpl<R> {
             .map_err(Into::into)
     }
 
+    pub fn set_favorite(&self, payload: SetFavoritePayload) -> Result<()> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>("setFavorite", payload)
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
     pub fn clear(&self) -> Result<()> {
         self.handle
             .run_mobile_plugin::<serde_json::Value>("clear", ())

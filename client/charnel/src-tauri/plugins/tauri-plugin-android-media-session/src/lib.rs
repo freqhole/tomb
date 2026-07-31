@@ -42,6 +42,10 @@ impl<R: Runtime> MediaSession<R> {
         self.0.set_position(payload)
     }
 
+    pub fn set_favorite(&self, payload: SetFavoritePayload) -> Result<()> {
+        self.0.set_favorite(payload)
+    }
+
     pub fn clear(&self) -> Result<()> {
         self.0.clear()
     }
@@ -63,6 +67,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_metadata,
             commands::set_playback_state,
             commands::set_position,
+            commands::set_favorite,
             commands::clear,
         ])
         .setup(|app, api| {

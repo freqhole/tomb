@@ -7,6 +7,7 @@ default permissions: all media-session commands enabled
 - `allow-set-metadata`
 - `allow-set-playback-state`
 - `allow-set-position`
+- `allow-set-favorite`
 - `allow-clear`
 - `allow-register-listener`
 - `allow-remove-listener`
@@ -42,6 +43,32 @@ Enables the clear command without any pre-configured scope.
 <td>
 
 Denies the clear command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`android-media-session:allow-set-favorite`
+
+</td>
+<td>
+
+Enables the set_favorite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`android-media-session:deny-set-favorite`
+
+</td>
+<td>
+
+Denies the set_favorite command without any pre-configured scope.
 
 </td>
 </tr>
