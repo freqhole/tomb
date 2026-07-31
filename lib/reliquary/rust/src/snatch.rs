@@ -240,6 +240,19 @@ pub struct SnatchEngine<S: BlobRefSource, T: PeerProbeTransport> {
     /// download in flight) - keyed by blake3, purely for observability
     /// (CLI/dashboard status text), see [`SnatchEngine::active_downloads`].
     active_downloads: Arc<StdMutex<HashMap<String, ActiveDownload>>>,
+    /// per-hash locks serializing concurrent `download_blob` attempts for
+    /// the same content. many canvas widgets can reference the exact same
+    /// shared blob, so many concurrent `snatch_descriptor` calls for one
+    /// blake3 are routine, not an edge case - without this, each would
+    /// independently download + export to the same target path, racing on
+    /// that export step (non-atomic whenever `blob_dir` lives on a
+    /// different filesystem than the fs store's own data dir, since the
+    /// rename falls back to a copy - see `download_blob`). only one
+    /// caller does the real network+export work per hash at a time; every
+    /// other concurrent caller waits here, then finds the completed
+    /// export already in place. entries are never pruned once created -
+    /// same tradeoff `peer_semaphores` already makes.
+    download_locks: TokioMutex<HashMap<Hash, Arc<TokioMutex<()>>>>,
 }
 
 /// a blob currently being downloaded from a peer - see
@@ -313,7 +326,19 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             peer_semaphores: TokioMutex::new(HashMap::new()),
             peer_blob_inventory: StdMutex::new(HashMap::new()),
             active_downloads: Arc::new(StdMutex::new(HashMap::new())),
+            download_locks: TokioMutex::new(HashMap::new()),
         }
+    }
+
+    /// get-or-create the per-hash download lock (see `download_locks`'s
+    /// doc comment).
+    async fn download_lock(&self, hash: Hash) -> Arc<TokioMutex<()>> {
+        let mut locks = self.download_locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(hash)
+                .or_insert_with(|| Arc::new(TokioMutex::new(()))),
+        )
     }
 
     /// snapshot of blobs currently mid-transfer - for CLI/dashboard status
@@ -691,6 +716,42 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         let hash: Hash = blake3_hash
             .parse()
             .map_err(|e| SnatchError::InvalidHash(format!("{e}")))?;
+
+        // serialize concurrent attempts for the identical hash - see
+        // `download_locks`'s doc comment. held for the rest of this
+        // function (owned guard, since it must survive across awaits).
+        let hash_lock = self.download_lock(hash).await;
+        let _hash_guard = hash_lock.lock_owned().await;
+
+        let target = self
+            .blobz
+            .prepare_canonical_path(blake3_hash)
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    blake3 = blake3_hash,
+                    error = ?e,
+                    "download_blob: prepare_canonical_path failed"
+                );
+                SnatchError::DownloadFailed(format!("prepare blobz path: {e}"))
+            })?;
+
+        // fast path: another caller may have already finished exporting
+        // real bytes to `target` while we were waiting for this hash's
+        // lock above (e.g. an earlier holder from the same scan pass, or
+        // an earlier scan cycle entirely). if so, skip the network
+        // download altogether instead of redoing it.
+        if target_looks_complete(&target, expected_size).await {
+            tracing::debug!(
+                blake3 = blake3_hash,
+                target = %target.display(),
+                "download_blob: target already has a complete export \
+                 (finished by an earlier holder of this hash's download \
+                 lock) - skipping the network download"
+            );
+            return Ok(());
+        }
+
         let node_id: iroh::EndpointId = provider_node_id
             .parse()
             .map_err(|e| SnatchError::InvalidNodeId(format!("{e}")))?;
@@ -763,22 +824,17 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             Err(e) => return Err(e),
         }
 
-        let target = self
-            .blobz
-            .prepare_canonical_path(blake3_hash)
-            .await
-            .map_err(|e| {
-                tracing::warn!(
-                    blake3 = blake3_hash,
-                    error = ?e,
-                    "download_blob: prepare_canonical_path failed"
-                );
-                SnatchError::DownloadFailed(format!("prepare blobz path: {e}"))
-            })?;
         // TryReference renames the fs store's data file to the blobz
         // canonical path (same filesystem => no copy; EXDEV falls back to
         // copy). the fs store then tracks it as External and keeps serving
-        // it for p2p.
+        // it for p2p. the per-hash lock held above (see `download_locks`)
+        // means this is the only caller for this hash attempting an export
+        // right now, and the fast-path check above already confirmed
+        // `target` did NOT look like a complete export before we got here
+        // - so if a file exists at `target` below, it can only be a
+        // stale/corrupt leftover from a PAST process lifetime (e.g. a
+        // previous run that crashed mid-export), never a live concurrent
+        // duplicate.
         if let Err(e) = self
             .fs_store
             .blobs()
@@ -789,27 +845,51 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             })
             .await
         {
-            // the in-flight set only marks a hash as "don't gc me", it
-            // doesn't serialize duplicate concurrent callers (e.g. the same
-            // blob referenced from two widgets/canvases, both resolved in
-            // the same scan pass) - so two `download_blob` calls for the
-            // same hash can both reach this rename concurrently. the rename
-            // is atomic and consumes the source, so whichever caller loses
-            // the race sees the source vanish/truncate mid-read
-            // ("No such file or directory" / "failed to fill whole
-            // buffer") even though the download itself succeeded. check
-            // whether the target now exists before treating this as a real
-            // failure - if it does, a concurrent duplicate already
-            // finished the export for us.
             if tokio::fs::try_exists(&target).await.unwrap_or(false) {
-                tracing::info!(
+                tracing::warn!(
                     blake3 = blake3_hash,
                     target = %target.display(),
-                    "download_blob: export_with_opts failed, but the target \
-                     already exists - a concurrent duplicate download for \
-                     the same hash won the race and exported it first, \
-                     treating this attempt as a success"
+                    error = ?e,
+                    "download_blob: export_with_opts failed and a stale file \
+                     already sits at the target (left over from a past \
+                     process lifetime - this hash's download lock rules out \
+                     a live concurrent export) - removing it and retrying \
+                     so this snatch can actually recover instead of failing \
+                     the same way forever"
                 );
+                if let Err(remove_err) = tokio::fs::remove_file(&target).await {
+                    tracing::warn!(
+                        blake3 = blake3_hash,
+                        target = %target.display(),
+                        error = %remove_err,
+                        "download_blob: failed to remove stale export target"
+                    );
+                    return Err(SnatchError::DownloadFailed(format!(
+                        "export to blobz path: {e:?}"
+                    )));
+                }
+
+                if let Err(e2) = self
+                    .fs_store
+                    .blobs()
+                    .export_with_opts(ExportOptions {
+                        hash,
+                        mode: ExportMode::TryReference,
+                        target: target.clone(),
+                    })
+                    .await
+                {
+                    tracing::warn!(
+                        blake3 = blake3_hash,
+                        target = %target.display(),
+                        error = ?e2,
+                        "download_blob: export retry after removing stale \
+                         target also failed"
+                    );
+                    return Err(SnatchError::DownloadFailed(format!(
+                        "export to blobz path (retry): {e2:?}"
+                    )));
+                }
                 return self
                     .verify_exported_size(blake3_hash, &target, expected_size)
                     .await;
@@ -842,26 +922,26 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         target: &std::path::Path,
         expected_size: u64,
     ) -> Result<(), SnatchError> {
+        if target_looks_complete(target, expected_size).await {
+            return Ok(());
+        }
         let actual = tokio::fs::metadata(target)
             .await
             .map(|m| m.len())
             .unwrap_or(0);
-        if actual == 0 || (expected_size > 0 && actual != expected_size) {
-            tracing::warn!(
-                blake3 = blake3_hash,
-                target = %target.display(),
-                expected_size,
-                actual_size = actual,
-                "download_blob: exported file size doesn't match - treating \
-                 this snatch as failed so it gets retried instead of \
-                 ingesting a corrupt/incomplete blob"
-            );
-            return Err(SnatchError::SizeMismatch {
-                expected: expected_size,
-                actual,
-            });
-        }
-        Ok(())
+        tracing::warn!(
+            blake3 = blake3_hash,
+            target = %target.display(),
+            expected_size,
+            actual_size = actual,
+            "download_blob: exported file size doesn't match - treating \
+             this snatch as failed so it gets retried instead of \
+             ingesting a corrupt/incomplete blob"
+        );
+        Err(SnatchError::SizeMismatch {
+            expected: expected_size,
+            actual,
+        })
     }
 
     /// register blob metadata in `blobz`. the bytes must already be at the
@@ -945,6 +1025,18 @@ enum LocalBlobPresence {
 // ---------------------------------------------------------------------------
 // free functions
 // ---------------------------------------------------------------------------
+
+/// whether a file at `target` looks like a genuinely complete export -
+/// matches `expected_size`, or is simply non-empty when the descriptor
+/// carried no known size (`expected_size == 0`). shared by `download_blob`'s
+/// pre-download fast path and `verify_exported_size`'s post-export check.
+async fn target_looks_complete(target: &std::path::Path, expected_size: u64) -> bool {
+    let existing_size = tokio::fs::metadata(target)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    existing_size > 0 && (expected_size == 0 || existing_size == expected_size)
+}
 
 /// truncate a string for logging (first 16 chars).
 fn trunc(s: &str) -> &str {
