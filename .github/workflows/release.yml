@@ -67,7 +67,7 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: resolve version + tag
         id: meta
@@ -112,12 +112,12 @@ jobs:
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: install sqlx-cli
@@ -180,12 +180,12 @@ jobs:
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: install sqlx-cli
@@ -238,10 +238,10 @@ jobs:
     env:
       DATABASE_URL: sqlite:data/grimoire.db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: install host deps (sqlite + alsa for db-prepare)
@@ -278,10 +278,10 @@ jobs:
     env:
       DATABASE_URL: sqlite:data/grimoire.db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: install host deps (sqlite + alsa for db-prepare)
@@ -316,7 +316,7 @@ jobs:
     needs: [create-release, linux-x86_64]
     runs-on: ${{ vars.LINUX_X86_64_RUNNER || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: fetch the x86_64 deb from the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -345,7 +345,7 @@ jobs:
     needs: [create-release, linux-arm64]
     runs-on: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: fetch the arm64 deb from the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -384,20 +384,20 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5.6.0
         with:
           distribution: temurin
           java-version: 17
       - name: set up android sdk
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: install ndk + build-tools
         run: sdkmanager "ndk;26.3.11579264" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
       - name: export ndk path
@@ -431,7 +431,7 @@ jobs:
       # the distribution on the build hot path (services.gradle.org times out
       # intermittently, which fails the apk build at the very end).
       - name: setup gradle (cache + provisioning)
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
       - name: decode android keystore
         if: env.ANDROID_KEY_ALIAS != ''
         run: |
@@ -480,10 +480,10 @@ jobs:
     env:
       DATABASE_URL: sqlite:data/grimoire.db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: install host deps (sqlite + alsa for db-prepare)
