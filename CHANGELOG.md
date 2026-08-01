@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.2.8
+
+### Patch Changes
+
+- 3e48704: lib/reliquary: don't compute bao tree every time a blob file is requested
+
 ## 0.2.7
 
 ### Patch Changes
