@@ -209,7 +209,9 @@ async fn ensure(
         match handler.inner.store.blobs().has(hash).await {
             Ok(true) => return (true, None),
             Ok(false) => {}
-            Err(e) => tracing::debug!(blake3 = %blake3_hex, error = %e, "ensure: has() check failed, falling back to add_path"),
+            Err(e) => {
+                tracing::debug!(blake3 = %blake3_hex, error = %e, "ensure: has() check failed, falling back to add_path")
+            }
         }
     }
 
