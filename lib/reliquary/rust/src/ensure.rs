@@ -100,6 +100,7 @@ impl ProtocolHandler for EnsureBlobHandler {
                     break;
                 }
             };
+            tracing::debug!(peer = %peer_short, "ensure: accepted bi-stream");
 
             let handler = self.clone();
             let peer_id = peer_id.clone();
@@ -130,10 +131,12 @@ async fn handle_stream(
     peer_id: &str,
     peer_short: &str,
 ) -> Result<(), String> {
+    tracing::debug!(peer = %peer_short, "ensure: awaiting request (read_to_end)");
     let msg_bytes = recv
         .read_to_end(64 * 1024)
         .await
         .map_err(|e| format!("failed to read request: {e}"))?;
+    tracing::debug!(peer = %peer_short, bytes = msg_bytes.len(), "ensure: request read complete");
 
     let msg: PeerMessage =
         serde_json::from_slice(&msg_bytes).map_err(|e| format!("failed to parse request: {e}"))?;
@@ -141,12 +144,15 @@ async fn handle_stream(
     match msg {
         PeerMessage::EnsureBlobRequest { id, blake3_hash } => {
             let (available, error) = ensure(handler, peer_id, &blake3_hash).await;
+            tracing::debug!(peer = %peer_short, available, error = ?error, "ensure: request resolved, sending response");
             let resp = PeerMessage::EnsureBlobResponse {
                 id,
                 available,
                 error,
             };
-            send_response(&mut send, &resp).await
+            let result = send_response(&mut send, &resp).await;
+            tracing::debug!(peer = %peer_short, ok = result.is_ok(), "ensure: response sent");
+            result
         }
         PeerMessage::EnsureBlobResponse { .. } => {
             tracing::debug!(
@@ -193,10 +199,29 @@ async fn ensure(
         return (false, Some("blob file missing on disk".into()));
     }
 
+    // cheap pre-check: skip the (potentially expensive, full-file-hashing)
+    // `add_path` call entirely if this blake3 is already imported. without
+    // this, every ensure request re-pays the cost of `add_path` below, which
+    // for a large blob (hundreds of mb+) can take far longer than a probing
+    // client's timeout, even though the import only ever needs to happen
+    // once.
+    if let Ok(hash) = blake3_hex.parse::<iroh_blobs::Hash>() {
+        match handler.inner.store.blobs().has(hash).await {
+            Ok(true) => return (true, None),
+            Ok(false) => {}
+            Err(e) => tracing::debug!(blake3 = %blake3_hex, error = %e, "ensure: has() check failed, falling back to add_path"),
+        }
+    }
+
     // import the file into the iroh-blobs store by reference. iroh-blobs
     // computes blake3 internally and dedupes on hash, so re-imports are
-    // cheap (outboard metadata only).
-    match handler.inner.store.blobs().add_path(path).await {
+    // cheap (outboard metadata only) - but the *first* import of a large
+    // file requires hashing the whole thing, which can take much longer
+    // than a probing client's timeout.
+    let started = std::time::Instant::now();
+    let result = handler.inner.store.blobs().add_path(path).await;
+    tracing::debug!(blake3 = %blake3_hex, elapsed_ms = started.elapsed().as_millis(), ok = result.is_ok(), "ensure: add_path complete");
+    match result {
         Ok(_tag) => (true, None),
         Err(e) => (false, Some(format!("FsStore import failed: {e}"))),
     }
