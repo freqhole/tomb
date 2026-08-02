@@ -126,20 +126,34 @@ pub fn get_identity_info(data_dir: &Path, filename: &str) -> ReliquaryIdentity {
 }
 
 /// save keypair to disk with secure permissions (chmod 600 on unix).
+///
+/// writes to a sibling temp file and renames it into place (atomic on the
+/// same filesystem, which `parent` guarantees) rather than writing the
+/// final path directly — a process kill mid-write (e.g. an OS-level crash
+/// or force-quit) would otherwise leave a truncated/corrupt keypair file
+/// that `load_or_generate_keypair` can never recover from: it only
+/// regenerates when the file is missing outright, not when it exists but
+/// fails to parse, so a torn write permanently bricks that identity.
 fn save_keypair(path: &Path, secret: &SecretKey) -> Result<(), IdentityError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(path, secret.to_bytes())?;
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp_path = path.with_file_name(tmp_name);
+
+    std::fs::write(&tmp_path, secret.to_bytes())?;
 
     // restrict to owner read/write only on unix; no windows equivalent here.
     #[cfg(unix)]
     {
-        let mut perms = std::fs::metadata(path)?.permissions();
+        let mut perms = std::fs::metadata(&tmp_path)?.permissions();
         perms.set_mode(0o600);
-        std::fs::set_permissions(path, perms)?;
+        std::fs::set_permissions(&tmp_path, perms)?;
     }
+
+    std::fs::rename(&tmp_path, path)?;
 
     Ok(())
 }

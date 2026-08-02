@@ -41,12 +41,16 @@ class FakeOffscreenCanvasContext {
   drawImage = vi.fn();
 }
 
+let lastFakeCanvas: FakeOffscreenCanvas | undefined;
+
 class FakeOffscreenCanvas {
   context = new FakeOffscreenCanvasContext();
   constructor(
     public width: number,
     public height: number
-  ) {}
+  ) {
+    lastFakeCanvas = this;
+  }
   getContext(): FakeOffscreenCanvasContext {
     return this.context;
   }
@@ -160,6 +164,31 @@ describe("resizeImageToWebpDataUrl", () => {
   it("returns null when OffscreenCanvas/createImageBitmap are unavailable", async () => {
     const result = await resizeImageToWebpDataUrl(new Blob(["x"], { type: "image/png" }));
     expect(result).toBeNull();
+  });
+
+  it("centers a non-square bitmap without cropping when fitSquare is set", async () => {
+    installCanvasFakes({ width: 400, height: 100 });
+    const result = await resizeImageToWebpDataUrl(new Blob(["x"], { type: "image/png" }), {
+      maxWidth: 200,
+      maxHeight: 200,
+      fitSquare: true,
+    });
+    expect(result).toMatch(/^data:image\/webp;base64,/);
+    // 400x100 fit into 200x200 scales to 200x50, centered with 75px of
+    // padding above and below — the full source width is drawn (no crop).
+    expect(lastFakeCanvas?.width).toBe(200);
+    expect(lastFakeCanvas?.height).toBe(200);
+    expect(lastFakeCanvas?.context.drawImage).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      0,
+      400,
+      100,
+      0,
+      75,
+      200,
+      50
+    );
   });
 });
 

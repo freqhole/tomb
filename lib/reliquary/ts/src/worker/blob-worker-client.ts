@@ -298,6 +298,11 @@ export interface ResizeImageOptions {
   maxHeight?: number;
   quality?: number;
   cropSquare?: boolean;
+  /** if true, fit the whole image inside a maxWidth x maxHeight square
+   * without cropping, padding the shorter axis with transparent pixels -
+   * the right choice for document/page thumbnails, where cropping can cut
+   * off real content. takes precedence over `cropSquare` when both are set. */
+  fitSquare?: boolean;
   mime?: string;
 }
 
@@ -358,11 +363,31 @@ async function mainThreadResizeImage(
   const maxHeight = options?.maxHeight ?? 200;
   const quality = options?.quality ?? 0.8;
   const cropSquare = options?.cropSquare ?? false;
+  const fitSquare = options?.fitSquare ?? false;
   const mime = options?.mime ?? "image/webp";
 
   let bitmap: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(blob);
+
+    if (fitSquare) {
+      const scale = Math.min(maxWidth / bitmap.width, maxHeight / bitmap.height);
+      const drawW = Math.max(1, Math.round(bitmap.width * scale));
+      const drawH = Math.max(1, Math.round(bitmap.height * scale));
+      const dx = Math.floor((maxWidth - drawW) / 2);
+      const dy = Math.floor((maxHeight - drawH) / 2);
+
+      const canvas = new OffscreenCanvas(maxWidth, maxHeight);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height, dx, dy, drawW, drawH);
+
+      const out = await canvas.convertToBlob({ type: mime, quality });
+      const buf = await out.arrayBuffer();
+      const b64 = await fallbackBase64Encode(buf);
+      return `data:${mime};base64,${b64}`;
+    }
+
     let sx = 0;
     let sy = 0;
     let sw = bitmap.width;

@@ -8,7 +8,7 @@
 //! [`thumbnails`] submodule) adds subprocess-based pdf/video thumbnailing.
 
 use image::imageops::FilterType;
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
@@ -29,6 +29,11 @@ pub enum ResizeMode {
     /// resize directly to square, distorting the aspect ratio (preserves
     /// all content) - the right choice for waveforms and similar plots.
     Squish,
+    /// scale to fit entirely within the square (preserving aspect ratio,
+    /// no cropping), padding the shorter axis with transparent pixels -
+    /// the right choice for document/page thumbnails, where center-
+    /// cropping can cut off real content (text near the edges of a page).
+    Contain,
 }
 
 fn resize_to_square(img: &DynamicImage, size: u32, mode: ResizeMode) -> DynamicImage {
@@ -42,6 +47,18 @@ fn resize_to_square(img: &DynamicImage, size: u32, mode: ResizeMode) -> DynamicI
             cropped.resize_exact(size, size, FilterType::Lanczos3)
         }
         ResizeMode::Squish => img.resize_exact(size, size, FilterType::Lanczos3),
+        ResizeMode::Contain => {
+            // `resize` (not `resize_exact`) scales to fit within size x
+            // size while preserving aspect ratio, so the source is never
+            // cropped - only the shorter axis ends up smaller than `size`.
+            let fitted = img.resize(size, size, FilterType::Lanczos3);
+            let (fw, fh) = fitted.dimensions();
+            let x = (size - fw) / 2;
+            let y = (size - fh) / 2;
+            let mut canvas = RgbaImage::from_pixel(size, size, Rgba([0, 0, 0, 0]));
+            image::imageops::overlay(&mut canvas, &fitted.to_rgba8(), x.into(), y.into());
+            DynamicImage::ImageRgba8(canvas)
+        }
     }
 }
 
@@ -54,7 +71,14 @@ const WEBP_QUALITY: f32 = 75.0;
 /// crate's libwebp bindings - the `image` crate's own webp encoder path is
 /// lossless-only and produces much larger files for photographic content.
 fn image_to_webp(img: &DynamicImage) -> Result<Vec<u8>, MediaError> {
-    let encoder = webp::Encoder::from_image(img).map_err(|e| MediaError::Encode(e.to_string()))?;
+    // `webp::Encoder::from_image` only handles `ImageRgb8`/`ImageRgba8` -
+    // every other color type (grayscale, 16-bit, float, ...) returns
+    // `Err("Unimplemented")`. source images can legitimately decode to any
+    // of those (e.g. a grayscale/B&W-scanned pdf page rendered by
+    // ghostscript/magick), so normalize to rgba8 unconditionally rather
+    // than only handling the color types today's callers happen to produce.
+    let rgba = DynamicImage::ImageRgba8(img.to_rgba8());
+    let encoder = webp::Encoder::from_image(&rgba).map_err(|e| MediaError::Encode(e.to_string()))?;
     Ok(encoder.encode(WEBP_QUALITY).to_vec())
 }
 
@@ -160,6 +184,15 @@ mod tests {
         buf.into_inner()
     }
 
+    fn grayscale_png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::GrayImage::from_fn(w, h, |x, y| image::Luma([((x + y) % 256) as u8]));
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageLuma8(img)
+            .write_to(&mut buf, image::ImageFormat::Png)
+            .unwrap();
+        buf.into_inner()
+    }
+
     fn wide_png(w: u32, h: u32) -> Vec<u8> {
         let img = image::RgbImage::from_fn(w, h, |x, y| {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
@@ -187,6 +220,17 @@ mod tests {
     }
 
     #[test]
+    fn encodes_a_grayscale_source_image() {
+        // webp::Encoder::from_image only natively supports Rgb8/Rgba8 and
+        // errors "Unimplemented" for every other color type - grayscale
+        // (Luma8) is exactly what ghostscript/magick often produce for a
+        // B&W-scanned pdf page, so this is a real, previously-broken case.
+        let png = grayscale_png(16, 16);
+        let webp = resize_to_square_webp(&png, 32).expect("encode webp from grayscale source");
+        assert!(!webp.is_empty(), "webp output should not be empty");
+    }
+
+    #[test]
     fn squish_mode_distorts_a_non_square_source_to_the_target_size() {
         let png = wide_png(64, 16);
         let webp = resize_to_square_webp_with_mode(&png, 32, ResizeMode::Squish)
@@ -202,6 +246,24 @@ mod tests {
             .expect("encode webp crop");
         let decoded = image::load_from_memory(&webp).expect("decode result webp");
         assert_eq!(decoded.dimensions(), (32, 32));
+    }
+
+    #[test]
+    fn contain_mode_fits_without_cropping_and_pads_transparently() {
+        // a 64x16 source fit into a 32x32 square scales to 32x8, centered
+        // with 12px of transparent padding above and below.
+        let png = wide_png(64, 16);
+        let webp = resize_to_square_webp_with_mode(&png, 32, ResizeMode::Contain)
+            .expect("encode webp contain");
+        let decoded = image::load_from_memory(&webp).expect("decode result webp");
+        assert_eq!(decoded.dimensions(), (32, 32));
+        let rgba = decoded.to_rgba8();
+        // corners fall in the padded region — must be fully transparent,
+        // not a crop of the source content.
+        assert_eq!(rgba.get_pixel(0, 0)[3], 0, "top-left corner should be padding");
+        assert_eq!(rgba.get_pixel(31, 0)[3], 0, "top-right corner should be padding");
+        // vertical center falls inside the fitted image — must be opaque.
+        assert_eq!(rgba.get_pixel(16, 16)[3], 255, "center should be the fitted image");
     }
 
     #[test]
