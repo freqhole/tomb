@@ -24,6 +24,7 @@ import { formatTaxonLabel } from "../../music/utils/format";
 import type { EntityUrl } from "../../music/data/types";
 import { isCharnelMode } from "../../app/services/charnel";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
+import { useImageCarouselLoading } from "../../music/hooks/modals";
 import { getCurrentRemote } from "../../music/data";
 import { ShareButton } from "../buttons/ShareButton";
 import type { Remote } from "../../app/services/storage/schemas/remote";
@@ -168,6 +169,10 @@ export interface ArtistDetailPanelProps {
 }
 
 export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
+  // true while the artist-avatar click is still resolving image urls
+  // for the carousel — shows a spinner instead of the carousel icon.
+  const imageCarouselLoading = useImageCarouselLoading();
+
   // group songs by album
   const albumGroups = createMemo((): AlbumGroup[] => {
     const groups = new Map<string, AlbumGroup>();
@@ -361,12 +366,30 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                     />
                   </Show>
                   <Show when={hasArtistImages()}>
-                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
-                      <Icon
-                        name={IconNames.carousel}
-                        size={28}
-                        className="text-white drop-shadow-lg"
-                      />
+                    <div
+                      class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded-full"
+                      classList={{
+                        "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                          !imageCarouselLoading(),
+                        "bg-black/30 opacity-100": imageCarouselLoading(),
+                      }}
+                    >
+                      <Show
+                        when={!imageCarouselLoading()}
+                        fallback={
+                          <Icon
+                            name={IconNames.loader}
+                            size={28}
+                            className="text-white drop-shadow-lg animate-spin"
+                          />
+                        }
+                      >
+                        <Icon
+                          name={IconNames.carousel}
+                          size={28}
+                          className="text-white drop-shadow-lg"
+                        />
+                      </Show>
                     </div>
                   </Show>
                 </div>
@@ -603,12 +626,30 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                   />
                 </Show>
                 <Show when={hasArtistImages()}>
-                  <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-full">
-                    <Icon
-                      name={IconNames.carousel}
-                      size={28}
-                      className="text-white drop-shadow-lg"
-                    />
+                  <div
+                    class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded-full"
+                    classList={{
+                      "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                        !imageCarouselLoading(),
+                      "bg-black/30 opacity-100": imageCarouselLoading(),
+                    }}
+                  >
+                    <Show
+                      when={!imageCarouselLoading()}
+                      fallback={
+                        <Icon
+                          name={IconNames.loader}
+                          size={28}
+                          className="text-white drop-shadow-lg animate-spin"
+                        />
+                      }
+                    >
+                      <Icon
+                        name={IconNames.carousel}
+                        size={28}
+                        className="text-white drop-shadow-lg"
+                      />
+                    </Show>
                   </div>
                 </Show>
               </div>

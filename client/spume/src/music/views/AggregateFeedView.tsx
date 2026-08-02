@@ -744,7 +744,7 @@ export function AggregateFeedView() {
                     .map((img) => img.remote_url ?? "")
                     .filter((u) => u.length > 0);
                   if (urls.length > 0) {
-                    showImageCarousel({ images: urls });
+                    showImageCarousel({ images: urls.map((url) => ({ url })) });
                   }
                 }
               }}

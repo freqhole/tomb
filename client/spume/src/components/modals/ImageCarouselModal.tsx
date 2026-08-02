@@ -1,60 +1,137 @@
 // image carousel modal - display a slideshow of images
-import { createEffect, createMemo, createSignal, Show, For, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, Show, For, onCleanup, onMount } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
-import { pushModal, popModal } from "../../music/hooks/modals";
+import { pushModal, popModal, type CarouselSlide } from "../../music/hooks/modals";
+import { toast } from "../feedback/Toast";
+
+// the thumbnail strip used to point every `<img>` straight at the same
+// full-resolution url as the main viewer. that's fine for one image at
+// a time (the main viewer), but the strip mounts one `<img>` per slide
+// simultaneously — with real-world libraries this can mean dozens of
+// ~4500x4500px originals all decoded and held resident at once (tens of
+// MB *per image* of raw bitmap data), which is what actually caused the
+// "carousel eats RAM and the UI gets sluggish" reports rather than
+// anything about how many images are open at once in the main view.
+//
+// fix: draw each thumbnail into a small `<canvas>` instead of an `<img>`.
+// the source image is still decoded once to draw it, but we do that with
+// a plain (non-DOM, unreferenced) `Image()` that goes out of scope right
+// after drawing — nothing keeps the full-res decode alive afterward, so
+// only the small canvas backing-store persists. we deliberately draw
+// only (never read pixels back via `getContext("2d").getImageData` /
+// `canvas.toBlob`) — cross-origin images (remote/p2p thumbnails without
+// CORS headers) taint the canvas for readback but drawing is always
+// allowed, matching the same "draw-only, no crossOrigin" approach the
+// graph view's canvas image cache already relies on (see
+// `components/graph/imageCache.ts`).
+//
+// generation is also gated behind an `IntersectionObserver` per
+// thumbnail button plus a small concurrency cap, so opening a carousel
+// with a lot of images doesn't kick off dozens of simultaneous decodes
+// — only the ones actually scrolled into view get drawn, a few at a
+// time.
+const STRIP_THUMB_MAX_CONCURRENT = 3;
+let stripThumbInFlight = 0;
+const stripThumbQueue: Array<() => void> = [];
+
+function acquireStripThumbSlot(start: () => void): void {
+  if (stripThumbInFlight < STRIP_THUMB_MAX_CONCURRENT) {
+    stripThumbInFlight++;
+    start();
+  } else {
+    stripThumbQueue.push(start);
+  }
+}
+
+function releaseStripThumbSlot(): void {
+  stripThumbInFlight--;
+  const next = stripThumbQueue.shift();
+  if (next) {
+    stripThumbInFlight++;
+    next();
+  }
+}
+
+/** draw `url` into `canvas`, cover-fit cropped to the canvas's own
+ *  (already device-pixel-ratio-scaled) backing-store size. returns
+ *  false if the image failed to load/decode. */
+async function drawCoverThumbnail(canvas: HTMLCanvasElement, url: string): Promise<boolean> {
+  const img = new Image();
+  img.decoding = "async";
+  img.src = url;
+  try {
+    await img.decode();
+  } catch {
+    return false;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight) || 1;
+  const dw = Math.max(1, img.naturalWidth * scale);
+  const dh = Math.max(1, img.naturalHeight * scale);
+  ctx.drawImage(img, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
+  return true;
+}
 
 export interface ImageCarouselModalProps {
-  images: string[]; // array of image URLs
+  images: CarouselSlide[]; // one slot per slide — url is null while still resolving
   initialIndex?: number;
   title?: string;
   onClose: () => void;
 }
 
 export function ImageCarouselModal(props: ImageCarouselModalProps) {
-  // defensively dedupe input urls. callers usually do this themselves
-  // (handlePlayerImageClick / popovers), but a second pass here means
-  // any future caller that forgets won't end up with duplicate slides.
-  // also filter out any url that we've previously seen fail to load
-  // (tracked in `failedUrls`) so flaky/404 thumbnails don't take up
-  // a slide once they've errored out at least once.
-  const [failedUrls, setFailedUrls] = createSignal<Set<string>>(new Set<string>());
-  const images = createMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    const failed = failedUrls();
-    for (const u of props.images) {
-      if (!u || seen.has(u) || failed.has(u)) continue;
-      seen.add(u);
-      out.push(u);
-    }
-    return out;
-  });
-  const markFailed = (url: string) => {
-    if (!url) return;
-    setFailedUrls((prev) => {
-      if (prev.has(url)) return prev;
+  const images = () => props.images;
+
+  // slides that resolved to a url just fine but then failed to actually
+  // load/decode in the browser (404, corrupt file, network drop) — kept
+  // separate from `CarouselSlide.failed` (a resolver-level failure, set
+  // by the caller before the slide ever had a url) so a broken thumbnail
+  // fetch can't be confused with a broken full-resolution fetch.
+  const [browserFailed, setBrowserFailed] = createSignal<Set<number>>(new Set());
+  const markBrowserFailed = (index: number) => {
+    setBrowserFailed((prev) => {
+      if (prev.has(index)) return prev;
       const next = new Set(prev);
-      next.add(url);
+      next.add(index);
       return next;
     });
   };
+  const isFailed = (index: number) => !!images()[index]?.failed || browserFailed().has(index);
+  const isPending = (index: number) => images()[index]?.url == null && !isFailed(index);
+
   const [currentIndex, setCurrentIndex] = createSignal(
     Math.min(Math.max(props.initialIndex ?? 0, 0), Math.max(0, images().length - 1))
   );
 
-  // when an image is filtered out (failed to load), clamp the
-  // current index back into the visible range so we don't end up
-  // pointing past the end of the list. close the modal if every
-  // image has failed.
+  // close (with a toast) only once every slide has settled — no longer
+  // pending — and none of them ended up usable. while any slide is still
+  // resolving, some may yet succeed, so we never judge early; and total
+  // resolver failure is already handled (closed + toasted) by
+  // `openImageCarouselFromResolvers` before the modal ever shows anything
+  // usable, so in practice this effect mainly catches "resolved fine but
+  // every image then failed to load/decode in-browser".
+  let toastedAllFailed = false;
   createEffect(() => {
     const total = images().length;
-    if (total === 0) {
-      props.onClose();
+    if (total === 0) return;
+    const anyPending = images().some((_, i) => isPending(i));
+    if (anyPending) return;
+    const anyUsable = images().some((_, i) => !isFailed(i));
+    if (anyUsable) {
+      if (currentIndex() >= total) setCurrentIndex(total - 1);
       return;
     }
-    if (currentIndex() >= total) {
-      setCurrentIndex(total - 1);
+    if (!toastedAllFailed) {
+      toastedAllFailed = true;
+      toast.error(
+        props.title ? `images for ${props.title} failed to load` : "images failed to load",
+        { title: "image carousel" }
+      );
     }
+    props.onClose();
   });
 
   const canGoPrev = () => currentIndex() > 0;
@@ -103,6 +180,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
   let containerRef!: HTMLDivElement;
   onMount(() => containerRef?.focus());
+  let stripContainerRef: HTMLDivElement | undefined;
 
   return (
     <div
@@ -168,20 +246,37 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
         {/* current image — `loading="lazy"` + `decoding="async"` so the
             browser can stagger fetching and decode work off the main
-            thread; matters most when the carousel holds 20+ images. */}
+            thread; matters most when the carousel holds 20+ images. a
+            slide that hasn't resolved (or failed to resolve/load) yet
+            shows a spinner/error placeholder instead of a broken `<img>`. */}
         <div class="relative w-full h-full flex items-center justify-center">
-          <img
-            src={images()[currentIndex()]}
-            alt={`image ${currentIndex() + 1}`}
-            class="max-w-full max-h-full object-contain"
-            loading="lazy"
-            decoding="async"
-            onError={() => markFailed(images()[currentIndex()])}
-            style={{
-              "max-height":
-                "calc(100dvh - 8rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
-            }}
-          />
+          <Show
+            when={!isPending(currentIndex()) && !isFailed(currentIndex())}
+            fallback={
+              <div class="flex flex-col items-center gap-2 text-white/70">
+                <Show
+                  when={isFailed(currentIndex())}
+                  fallback={<Icon name={IconNames.loader} size={40} className="animate-spin" />}
+                >
+                  <Icon name={IconNames.alertTriangle} size={40} />
+                  <span class="text-sm">failed to load</span>
+                </Show>
+              </div>
+            }
+          >
+            <img
+              src={images()[currentIndex()]?.url ?? undefined}
+              alt={`image ${currentIndex() + 1}`}
+              class="max-w-full max-h-full object-contain"
+              loading="lazy"
+              decoding="async"
+              onError={() => markBrowserFailed(currentIndex())}
+              style={{
+                "max-height":
+                  "calc(100dvh - 8rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+              }}
+            />
+          </Show>
         </div>
 
         {/* next button */}
@@ -198,13 +293,21 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
 
       {/* thumbnail strip at bottom — offset above ios home indicator / android nav bar */}
       <div
+        ref={stripContainerRef}
         class="absolute left-1/2 transform -translate-x-1/2 flex gap-2 max-w-screen-lg overflow-x-auto overflow-y-hidden px-4 z-10"
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <For each={images()}>
-          {(img, idx) => {
+          {(slide, idx) => {
             let btnRef: HTMLButtonElement | undefined;
+            let canvasRef: HTMLCanvasElement | undefined;
+            // when a real small thumbnail url fails to load (e.g. the
+            // server hasn't generated it yet), fall back to the
+            // client-side canvas downscale of the full-res url instead
+            // of just showing a broken-image placeholder.
+            const [thumbBroken, setThumbBroken] = createSignal(false);
+
             // keep the currently-selected thumbnail visible when the
             // user pages through the carousel (arrow keys, prev/next,
             // click-to-advance). without this the strip stays parked
@@ -220,6 +323,48 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
                 inline: "nearest",
               });
             });
+
+            // draw the canvas fallback lazily — only once this button
+            // actually scrolls into view — and only a few at a time
+            // (see `acquireStripThumbSlot`), instead of decoding every
+            // full-res image in the carousel up front. only runs when
+            // there's no real (small, server-generated) thumbnail url
+            // to use directly.
+            onMount(() => {
+              const usesCanvasFallback = () => {
+                const s = images()[idx()];
+                return !!s?.url && (!s.thumbnailUrl || thumbBroken());
+              };
+              if (!canvasRef) return;
+              const canvas = canvasRef;
+              const dpr = window.devicePixelRatio || 1;
+              const cssSize = 64;
+              canvas.width = Math.round(cssSize * dpr);
+              canvas.height = Math.round(cssSize * dpr);
+
+              let started = false;
+              const observer = new IntersectionObserver(
+                (entries) => {
+                  if (started || !entries.some((e) => e.isIntersecting)) return;
+                  if (!usesCanvasFallback()) return;
+                  started = true;
+                  observer.disconnect();
+                  const url = images()[idx()]?.url;
+                  if (!url) return;
+                  acquireStripThumbSlot(() => {
+                    void drawCoverThumbnail(canvas, url)
+                      .then((ok) => {
+                        if (!ok) markBrowserFailed(idx());
+                      })
+                      .finally(releaseStripThumbSlot);
+                  });
+                },
+                { root: stripContainerRef ?? null, rootMargin: "200px" }
+              );
+              observer.observe(canvas);
+              onCleanup(() => observer.disconnect());
+            });
+
             return (
               <button
                 ref={btnRef}
@@ -228,14 +373,41 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
                   idx() === currentIndex() ? "scale-110" : "opacity-60 hover:opacity-100"
                 }`}
               >
-                <img
-                  src={img}
-                  alt={`thumbnail ${idx() + 1}`}
-                  class="w-full h-full object-cover"
-                  loading="lazy"
-                  decoding="async"
-                  onError={() => markFailed(img)}
-                />
+                <Show
+                  when={!isPending(idx()) && !isFailed(idx())}
+                  fallback={
+                    <div class="w-full h-full flex items-center justify-center bg-white/10 text-white/70">
+                      <Show
+                        when={isFailed(idx())}
+                        fallback={
+                          <Icon name={IconNames.loader} size={18} className="animate-spin" />
+                        }
+                      >
+                        <Icon name={IconNames.alertTriangle} size={18} />
+                      </Show>
+                    </div>
+                  }
+                >
+                  <Show
+                    when={slide.thumbnailUrl && !thumbBroken()}
+                    fallback={
+                      <canvas
+                        ref={canvasRef}
+                        aria-label={`thumbnail ${idx() + 1}`}
+                        class="w-full h-full object-cover"
+                      />
+                    }
+                  >
+                    <img
+                      src={slide.thumbnailUrl ?? undefined}
+                      alt={`thumbnail ${idx() + 1}`}
+                      class="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      onError={() => setThumbBroken(true)}
+                    />
+                  </Show>
+                </Show>
               </button>
             );
           }}

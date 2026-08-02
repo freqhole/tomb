@@ -4,6 +4,7 @@ import { getBackgroundConfig } from "../../app/services/backgroundImage";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { formatDuration } from "../../utils/formatDuration";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
+import { useImageCarouselLoading } from "../../music/hooks/modals";
 import { Icon, IconNames } from "../icons/registry";
 import MediaImage from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
@@ -101,6 +102,9 @@ export function PlayerBar(props: PlayerBarProps) {
   const isLiveStream = () => props.isLiveStream ?? false;
   const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
   const songMetaClickable = () => !!props.onSongMetaClick && !!props.song;
+  // true while a click on the thumbnail is still resolving image urls
+  // for the carousel — shows a spinner instead of the carousel icon.
+  const imageCarouselLoading = useImageCarouselLoading();
 
   // track compact mode (801-1200px)
   const [isCompact, setIsCompact] = createSignal(
@@ -323,8 +327,26 @@ export function PlayerBar(props: PlayerBarProps) {
               class="w-10 h-10 rounded object-cover"
             />
             <Show when={props.onImageClick && props.song}>
-              <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
-                <Icon name={IconNames.carousel} size={16} className="text-white drop-shadow-lg" />
+              <div
+                class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                classList={{
+                  "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                    !imageCarouselLoading(),
+                  "bg-black/30 opacity-100": imageCarouselLoading(),
+                }}
+              >
+                <Show
+                  when={!imageCarouselLoading()}
+                  fallback={
+                    <Icon
+                      name={IconNames.loader}
+                      size={16}
+                      className="text-white drop-shadow-lg animate-spin"
+                    />
+                  }
+                >
+                  <Icon name={IconNames.carousel} size={16} className="text-white drop-shadow-lg" />
+                </Show>
               </div>
             </Show>
           </div>
@@ -473,8 +495,30 @@ export function PlayerBar(props: PlayerBarProps) {
                 class="w-12 h-12 rounded object-cover"
               />
               <Show when={props.onImageClick && props.song}>
-                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
-                  <Icon name={IconNames.carousel} size={20} className="text-white drop-shadow-lg" />
+                <div
+                  class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                  classList={{
+                    "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                      !imageCarouselLoading(),
+                    "bg-black/30 opacity-100": imageCarouselLoading(),
+                  }}
+                >
+                  <Show
+                    when={!imageCarouselLoading()}
+                    fallback={
+                      <Icon
+                        name={IconNames.loader}
+                        size={20}
+                        className="text-white drop-shadow-lg animate-spin"
+                      />
+                    }
+                  >
+                    <Icon
+                      name={IconNames.carousel}
+                      size={20}
+                      className="text-white drop-shadow-lg"
+                    />
+                  </Show>
                 </div>
               </Show>
             </div>

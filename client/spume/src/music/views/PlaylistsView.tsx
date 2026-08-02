@@ -37,10 +37,15 @@ import {
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
-import { resolveBlobUrl, isValidHttpUrl } from "../services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  isValidHttpUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import { showStationSelector } from "../hooks/stationSelectorState";
-import { showShareModal } from "../hooks/modals";
+import { showShareModal, type CarouselSlide } from "../hooks/modals";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -110,8 +115,11 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     "play" | "queue" | "shuffle" | null
   >(null);
   const [showImageCarousel, setShowImageCarousel] = createSignal(false);
-  const [carouselImages, setCarouselImages] = createSignal<string[]>([]);
+  const [carouselImages, setCarouselImages] = createSignal<CarouselSlide[]>([]);
   const [carouselInitialIndex, setCarouselInitialIndex] = createSignal(0);
+  // true while handleOpenImageCarousel is still resolving image urls —
+  // shows a spinner on the trigger button instead of an unresponsive click.
+  const [carouselLoading, setCarouselLoading] = createSignal(false);
   const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
@@ -608,6 +616,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const playlist = selectedPlaylist();
     if (!playlist) return;
 
+    // give immediate feedback — resolving images (local OPFS lookups,
+    // blob-resolver/p2p calls) can take a while.
+    setCarouselLoading(true);
+
     const songs = playlistSongs();
 
     // collect all images, deduplicated by whichever blob id they carry
@@ -641,7 +653,10 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
 
     if (imageMap.size === 0) {
+      // no images at all — a normal state for a sparse playlist, not a
+      // failure, so an informational toast (no error) is enough.
       toast.info("no images available for this playlist");
+      setCarouselLoading(false);
       return;
     }
 
@@ -657,32 +672,71 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     // as a fallback from before an image was downloaded locally) is never
     // trusted directly, since it has no origin to resolve against once
     // there's no active remote/transport context.
-    const resolvePromises = Array.from(imageMap.values()).map(async (entry) => {
+    const resolveOne = async (entry: CarouselImageEntry): Promise<CarouselSlide | null> => {
       if (entry.localBlobId) {
         const resolved = await getBlobObjectURL(entry.localBlobId);
-        if (resolved) return resolved;
+        if (resolved) return { url: resolved };
       }
       if (entry.remoteBlobId && entry.remoteServerId) {
         try {
-          return await resolveBlobUrl(entry.remoteBlobId, entry.remoteServerId, "image");
+          const url = await resolveBlobUrl(entry.remoteBlobId, entry.remoteServerId, "image");
+          // a small server-generated thumbnail variant is only cheap to
+          // fetch for plain http remotes — p2p/tauri-managed remotes
+          // don't support sized variants yet and would just re-fetch the
+          // same full blob under a separate cache key.
+          const cheapThumb = !(await usesBlobResolver(entry.remoteServerId));
+          return { url, thumbnailUrl: cheapThumb ? withThumbSuffix(url, 200) : undefined };
         } catch {
           // fall through to the URL check below
         }
       }
-      if (isValidHttpUrl(entry.url)) return entry.url!;
+      if (isValidHttpUrl(entry.url)) {
+        return { url: entry.url!, thumbnailUrl: withThumbSuffix(entry.url!, 200) };
+      }
       return null;
-    });
-    const results = await Promise.all(resolvePromises);
-    const resolvedUrls = results.filter((url): url is string => url !== null);
+    };
 
-    if (resolvedUrls.length === 0) {
-      toast.info("no images available for this playlist");
-      return;
-    }
-
-    setCarouselImages(resolvedUrls);
+    // resolve every image in parallel and show the full expected slide
+    // count immediately as placeholders, filling each slot in (or
+    // marking it failed) as its own resolution settles — instead of
+    // waiting for every image before showing anything, or only
+    // discovering the total count as images trickle in.
+    const entries = Array.from(imageMap.values());
+    setCarouselLoading(false);
+    setCarouselImages(entries.map(() => ({ url: null, thumbnailUrl: null })));
     setCarouselInitialIndex(0);
     setShowImageCarousel(true);
+
+    let anySucceeded = false;
+    await Promise.allSettled(
+      entries.map(async (entry, index) => {
+        let slide: CarouselSlide | null;
+        try {
+          slide = await resolveOne(entry);
+        } catch {
+          slide = null;
+        }
+        if (slide?.url) {
+          anySucceeded = true;
+          setCarouselImages((prev) => {
+            const next = prev.slice();
+            next[index] = slide!;
+            return next;
+          });
+        } else {
+          setCarouselImages((prev) => {
+            const next = prev.slice();
+            next[index] = { url: null, thumbnailUrl: null, failed: true };
+            return next;
+          });
+        }
+      })
+    );
+
+    if (!anySucceeded) {
+      setShowImageCarousel(false);
+      toast.error("couldn't load any images for this playlist");
+    }
   };
 
   // play all songs in selected playlist
@@ -1279,6 +1333,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 <IconButton
                                   icon="carousel"
                                   size="default"
+                                  loading={carouselLoading()}
                                   onClick={handleOpenImageCarousel}
                                   aria-label="view all images"
                                   title="view all playlist images"
@@ -1350,6 +1405,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             <IconButton
                               icon="carousel"
                               size="default"
+                              loading={carouselLoading()}
                               onClick={handleOpenImageCarousel}
                               aria-label="view all images"
                               title="view all playlist images"

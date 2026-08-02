@@ -137,6 +137,28 @@ import {
 export type ThumbnailSize = 50 | 200;
 
 /**
+ * append `/thumb/{size}` to an already-resolved remote/http blob url, but
+ * skip for known external image services (placeholder hosts, unsplash)
+ * that don't support our path convention. shared by anything that has a
+ * plain http(s) blob url in hand and wants a smaller variant without a
+ * second resolveBlobUrl round-trip (the url is already known, so this is
+ * just a string transform, not a network call).
+ */
+export function withThumbSuffix(url: string, size?: ThumbnailSize): string {
+  if (!size) return url;
+  const lower = url.toLowerCase();
+  if (
+    lower.includes("picsum.photos") ||
+    lower.includes("placehold.co") ||
+    lower.includes("placekitten.com") ||
+    lower.includes("images.unsplash.com")
+  ) {
+    return url;
+  }
+  return `${url}/thumb/${size}`;
+}
+
+/**
  * resolve a blob ID to a URL for display/playback.
  *
  * @param blobId - the blob ID (sha256 or server blob ID)

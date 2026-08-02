@@ -2,6 +2,7 @@
 import { createSignal } from "solid-js";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { queryClient } from "../../queryClient";
+import { toast } from "../../components/feedback/Toast";
 
 // query-key prefixes invalidated whenever a music-edit modal closes.
 // the user may have changed entity names/ids that downstream lists,
@@ -184,10 +185,34 @@ export function useAlbumEditorState() {
 }
 
 // image carousel
+//
+// each slide is a "slot" with a stable identity/index so a carousel can be
+// opened immediately with placeholders for every expected image (count
+// known up front, before any url has actually resolved) and have slots
+// filled in — or marked failed — independently as each resolves. this
+// replaces the old "open on first success, append the rest" model, which
+// couldn't show the user how many images were still coming.
+export interface CarouselSlide {
+  /** resolved full-res url, or null while still resolving. */
+  url: string | null;
+  /** small pre-generated thumbnail url for the strip, when cheaply
+   *  available (plain http remotes only — see `openImageCarouselFromResolvers`).
+   *  falls back to client-side downscaling of `url` in the modal when absent. */
+  thumbnailUrl?: string | null;
+  /** true once we know this slot can't be resolved/shown. */
+  failed?: boolean;
+}
+
+export type ImageResolveResult = { url: string; thumbnailUrl?: string | null } | null | undefined;
+
 interface ImageCarouselOptions {
-  images: string[];
+  images: CarouselSlide[];
   initialIndex?: number;
   title?: string;
+  /** internal — guards against a slower, superseded resolution batch
+   *  mutating a carousel the user has since closed or replaced by
+   *  opening a different one. not meant to be passed by callers. */
+  sessionId?: number;
 }
 
 const [imageCarouselState, setImageCarouselState] =
@@ -218,6 +243,109 @@ export function hideImageCarousel() {
 export function useImageCarouselState() {
   return imageCarouselState;
 }
+
+// true while an image-carousel trigger (playerbar, album/artist/playlist
+// detail, etc) is gathering images (sync collection + entity hydration),
+// before we even know how many slides there will be. drives a spinner at
+// the trigger button so clicking gives immediate feedback instead of an
+// invisible wait; cleared as soon as the carousel opens with placeholders.
+const [imageCarouselLoading, setImageCarouselLoading] = createSignal(false);
+
+export function useImageCarouselLoading() {
+  return imageCarouselLoading;
+}
+
+/** call at the very start of an image-carousel trigger handler, before
+ *  any hydration/network prep work, so the spinner appears immediately
+ *  on click rather than only once url-resolution actually begins. */
+export function beginImageCarouselLoading(): void {
+  setImageCarouselLoading(true);
+}
+
+/** clear the loading spinner without opening anything or showing a
+ *  toast — for the normal "this entity has no images at all" case,
+ *  which isn't a failure worth alarming the user about. */
+export function endImageCarouselLoading(): void {
+  setImageCarouselLoading(false);
+}
+
+let carouselSessionCounter = 0;
+
+/**
+ * resolve a set of image-url producers in parallel and open the carousel
+ * immediately with one placeholder slot per resolver — so the user sees
+ * the true total image count and a loading spinner per not-yet-loaded
+ * slide right away, instead of only learning the count as images trickle
+ * in. each slot is then filled in (or marked failed) independently, in
+ * place, as its resolver settles — slides never reorder/append, they just
+ * transition from "loading" to "loaded" or "failed".
+ *
+ * closes the carousel (and shows an error toast) only if every resolver
+ * ends up failed — i.e. we had candidate images and genuinely could not
+ * load any of them. callers should only invoke this once they know
+ * there's at least one candidate image (an empty `resolvers` array is
+ * treated as "nothing to try" and returns silently, matching the existing
+ * no-images-found behavior — that's a normal state, not an error).
+ */
+export async function openImageCarouselFromResolvers(
+  resolvers: Array<() => Promise<ImageResolveResult>>,
+  opts: { title?: string; initialIndex?: number; entityLabel?: string } = {},
+): Promise<void> {
+  if (resolvers.length === 0) return;
+
+  const sessionId = ++carouselSessionCounter;
+  setImageCarouselLoading(false);
+  showImageCarousel({
+    images: resolvers.map(() => ({ url: null, thumbnailUrl: null })),
+    initialIndex: opts.initialIndex,
+    title: opts.title,
+    sessionId,
+  });
+
+  const isCurrentSession = () => imageCarouselState()?.sessionId === sessionId;
+
+  const setSlot = (index: number, slot: CarouselSlide) => {
+    setImageCarouselState((prev) => {
+      if (!prev || prev.sessionId !== sessionId) return prev;
+      const images = prev.images.slice();
+      images[index] = slot;
+      return { ...prev, images };
+    });
+  };
+
+  let anySucceeded = false;
+
+  await Promise.allSettled(
+    resolvers.map(async (resolve, index) => {
+      let result: ImageResolveResult;
+      try {
+        result = await resolve();
+      } catch {
+        result = null;
+      }
+      if (result?.url) {
+        anySucceeded = true;
+        setSlot(index, { url: result.url, thumbnailUrl: result.thumbnailUrl ?? null });
+      } else {
+        setSlot(index, { url: null, thumbnailUrl: null, failed: true });
+      }
+    }),
+  );
+
+  // a slower/newer carousel-open call may have superseded this one while
+  // we were resolving (user closed it, or clicked a different trigger) —
+  // don't close someone else's carousel or toast about a stale attempt.
+  if (!anySucceeded && isCurrentSession()) {
+    hideImageCarousel();
+    toast.error(
+      opts.entityLabel
+        ? `couldn't load any images for ${opts.entityLabel}`
+        : "couldn't load any images",
+      { title: "image carousel" },
+    );
+  }
+}
+
 
 // tag selector
 interface TagSelectorOptions {
