@@ -78,7 +78,8 @@ fn image_to_webp(img: &DynamicImage) -> Result<Vec<u8>, MediaError> {
     // ghostscript/magick), so normalize to rgba8 unconditionally rather
     // than only handling the color types today's callers happen to produce.
     let rgba = DynamicImage::ImageRgba8(img.to_rgba8());
-    let encoder = webp::Encoder::from_image(&rgba).map_err(|e| MediaError::Encode(e.to_string()))?;
+    let encoder =
+        webp::Encoder::from_image(&rgba).map_err(|e| MediaError::Encode(e.to_string()))?;
     Ok(encoder.encode(WEBP_QUALITY).to_vec())
 }
 
@@ -260,10 +261,22 @@ mod tests {
         let rgba = decoded.to_rgba8();
         // corners fall in the padded region — must be fully transparent,
         // not a crop of the source content.
-        assert_eq!(rgba.get_pixel(0, 0)[3], 0, "top-left corner should be padding");
-        assert_eq!(rgba.get_pixel(31, 0)[3], 0, "top-right corner should be padding");
+        assert_eq!(
+            rgba.get_pixel(0, 0)[3],
+            0,
+            "top-left corner should be padding"
+        );
+        assert_eq!(
+            rgba.get_pixel(31, 0)[3],
+            0,
+            "top-right corner should be padding"
+        );
         // vertical center falls inside the fitted image — must be opaque.
-        assert_eq!(rgba.get_pixel(16, 16)[3], 255, "center should be the fitted image");
+        assert_eq!(
+            rgba.get_pixel(16, 16)[3],
+            255,
+            "center should be the fitted image"
+        );
     }
 
     #[test]
