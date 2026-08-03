@@ -52,7 +52,7 @@ import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTo
 
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // peer addrs passed via ?node_id=... or ?node_id=a&node_id=b
@@ -489,8 +489,8 @@ export function RadioView() {
     return !sameStation;
   });
 
-  // no autoplay: shared links can prefill discovery filters, but tuning
-  // always requires explicit user action.
+  // no autoplay: shared/deep-linked stations select for preview only —
+  // tuning always requires explicit user action (the "listen" button).
   const [attemptedSharedTune, setAttemptedSharedTune] = createSignal(false);
   createEffect(() => {
     const stationId = queryStationId();
@@ -505,10 +505,18 @@ export function RadioView() {
       return expectedSources.has(sourceId);
     });
 
+    setAttemptedSharedTune(true);
     if (match) {
-      setAttemptedSharedTune(true);
-      debug("radio-view", "shared station discovered (no auto-tune):", match.station_id);
+      debug(
+        "radio-view",
+        "deep-linked station discovered, selecting for preview:",
+        match.station_id
+      );
+      handleSelectStation(match);
     }
+    // the params have done their job (register pending remote + locate
+    // the station) — drop them so a refresh/back doesn't re-trigger this.
+    setSearchParams({ node_id: undefined, station_id: undefined, station_name: undefined });
   });
 
   const isCurrent = (s: DiscoveredStation) => {

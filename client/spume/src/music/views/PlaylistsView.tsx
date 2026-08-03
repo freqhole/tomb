@@ -360,6 +360,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       playlistId: pl?.playlist_id ?? "",
       title: pl?.title ?? "untitled playlist",
       description: pl?.description ?? null,
+      images: pl?.images ?? [],
       songs: list as unknown as RemoteSong[],
     };
   };
@@ -1174,6 +1175,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               id: playlist.playlist_id,
                               title: playlist.title,
                               song_count: playlist.song_count,
+                              images: playlist.images,
                             },
                             {
                               showPlayActions: true,

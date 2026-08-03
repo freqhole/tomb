@@ -32,6 +32,7 @@ function adaptFeedResponse(data: any, baseUrl: string | undefined, remoteId?: st
       album_id: item.album_id ?? null,
       artist_id: item.artist_id ?? null,
       playlist_id: item.playlist_id ?? null,
+      entity_id: item.entity_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
       images: adaptFeedImages(item.images, baseUrl, remoteId),

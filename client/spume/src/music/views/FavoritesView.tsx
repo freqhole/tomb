@@ -277,6 +277,7 @@ export function FavoritesView(props: FavoritesViewProps) {
       {
         id: playlist.playlist_id,
         title: playlist.title,
+        images: playlist.images,
       },
       {
         showPlayActions: true,

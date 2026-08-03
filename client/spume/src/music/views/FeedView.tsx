@@ -165,6 +165,12 @@ export function FeedView() {
     }
 
     if (item.feed_type === "listen_session" && item.session_id) {
+      // radio sessions have no queue to resume — link to the station
+      // instead of trying to replay it.
+      if (item.session_type === "radio" && item.entity_id) {
+        navigate(routes.radioStation(item.entity_id, remote?.peer_addr));
+        return;
+      }
       // own sessions resume, other users' sessions start over
       const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       if (isOwnSession) {
@@ -268,6 +274,7 @@ export function FeedView() {
         if (remote) {
           await resumeServerSession(session.id, { progress: session.songs_completed }, remote, {
             label: session.label,
+            sessionType: session.session_type,
             entityId: session.entity_id ?? undefined,
           });
 
@@ -540,6 +547,44 @@ export function FeedView() {
       const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       const isCompleted =
         item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
+
+      // radio sessions have no queue to resume — link to the station instead.
+      if (item.session_type === "radio" && item.entity_id) {
+        actions.push({
+          label: "go to station",
+          icon: IconNames.headphones,
+          onClick: () => navigate(routes.radioStation(item.entity_id!, remote?.peer_addr)),
+        });
+        if ((isOwnSession || isAdmin()) && item.session_id) {
+          actions.push({ type: "separator" });
+          actions.push({
+            label: isOwnSession ? "delete session" : "delete feed item",
+            icon: IconNames.delete,
+            onClick: async () => {
+              try {
+                const dataSource = getDataSource();
+                if (isOwnSession && dataSource.deleteListenSession) {
+                  await dataSource.deleteListenSession(item.session_id!);
+                } else if (isAdmin() && dataSource.deleteFeedEvent) {
+                  await dataSource.deleteFeedEvent(item.id);
+                } else {
+                  toast.error("cannot delete");
+                  return;
+                }
+                toast.info(isOwnSession ? "session deleted" : "feed item deleted");
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.analytics.all(),
+                });
+              } catch {
+                toast.error(
+                  isOwnSession ? "failed to delete session" : "failed to delete feed item"
+                );
+              }
+            },
+          });
+        }
+        return actions;
+      }
 
       if (isOwnSession && !isCompleted) {
         actions.push({

@@ -29,6 +29,7 @@ import { toast } from "../../components/feedback/Toast";
 import { showImageCarousel } from "../hooks/modals";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { type Remote } from "../../app/services/storage/schemas/remote";
+import { routes } from "../utils/routing";
 import { RemotePicker } from "../../components/forms/RemotePicker";
 import { useTopNavSlots } from "../../app/shell/topNavSlots";
 import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
@@ -64,6 +65,7 @@ function adaptFeedResponse(
         album_id: item.album_id ?? null,
         artist_id: item.artist_id ?? null,
         playlist_id: item.playlist_id ?? null,
+        entity_id: item.entity_id ?? null,
         title: item.title,
         subtitle: item.subtitle ?? null,
         images: adaptFeedImages(item.images, baseUrl, remoteId),
@@ -550,6 +552,12 @@ export function AggregateFeedView() {
 
   // play handler
   const handlePlayItem = async (item: FeedItem) => {
+    // radio sessions have no queue to resume — link to the station.
+    if (item.feed_type === "listen_session" && item.session_type === "radio" && item.entity_id) {
+      const hostRemote = getRemoteForItem(item);
+      navigate(routes.radioStation(item.entity_id, hostRemote?.peer_addr));
+      return;
+    }
     // navigate to the remote context for playback
     if (item.remote_id && item.album_id) {
       navigate(`/${item.remote_id}/albums/${item.album_id}`);

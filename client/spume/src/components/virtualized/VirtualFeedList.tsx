@@ -561,10 +561,14 @@ function FeedRow(props: {
           </Show>
         </div>
 
-        {/* line 2: title */}
+        {/* line 2: title — radio sessions get "radio" appended after the station name */}
         <Show when={props.item.title}>
           <MarqueeText
-            text={props.item.title}
+            text={
+              isSession() && props.item.session_type === "radio"
+                ? `${props.item.title} radio`
+                : props.item.title
+            }
             class="text-sm wide:text-base font-medium text-[var(--color-text-primary)] leading-tight"
             isHovering={isRowHovered}
           />

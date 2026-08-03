@@ -110,6 +110,7 @@ function generateFeedItems(
       album_id: !isPlaylist ? `album-${Math.floor(r4 * 100)}` : null,
       artist_id: `artist-${Math.floor(r5 * 50)}`,
       playlist_id: isPlaylist ? `playlist-${Math.floor(r3 * 20)}` : null,
+      entity_id: isSession ? `album-${Math.floor(r4 * 100)}` : null,
       title: isSession
         ? `${artist} session`
         : isAlbum

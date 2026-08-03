@@ -135,6 +135,14 @@ export function AlbumDetailView() {
   const buildSendPayload = (): SendPayload => {
     const songList = songs();
     const info = albumInfo();
+    // album-level images (same source as edit modal / image carousel),
+    // falling back to the denormalized copy on the first song. without
+    // this, no images get associated with the album on the dest — only
+    // each song's own embedded artwork gets uploaded, making it look like
+    // "the album has no cover but every song does."
+    const albumImages = albumQuery.data?.images?.length
+      ? albumQuery.data.images
+      : (songList[0]?.album_images ?? []);
     return {
       kind: "album",
       albumId: info?.album_id ?? params.id,
@@ -148,6 +156,7 @@ export function AlbumDetailView() {
           ?.filter((t) => t.kind_slug === "genre")
           .map((t) => t.label)
           .filter(Boolean) ?? [],
+      images: albumImages,
       songs: songList as unknown as RemoteSong[],
     };
   };
