@@ -2,4 +2,4 @@
 "freqhole-release": patch
 ---
 
-lib/reliquary: wire up in-flight blob transfer cancelz
+lib/reliquary: wire up in-flight blob transfer cancelz; track canvas <-> blobz;
