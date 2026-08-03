@@ -111,8 +111,10 @@ export function Modal(props: ModalProps) {
             }`}
             style={{
               "margin-top": "var(--safe-area-top, 0px)",
-              height: props.fitContent ? undefined : "calc(100% - var(--safe-area-top, 0px))",
-              "max-height": "calc(100% - var(--safe-area-top, 0px))",
+              height: props.fitContent
+                ? undefined
+                : "calc(100% - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px))",
+              "max-height": "calc(100% - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px))",
             }}
             onClick={(e) => e.stopPropagation()}
           >

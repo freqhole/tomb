@@ -1,5 +1,15 @@
 # freqhole-release
 
+## 0.2.9
+
+### Patch Changes
+
+- 8a9c8db: add `mark reviewed` shortcut button to add music modal reviews tab; yank click away close listener for album edit modal;
+- e4b7a65: lib/reliquary: handle identity key gen a bit more safe way; handle grayscale webp img convert and add contain resize mode;
+- dca0ee5: improve image carousel- add loading indicators and improve perf when there's a lot of imagez; also fix radio song's image carousel;
+- f0e0bce: try to fix duplicate feed listening session eventz; fix minor feed time format; fix images relations for share modal "send to remote" and playlist syncz;
+- b2783d5: track outgoing blob transferz
+
 ## 0.2.8
 
 ### Patch Changes
