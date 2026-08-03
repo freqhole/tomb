@@ -34,6 +34,7 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
     releaseBlob: vi.fn(),
     restrictBlobToPeers: vi.fn(),
     clearBlobRestriction: vi.fn(),
+    getActiveTransfers: vi.fn(async () => []),
     startImport: vi.fn(async () => 1),
     importPush: vi.fn(async () => undefined),
     importFinish: vi.fn(async () => "blake3-hex"),

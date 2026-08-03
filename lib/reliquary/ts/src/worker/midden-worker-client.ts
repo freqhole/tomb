@@ -20,6 +20,7 @@ import {
   MIDDEN_WORKER_READY_TIMEOUT_MS,
   type MiddenWorkerApi,
   type StreamInfo,
+  type WorkerActiveTransfer,
 } from "./midden-worker-contract.js";
 import { log } from "../utils/log.js";
 
@@ -249,6 +250,12 @@ export class WorkerMiddenNode {
 
   clear_blob_restriction(blake3Hash: string): Promise<void> {
     return this.api.clearBlobRestriction(blake3Hash);
+  }
+
+  /** snapshot of this node's own outgoing blob transfers currently in
+   *  flight - see `MiddenNode::get_active_transfers` in `midden/src/lib.rs`. */
+  get_active_transfers(): Promise<WorkerActiveTransfer[]> {
+    return this.api.getActiveTransfers();
   }
 
   start_import(): WorkerImportSession {

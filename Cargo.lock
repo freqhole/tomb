@@ -5171,6 +5171,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -7403,6 +7404,7 @@ dependencies = [
  "image 0.25.10",
  "iroh",
  "iroh-blobs",
+ "irpc",
  "serde",
  "serde_json",
  "serial_test",

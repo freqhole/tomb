@@ -2110,7 +2110,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "midden"
-version = "0.2.1"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "bao-tree",
@@ -2135,6 +2135,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]

@@ -34,6 +34,16 @@ export interface MiddenWorkerIdentity {
   secretKey: Uint8Array;
 }
 
+/** one outgoing blob transfer in flight on the worker-hosted node - same
+ *  shape as a raw wasm MiddenNode's `get_active_transfers()`
+ *  (`{peerId, blake3, bytesSent, totalSize}`, see midden/src/transfers.rs). */
+export interface WorkerActiveTransfer {
+  peerId: string;
+  blake3: string;
+  bytesSent: number;
+  totalSize: number;
+}
+
 /**
  * the entry's comlink-exposed surface. every method here runs on the
  * worker thread; callback arguments (`onProgress`, `onChunk`) arrive as
@@ -73,6 +83,9 @@ export interface MiddenWorkerApi {
   releaseBlob(blake3Hash: string): Promise<void>;
   restrictBlobToPeers(blake3Hash: string, peerNodeIds: string[]): Promise<void>;
   clearBlobRestriction(blake3Hash: string): Promise<void>;
+  /** snapshot of this node's own outgoing blob transfers currently in
+   *  flight - forwards to the wasm node's `get_active_transfers()`. */
+  getActiveTransfers(): Promise<WorkerActiveTransfer[]>;
 
   // ---- chunked import sessions ----
   startImport(): Promise<number>;
