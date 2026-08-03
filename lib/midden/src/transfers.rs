@@ -93,7 +93,10 @@ pub async fn track_transfer(
 ) {
     // TEMPORARY debug logging - confirms the drain task actually starts and
     // whether the update stream ever yields anything at all.
-    debug!("transfer track: draining updates key={:?} peer={} blake3={}", key, peer_id, blake3);
+    debug!(
+        "transfer track: draining updates key={:?} peer={} blake3={}",
+        key, peer_id, blake3
+    );
     let mut guard: Option<TransferGuard> = None;
     while let Ok(Some(update)) = rx.recv().await {
         match update {
@@ -101,7 +104,10 @@ pub async fn track_transfer(
                 if !started.hash.to_string().is_empty() {
                     blake3 = started.hash.to_string();
                 }
-                debug!("transfer track: started key={:?} size={}", key, started.size);
+                debug!(
+                    "transfer track: started key={:?} size={}",
+                    key, started.size
+                );
                 registry.upsert(
                     key,
                     ActiveTransfer {
@@ -118,7 +124,10 @@ pub async fn track_transfer(
                 });
             }
             RequestUpdate::Progress(progress) => {
-                debug!("transfer track: progress key={:?} end_offset={}", key, progress.end_offset);
+                debug!(
+                    "transfer track: progress key={:?} end_offset={}",
+                    key, progress.end_offset
+                );
                 if let Some(entry) = registry.transfers.borrow_mut().get_mut(&key) {
                     entry.bytes_sent = progress.end_offset;
                 }

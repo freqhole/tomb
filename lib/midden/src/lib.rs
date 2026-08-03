@@ -725,8 +725,7 @@ fn build_gated_blobs_events(
                         "blob-transfer-progress: get request hash={} allowed={} peer={:?} has_registry={}",
                         hash, allowed, peer, transfers.is_some()
                     );
-                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone())
-                    {
+                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
                         wasm_bindgen_futures::spawn_local(transfers::track_transfer(
                             registry,
                             update_rx,
@@ -764,8 +763,7 @@ fn build_gated_blobs_events(
                         "blob-transfer-progress: get_many request allowed={} peer={:?} has_registry={}",
                         allowed, peer, transfers.is_some()
                     );
-                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone())
-                    {
+                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
                         wasm_bindgen_futures::spawn_local(transfers::track_transfer(
                             registry,
                             update_rx,
@@ -1217,7 +1215,10 @@ impl MiddenNode {
         let transfers = transfers::TransferRegistry::new();
         let blobs_protocol = BlobsProtocol::new(
             &blobs_store,
-            Some(build_gated_blobs_events(blob_acl.clone(), Some(transfers.clone()))),
+            Some(build_gated_blobs_events(
+                blob_acl.clone(),
+                Some(transfers.clone()),
+            )),
         );
 
         // wait for relay connection
