@@ -63,6 +63,12 @@ export interface BlobCapableNode {
    *  false when the download already settled. */
   download_cancel?(downloadId: string): Promise<boolean>;
 
+  /** pause/cancel every in-flight download for this blake3 hash, without
+   *  needing the per-attempt downloadId (e.g. a caller that no longer has
+   *  its own download state, such as a widget being torn down). returns
+   *  how many were flagged - 0 means none were in flight. */
+  download_cancel_by_blake3?(blake3Hash: string): Promise<number>;
+
   /** release a gc pin held by a paused/cancelled download, letting the
    *  partial be reclaimed. */
   unprotect_blob?(blake3Hash: string): Promise<void>;

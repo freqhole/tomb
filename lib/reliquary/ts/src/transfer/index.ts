@@ -11,6 +11,7 @@ export { DOWNLOAD_CANCELLED_MESSAGE, isCancelledError } from "./cancellation.js"
 export {
   discardPausedDownload,
   pauseSnatchDownload,
+  pauseSnatchDownloadByBlake3,
   snatchBlob,
   snatchBlobToDisk,
 } from "./snatch.js";

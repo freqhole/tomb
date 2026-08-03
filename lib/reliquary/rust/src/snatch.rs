@@ -19,7 +19,7 @@
 //! blob inventory fallback.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 
@@ -263,6 +263,12 @@ pub struct ActiveDownload {
     pub filename: String,
     pub peer: String,
     pub started_at: std::time::Instant,
+    /// cumulative bytes downloaded so far, updated live from the real
+    /// iroh-blobs progress stream (see `download_blob`) - shared via `Arc`
+    /// so a snapshot cloned out of the registry still reflects the live
+    /// counter rather than a value frozen at snapshot time.
+    pub bytes_received: Arc<AtomicU64>,
+    pub total_size: u64,
 }
 
 /// RAII registration for one [`ActiveDownload`]: inserted on construction,
@@ -270,6 +276,11 @@ pub struct ActiveDownload {
 struct ActiveDownloadGuard {
     registry: Arc<StdMutex<HashMap<String, ActiveDownload>>>,
     blake3: String,
+    /// same `Arc` stored on the registry's `ActiveDownload` entry - kept
+    /// here too so callers holding the guard can update it directly in
+    /// O(1), without re-locking/re-looking-up the registry by key on every
+    /// progress event.
+    bytes_received: Arc<AtomicU64>,
 }
 
 impl ActiveDownloadGuard {
@@ -278,7 +289,9 @@ impl ActiveDownloadGuard {
         blake3: String,
         filename: String,
         peer: String,
+        expected_size: u64,
     ) -> Self {
+        let bytes_received = Arc::new(AtomicU64::new(0));
         if let Ok(mut map) = registry.lock() {
             map.insert(
                 blake3.clone(),
@@ -287,10 +300,16 @@ impl ActiveDownloadGuard {
                     filename,
                     peer,
                     started_at: std::time::Instant::now(),
+                    bytes_received: Arc::clone(&bytes_received),
+                    total_size: expected_size,
                 },
             );
         }
-        Self { registry, blake3 }
+        Self {
+            registry,
+            blake3,
+            bytes_received,
+        }
     }
 }
 
@@ -611,9 +630,15 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
                 descriptor.blake3.clone(),
                 descriptor.filename.clone(),
                 provider.clone(),
+                descriptor.size,
             );
-            self.download_blob(&descriptor.blake3, &provider, descriptor.size)
-                .await?;
+            self.download_blob(
+                &descriptor.blake3,
+                &provider,
+                descriptor.size,
+                Arc::clone(&_download_guard.bytes_received),
+            )
+            .await?;
         }
         self.ingest_blob(descriptor).await?;
         self.source
@@ -703,6 +728,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         blake3_hash: &str,
         provider_node_id: &str,
         expected_size: u64,
+        bytes_received: Arc<AtomicU64>,
     ) -> Result<(), SnatchError> {
         // check first: no live endpoint means no point parsing the hash or
         // reserving a semaphore slot.
@@ -778,6 +804,7 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             stream,
             self.options.download_inactivity_timeout,
             blake3_hash,
+            &|bytes| bytes_received.store(bytes, Ordering::Relaxed),
         )
         .await
         {
@@ -1050,11 +1077,15 @@ fn trunc(s: &str) -> &str {
 /// consume an iroh-blobs download progress stream, erroring out if the
 /// transfer reports an error or if too long a gap passes between events.
 /// generic over the stream so it can be driven by a synthetic stream in
-/// tests, not just a real `DownloadProgress::stream()`.
+/// tests, not just a real `DownloadProgress::stream()`. `on_progress` is
+/// invoked with the cumulative bytes downloaded so far on every
+/// `Progress` event (`PartComplete` carries no byte count, so it's left
+/// alone).
 async fn consume_download_progress<St>(
     mut stream: St,
     inactivity_timeout: Duration,
     blake3_label: &str,
+    on_progress: &(dyn Fn(u64) + Send + Sync),
 ) -> Result<(), SnatchError>
 where
     St: Stream<Item = DownloadProgressItem> + Unpin,
@@ -1111,12 +1142,16 @@ where
                     "download progress: download error event"
                 );
             }
-            DownloadProgressItem::Progress(_) | DownloadProgressItem::PartComplete { .. } => {
+            DownloadProgressItem::Progress(bytes) => {
                 // these fire once per chunk (potentially thousands of times
                 // for a large file) - way too noisy for `debug`, which is
                 // otherwise on by default in dev. no log here at all; the
                 // less-frequent `other` events below (TryProvider,
                 // ProviderFailed, etc.) already cover what's actionable.
+                saw_progress = true;
+                on_progress(*bytes);
+            }
+            DownloadProgressItem::PartComplete { .. } => {
                 saw_progress = true;
             }
             DownloadProgressItem::TryProvider { id, .. } => {
@@ -1913,7 +1948,8 @@ mod tests {
                 unreachable!()
             }
         }));
-        let result = consume_download_progress(stream, Duration::from_millis(30), "deadbeef").await;
+        let result =
+            consume_download_progress(stream, Duration::from_millis(30), "deadbeef", &|_| {}).await;
         assert!(matches!(result, Err(SnatchError::DownloadTimeout)));
     }
 
@@ -1935,7 +1971,8 @@ mod tests {
             }
         }));
         let result =
-            consume_download_progress(stream, Duration::from_millis(100), "deadbeef").await;
+            consume_download_progress(stream, Duration::from_millis(100), "deadbeef", &|_| {})
+                .await;
         assert!(
             result.is_ok(),
             "gaps under the inactivity timeout must not fail the transfer"
@@ -1949,7 +1986,8 @@ mod tests {
             DownloadProgressItem::DownloadError,
         ]);
         let result =
-            consume_download_progress(stream, Duration::from_millis(200), "deadbeef").await;
+            consume_download_progress(stream, Duration::from_millis(200), "deadbeef", &|_| {})
+                .await;
         assert!(matches!(result, Err(SnatchError::DownloadFailed(_))));
     }
 

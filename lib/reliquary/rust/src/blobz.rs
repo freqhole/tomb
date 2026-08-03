@@ -292,6 +292,30 @@ pub trait BlobStore: Send + Sync {
         parent_blake3: &str,
         blob_type: BlobType,
     ) -> Result<Option<BlobRecord>, BlobStoreError>;
+
+    /// record that `canvas_doc_id` currently has a widget referencing
+    /// `blake3` - lets a widget-delete cleanup check whether purging the
+    /// blob's local bytes would break another widget still using it,
+    /// without iterating every canvas. idempotent: re-adding an existing
+    /// ref is a no-op, not an error.
+    async fn add_canvas_ref(&self, blake3: &str, canvas_doc_id: &str)
+        -> Result<(), BlobStoreError>;
+
+    /// remove a single canvas/blob reference (e.g. the widget was deleted,
+    /// or its blobId changed). removing a ref that doesn't exist is a
+    /// no-op.
+    async fn remove_canvas_ref(
+        &self,
+        blake3: &str,
+        canvas_doc_id: &str,
+    ) -> Result<(), BlobStoreError>;
+
+    /// every canvas doc id currently referencing `blake3`.
+    async fn canvas_refs_for_blob(&self, blake3: &str) -> Result<Vec<String>, BlobStoreError>;
+
+    /// remove every ref row for `canvas_doc_id` (e.g. the whole canvas was
+    /// deleted) - bulk cleanup, not per-blob.
+    async fn remove_all_canvas_refs(&self, canvas_doc_id: &str) -> Result<(), BlobStoreError>;
 }
 
 /// the sqlite-backed `BlobStore` impl, against reliquary's own `reliquary.db`.
@@ -1033,6 +1057,54 @@ impl BlobStore for SqliteBlobStore {
         .await?;
 
         Ok(row.map(Into::into))
+    }
+
+    async fn add_canvas_ref(
+        &self,
+        blake3: &str,
+        canvas_doc_id: &str,
+    ) -> Result<(), BlobStoreError> {
+        sqlx::query(
+            r#"INSERT INTO blobz_canvas_refs (blake3, canvas_doc_id, created_at)
+               VALUES (?1, ?2, ?3)
+               ON CONFLICT (blake3, canvas_doc_id) DO NOTHING"#,
+        )
+        .bind(blake3)
+        .bind(canvas_doc_id)
+        .bind(now_secs())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn remove_canvas_ref(
+        &self,
+        blake3: &str,
+        canvas_doc_id: &str,
+    ) -> Result<(), BlobStoreError> {
+        sqlx::query("DELETE FROM blobz_canvas_refs WHERE blake3 = ?1 AND canvas_doc_id = ?2")
+            .bind(blake3)
+            .bind(canvas_doc_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn canvas_refs_for_blob(&self, blake3: &str) -> Result<Vec<String>, BlobStoreError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT canvas_doc_id FROM blobz_canvas_refs WHERE blake3 = ?1")
+                .bind(blake3)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    async fn remove_all_canvas_refs(&self, canvas_doc_id: &str) -> Result<(), BlobStoreError> {
+        sqlx::query("DELETE FROM blobz_canvas_refs WHERE canvas_doc_id = ?1")
+            .bind(canvas_doc_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
@@ -1949,6 +2021,89 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn canvas_refs_track_and_remove_individually() {
+        let (store, _pool, _tmp) = make_store().await;
+        let blob = store
+            .insert(b"canvas ref test bytes", NewBlobMeta::default())
+            .await
+            .unwrap();
+
+        assert!(store
+            .canvas_refs_for_blob(&blob.blake3)
+            .await
+            .unwrap()
+            .is_empty());
+
+        store
+            .add_canvas_ref(&blob.blake3, "canvas-a")
+            .await
+            .unwrap();
+        store
+            .add_canvas_ref(&blob.blake3, "canvas-b")
+            .await
+            .unwrap();
+        // re-adding an existing ref is a no-op, not an error.
+        store
+            .add_canvas_ref(&blob.blake3, "canvas-a")
+            .await
+            .unwrap();
+
+        let mut refs = store.canvas_refs_for_blob(&blob.blake3).await.unwrap();
+        refs.sort();
+        assert_eq!(refs, vec!["canvas-a".to_string(), "canvas-b".to_string()]);
+
+        store
+            .remove_canvas_ref(&blob.blake3, "canvas-a")
+            .await
+            .unwrap();
+        assert_eq!(
+            store.canvas_refs_for_blob(&blob.blake3).await.unwrap(),
+            vec!["canvas-b".to_string()]
+        );
+
+        // removing a ref that doesn't exist is a no-op.
+        store
+            .remove_canvas_ref(&blob.blake3, "canvas-a")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn remove_all_canvas_refs_clears_every_blob_for_that_canvas() {
+        let (store, _pool, _tmp) = make_store().await;
+        let a = store
+            .insert(b"ref bulk a", NewBlobMeta::default())
+            .await
+            .unwrap();
+        let b = store
+            .insert(b"ref bulk b", NewBlobMeta::default())
+            .await
+            .unwrap();
+
+        store.add_canvas_ref(&a.blake3, "canvas-x").await.unwrap();
+        store.add_canvas_ref(&b.blake3, "canvas-x").await.unwrap();
+        store.add_canvas_ref(&a.blake3, "canvas-y").await.unwrap();
+
+        store.remove_all_canvas_refs("canvas-x").await.unwrap();
+
+        assert!(store
+            .canvas_refs_for_blob(&a.blake3)
+            .await
+            .unwrap()
+            .contains(&"canvas-y".to_string()));
+        assert!(!store
+            .canvas_refs_for_blob(&a.blake3)
+            .await
+            .unwrap()
+            .contains(&"canvas-x".to_string()));
+        assert!(store
+            .canvas_refs_for_blob(&b.blake3)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

@@ -1,8 +1,9 @@
-//! subprocess-based pdf/video thumbnailing (feature `thumbnails`).
+//! subprocess-based pdf/video/audio thumbnailing (feature `thumbnails`).
 //!
 //! dispatches thumbnail generation to external tools: `magick` (imagemagick)
-//! for pdf first-page rasterization, and `ffprobe`/`ffmpeg` for video frame
-//! extraction. image thumbnails reuse [`crate::media::resize_to_square_webp`]
+//! for pdf first-page rasterization, `ffprobe`/`ffmpeg` for video frame
+//! extraction, and `ffmpeg`'s `showwavespic` filter for audio waveform
+//! images. image thumbnails reuse [`crate::media::resize_to_square_webp`]
 //! and need no external binary. all tools must be on `PATH`.
 
 use std::path::Path;
@@ -41,6 +42,8 @@ pub async fn generate_thumbnail(
         Ok(Some(thumbnail_pdf(blob_path, size).await?))
     } else if mime.starts_with("video/") {
         Ok(Some(thumbnail_video(blob_path, size).await?))
+    } else if mime.starts_with("audio/") {
+        Ok(Some(thumbnail_audio(blob_path, size).await?))
     } else {
         Ok(None)
     }
@@ -201,6 +204,62 @@ async fn thumbnail_video(path: &Path, size: u32) -> Result<ThumbnailBytes, Thumb
     })
 }
 
+// ---------------------------------------------------------------------------
+// audio (waveform image via ffmpeg showwavespic)
+// ---------------------------------------------------------------------------
+
+async fn thumbnail_audio(path: &Path, size: u32) -> Result<ThumbnailBytes, ThumbnailError> {
+    let work_dir = std::env::temp_dir().join(format!("reliquary_athumb_{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&work_dir).await?;
+
+    let output_path = work_dir.join("waveform.png");
+    // a 4:1 aspect ratio (matching tomb's charnel waveform renderer) reads
+    // better as a scrubber/preview strip than a square image would.
+    let width = size * 4;
+    let height = size;
+    let filter = format!(
+        "color=black:s={width}x{height}[bg];[0:a]showwavespic=s={width}x{height}:colors=0xff00ff[fg];[bg][fg]overlay=format=auto"
+    );
+
+    let ffmpeg_out = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(path)
+        .args(["-filter_complex", &filter, "-frames:v", "1", "-y"])
+        .arg(&output_path)
+        .output()
+        .await;
+
+    let ffmpeg_out = match ffmpeg_out {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
+            return Err(ThumbnailError::Tool(
+                "ffmpeg not found - install ffmpeg".to_string(),
+            ));
+        }
+        Err(e) => {
+            let _ = tokio::fs::remove_dir_all(&work_dir).await;
+            return Err(ThumbnailError::Io(e));
+        }
+    };
+
+    if !ffmpeg_out.status.success() {
+        let stderr = String::from_utf8_lossy(&ffmpeg_out.stderr).to_string();
+        tracing::warn!(stderr = %stderr, "ffmpeg waveform thumbnail failed");
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        return Err(ThumbnailError::Tool(format!("ffmpeg failed: {stderr}")));
+    }
+
+    let png_bytes = tokio::fs::read(&output_path).await;
+    let _ = tokio::fs::remove_dir_all(&work_dir).await;
+    let png_bytes = png_bytes?;
+
+    Ok(ThumbnailBytes {
+        data: png_bytes,
+        mime: "image/png",
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +381,38 @@ mod tests {
             .await
             .expect("generate_thumbnail")
             .expect("video mime should produce a thumbnail");
+        assert_eq!(thumb.mime, "image/png");
+        assert_eq!(&thumb.data[1..4], b"PNG");
+    }
+
+    #[tokio::test]
+    async fn audio_mime_produces_a_png_thumbnail_via_ffmpeg() {
+        if !tool_on_path("ffmpeg") {
+            eprintln!("skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let audio_path = tmp.path().join("tone.wav");
+
+        // synthesize a tiny 1-second test tone - no real audio needed.
+        let gen = tokio::process::Command::new("ffmpeg")
+            .args(["-f", "lavfi", "-i", "sine=frequency=1000:duration=1"])
+            .arg("-y")
+            .arg(&audio_path)
+            .output()
+            .await
+            .expect("run ffmpeg to build test audio fixture");
+        assert!(
+            gen.status.success(),
+            "failed to build test audio fixture: {}",
+            String::from_utf8_lossy(&gen.stderr)
+        );
+
+        let thumb = generate_thumbnail(&audio_path, "audio/wav", 32)
+            .await
+            .expect("generate_thumbnail")
+            .expect("audio mime should produce a thumbnail");
         assert_eq!(thumb.mime, "image/png");
         assert_eq!(&thumb.data[1..4], b"PNG");
     }

@@ -5,12 +5,17 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  addCanvasRef,
+  clearCanvasRefs,
   clearRecords,
   deleteRecord,
+  getCanvasRefs,
   getRecord,
   getRecordByBlake3,
   getRecordBySha256,
   putRecord,
+  removeAllCanvasRefsForCanvas,
+  removeCanvasRef,
 } from "./db.js";
 import type { BlobRecord } from "./types.js";
 
@@ -111,6 +116,45 @@ describe("db name isolation", () => {
     await putRecord("db-one", makeRecord());
     expect(await getRecord("db-two", "blake3-aaa")).toBeNull();
     expect(await getRecord("db-one", "blake3-aaa")).not.toBeNull();
+  });
+});
+
+describe("canvas ref index", () => {
+  it("tracks refs per blob and de-dupes re-adding the same ref", async () => {
+    await addCanvasRef(DB_NAME, "blob-a", "canvas-1");
+    await addCanvasRef(DB_NAME, "blob-a", "canvas-2");
+    await addCanvasRef(DB_NAME, "blob-a", "canvas-1");
+
+    const refs = (await getCanvasRefs(DB_NAME, "blob-a")).sort();
+    expect(refs).toEqual(["canvas-1", "canvas-2"]);
+  });
+
+  it("removeCanvasRef removes only the targeted ref", async () => {
+    await addCanvasRef(DB_NAME, "blob-b", "canvas-1");
+    await addCanvasRef(DB_NAME, "blob-b", "canvas-2");
+    await removeCanvasRef(DB_NAME, "blob-b", "canvas-1");
+    expect(await getCanvasRefs(DB_NAME, "blob-b")).toEqual(["canvas-2"]);
+  });
+
+  it("removeCanvasRef on a ref that never existed is a no-op", async () => {
+    await expect(removeCanvasRef(DB_NAME, "blob-c", "canvas-1")).resolves.toBeUndefined();
+  });
+
+  it("removeAllCanvasRefsForCanvas clears that canvas's refs across every blob", async () => {
+    await addCanvasRef(DB_NAME, "blob-d", "canvas-x");
+    await addCanvasRef(DB_NAME, "blob-e", "canvas-x");
+    await addCanvasRef(DB_NAME, "blob-d", "canvas-y");
+
+    await removeAllCanvasRefsForCanvas(DB_NAME, "canvas-x");
+
+    expect(await getCanvasRefs(DB_NAME, "blob-d")).toEqual(["canvas-y"]);
+    expect(await getCanvasRefs(DB_NAME, "blob-e")).toEqual([]);
+  });
+
+  it("clearCanvasRefs empties the whole ref index", async () => {
+    await addCanvasRef(DB_NAME, "blob-f", "canvas-1");
+    await clearCanvasRefs(DB_NAME);
+    expect(await getCanvasRefs(DB_NAME, "blob-f")).toEqual([]);
   });
 });
 
