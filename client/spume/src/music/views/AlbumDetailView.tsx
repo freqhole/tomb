@@ -15,7 +15,15 @@ import { Rating } from "../../components/ratings/Rating";
 import { SongRow } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { canUpdateAlbum } from "../data/permissions";
-import { showAlbumEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
+import {
+  showAlbumEditor,
+  formatImageCarouselTitle,
+  beginImageCarouselLoading,
+  endImageCarouselLoading,
+  openImageCarouselFromResolvers,
+  useImageCarouselLoading,
+  type ImageResolveResult,
+} from "../hooks/modals";
 import { useAlbumQuery, useAlbumSongsQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -31,7 +39,11 @@ import { EntityLinks } from "../../components/media/EntityLinks";
 import { TaxonChipList } from "../../components/badges/TaxonChips";
 import MarqueeText from "../../components/text/MarqueeText";
 import { LoadingState } from "../../components/feedback/LoadingBar";
-import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import type { SendPayload } from "../services/send/sendToRemote";
@@ -45,6 +57,10 @@ export function AlbumDetailView() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // true while the artwork click is still resolving image urls for the
+  // carousel — shows a spinner instead of the carousel icon.
+  const imageCarouselLoading = useImageCarouselLoading();
 
   // fetch album entity to get favorite status and metadata
   const albumQuery = useAlbumQuery(() => params.id);
@@ -119,6 +135,14 @@ export function AlbumDetailView() {
   const buildSendPayload = (): SendPayload => {
     const songList = songs();
     const info = albumInfo();
+    // album-level images (same source as edit modal / image carousel),
+    // falling back to the denormalized copy on the first song. without
+    // this, no images get associated with the album on the dest — only
+    // each song's own embedded artwork gets uploaded, making it look like
+    // "the album has no cover but every song does."
+    const albumImages = albumQuery.data?.images?.length
+      ? albumQuery.data.images
+      : (songList[0]?.album_images ?? []);
     return {
       kind: "album",
       albumId: info?.album_id ?? params.id,
@@ -132,6 +156,7 @@ export function AlbumDetailView() {
           ?.filter((t) => t.kind_slug === "genre")
           .map((t) => t.label)
           .filter(Boolean) ?? [],
+      images: albumImages,
       songs: songList as unknown as RemoteSong[],
     };
   };
@@ -248,6 +273,8 @@ export function AlbumDetailView() {
 
   // open image carousel with all album + song images (no waveforms)
   const handleAlbumImageClick = async () => {
+    beginImageCarouselLoading();
+
     const seen = new Set<string>();
     const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
 
@@ -283,7 +310,10 @@ export function AlbumDetailView() {
       }
     }
 
-    if (imageItems.length === 0) return;
+    if (imageItems.length === 0) {
+      endImageCarouselLoading();
+      return;
+    }
 
     // check if we need blob resolution (P2P or tauri-managed)
     const firstWithServerId = imageItems.find((item) => item.serverId);
@@ -291,34 +321,27 @@ export function AlbumDetailView() {
       ? await usesBlobResolver(firstWithServerId.serverId!)
       : false;
 
-    let imageUrls: string[];
-    if (needsResolution) {
-      // resolve all images via blobResolver
-      imageUrls = (
-        await Promise.all(
-          imageItems.map(async (item) => {
-            if (item.blobId && item.serverId) {
-              try {
-                return await resolveBlobUrl(item.blobId, item.serverId, "image");
-              } catch {
-                return item.url ?? null;
-              }
-            }
-            return item.url ?? null;
-          })
-        )
-      ).filter((u): u is string => u !== null);
-    } else {
-      // standard HTTP - use URLs directly
-      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
-    }
+    // resolve each item independently so the carousel can open as soon
+    // as the first image lands instead of waiting on every image.
+    const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
+      if (needsResolution && item.blobId && item.serverId) {
+        try {
+          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          return { url };
+        } catch {
+          return item.url ? { url: item.url } : null;
+        }
+      }
+      // plain http remote (or no server id at all): a small server-
+      // generated thumbnail variant is cheap here, unlike the p2p/tauri
+      // blob-resolver path above which doesn't support sized variants yet.
+      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+    };
 
-    if (imageUrls.length === 0) return;
-
-    showImageCarousel({
-      images: imageUrls,
-      title: formatImageCarouselTitle(albumInfo()?.title, imageUrls.length),
-    });
+    await openImageCarouselFromResolvers(
+      imageItems.map((item) => () => resolveOne(item)),
+      { title: formatImageCarouselTitle(albumInfo()?.title), entityLabel: albumInfo()?.title }
+    );
   };
 
   // context menu for song rows
@@ -577,12 +600,30 @@ export function AlbumDetailView() {
                       class="w-full h-full object-cover"
                       domainType="album"
                     />
-                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <Icon
-                        name={IconNames.carousel}
-                        size={32}
-                        className="text-white drop-shadow-lg"
-                      />
+                    <div
+                      class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center"
+                      classList={{
+                        "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                          !imageCarouselLoading(),
+                        "bg-black/30 opacity-100": imageCarouselLoading(),
+                      }}
+                    >
+                      <Show
+                        when={!imageCarouselLoading()}
+                        fallback={
+                          <Icon
+                            name={IconNames.loader}
+                            size={32}
+                            className="text-white drop-shadow-lg animate-spin"
+                          />
+                        }
+                      >
+                        <Icon
+                          name={IconNames.carousel}
+                          size={32}
+                          className="text-white drop-shadow-lg"
+                        />
+                      </Show>
                     </div>
                   </div>
                 </ContextMenu>

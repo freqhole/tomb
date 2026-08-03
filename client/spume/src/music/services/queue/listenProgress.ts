@@ -221,6 +221,7 @@ export function reconnectProgressTracking(): void {
       server_session_id: entry.server_session_id,
       server_remote_id: entry.server_remote_id,
       label: entry.label,
+      type: entry.type,
       entity_id: entry.entity_id,
       songs_completed: entry.songs_completed,
       songs: entry.songs,

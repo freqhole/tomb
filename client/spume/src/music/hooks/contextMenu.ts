@@ -20,6 +20,7 @@ import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
 import type { Song } from "../data/types";
+import type { ImageMetadata } from "../services/storage/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import {
   useToggleFavoriteMutation,
@@ -766,6 +767,8 @@ export interface PlaylistContextMenuData {
   song_count?: number;
   /** owner id for permission checks */
   created_by_id?: string | null;
+  /** playlist-level images, used to populate share payloads. */
+  images?: ImageMetadata[];
 }
 
 export function usePlaylistContextMenu(
@@ -864,6 +867,7 @@ export function usePlaylistContextMenu(
           playlistId: playlist.id,
           title: playlist.title,
           description: null,
+          images: playlist.images ?? [],
           songs: response.items as unknown as RemoteSong[],
         };
       },

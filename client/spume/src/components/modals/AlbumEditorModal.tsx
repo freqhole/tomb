@@ -873,6 +873,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       title="edit album"
       size="xl"
       elevated={props.disableNestedModals}
+      disableBackdropClose
     >
       {/* review-mode header strip (phase 14.7) */}
       <Show when={reviewMode()}>

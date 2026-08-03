@@ -32,6 +32,7 @@ import {
   radioStatus,
   tuneIntoRadio,
 } from "../../app/services/radio/radioService";
+import { openRadioImageCarousel } from "../../app/services/radio/radioImageCarousel";
 import {
   createPendingRemote,
   deletePendingRemoteByPeerAddr,
@@ -41,7 +42,7 @@ import { createRemote, getAllRemotes } from "../../app/services/remotes/remoteMa
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug } from "../../utils/logger";
 import { RadioHistoryList } from "./RadioHistoryList";
-import { showShareModal, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
+import { showShareModal } from "../hooks/modals";
 import { addRadioStationHistoryEntry } from "../services/queue/queueHistory";
 import { type Remote, isHttpRemote, isP2PRemote } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../services/storage/types";
@@ -51,7 +52,7 @@ import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTo
 
 export function RadioView() {
   const MIN_HISTORY_SCROLL_HEIGHT = 220;
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // peer addrs passed via ?node_id=... or ?node_id=a&node_id=b
@@ -133,12 +134,60 @@ export function RadioView() {
     stations().length > 0 ||
     (lastNonEmptyStations.length > 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS);
 
+  const stationKey = (s: DiscoveredStation) => `${s.source.kind}:${s.source.id}:${s.station_id}`;
+
+  const nowPlayingEqual = (
+    a: DiscoveredStation["now_playing"],
+    b: DiscoveredStation["now_playing"]
+  ) =>
+    a.song_id === b.song_id &&
+    a.title === b.title &&
+    a.artist === b.artist &&
+    a.album === b.album &&
+    a.art_blob_id === b.art_blob_id &&
+    a.art_thumb_b64 === b.art_thumb_b64 &&
+    a.art_thumb_mime === b.art_thumb_mime &&
+    a.duration_ms === b.duration_ms;
+
+  const stationsEqual = (a: DiscoveredStation, b: DiscoveredStation) =>
+    a.name === b.name &&
+    a.description === b.description &&
+    a.listener_count === b.listener_count &&
+    a.is_default === b.is_default &&
+    a.is_public === b.is_public &&
+    a.source.label === b.source.label &&
+    a.source.peer_addr === b.source.peer_addr &&
+    a.source.base_url === b.source.base_url &&
+    nowPlayingEqual(a.now_playing, b.now_playing);
+
+  // discovery sweeps produce brand-new object references every time even
+  // when nothing actually changed, which would make solid's <For> treat
+  // every row (and every group — see groupLabels below) as removed +
+  // re-added on every poll tick or manual refresh click, visibly
+  // flashing the whole view. reuse the previous reference for any
+  // station whose rendered fields are unchanged so <For> only re-renders
+  // what actually moved.
+  const stabilizeStations = (
+    prev: DiscoveredStation[],
+    next: DiscoveredStation[]
+  ): DiscoveredStation[] => {
+    const prevByKey = new Map(prev.map((s) => [stationKey(s), s]));
+    return next.map((s) => {
+      const old = prevByKey.get(stationKey(s));
+      return old && stationsEqual(old, s) ? old : s;
+    });
+  };
+
+  const setStationsStable = (next: DiscoveredStation[]) => {
+    setStations((prev) => stabilizeStations(prev, next));
+  };
+
   const applyDiscoveredStations = (next: DiscoveredStation[]) => {
     if (next.length > 0) {
       emptyDiscoveryStreak = 0;
       lastNonEmptyAtMs = Date.now();
       lastNonEmptyStations = next;
-      setStations(next);
+      setStationsStable(next);
       return;
     }
 
@@ -148,17 +197,17 @@ export function RadioView() {
       if (emptyDiscoveryStreak < 3) return;
       // if we had good results recently, keep showing the previous list.
       if (Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
-        setStations(lastNonEmptyStations);
+        setStationsStable(lastNonEmptyStations);
         return;
       }
     }
 
     if (stations().length === 0 && Date.now() - lastNonEmptyAtMs < STATION_STALE_GRACE_MS) {
-      setStations(lastNonEmptyStations);
+      setStationsStable(lastNonEmptyStations);
       return;
     }
 
-    setStations(next);
+    setStationsStable(next);
   };
 
   const refetch = async (opts: { forceProbeAll?: boolean } = {}) => {
@@ -300,15 +349,21 @@ export function RadioView() {
     onCleanup(() => window.removeEventListener("resize", onResize));
   });
 
-  const grouped = createMemo(() => {
+  // grouped as a Map (memoized) + a separate primitive-string key array —
+  // <For> reconciles primitives by value, so keying the outer iteration
+  // on label strings (rather than freshly-allocated [label, stations]
+  // tuples) keeps unchanged group sections mounted across every
+  // discovery refresh instead of remounting the entire station list.
+  const groupedMap = createMemo(() => {
     const map = new Map<string, DiscoveredStation[]>();
     for (const s of stations()) {
       const key = s.source.label;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(s);
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return map;
   });
+  const groupLabels = createMemo(() => [...groupedMap().keys()].sort((a, b) => a.localeCompare(b)));
 
   const remoteForSource = (source: SourceRef): Remote | null => {
     if (source.kind === "self") {
@@ -434,8 +489,8 @@ export function RadioView() {
     return !sameStation;
   });
 
-  // no autoplay: shared links can prefill discovery filters, but tuning
-  // always requires explicit user action.
+  // no autoplay: shared/deep-linked stations select for preview only —
+  // tuning always requires explicit user action (the "listen" button).
   const [attemptedSharedTune, setAttemptedSharedTune] = createSignal(false);
   createEffect(() => {
     const stationId = queryStationId();
@@ -450,10 +505,18 @@ export function RadioView() {
       return expectedSources.has(sourceId);
     });
 
+    setAttemptedSharedTune(true);
     if (match) {
-      setAttemptedSharedTune(true);
-      debug("radio-view", "shared station discovered (no auto-tune):", match.station_id);
+      debug(
+        "radio-view",
+        "deep-linked station discovered, selecting for preview:",
+        match.station_id
+      );
+      handleSelectStation(match);
     }
+    // the params have done their job (register pending remote + locate
+    // the station) — drop them so a refresh/back doesn't re-trigger this.
+    setSearchParams({ node_id: undefined, station_id: undefined, station_name: undefined });
   });
 
   const isCurrent = (s: DiscoveredStation) => {
@@ -637,28 +700,32 @@ export function RadioView() {
             </div>
           }
         >
-          <For each={grouped()}>
-            {([label, stns]) => {
-              const src = stns[0]?.source;
-              const isTransient = src && (src.kind === "pending" || src.kind === "query_param");
+          <For each={groupLabels()}>
+            {(label) => {
+              const stns = createMemo(() => groupedMap().get(label) ?? []);
+              const src = createMemo(() => stns()[0]?.source);
+              const isTransient = createMemo(() => {
+                const s = src();
+                return !!s && (s.kind === "pending" || s.kind === "query_param");
+              });
               return (
                 <section class="mb-4">
                   <div class="flex items-center justify-between px-2 mb-1">
                     <h2 class="text-[11px] uppercase tracking-wide text-neutral-500 truncate">
                       {label}
                     </h2>
-                    <Show when={isTransient && src}>
+                    <Show when={isTransient() && src()}>
                       <button
                         class="text-[10px] px-1.5 py-0.5 rounded border border-neutral-700 hover:border-neutral-500"
-                        onClick={() => promoteToRemote(src!, label)}
-                        disabled={promoting() === src!.id}
+                        onClick={() => promoteToRemote(src()!, label)}
+                        disabled={promoting() === src()!.id}
                       >
-                        {promoting() === src!.id ? "saving…" : "save"}
+                        {promoting() === src()!.id ? "saving…" : "save"}
                       </button>
                     </Show>
                   </div>
                   <ul>
-                    <For each={stns}>
+                    <For each={stns()}>
                       {(station) => (
                         <li>
                           <ContextMenu actions={stationMenuActions(station)}>
@@ -922,12 +989,7 @@ export function RadioView() {
                       classList={{ "cursor-pointer": !!radioArtUrl() }}
                       disabled={!radioArtUrl()}
                       onClick={() => {
-                        const url = radioArtUrl();
-                        if (!url) return;
-                        showImageCarousel({
-                          images: [url],
-                          title: formatImageCarouselTitle(radioNowPlaying()?.title),
-                        });
+                        void openRadioImageCarousel();
                       }}
                       aria-label="view station artwork"
                     >

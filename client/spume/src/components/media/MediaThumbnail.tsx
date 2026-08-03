@@ -6,6 +6,7 @@ import {
   usesBlobResolver,
   isP2PRemoteSync,
   getCachedP2PBlobUrl,
+  withThumbSuffix,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
 import { isCharnelAvailable } from "../../app/api/client";
@@ -22,24 +23,6 @@ function getThumbnailSizeForDisplay(displaySize: number | undefined): ThumbnailS
   if (displaySize <= 50) return 50;
   if (displaySize <= 200) return 200;
   return undefined; // use original for large displays
-}
-
-/**
- * append `/thumb/{size}` to a remote url, but skip for known external image
- * services (placeholder hosts, unsplash) that don't support our path convention.
- */
-function withThumbSuffix(url: string, size?: ThumbnailSize): string {
-  if (!size) return url;
-  const lower = url.toLowerCase();
-  if (
-    lower.includes("picsum.photos") ||
-    lower.includes("placehold.co") ||
-    lower.includes("placekitten.com") ||
-    lower.includes("images.unsplash.com")
-  ) {
-    return url;
-  }
-  return `${url}/thumb/${size}`;
 }
 
 /**

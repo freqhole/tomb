@@ -37,6 +37,7 @@ use tracing_subscriber_wasm::MakeConsoleWriter;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
 mod radio;
+mod transfers;
 
 /// ALPN protocol identifier (must match grimoire's FREQHOLE_ALPN)
 const FREQHOLE_ALPN: &[u8] = b"freqhole/1";
@@ -658,11 +659,18 @@ fn blob_request_allowed(acl: &BlobAcl, hash: &Hash, peer: Option<&str>) -> bool 
 /// which hash is being requested once a get/get_many request comes in, so
 /// gating happens per-request, keyed by the requester's endpoint id
 /// (recorded from the `ClientConnected` event and looked up by connection id).
-fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
+fn build_gated_blobs_events(
+    acl: BlobAcl,
+    transfers: Option<Rc<transfers::TransferRegistry>>,
+) -> EventSender {
     let mask = EventMask {
         connected: ConnectMode::Intercept,
-        get: RequestMode::Intercept,
-        get_many: RequestMode::Intercept,
+        // InterceptLog (not plain Intercept) so allowed requests also hand
+        // back a `RequestUpdate` stream - that's what lets `transfers`
+        // track outgoing progress for this browser peer, mirroring
+        // reliquary's `gate::build_gated_blobs_events`.
+        get: RequestMode::InterceptLog,
+        get_many: RequestMode::InterceptLog,
         ..EventMask::DEFAULT
     };
     let (tx, mut rx) = EventSender::channel(32, mask);
@@ -672,6 +680,15 @@ fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
         while let Some(msg) = rx.recv().await {
             match msg {
                 ProviderMessage::ClientConnected(msg) => {
+                    // TEMPORARY debug logging: outgoing-transfer tracking below
+                    // requires `peer` to be known, which comes entirely from
+                    // here - if endpoint_id is ever None, this connection's
+                    // transfers are silently untracked (transfer still
+                    // succeeds, just invisible to get_active_transfers()).
+                    debug!(
+                        "blob-transfer-progress: ClientConnected connection_id={} endpoint_id={:?}",
+                        msg.connection_id, msg.endpoint_id
+                    );
                     if let Some(endpoint_id) = msg.endpoint_id {
                         connections
                             .borrow_mut()
@@ -699,7 +716,24 @@ fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
                     } else {
                         Err(AbortReason::Permission)
                     };
+                    let key = (msg.connection_id, msg.request_id);
+                    let update_rx = msg.rx;
                     msg.tx.send(res).await.ok();
+                    // TEMPORARY debug logging: confirms whether track_transfer
+                    // actually gets spawned for this get request.
+                    debug!(
+                        "blob-transfer-progress: get request hash={} allowed={} peer={:?} has_registry={}",
+                        hash, allowed, peer, transfers.is_some()
+                    );
+                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
+                        wasm_bindgen_futures::spawn_local(transfers::track_transfer(
+                            registry,
+                            update_rx,
+                            key,
+                            peer,
+                            hash.to_string(),
+                        ));
+                    }
                 }
                 ProviderMessage::GetManyRequestReceived(msg) => {
                     let peer = connections.borrow().get(&msg.connection_id).cloned();
@@ -716,7 +750,28 @@ fn build_gated_blobs_events(acl: BlobAcl) -> EventSender {
                     } else {
                         Err(AbortReason::Permission)
                     };
+                    // get_many isn't used by any snatch path in this app today
+                    // (single-hash `GetRequest`s only) - still drain the update
+                    // stream when allowed so the bounded channel never backs
+                    // up (see reliquary's `track_transfer` doc comment for
+                    // the same caveat on multi-hash attribution).
+                    let key = (msg.connection_id, msg.request_id);
+                    let update_rx = msg.rx;
                     msg.tx.send(res).await.ok();
+                    // TEMPORARY debug logging - see GetRequestReceived above.
+                    debug!(
+                        "blob-transfer-progress: get_many request allowed={} peer={:?} has_registry={}",
+                        allowed, peer, transfers.is_some()
+                    );
+                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
+                        wasm_bindgen_futures::spawn_local(transfers::track_transfer(
+                            registry,
+                            update_rx,
+                            key,
+                            peer,
+                            String::new(),
+                        ));
+                    }
                 }
                 _ => {}
             }
@@ -756,6 +811,10 @@ pub struct MiddenNode {
     /// a stopgap gate, not the real canvas-ACL integration.
     #[wasm_bindgen(skip)]
     pub blob_acl: BlobAcl,
+    /// this node's own outgoing blob-transfer progress (see `transfers`
+    /// module doc comment) - exposed to JS via `get_active_transfers()`.
+    #[wasm_bindgen(skip)]
+    pub transfers: Rc<transfers::TransferRegistry>,
     /// guards against starting the blob server accept loop more than once
     blob_server_running: RefCell<bool>,
     /// wall-clock ceiling for a single dial in `open_bi` (see DEFAULT_CONNECT_TIMEOUT).
@@ -1153,9 +1212,13 @@ impl MiddenNode {
         .await;
         let blobs_downloader = Downloader::new(&blobs_store, &endpoint);
         let blob_acl: BlobAcl = Rc::new(RefCell::new(HashMap::new()));
+        let transfers = transfers::TransferRegistry::new();
         let blobs_protocol = BlobsProtocol::new(
             &blobs_store,
-            Some(build_gated_blobs_events(blob_acl.clone())),
+            Some(build_gated_blobs_events(
+                blob_acl.clone(),
+                Some(transfers.clone()),
+            )),
         );
 
         // wait for relay connection
@@ -1173,6 +1236,7 @@ impl MiddenNode {
             active_tags,
             protected_hashes,
             blob_acl,
+            transfers,
             blob_server_running: RefCell::new(false),
             connect_timeout: resolve_connect_timeout(connect_timeout_ms),
         })
@@ -1239,6 +1303,22 @@ impl MiddenNode {
             .map_err(|e| JsError::new(&format!("invalid blake3 hash: {}", e)))?;
         self.blob_acl.borrow_mut().remove(&hash);
         Ok(())
+    }
+
+    /// snapshot of this node's own outgoing blob transfers currently in
+    /// flight (this node serving, some other peer snatching) - mirrors
+    /// reliquary's hub-side `TransferRegistry::snapshot`, so loam's
+    /// `p2p/transfer-progress.ts` can show live upload progress for browser
+    /// peers too, not just tauri peers. each entry serializes as
+    /// `{ peerId, blake3, bytesSent, totalSize }`.
+    pub fn get_active_transfers(&self) -> Result<JsValue, JsError> {
+        let snapshot = self.transfers.snapshot();
+        // TEMPORARY debug logging - confirms what the poll actually sees.
+        debug!(
+            "blob-transfer-progress: get_active_transfers() -> {} entries",
+            snapshot.len()
+        );
+        serde_wasm_bindgen::to_value(&snapshot).map_err(to_js_err)
     }
 
     /// open a bidirectional stream to a peer on a specific ALPN.

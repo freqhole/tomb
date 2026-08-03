@@ -503,6 +503,9 @@ export interface FeedItem {
   album_id: string | null;
   artist_id: string | null;
   playlist_id: string | null;
+  // generic entity id for session types with no dedicated FK column
+  // above (genre, shuffle, radio) — see listen_sessionz.entity_id.
+  entity_id: string | null;
   title: string;
   subtitle: string | null;
   images: ImageMetadata[] | null;
@@ -514,8 +517,7 @@ export interface FeedItem {
   target_type: string | null;
   session_id: string | null;
   session_type: string | null;
-  session_status: string | null;
-  progress_percent: number | null;
+  session_status: string | null;  progress_percent: number | null;
   songs_completed: number | null;
   total_songs: number | null;
   // enrichment fields

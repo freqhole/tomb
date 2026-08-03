@@ -63,6 +63,7 @@ import {
   preCacheRemoteTransport,
   resolveBlobUrl,
   usesBlobResolver,
+  withThumbSuffix,
 } from "../music/services/storage/blobResolver";
 import { resolveLocalBlobUrl } from "../music/utils/images";
 import { getClientForRemote } from "./api/client";
@@ -108,10 +109,13 @@ import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
 import {
-  showImageCarousel,
   openAddMusic,
   showShareModal,
   formatImageCarouselTitle,
+  beginImageCarouselLoading,
+  endImageCarouselLoading,
+  openImageCarouselFromResolvers,
+  type ImageResolveResult,
 } from "../music/hooks/modals";
 import {
   appState,
@@ -160,6 +164,7 @@ import {
   tuneIntoRadio,
 } from "./services/radio/radioService";
 import { acknowledgeTimelineUserStart } from "./services/radio/radioQueueAdapter";
+import { openRadioImageCarousel } from "./services/radio/radioImageCarousel";
 import {
   currentRadioStation,
   loadCurrentRadioStation,
@@ -770,6 +775,11 @@ export function AppLayout(props: AppLayoutProps) {
     const song = currentSongData();
     if (!song) return;
 
+    // give immediate feedback on click — the hydration + url-resolution
+    // work below can take a while (network/p2p lookups), and without this
+    // the button just looks unresponsive until everything settles.
+    beginImageCarouselLoading();
+
     type ImageItem = {
       blobId?: string;
       url?: string;
@@ -859,6 +869,9 @@ export function AppLayout(props: AppLayoutProps) {
     }
 
     if (imageItems.length === 0) {
+      // no images found at all — a normal state (many songs simply
+      // have no artwork), not a failure, so clear the spinner silently.
+      endImageCarouselLoading();
       return;
     }
 
@@ -868,70 +881,50 @@ export function AppLayout(props: AppLayoutProps) {
       ? await usesBlobResolver(firstWithServerId.serverId!)
       : false;
 
-    let imageUrls: string[];
-    if (needsResolution) {
-      // resolve all images via blobResolver, with local-OPFS fallback
-      // when the image has no remote blob id (purely local image).
-      imageUrls = (
-        await Promise.all(
-          imageItems.map(async (item) => {
-            if (item.blobId && item.serverId) {
-              try {
-                return await resolveBlobUrl(item.blobId, item.serverId, "image");
-              } catch {
-                // fall through to other paths below
-              }
-            }
-            if (item.localBlobId) {
-              try {
-                return await resolveLocalBlobUrl(item.localBlobId);
-              } catch {
-                /* ignore */
-              }
-            }
-            return item.url ?? null;
-          })
-        )
-      ).filter((u): u is string => !!u);
-    } else {
-      // mixed http remote + local: prefer remote_url, fall back to
-      // an OPFS-resolved object url for local-only images.
-      imageUrls = (
-        await Promise.all(
-          imageItems.map(async (item) => {
-            if (item.url) return item.url;
-            if (item.localBlobId) {
-              try {
-                return await resolveLocalBlobUrl(item.localBlobId);
-              } catch {
-                /* ignore */
-              }
-            }
-            return null;
-          })
-        )
-      ).filter((u): u is string => !!u);
-    }
+    // resolve each item's url independently so the carousel can open as
+    // soon as the first one lands, instead of waiting on every image.
+    const resolveOne = async (item: ImageItem): Promise<ImageResolveResult> => {
+      if (needsResolution) {
+        if (item.blobId && item.serverId) {
+          try {
+            const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+            return { url };
+          } catch {
+            // fall through to other paths below
+          }
+        }
+        if (item.localBlobId) {
+          try {
+            const url = await resolveLocalBlobUrl(item.localBlobId);
+            return url ? { url } : null;
+          } catch {
+            /* ignore */
+          }
+        }
+        return item.url ? { url: item.url } : null;
+      }
+      // mixed http remote + local: prefer remote_url (a small server-
+      // generated thumbnail variant is cheap here since it's a plain
+      // http remote), fall back to an OPFS-resolved object url for
+      // local-only images.
+      if (item.url) {
+        return { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) };
+      }
+      if (item.localBlobId) {
+        try {
+          const url = await resolveLocalBlobUrl(item.localBlobId);
+          return url ? { url } : null;
+        } catch {
+          /* ignore */
+        }
+      }
+      return null;
+    };
 
-    if (imageUrls.length === 0) {
-      return;
-    }
-
-    // final url-level dedup: distinct blob ids can resolve to the same
-    // URL (e.g. tauri convertFileSrc returning the same OPFS path for
-    // the canonical and a derived image record). drop dupes so the
-    // carousel doesn't show identical slides.
-    const seenUrl = new Set<string>();
-    imageUrls = imageUrls.filter((u) => {
-      if (seenUrl.has(u)) return false;
-      seenUrl.add(u);
-      return true;
-    });
-
-    showImageCarousel({
-      images: imageUrls,
-      title: formatImageCarouselTitle(song.title, imageUrls.length),
-    });
+    await openImageCarouselFromResolvers(
+      imageItems.map((item) => () => resolveOne(item)),
+      { title: formatImageCarouselTitle(song.title), entityLabel: song.title }
+    );
   };
 
   const handleQueueToggle = async () => {
@@ -1630,16 +1623,11 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onImageClick = () => {
             if (isRadio()) {
-              const artUrl = radioArtUrl();
-              if (!artUrl) {
+              if (!radioArtUrl()) {
                 navigate("/radio");
                 return;
               }
-              const np = radioNowPlaying();
-              showImageCarousel({
-                images: [artUrl],
-                title: formatImageCarouselTitle(np?.title),
-              });
+              void openRadioImageCarousel();
               return;
             }
             handlePlayerImageClick();

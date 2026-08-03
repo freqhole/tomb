@@ -18,6 +18,15 @@ export type ReadableStreamType = "bytes";
  * the send and recv halves use RefCell<Option<...>> so that async read
  * and write operations can proceed concurrently (safe because WASM is
  * single-threaded).
+ *
+ * also holds the parent `Connection` handle, purely to keep the QUIC
+ * connection alive for as long as this stream is alive: iroh/quinn tears
+ * a connection down once its last `Connection` handle is dropped, and
+ * neither `accept()` nor `open_bi()` keep any other handle around after
+ * handing a `BiStream` to JS. without this field, the connection was
+ * dropped (and the peer's in-flight read failed with "connection lost")
+ * the moment `accept()`/`open_bi()` returned - often before a response
+ * written moments later on the same stream even finished flushing.
  */
 export class BiStream {
     private constructor();
@@ -416,6 +425,15 @@ export class MiddenNode {
      * peer_addr can be plain node_id or full endpoint JSON with relay/IP hints
      */
     fetch_hello_image(peer_addr: string): Promise<HelloImageResult>;
+    /**
+     * snapshot of this node's own outgoing blob transfers currently in
+     * flight (this node serving, some other peer snatching) - mirrors
+     * reliquary's hub-side `TransferRegistry::snapshot`, so loam's
+     * `p2p/transfer-progress.ts` can show live upload progress for browser
+     * peers too, not just tauri peers. each entry serializes as
+     * `{ peerId, blake3, bytesSent, totalSize }`.
+     */
+    get_active_transfers(): any;
     /**
      * check whether a blob with the given blake3 hash is currently held in the store
      * via an active TempTag. avoids expensive OPFS read + bao recomputation when the

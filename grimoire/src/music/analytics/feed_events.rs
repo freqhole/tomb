@@ -826,6 +826,7 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
     let album_id = session.album_id;
     let artist_id = session.artist_id;
     let playlist_id = session.playlist_id;
+    let entity_id = session.entity_id;
     let session_type = Some(session.session_type);
     let session_status = Some(session.status);
     let progress_percent = Some(session.progress_percent);
@@ -843,8 +844,8 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
             created_by_user_id, created_by_username,
             title, subtitle, artist_name,
             session_type, session_status, progress_percent, songs_completed, total_songs,
-            total_duration_ms, song_ids, images, collage_images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            total_duration_ms, song_ids, images, collage_images, entity_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (session_id) WHERE feed_type = 'session' AND session_id IS NOT NULL
         DO UPDATE SET
             title = excluded.title,
@@ -858,6 +859,7 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
             song_ids = excluded.song_ids,
             images = excluded.images,
             collage_images = excluded.collage_images,
+            entity_id = excluded.entity_id,
             updated_at = unixepoch()
         RETURNING id
         "#,
@@ -879,7 +881,8 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
         total_duration_ms,
         song_ids,
         images,
-        collage_images
+        collage_images,
+        entity_id
     )
     .fetch_one(&pool)
     .await;
@@ -1400,7 +1403,7 @@ pub async fn create_image_feed_event(
                     album_title: d.album_title,
                     year: None,
                     song_count: Some(1),
-                    total_duration_ms: d.duration.map(|d| d * 1000), // duration is in seconds, convert to ms
+                    total_duration_ms: d.duration, // songz.duration is already stored in ms
                     genres_json: d.genres_json,
                 },
                 _ => return GrimoireResponse::failure("song not found", vec![]),
@@ -1414,7 +1417,7 @@ pub async fn create_image_feed_event(
                     CAST(SUBSTR((SELECT t.label FROM album_taxonz at3 JOIN taxonz t ON t.id = at3.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id WHERE at3.album_id = a.id AND k.slug = 'release_date' AND t.deleted_at IS NULL ORDER BY at3.created_at ASC LIMIT 1), 1, 4) AS INTEGER) as "year?: i64",
                     (SELECT art.name FROM artist_albumz aa JOIN artistz art ON art.id = aa.artist_id WHERE aa.album_id = a.id LIMIT 1) as "artist_name?: String",
                     (SELECT COUNT(*) FROM album_songz WHERE album_id = a.id) as "song_count!: i64",
-                    (SELECT COALESCE(SUM(s.duration), 0) * 1000 FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id) as "total_duration_ms!: i64",
+                    (SELECT COALESCE(SUM(s.duration), 0) FROM album_songz als JOIN songz s ON s.id = als.song_id WHERE als.album_id = a.id) as "total_duration_ms!: i64",
                     (SELECT COALESCE(json_group_array(json_object('id', g.id, 'name', g.label)), '[]') FROM album_taxonz ag JOIN taxonz g ON g.id = ag.taxon_id JOIN taxon_kindz k ON k.id = g.kind_id AND k.slug = 'genre' WHERE ag.album_id = a.id) as "genres_json!: String"
                 FROM albumz a WHERE a.id = ?
                 "#,
@@ -1481,7 +1484,7 @@ pub async fn create_image_feed_event(
                     title, 
                     description,
                     (SELECT COUNT(*) FROM playlist_songz WHERE playlist_id = playlistz.id) as "song_count!: i64",
-                    (SELECT COALESCE(SUM(s.duration), 0) * 1000 FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = playlistz.id) as "total_duration_ms!: i64"
+                    (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = playlistz.id) as "total_duration_ms!: i64"
                 FROM playlistz WHERE id = ?
                 "#,
                 entity_id

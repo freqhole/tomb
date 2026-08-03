@@ -22,6 +22,7 @@ import {
   showArtistEditor,
   showImageCarousel,
   showSongEditor,
+  type CarouselSlide,
 } from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
 import {
@@ -35,7 +36,11 @@ import { activeHistoryEntryId } from "../services/queue/listenProgress";
 import { addToQueue, playQueue, resumeHistoryEntry } from "../services/queue/queue";
 import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
 import { resumeServerSession } from "../services/queue/serverSession";
-import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../services/storage/blobResolver";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { routes } from "../utils/routing";
 
@@ -160,6 +165,12 @@ export function FeedView() {
     }
 
     if (item.feed_type === "listen_session" && item.session_id) {
+      // radio sessions have no queue to resume — link to the station
+      // instead of trying to replay it.
+      if (item.session_type === "radio" && item.entity_id) {
+        navigate(routes.radioStation(item.entity_id, remote?.peer_addr));
+        return;
+      }
       // own sessions resume, other users' sessions start over
       const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       if (isOwnSession) {
@@ -263,6 +274,7 @@ export function FeedView() {
         if (remote) {
           await resumeServerSession(session.id, { progress: session.songs_completed }, remote, {
             label: session.label,
+            sessionType: session.session_type,
             entityId: session.entity_id ?? undefined,
           });
 
@@ -389,6 +401,7 @@ export function FeedView() {
           : false;
 
         let urls: string[];
+        let slides: CarouselSlide[];
         if (needsResolution) {
           // resolve all image URLs via blobResolver
           urls = await Promise.all(
@@ -404,18 +417,31 @@ export function FeedView() {
             })
           );
           urls = urls.filter((u) => u); // remove empty strings
+          slides = urls.map((url) => ({ url }));
         } else {
-          // standard HTTP - use remote_url directly
+          // standard HTTP - use remote_url directly, with a cheap small
+          // thumbnail variant for the strip (p2p/tauri-managed remotes
+          // above don't support sized variants yet, hence no thumbnailUrl
+          // in that branch).
           urls = displayableImages.filter((img) => img.remote_url).map((img) => img.remote_url!);
+          slides = urls.map((url) => ({ url, thumbnailUrl: withThumbSuffix(url, 200) }));
         }
 
         if (urls.length > 0) {
           showImageCarousel({
-            images: urls,
+            images: slides,
             title: item.title ?? undefined,
           });
           return;
         }
+
+        // there were candidate images but every one of them failed to
+        // resolve to a usable url — a genuine failure, worth a toast
+        // (as opposed to the item simply having no images at all).
+        toast.error(
+          item.title ? `couldn't load images for ${item.title}` : "couldn't load images",
+          { title: "image carousel" }
+        );
       }
     }
   };
@@ -521,6 +547,44 @@ export function FeedView() {
       const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
       const isCompleted =
         item.session_status === "completed" || (item.progress_percent ?? 0) >= 100;
+
+      // radio sessions have no queue to resume — link to the station instead.
+      if (item.session_type === "radio" && item.entity_id) {
+        actions.push({
+          label: "go to station",
+          icon: IconNames.headphones,
+          onClick: () => navigate(routes.radioStation(item.entity_id!, remote?.peer_addr)),
+        });
+        if ((isOwnSession || isAdmin()) && item.session_id) {
+          actions.push({ type: "separator" });
+          actions.push({
+            label: isOwnSession ? "delete session" : "delete feed item",
+            icon: IconNames.delete,
+            onClick: async () => {
+              try {
+                const dataSource = getDataSource();
+                if (isOwnSession && dataSource.deleteListenSession) {
+                  await dataSource.deleteListenSession(item.session_id!);
+                } else if (isAdmin() && dataSource.deleteFeedEvent) {
+                  await dataSource.deleteFeedEvent(item.id);
+                } else {
+                  toast.error("cannot delete");
+                  return;
+                }
+                toast.info(isOwnSession ? "session deleted" : "feed item deleted");
+                void queryClient.invalidateQueries({
+                  queryKey: queryKeys.analytics.all(),
+                });
+              } catch {
+                toast.error(
+                  isOwnSession ? "failed to delete session" : "failed to delete feed item"
+                );
+              }
+            },
+          });
+        }
+        return actions;
+      }
 
       if (isOwnSession && !isCompleted) {
         actions.push({

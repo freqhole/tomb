@@ -15,7 +15,7 @@ import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { activeHistoryEntryId, resumeTracking, startTracking, stopTracking } from "./listenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
-import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, reconnectServerSession } from "./serverSession";
+import { createServerSession, stopServerSession, updateServerSessionSongs, activeServerSessionId, activeSessionMatchesSource, reconnectServerSession } from "./serverSession";
 import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
@@ -186,10 +186,17 @@ export async function playQueue(
   const shouldReplace =
     options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
   if (shouldReplace) {
-    // tear down prior tracking + server session before swapping queues so
-    // we don't end up with two listen sessions racing on the same songs.
+    // reuse the existing session (same entity + type already playing, e.g.
+    // skipping to another song within the same album/playlist/shuffle) so
+    // we don't mint a duplicate listen session + feed event.
+    const reuseSession = !!options?.source && activeSessionMatchesSource(options.source);
+
+    // tear down prior tracking before swapping queues; only tear down the
+    // server session when it's for a different entity than what's reused.
     stopTracking(true);
-    void stopServerSession("abandoned");
+    if (!reuseSession) {
+      void stopServerSession("abandoned");
+    }
     clearAllQueueProgress();
     clearPendingUpNext();
 
@@ -211,7 +218,11 @@ export async function playQueue(
         }
       }
       if (!options?.skipServerSession) {
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        if (reuseSession) {
+          void updateServerSessionSongs(finalSongs, entryId ?? undefined);
+        } else {
+          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        }
       }
     }
     return;
@@ -753,6 +764,7 @@ export async function resumeHistoryEntry(
       server_session_id: entry.server_session_id,
       server_remote_id: entry.server_remote_id,
       label: entry.label,
+      type: entry.type,
       entity_id: entry.entity_id,
       songs_completed: entry.songs_completed || 0,
       songs: entry.songs,

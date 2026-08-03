@@ -71,6 +71,7 @@ import {
   isAnyModalOpen,
   showImageCarousel,
   formatImageCarouselTitle,
+  type CarouselSlide,
 } from "../../../music/hooks/modals";
 import { getArtistAbbreviation } from "../../../music/utils/format";
 import type { ImageMetadata } from "../../../music/services/storage/types";
@@ -2062,29 +2063,71 @@ function Inner(props: {
   };
 
   const openAlbumCarousel = async (album: AlbumNodeData) => {
+    const hadCandidate = !!(album.image || album.imageUrl);
     const remoteId = album.sourceRemoteId ?? remoteForNode(album)?.remote_id ?? null;
     const urls = await buildImageUrls(album.image, album.imageUrl, remoteId);
-    if (urls.length === 0) return;
-    showImageCarousel({ images: urls, title: formatImageCarouselTitle(album.title, urls.length) });
+    if (urls.length === 0) {
+      // only toast when we actually had an image to try and resolving
+      // it failed — an album with no artwork at all isn't a failure.
+      if (hadCandidate) {
+        toast.error(`couldn't load image for ${album.title}`, { title: "image carousel" });
+      }
+      return;
+    }
+    showImageCarousel({
+      images: urls.map((url): CarouselSlide => ({ url })),
+      title: formatImageCarouselTitle(album.title, urls.length),
+    });
   };
 
   const openArtistCarousel = async (artist: ArtistNodeData) => {
-    const urls: string[] = [];
     const queryData = artistQuery.data;
     const matches = queryData && queryData.artist_id === artist.artistId;
-    if (matches && queryData.images?.length) {
-      for (const img of queryData.images) {
-        if (img.blob_type !== "original") continue;
-        const more = await buildImageUrls(img, null, null);
-        for (const u of more) if (!urls.includes(u)) urls.push(u);
+    const originalImages =
+      matches && queryData.images?.length
+        ? queryData.images.filter((img) => img.blob_type === "original")
+        : [];
+
+    // resolve every candidate image in parallel instead of one at a
+    // time — a sequential await-per-image loop here made the graph's
+    // artist popover visibly slower to open the more images an artist
+    // had.
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    const addAll = (more: string[]) => {
+      for (const u of more) {
+        if (seen.has(u)) continue;
+        seen.add(u);
+        urls.push(u);
+      }
+    };
+
+    if (originalImages.length > 0) {
+      const results = await Promise.allSettled(
+        originalImages.map((img) => buildImageUrls(img, null, null))
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") addAll(r.value);
       }
     }
+
+    const hadCandidate = originalImages.length > 0 || !!(artist.image || artist.imageUrl);
+
     if (urls.length === 0) {
       const more = await buildImageUrls(artist.image, artist.imageUrl, null);
-      for (const u of more) if (!urls.includes(u)) urls.push(u);
+      addAll(more);
     }
-    if (urls.length === 0) return;
-    showImageCarousel({ images: urls, title: formatImageCarouselTitle(artist.name, urls.length) });
+
+    if (urls.length === 0) {
+      if (hadCandidate) {
+        toast.error(`couldn't load images for ${artist.name}`, { title: "image carousel" });
+      }
+      return;
+    }
+    showImageCarousel({
+      images: urls.map((url): CarouselSlide => ({ url })),
+      title: formatImageCarouselTitle(artist.name, urls.length),
+    });
   };
 
   // ---- cross-remote lazy loading -------------------------------------

@@ -19,7 +19,14 @@ import { getDataSource } from "../data";
 import { getCurrentRemote } from "../data";
 import { artistNodeId } from "../../components/graph/data/nodeIds";
 import { RemoteOfflineError } from "../data";
-import { showArtistEditor, showImageCarousel, formatImageCarouselTitle } from "../hooks/modals";
+import {
+  showArtistEditor,
+  formatImageCarouselTitle,
+  beginImageCarouselLoading,
+  endImageCarouselLoading,
+  openImageCarouselFromResolvers,
+  type ImageResolveResult,
+} from "../hooks/modals";
 import { useArtistSongsQuery, useArtistsQuery, useArtistQuery } from "../queries/songs";
 import { useSetRatingMutation } from "../queries/ratings";
 import { useToggleFavoriteMutation } from "../queries/favorites";
@@ -30,7 +37,11 @@ import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
-import { resolveBlobUrl, usesBlobResolver } from "../services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
   onAddMusic: () => void;
@@ -513,6 +524,8 @@ export function ArtistsView(props: ArtistsViewProps) {
     const artist = selectedArtist();
     if (!artist) return;
 
+    beginImageCarouselLoading();
+
     const songs = artistSongs();
     const seenKeys = new Set<string>();
     const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
@@ -546,6 +559,7 @@ export function ArtistsView(props: ArtistsViewProps) {
 
     if (imageItems.length === 0) {
       warn("no images found for artist");
+      endImageCarouselLoading();
       return;
     }
 
@@ -555,37 +569,27 @@ export function ArtistsView(props: ArtistsViewProps) {
       ? await usesBlobResolver(firstWithServerId.serverId!)
       : false;
 
-    let imageUrls: string[];
-    if (needsResolution) {
-      // resolve all images via blobResolver
-      imageUrls = (
-        await Promise.all(
-          imageItems.map(async (item) => {
-            if (item.blobId && item.serverId) {
-              try {
-                return await resolveBlobUrl(item.blobId, item.serverId, "image");
-              } catch {
-                return item.url ?? null;
-              }
-            }
-            return item.url ?? null;
-          })
-        )
-      ).filter((u): u is string => u !== null);
-    } else {
-      // standard HTTP - use URLs directly
-      imageUrls = imageItems.map((item) => item.url).filter((u): u is string => !!u);
-    }
+    // resolve each item independently so the carousel can open as soon
+    // as the first image lands instead of waiting on every image.
+    const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
+      if (needsResolution && item.blobId && item.serverId) {
+        try {
+          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          return { url };
+        } catch {
+          return item.url ? { url: item.url } : null;
+        }
+      }
+      // plain http remote (or no server id at all): a small server-
+      // generated thumbnail variant is cheap here, unlike the p2p/tauri
+      // blob-resolver path above which doesn't support sized variants yet.
+      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+    };
 
-    if (imageUrls.length === 0) {
-      warn("no resolvable images found for artist");
-      return;
-    }
-
-    showImageCarousel({
-      images: imageUrls,
-      title: formatImageCarouselTitle(artist.name, imageUrls.length),
-    });
+    await openImageCarouselFromResolvers(
+      imageItems.map((item) => () => resolveOne(item)),
+      { title: formatImageCarouselTitle(artist.name), entityLabel: artist.name }
+    );
   };
 
   // genre detail view was removed in the taxonomy refactor; chip clicks

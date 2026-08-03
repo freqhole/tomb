@@ -97,6 +97,16 @@ export const routes = {
   library: () => "/explore", // backcompat alias - points to explore
   remotes: () => buildRoute("/remotes"),
   favorites: () => buildRoute("/favorites"),
+
+  // radio is a global (not context-aware) view; a station is selected
+  // for preview via query params rather than a path segment. nodeId
+  // (the hosting remote's peer addr) narrows the match when known.
+  radio: () => "/radio",
+  radioStation: (stationId: string, nodeId?: string | null) => {
+    const params = new URLSearchParams({ station_id: stationId });
+    if (nodeId) params.set("node_id", nodeId);
+    return `/radio?${params.toString()}`;
+  },
 };
 
 /**

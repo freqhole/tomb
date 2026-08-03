@@ -25,6 +25,8 @@ interface RemoteSession {
   remoteId: string;
   // the original label from the source context (preserved when updating songs)
   label: string;
+  // source.type this session was created for (album/artist/genre/playlist/shuffle/song)
+  sessionType: string;
   // entity_id if this session is for a named entity (album, playlist, etc.)
   entityId?: string;
   // indices into the *full queue* that belong to this remote
@@ -95,6 +97,21 @@ function updatePrimarySessionId(): void {
   setActiveServerSessionId(first.done ? null : first.value.sessionId);
 }
 
+// check whether the currently active session(s) already cover the given
+// source (same entity, same session type). used to avoid tearing down and
+// recreating a listen session — which mints a new session id and thus a new
+// duplicate feed event — when the user is just skipping around within the
+// same album/artist/playlist/genre/shuffle they're already listening to.
+export function activeSessionMatchesSource(source: QueueSourceContext): boolean {
+  if (remoteSessions.size === 0 || !source.entity_id) return false;
+  for (const session of remoteSessions.values()) {
+    if (session.entityId !== source.entity_id || session.sessionType !== source.type) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // --- public API ---
 
 // create server-side listen sessions when playQueue/addToQueue is called.
@@ -147,6 +164,7 @@ export async function createServerSessions(
             sessionId: result.data.id,
             remoteId,
             label: source.label,
+            sessionType: source.type,
             entityId: source.entity_id,
             songIndices: group.indices,
             progress: 0,
@@ -290,9 +308,15 @@ async function sendProgress(session: RemoteSession): Promise<void> {
 }
 
 // update the song list of all active server sessions.
-// called when songs are added to or removed from the queue.
-// re-groups the new queue by remote and updates each session.
-export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
+// called when songs are added to or removed from the queue, or when an
+// existing session is being reused for a replayed/reshuffled queue instead
+// of being torn down and recreated. if historyEntryId is given, relinks the
+// (possibly new) local history entry to the reused session for reconnection
+// after a page reload.
+export async function updateServerSessionSongs(
+  songs: Song[],
+  historyEntryId?: string,
+): Promise<void> {
   if (remoteSessions.size === 0) return;
 
   const groups = groupSongsByRemote(songs);
@@ -353,6 +377,9 @@ export async function updateServerSessionSongs(songs: Song[]): Promise<void> {
                   total_duration_ms: totalDurationMs,
                 },
               );
+              if (historyEntryId) {
+                void updateHistoryServerSession(historyEntryId, session.sessionId, remoteId);
+              }
             }
           } catch (error) {
             errorLog(
@@ -419,6 +446,7 @@ export async function resumeServerSession(
   remote: RemoteRef,
   sessionContext?: {
     label: string;
+    sessionType?: string;
     entityId?: string;
   },
   historyEntryId?: string,
@@ -447,6 +475,7 @@ export async function resumeServerSession(
     sessionId,
     remoteId,
     label: sessionContext?.label ?? "",
+    sessionType: sessionContext?.sessionType ?? "",
     entityId: sessionContext?.entityId,
     songIndices,
     progress: resumeState.progress,
@@ -504,6 +533,7 @@ export async function reconnectServerSession(
     server_session_id?: string;
     server_remote_id?: string;
     label: string;
+    type?: string;
     entity_id?: string;
     songs_completed: number;
     songs: Song[];
@@ -526,6 +556,7 @@ export async function reconnectServerSession(
     remote,
     {
       label: historyEntry.label,
+      sessionType: historyEntry.type,
       entityId: historyEntry.entity_id,
     },
     historyEntry.id,

@@ -26,6 +26,7 @@ import { JobPoller } from "../../app/services/jobs/jobService";
 import type { PreCheckFetchResponse, PendingReviewSession } from "@freqhole/api-client";
 import { ImportPendingReviewCard } from "../import/ImportPendingReviewCard";
 import { debug } from "../../utils/logger";
+import { toast } from "../feedback/Toast";
 
 // ---------------------------------------------------------------------------
 // module-level precheck state so it survives the modal being closed/reopened
@@ -112,6 +113,35 @@ export function AddMusicModal(props: AddMusicModalProps) {
     },
     { initialValue: [] }
   );
+
+  // session_id of a bulk "mark reviewed" currently in flight, if any
+  const [markingSessionReviewed, setMarkingSessionReviewed] = createSignal<string | null>(null);
+
+  const handleMarkSessionReviewed = async (session: PendingReviewSession) => {
+    const remote = getCurrentRemote();
+    if (!remote) return;
+    setMarkingSessionReviewed(session.session_id);
+    try {
+      const client = await getClientForRemote(remote);
+      for (const album of session.albums) {
+        const resp = await client.music.markAlbumReviewed({
+          album_id: album.album_id,
+          session_id: session.session_id,
+        });
+        if (!resp.success) {
+          toast.error(
+            `mark reviewed failed: ${resp.error?.issues?.[0]?.message ?? "unknown error"}`
+          );
+          return;
+        }
+      }
+      void refetchPendingSessions();
+    } catch (err) {
+      toast.error(`mark reviewed failed: ${(err as Error).message}`);
+    } finally {
+      setMarkingSessionReviewed(null);
+    }
+  };
 
   // aliases to module-level signals so the rest of the component reads normally
   const urlPrecheckState = _urlPrecheckState;
@@ -804,13 +834,24 @@ export function AddMusicModal(props: AddMusicModalProps) {
                                     </Show>
                                   </div>
                                 </div>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  onClick={() => props.onReviewSession?.(session.session_id)}
-                                >
-                                  review
-                                </Button>
+                                <div class="flex flex-col items-end gap-1.5 shrink-0">
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => props.onReviewSession?.(session.session_id)}
+                                  >
+                                    review
+                                  </Button>
+                                  <button
+                                    onClick={() => void handleMarkSessionReviewed(session)}
+                                    disabled={markingSessionReviewed() === session.session_id}
+                                    class="px-3 py-1.5 text-xs rounded-md bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                  >
+                                    {markingSessionReviewed() === session.session_id
+                                      ? "marking..."
+                                      : "mark reviewed"}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           )}

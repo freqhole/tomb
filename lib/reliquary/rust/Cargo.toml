@@ -43,6 +43,7 @@ time = { workspace = true }
 blake3 = { workspace = true }
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
+irpc = { workspace = true }
 async-trait = { workspace = true }
 getrandom = { workspace = true }
 base64 = "0.22"

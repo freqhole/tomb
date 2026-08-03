@@ -78,8 +78,11 @@ pub struct FeedItem {
     pub target_type: Option<String>,
     /// listen session id (for listen session feed items)
     pub session_id: Option<String>,
-    /// session type (song, album, artist, genre, playlist, shuffle)
+    /// session type (song, album, artist, genre, playlist, shuffle, radio)
     pub session_type: Option<String>,
+    /// id of the entity being played (album/artist/playlist/genre/shuffle
+    /// seed/radio station id). only set for listen_session feed items.
+    pub entity_id: Option<String>,
     /// session status (active, paused, completed, abandoned)
     pub session_status: Option<String>,
     /// progress percentage (0-100, for listen sessions)
@@ -245,7 +248,8 @@ pub async fn get_combined_feed(
                 (SELECT ar.created_at FROM artistz ar WHERE ar.id = fe.artist_id),
                 fe.created_at
             ) as entity_created_at,
-            fe.collage_images
+            fe.collage_images,
+            fe.entity_id
         FROM feed_eventz fe
         WHERE 1=1
         "#,
@@ -340,6 +344,7 @@ struct RawFeedRow {
     is_initial_add: i32,
     entity_created_at: Option<i64>,
     collage_images: Option<String>,
+    entity_id: Option<String>,
 }
 
 impl RawFeedRow {
@@ -403,6 +408,7 @@ impl RawFeedRow {
             is_initial_add: self.is_initial_add != 0,
             collage_images,
             entity_created_at: self.entity_created_at,
+            entity_id: self.entity_id,
         }
     }
 }
