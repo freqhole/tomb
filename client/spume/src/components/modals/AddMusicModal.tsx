@@ -834,10 +834,14 @@ export function AddMusicModal(props: AddMusicModalProps) {
                                     </Show>
                                   </div>
                                 </div>
-                                <div class="flex flex-col items-end gap-1.5 shrink-0">
+                                {/* extra gap (vs a plain gap-1.5) puts real distance
+                                    between the two buttons so a mis-tap on mobile
+                                    doesn't land on the wrong one - not stretched to
+                                    the card's full height, which would crowd the
+                                    next card's review button instead */}
+                                <div class="flex flex-col items-end gap-6 shrink-0">
                                   <Button
-                                    variant="secondary"
-                                    size="sm"
+                                    variant="primary"
                                     onClick={() => props.onReviewSession?.(session.session_id)}
                                   >
                                     review
@@ -845,7 +849,7 @@ export function AddMusicModal(props: AddMusicModalProps) {
                                   <button
                                     onClick={() => void handleMarkSessionReviewed(session)}
                                     disabled={markingSessionReviewed() === session.session_id}
-                                    class="px-3 py-1.5 text-xs rounded-md bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
+                                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30 transition-colors disabled:opacity-50"
                                   >
                                     {markingSessionReviewed() === session.session_id
                                       ? "marking..."
