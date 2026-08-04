@@ -170,6 +170,7 @@ async function syncSongViaLocalGrimoire(
   }
 
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
 
     // pull image bytes from source transport and inline as base64. without

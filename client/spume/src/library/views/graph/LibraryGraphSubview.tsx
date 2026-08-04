@@ -35,6 +35,7 @@ import { useTopNavSlots } from "../../../app/shell/topNavSlots";
 import { deriveArtistNodes } from "./deriveArtistNodes";
 import { RemoteAlbumsLoader } from "./graphSubview/RemoteAlbumsLoader";
 import { LocalAlbumsLoader, LOCAL_GRAPH_REMOTE_ID } from "./graphSubview/LocalAlbumsLoader";
+import { localTaxonomyClient } from "../../../music/services/local-api/localTaxonomyClient";
 import {
   getLocalLibraryName,
   getGraphPrefs,
@@ -653,8 +654,6 @@ function Inner(props: {
   // sources.
   const loadTaxonKindsForLocal = async (): Promise<void> => {
     try {
-      const { localTaxonomyClient } =
-        await import("../../../music/services/local-api/localTaxonomyClient");
       const result = await localTaxonomyClient.music.listTaxonKinds();
       if (!result.success || !result.data) return;
       const remoteId = LOCAL_GRAPH_REMOTE_ID;

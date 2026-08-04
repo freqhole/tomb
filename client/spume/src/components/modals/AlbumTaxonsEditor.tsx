@@ -38,7 +38,7 @@ import { Icon, IconNames } from "../icons/registry";
 import { toast } from "../feedback/Toast";
 import type { TaxonRef } from "../../music/data/types";
 
-interface KindOption extends TaxonKindOption {}
+type KindOption = TaxonKindOption;
 
 interface AlbumTaxonLink {
   album_id: string;

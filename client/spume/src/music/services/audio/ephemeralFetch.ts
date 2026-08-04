@@ -126,6 +126,7 @@ export async function fetchEphemeralForSong(song: Song): Promise<{
   }
 
   const ext = extensionForSong(song);
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
   const path = await invoke<string>("fetch_ephemeral_blob", {
     peerAddr: remote.peer_addr,
@@ -151,6 +152,7 @@ export async function deleteEphemeral(entry: EphemeralEntry): Promise<void> {
   // doesn't lie about offline-availability while the rust delete runs.
   unmarkEphemeralOnDisk(entry.blake3);
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("delete_ephemeral_blob", {
       blake3: entry.blake3,
@@ -174,6 +176,7 @@ export async function purgeEphemeralAll(): Promise<void> {
   // the next playback will re-mark each song as it gets re-fetched.
   clearEphemeralOnDisk();
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const deleted = await invoke<number>("purge_ephemeral_dir");
     if (deleted > 0) {
@@ -197,6 +200,7 @@ export async function reconcileEphemeralWithQueue(
 ): Promise<void> {
   const keep = Array.from(new Set<string>(keepBlake3s));
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const result = await invoke<EphemeralReconcileResult>(
       "reconcile_ephemeral_dir",
@@ -220,6 +224,7 @@ export async function reconcileEphemeralWithQueue(
 /// startup before the queue has loaded).
 export async function refreshEphemeralOnDiskFromDisk(): Promise<void> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const files = await invoke<EphemeralFileInfo[]>("list_ephemeral_blobs");
     setEphemeralOnDiskBlake3s(files.map((f) => f.blake3));

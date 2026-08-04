@@ -52,6 +52,7 @@ let cachedRodioEnabled = false;
 export async function initRodioPreference(): Promise<boolean> {
   if (isCharnelMode()) {
     try {
+      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
       const { invoke } = await import("@tauri-apps/api/core");
       const enabled = await invoke<boolean>("get_rodio_playback");
       cachedRodioEnabled = !!enabled;

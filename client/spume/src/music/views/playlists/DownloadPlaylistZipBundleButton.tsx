@@ -23,6 +23,7 @@ export async function downloadPlaylistZipWithToast(playlist: Playlist, songs: So
         action: {
           label: "open folder",
           onClick: async () => {
+            // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
             const { invoke } = await import("@tauri-apps/api/core");
             await invoke("open_path_in_folder", { path: filePath }).catch((e: unknown) =>
               console.error("open_path_in_folder failed:", e)

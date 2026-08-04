@@ -22,6 +22,7 @@ const minimalConfig = [
       },
     },
     plugins: {
+      "@typescript-eslint": tseslint,
       solid,
     },
     rules: {
@@ -34,6 +35,10 @@ const minimalConfig = [
             "dynamic imports are not allowed. use static imports at the top of the file instead.",
         },
       ],
+
+      // registered so existing eslint-disable-next-line comments for this
+      // rule resolve.
+      "@typescript-eslint/no-explicit-any": "warn",
 
       // solid reactivity rules (critical for correct behavior)
       "solid/reactivity": "warn",
@@ -90,8 +95,8 @@ const fullConfig = [
         },
       ],
 
-      // allow explicit any for now (can tighten later)
-      "@typescript-eslint/no-explicit-any": "off",
+      // discouraged but not banned outright (can tighten later)
+      "@typescript-eslint/no-explicit-any": "warn",
 
       // prefer const over let when possible
       "prefer-const": "warn",
@@ -124,8 +129,17 @@ const fullConfig = [
       // disallow unnecessary semicolons
       "no-extra-semi": "error",
 
-      // no unused expressions
+      // no unused expressions - warn only, solid's reactivity system relies
+      // on standalone expressions (e.g. `props.foo` reads) as a kludgy way
+      // to register dependencies, so this can't be an error here.
       "no-unused-expressions": [
+        "warn",
+        {
+          allowShortCircuit: true,
+          allowTernary: true,
+        },
+      ],
+      "@typescript-eslint/no-unused-expressions": [
         "warn",
         {
           allowShortCircuit: true,

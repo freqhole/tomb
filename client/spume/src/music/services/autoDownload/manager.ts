@@ -5,6 +5,7 @@
 import { createSignal } from "solid-js";
 import { appState, getSyncQueueToLocal, getAutoDownloadEnabled } from "../../../app/services/storage/db";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
+import { isP2PRemote } from "../storage/blobResolver";
 import {
   isSongSyncedLocally,
   markSongSynced,
@@ -68,8 +69,6 @@ async function isP2PRemoteSong(song: Song): Promise<boolean> {
   if (song.source_type !== "remote" || !song.remote_server_id) {
     return false;
   }
-  // dynamically import to avoid circular dependency
-  const { isP2PRemote } = await import("../storage/blobResolver");
   return isP2PRemote(song.remote_server_id);
 }
 

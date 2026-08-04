@@ -16,6 +16,7 @@ import type { Remote } from "../storage/schemas/remote";
 
 // dynamically import tauri to allow tree-shaking in browser builds
 async function getInvoke() {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke;
 }

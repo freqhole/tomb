@@ -81,6 +81,7 @@ async function ensureConvertFileSrc(): Promise<
   if (convertFileSrc) return convertFileSrc;
   if (!isCharnelAvailable()) return null;
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const tauri = await import("@tauri-apps/api/core");
     convertFileSrc = tauri.convertFileSrc;
     return convertFileSrc;

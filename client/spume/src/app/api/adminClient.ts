@@ -62,6 +62,7 @@ class CharnelAdminTransport implements AdminTransport {
 
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
     try {
+      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
       const { invoke } = await import("@tauri-apps/api/core");
       const raw = await invoke<unknown>("admin_dispatch_remote", {
         peerAddr: this.peerAddr,
@@ -187,6 +188,7 @@ export async function adminLocalRawDispatch<T = unknown>(
  */
 class LocalAdminTransport implements AdminTransport {
   async send(command: string, args: unknown): Promise<AdminResponse<unknown>> {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const raw = await invoke<unknown>("admin_dispatch", {
       command,

@@ -929,10 +929,12 @@ export function App() {
     if (!remote) {
       // local import from file paths: read files via tauri-plugin-fs and import locally
       try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
         const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
           readFile: (path: string) => Promise<Uint8Array>;
           readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
         };
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
         const pathModule = (await import("@tauri-apps/api/path" as any)) as {
           join: (...parts: string[]) => Promise<string>;
         };

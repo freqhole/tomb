@@ -55,6 +55,7 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 let invokeCached: InvokeFn | null = null;
 async function getInvoke(): Promise<InvokeFn> {
   if (invokeCached) return invokeCached;
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const tauri = await import("@tauri-apps/api/core");
   invokeCached = tauri.invoke as InvokeFn;
   return invokeCached;
@@ -84,6 +85,7 @@ export async function tuneRadioCharnel(
     throw new Error("tuneRadioCharnel called outside tauri");
   }
   const invoke = await getInvoke();
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { Channel } = await import("@tauri-apps/api/core");
 
   const events = new Channel<RadioEvent>();
@@ -157,6 +159,7 @@ export async function tuneRadioCharnelLocal(
     throw new Error("tuneRadioCharnelLocal called outside tauri");
   }
   const invoke = await getInvoke();
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { Channel } = await import("@tauri-apps/api/core");
 
   const events = new Channel<RadioEvent>();

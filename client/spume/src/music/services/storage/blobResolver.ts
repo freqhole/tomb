@@ -26,6 +26,9 @@ import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from ".
 import { addToLoadingSet, removeFromLoadingSet, updateLoadingProgress, isSongOnDiskEphemeral } from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
+import { isRodioEnabled } from "../audio/select";
+import { isCharnelMode } from "../../../app/services/charnel/mode";
+import { fetchEphemeralForSong } from "../audio/ephemeralFetch";
 import type { Song } from "./types";
 
 type BlobRemote = RemoteLike & {
@@ -687,27 +690,8 @@ export async function preCacheNextP2PSongs(
   // the html cache-API path is useless: rodio decodes from a fs path
   // and never reads the Cache API. instead, pre-warm the ephemeral
   // dir so the next track is already on disk by the time `loadAndPlay`
-  // calls `fetchEphemeralForSong`. dynamic import avoids a hard
-  // dependency cycle (audio/* imports from storage/*).
-  let useEphemeralPreFetch = false;
-  if (!shouldSync) {
-    try {
-      const { isRodioEnabled } = await import("../audio/select");
-      const { isCharnelMode } = await import("../../../app/services/charnel/mode");
-      useEphemeralPreFetch = isCharnelMode() && isRodioEnabled();
-    } catch {
-      // module missing in non-charnel builds — leave flag false.
-    }
-  }
-  let fetchEphemeralForSong: ((song: Song) => Promise<unknown>) | null = null;
-  if (useEphemeralPreFetch) {
-    try {
-      const mod = await import("../audio/ephemeralFetch");
-      fetchEphemeralForSong = mod.fetchEphemeralForSong;
-    } catch {
-      useEphemeralPreFetch = false;
-    }
-  }
+  // calls `fetchEphemeralForSong`.
+  const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isRodioEnabled();
 
   // find current song index
   const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
@@ -873,7 +857,7 @@ export async function preCacheNextP2PSongs(
         "blobResolver",
         `first song audio is local (charnel-managed): ${firstEntry.sha256.slice(0, 8)}...`
       );
-    } else if (useEphemeralPreFetch && fetchEphemeralForSong && firstEntry.song.blake3) {
+    } else if (useEphemeralPreFetch && firstEntry.song.blake3) {
       // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
       // so the next track is already on disk for `loadAndPlay`. the
       // tauri command is idempotent — already-present files return
@@ -964,7 +948,7 @@ export async function preCacheNextP2PSongs(
       // charnel-managed local remote: audio already on disk, nothing
       // to pre-fetch or pre-cache (waveform + thumbnail still cached
       // below for instant display).
-    } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
+    } else if (useEphemeralPreFetch && entry.song.blake3) {
       // skip the queue entirely if the file is already on disk —
       // no need to re-await the rust round-trip (and no need to
       // light up a spinner that would just immediately turn off).
@@ -1028,13 +1012,12 @@ export async function preCacheNextP2PSongs(
   // process rodio + sync-off pre-fetches sequentially. each call is
   // idempotent on the rust side so re-fires across overlapping
   // pre-cache passes are cheap.
-  if (ephemeralEntries.length > 0 && fetchEphemeralForSong) {
-    const fetchEphemeral = fetchEphemeralForSong;
+  if (ephemeralEntries.length > 0) {
     void (async () => {
       for (const entry of ephemeralEntries) {
         addToLoadingSet(entry.sha256);
         try {
-          await fetchEphemeral(entry.song);
+          await fetchEphemeralForSong(entry.song);
         } catch (err) {
           warn("blobResolver", `p2p ephemeral pre-fetch failed for ${entry.sha256.slice(0, 8)}:`, err);
         } finally {

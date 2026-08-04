@@ -15,6 +15,7 @@
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { debug, warn } from "../../../utils/logger";
+import { initMusicDB } from "../storage/db";
 
 // ===== synced songs tracking =====
 // tracks which sha256s have been synced to local storage (OPFS/IDB or grimoire)
@@ -305,6 +306,7 @@ export function resumeDownloads(): void {
 /** initialize synced sha256s from grimoire (charnel mode) */
 async function initFromGrimoire(): Promise<void> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const response = await invoke("api_call", {
       path: "/api/sync/sha256s",
@@ -325,7 +327,6 @@ async function initFromGrimoire(): Promise<void> {
 /** initialize synced sha256s from IDB (browser mode) */
 async function initFromIDB(): Promise<void> {
   try {
-    const { initMusicDB } = await import("../storage/db");
     const db = await initMusicDB();
     
     const tx = db.transaction("songs", "readonly");
