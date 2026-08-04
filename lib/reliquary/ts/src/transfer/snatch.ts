@@ -366,6 +366,21 @@ export async function pauseSnatchDownload(
 }
 
 /**
+ * pause every in-flight snatch of this blake3 hash, without needing the
+ * `downloadId` the original caller registered (e.g. cleaning up after a
+ * caller - a deleted widget - that no longer has its own download state).
+ * returns false when `node` has no `download_cancel_by_blake3` or nothing
+ * was in flight for this hash.
+ */
+export async function pauseSnatchDownloadByBlake3(
+  node: BlobCapableNode,
+  blake3Hash: string
+): Promise<boolean> {
+  if (!node.download_cancel_by_blake3) return false;
+  return (await node.download_cancel_by_blake3(blake3Hash)) > 0;
+}
+
+/**
  * discard a paused partial: releases the gc pin a paused download left
  * behind so the transport can reclaim it. call when the user cancels for
  * good rather than pausing to resume later. best-effort - failures are

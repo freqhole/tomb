@@ -8,6 +8,7 @@ import { hashBlake3 } from "../worker/index.js";
 import {
   discardPausedDownload,
   pauseSnatchDownload,
+  pauseSnatchDownloadByBlake3,
   snatchBlob,
   snatchBlobToDisk,
 } from "./snatch.js";
@@ -449,6 +450,28 @@ describe("pauseSnatchDownload / discardPausedDownload", () => {
   it("returns false when the node has no download_cancel", async () => {
     const node: BlobCapableNode = { node_id: () => "me" };
     await expect(pauseSnatchDownload(node, "dl-1")).resolves.toBe(false);
+  });
+
+  it("pauseSnatchDownloadByBlake3 pauses via download_cancel_by_blake3 and reports true when at least one was flagged", async () => {
+    const node: BlobCapableNode = {
+      node_id: () => "me",
+      download_cancel_by_blake3: vi.fn(async () => 2),
+    };
+    await expect(pauseSnatchDownloadByBlake3(node, BLAKE3)).resolves.toBe(true);
+    expect(node.download_cancel_by_blake3).toHaveBeenCalledWith(BLAKE3);
+  });
+
+  it("pauseSnatchDownloadByBlake3 returns false when nothing was in flight", async () => {
+    const node: BlobCapableNode = {
+      node_id: () => "me",
+      download_cancel_by_blake3: vi.fn(async () => 0),
+    };
+    await expect(pauseSnatchDownloadByBlake3(node, BLAKE3)).resolves.toBe(false);
+  });
+
+  it("pauseSnatchDownloadByBlake3 returns false when the node has no download_cancel_by_blake3", async () => {
+    const node: BlobCapableNode = { node_id: () => "me" };
+    await expect(pauseSnatchDownloadByBlake3(node, BLAKE3)).resolves.toBe(false);
   });
 
   it("discards a paused download via unprotect_blob, swallowing errors", async () => {

@@ -11,7 +11,8 @@
 import type { BlobRecord } from "./types.js";
 
 const STORE_NAME = "blobs";
-const DB_VERSION = 1;
+const REFS_STORE_NAME = "blob_canvas_refs";
+const DB_VERSION = 2;
 
 function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -24,6 +25,16 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
         store.createIndex("blake3", "blake3", { unique: false });
         store.createIndex("blob_type", "blob_type", { unique: false });
         store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(REFS_STORE_NAME)) {
+        // tracks which canvas documents currently have a widget
+        // referencing a given blob - a widget-delete cleanup can check
+        // this before purging local bytes, instead of scanning every
+        // canvas. composite key so re-adding an existing ref is a no-op
+        // (put with the same key overwrites, add() would throw).
+        const refs = db.createObjectStore(REFS_STORE_NAME, { keyPath: ["blob_id", "canvas_doc_id"] });
+        refs.createIndex("blob_id", "blob_id", { unique: false });
+        refs.createIndex("canvas_doc_id", "canvas_doc_id", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -65,7 +76,8 @@ async function openDb(dbName: string): Promise<IDBDatabase> {
       req.onerror = () => reject(req.error);
     });
     const currentVersion = probe.version;
-    const hasStore = probe.objectStoreNames.contains(STORE_NAME);
+    const hasStore =
+      probe.objectStoreNames.contains(STORE_NAME) && probe.objectStoreNames.contains(REFS_STORE_NAME);
     probe.close();
 
     const targetVersion = hasStore ? currentVersion : currentVersion + 1;
@@ -146,6 +158,99 @@ export async function clearRecords(dbName: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).clear();
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// blob/canvas reference index - which canvas docs currently have a widget
+// referencing a given blob, so a widget-delete cleanup can check this
+// before purging local bytes instead of scanning every canvas.
+// ---------------------------------------------------------------------------
+
+export async function addCanvasRef(dbName: string, blobId: string, canvasDocId: string): Promise<void> {
+  const db = await openDb(dbName);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REFS_STORE_NAME, "readwrite");
+    tx.objectStore(REFS_STORE_NAME).put({ blob_id: blobId, canvas_doc_id: canvasDocId });
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+export async function removeCanvasRef(dbName: string, blobId: string, canvasDocId: string): Promise<void> {
+  const db = await openDb(dbName);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REFS_STORE_NAME, "readwrite");
+    tx.objectStore(REFS_STORE_NAME).delete([blobId, canvasDocId]);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+export async function getCanvasRefs(dbName: string, blobId: string): Promise<string[]> {
+  const db = await openDb(dbName);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REFS_STORE_NAME, "readonly");
+    const req = tx.objectStore(REFS_STORE_NAME).index("blob_id").getAll(blobId);
+    req.onsuccess = () => {
+      const rows = (req.result as { canvas_doc_id: string }[]) ?? [];
+      resolve(rows.map((r) => r.canvas_doc_id));
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+export async function removeAllCanvasRefsForCanvas(dbName: string, canvasDocId: string): Promise<void> {
+  const db = await openDb(dbName);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REFS_STORE_NAME, "readwrite");
+    const store = tx.objectStore(REFS_STORE_NAME);
+    const req = store.index("canvas_doc_id").openCursor(IDBKeyRange.only(canvasDocId));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+export async function clearCanvasRefs(dbName: string): Promise<void> {
+  const db = await openDb(dbName);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(REFS_STORE_NAME, "readwrite");
+    tx.objectStore(REFS_STORE_NAME).clear();
     tx.oncomplete = () => {
       db.close();
       resolve();

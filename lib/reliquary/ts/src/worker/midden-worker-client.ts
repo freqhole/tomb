@@ -332,6 +332,12 @@ export class WorkerMiddenNode {
     return this.api.downloadCancel(downloadId);
   }
 
+  /** pause/cancel every in-flight download for this blake3 hash, without
+   *  needing the per-attempt downloadId. returns how many were flagged. */
+  async download_cancel_by_blake3(blake3Hash: string): Promise<number> {
+    return this.api.downloadCancelByBlake3(blake3Hash);
+  }
+
   /** pin a hash against gc (keep a paused partial alive). */
   async protect_blob(blake3Hash: string): Promise<void> {
     return this.api.protectBlob(blake3Hash);

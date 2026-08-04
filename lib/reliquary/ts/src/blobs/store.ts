@@ -22,12 +22,17 @@
 
 import { hashBlake3, hashSha256, streamFileToOpfs } from "../worker/index.js";
 import {
+  addCanvasRef,
+  clearCanvasRefs,
   clearRecords,
   deleteRecord,
+  getCanvasRefs,
   getRecord,
   getRecordByBlake3,
   getRecordBySha256,
   putRecord,
+  removeAllCanvasRefsForCanvas,
+  removeCanvasRef,
 } from "./db.js";
 import {
   createOpfsBackend,
@@ -92,6 +97,14 @@ export interface BlobStore {
   checkBlobLocality(blobId: string, blake3?: string): Promise<BlobLocalityInfo>;
   deleteBlob(blobId: string): Promise<void>;
   clearAll(): Promise<void>;
+  /** record that `canvasDocId` currently has a widget referencing `blobId`. */
+  addCanvasRef(blobId: string, canvasDocId: string): Promise<void>;
+  /** remove a single canvas/blob reference (widget deleted or reassigned). */
+  removeCanvasRef(blobId: string, canvasDocId: string): Promise<void>;
+  /** every canvas doc id currently referencing `blobId`. */
+  getCanvasRefs(blobId: string): Promise<string[]>;
+  /** remove every ref row for `canvasDocId` (the whole canvas was deleted). */
+  removeAllCanvasRefsForCanvas(canvasDocId: string): Promise<void>;
 }
 
 /** create a blob store instance. each instance owns its own object-url
@@ -317,6 +330,7 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
   async function clearAll(): Promise<void> {
     clearBlobUrlCache();
     await clearRecords(dbName);
+    await clearCanvasRefs(dbName);
     await Promise.all(chain.map((backend) => backend.clear()));
   }
 
@@ -336,6 +350,10 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     checkBlobLocality,
     deleteBlob,
     clearAll,
+    addCanvasRef: (blobId: string, canvasDocId: string) => addCanvasRef(dbName, blobId, canvasDocId),
+    removeCanvasRef: (blobId: string, canvasDocId: string) => removeCanvasRef(dbName, blobId, canvasDocId),
+    getCanvasRefs: (blobId: string) => getCanvasRefs(dbName, blobId),
+    removeAllCanvasRefsForCanvas: (canvasDocId: string) => removeAllCanvasRefsForCanvas(dbName, canvasDocId),
   };
 }
 

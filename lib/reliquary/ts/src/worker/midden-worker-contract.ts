@@ -123,6 +123,11 @@ export interface MiddenWorkerApi {
    *  stays in the store, pinned against gc - a later download of the same
    *  hash resumes from the persisted bitfield. */
   downloadCancel(downloadId: string): Promise<boolean>;
+  /** pause/cancel every in-flight download for this blake3 hash, without
+   *  needing the per-attempt downloadId (e.g. cleaning up after a caller
+   *  that no longer has its own download state). returns how many were
+   *  flagged - 0 means none were in flight. */
+  downloadCancelByBlake3(blake3Hash: string): Promise<number>;
   /** pin a hash against gc (keep a paused partial download alive). */
   protectBlob(blake3Hash: string): Promise<void>;
   /** remove a gc pin added by protectBlob or a cancelled download. */

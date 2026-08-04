@@ -46,6 +46,7 @@ function makeFakeApi(overrides: Partial<MiddenWorkerApi> = {}): MiddenWorkerApi 
     downloadVerifiedByIdProgress: vi.fn(),
     downloadVerifiedStreamingWithEnsure: vi.fn(),
     downloadCancel: vi.fn(),
+    downloadCancelByBlake3: vi.fn(),
     protectBlob: vi.fn(),
     unprotectBlob: vi.fn(),
     computeBlake3: vi.fn(),
