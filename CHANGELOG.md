@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.2.11
+
+### Patch Changes
+
+- 04648d3: stub out local blob CRUD (for skein)
+- f82cc02: try to get the lint errorz cleaned up!
+
 ## 0.2.10
 
 ### Patch Changes
