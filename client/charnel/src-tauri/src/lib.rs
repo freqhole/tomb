@@ -388,6 +388,11 @@ pub fn run() {
 
     setup_tracing();
 
+    // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
+    // logs elapsed ms since process start at each checkpoint in the setup closure
+    // below, to narrow down what's holding up the "loading..." screen.
+    let boot_start = std::time::Instant::now();
+
     let p2p_state = Arc::new(P2pState::new());
 
     let builder = tauri::Builder::default()
@@ -401,7 +406,8 @@ pub fn run() {
     let builder = builder.manage(player_commands::PlayerState::new());
 
     let builder = builder
-        .setup(|app| {
+        .setup(move |app| {
+            tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() entered");
             // ---- deep-link plugin -----------------------------------------
             // register `freqhole://` handler. on_open_url fires for runtime
             // url opens; cold-start urls are drained from the pending queue
@@ -443,6 +449,7 @@ pub fn run() {
 
             // load app config
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
+            tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: app config loaded");
 
             // on mobile, auto-initialize if needed (skip wizard entirely)
             #[cfg(mobile)]
@@ -458,6 +465,7 @@ pub fn run() {
             let needs_setup = !is_setup_complete(app.handle());
             #[cfg(mobile)]
             let needs_setup = false;
+            tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), needs_setup = needs_setup, "boot: setup-complete check done");
 
             // silently upgrade app config if needed (with backup)
             if !needs_setup && app_config::app_config_needs_upgrade(app.handle()) {
@@ -545,12 +553,13 @@ pub fn run() {
                 // initialize grimoire config and run migrations before starting server
                 grimoire::config::init_config(Some(config_path.clone()))
                     .map_err(|e| format!("failed to load config: {}", e))?;
-                tracing::info!("running migrations...");
+                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: grimoire config initialized, starting migrations");
                 tauri::async_runtime::block_on(async {
                     if let Err(e) = grimoire::database::run_migrations().await {
                         tracing::warn!(error = %e, "migration warning");
                     }
                 });
+                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: migrations done");
 
                 // (the embedded http loopback media server used to be
                 // spawned here. it's been removed in favor of the rodio
@@ -661,7 +670,7 @@ pub fn run() {
                 });
 
                 // show main window (spume will call getConfig on startup)
-                tracing::info!("creating main window...");
+                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: creating main window...");
                 let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default());
                 #[cfg(desktop)]
                 let win_builder = win_builder
@@ -674,6 +683,7 @@ pub fn run() {
                 let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
 
                 let window = win_builder.build()?;
+                tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (native window visible from here)");
                 // suppress unused variable warning on non-macOS
                 let _ = &window;
 
@@ -719,6 +729,7 @@ pub fn run() {
                 }
             }
 
+            tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: setup() closure complete");
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())

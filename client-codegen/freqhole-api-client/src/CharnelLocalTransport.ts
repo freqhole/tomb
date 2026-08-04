@@ -94,12 +94,19 @@ export class CharnelLocalTransport implements Transport {
       }
     }
 
+    // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
+    // logs elapsed ms per IPC round-trip so a slow "loading..." screen can be
+    // narrowed down to a specific api call instead of guessing.
+    const requestStart = performance.now();
     try {
       // call dispatch via IPC
       const response = (await inv("api_call", {
         path,
         body: jsonBody,
       })) as ApiResponse;
+      console.info(
+        `[perf] api_call ${path} took ${(performance.now() - requestStart).toFixed(1)}ms`,
+      );
 
       // check for route_not_found - this is now a real error
       const errorType = response.errors?.[0]?.error_type;
@@ -127,6 +134,9 @@ export class CharnelLocalTransport implements Transport {
         };
       }
     } catch (err) {
+      console.info(
+        `[perf] api_call ${path} failed after ${(performance.now() - requestStart).toFixed(1)}ms`,
+      );
       // IPC error - treat as network error
       return {
         status: 0,

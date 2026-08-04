@@ -682,36 +682,52 @@ export function App() {
       setShowLoading(true);
     }, 1000);
 
+    // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
+    // logs elapsed ms per step so the "loading..." screen's actual bottleneck
+    // can be narrowed down instead of guessed at.
+    const bootStart = performance.now();
+    const mark = (label: string) => {
+      console.info(`[perf] boot: ${label} at ${(performance.now() - bootStart).toFixed(1)}ms`);
+    };
+
     try {
       await initAppDB();
+      mark("initAppDB done");
       await initMusicDB();
+      mark("initMusicDB done");
 
       // hydrate the rodio opt-in cache early so the very first
       // `selectBackend()` call observes the user's preference. safe
       // outside tauri (falls back to localStorage / defaults to false).
       await initRodioPreference();
+      mark("initRodioPreference done");
       // hydrate the configurable queue size limit from `[client]`
       // in `freqhole-config.toml`. safe outside tauri (no-op).
       await initQueueSizeLimit();
+      mark("initQueueSizeLimit done");
       // player.ts is loaded eagerly via the import graph and called
       // `selectBackend()` before the cache was hydrated, so the initial
       // activeBackend is always html. swap now to pick up the persisted
       // setting on boot.
       await swapPlayerBackend();
+      mark("swapPlayerBackend done");
 
       // tauri-only: one-shot drain of IDB remotes into shared sqlite table.
       // no-op outside tauri or after first successful drain.
       // see docs/wizard-remote-admin.md.
       await drainIdbRemotesToSqlite();
+      mark("drainIdbRemotesToSqlite done");
 
       // auto-setup remote from tauri bridge (for desktop app)
       // this is fast since it's local IPC
       await autoSetupRemoteFromTauriBridge();
+      mark("autoSetupRemoteFromTauriBridge done");
 
       // for non-tauri, use local source immediately (no blocking remote connection)
       // RemoteContextHandler will handle connecting to remotes when navigating
       if (!isCharnelMode()) {
         await useLocalSource();
+        mark("useLocalSource done");
 
         // web-only: backfill any artist/album/song/playlist images left
         // behind by pre-reliquary local blob storage. idempotent and
@@ -757,11 +773,16 @@ export function App() {
       // initialize cache network handlers (online/offline events)
       initCacheNetworkHandlers();
 
-      // seed reactive cache set from existing metadata
-      await initCachedAudioURLs();
+      // seed reactive cache set from existing metadata (non-blocking - this
+      // is pure UI cache-badge state, validated against Cache Storage across
+      // every remote ever added, and can be slow with a large library. the
+      // reactive store updates in place once this resolves, so cache badges
+      // just pop in a moment after first paint instead of gating it.
+      void initCachedAudioURLs().then(() => mark("initCachedAudioURLs done (background)"));
 
       // initialize download state (synced sha256s from IDB/grimoire)
       await initDownloadState();
+      mark("initDownloadState done");
 
       // register service worker (prod web mode only)
       void registerServiceWorker();
@@ -772,11 +793,13 @@ export function App() {
       // check if we have any remotes configured
       const remotes = await getAllRemotes();
       setHasRemotes(remotes.length > 0);
+      mark("getAllRemotes done");
 
       // check if we have any songs (use local source for quick check)
       const source = getDataSource();
       const result = await source.getSongs({ limit: 1 });
       setHasSongs(result.total > 0);
+      mark("getSongs({limit:1}) done - initializing complete");
 
       // check for pending knock requests across every admin remote.
       // delayed slightly so the auth-status store + p2p transports have a

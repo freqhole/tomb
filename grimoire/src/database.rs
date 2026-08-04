@@ -71,6 +71,10 @@ pub async fn run_migrations() -> GrimoireResult<()> {
 
 /// internal migration runner - shared by initialize() and run_migrations()
 async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
+    // temporary boot-timing instrumentation (see slow-tauri-boot investigation) —
+    // logs elapsed ms per step so a slow boot can be narrowed down without guessing.
+    let step_start = std::time::Instant::now();
+
     // drop all views BEFORE running migrations.
     //
     // why: migrations that rebuild a table (e.g. CREATE _new + DROP old +
@@ -96,16 +100,21 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
         pool.execute(format!("DROP VIEW IF EXISTS \"{}\";", escaped).as_str())
             .await?;
     }
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: dropped existing views");
 
     // run migrations
+    let step_start = std::time::Instant::now();
     sqlx::migrate!("../migrations").run(pool).await?;
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: sqlx migrate! done");
 
     // recreate views in dependency order. each .sql has DROP IF EXISTS +
     // CREATE, so we use Executor::execute on the raw &str which runs all
     // statements in the script (sqlx::query() only runs the first).
+    let step_start = std::time::Instant::now();
     for view in views::ALL {
         pool.execute(view.sql).await?;
     }
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: recreated views");
 
     // create freqhole-blobz directory for iroh-blobs FsStore
     let config = get_config();
@@ -121,7 +130,9 @@ async fn run_migrations_internal(pool: &SqlitePool) -> GrimoireResult<()> {
     // domain library) so its schema is ready at boot, alongside the other
     // pools. grimoire's music-domain blob code reads and writes through it
     // already (the reliquary mirror + read-path fallback in media_blobz).
+    let step_start = std::time::Instant::now();
     let _reliquary_pool = connect_reliquary().await?;
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: reliquary db connected + migrated");
 
     Ok(())
 }
@@ -266,12 +277,15 @@ pub(crate) async fn connect_reliquary() -> GrimoireResult<SqlitePool> {
 
 /// internal: open (and migrate) reliquary's database at its configured path
 async fn create_reliquary_pool() -> GrimoireResult<SqlitePool> {
+    let step_start = std::time::Instant::now();
     let config = get_config();
-    reliquary::db::open_at(&config.reliquary_db_path())
+    let result = reliquary::db::open_at(&config.reliquary_db_path())
         .await
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to open reliquary database: {e}"),
-        })
+        });
+    tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: reliquary::db::open_at done");
+    result
 }
 
 /// the shared iroh-blobs storage node (fs_store + gc-protection), backed by
@@ -280,12 +294,13 @@ async fn create_reliquary_pool() -> GrimoireResult<SqlitePool> {
 pub(crate) async fn storage_node() -> GrimoireResult<&'static reliquary::StorageNode> {
     STORAGE_NODE
         .get_or_try_init(|| async {
+            let step_start = std::time::Instant::now();
             let reliquary_pool = connect_reliquary().await?;
             let config = get_config();
             let blobz: std::sync::Arc<dyn reliquary::blobz::BlobStore> = std::sync::Arc::new(
                 reliquary::blobz::SqliteBlobStore::new(reliquary_pool, &config.data_dir),
             );
-            reliquary::StorageNode::init_local(
+            let result = reliquary::StorageNode::init_local(
                 &config.data_dir,
                 blobz,
                 reliquary::StorageNodeOptions::default(),
@@ -293,7 +308,9 @@ pub(crate) async fn storage_node() -> GrimoireResult<&'static reliquary::Storage
             .await
             .map_err(|e| GrimoireError::ProcessingFailed {
                 message: format!("failed to initialize storage node: {}", e),
-            })
+            });
+            tracing::info!(elapsed_ms = %step_start.elapsed().as_millis(), "boot: StorageNode::init_local done (first call, lazily triggered)");
+            result
         })
         .await
 }
