@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.2.10
+
+### Patch Changes
+
+- 25d90cc: lib/reliquary: wire up in-flight blob transfer cancelz; track canvas <-> blobz;
+
 ## 0.2.9
 
 ### Patch Changes

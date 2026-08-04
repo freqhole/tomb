@@ -1,6 +1,6 @@
 {
     "name": "@freqhole/haruspex",
-    "version": "0.2.9",
+    "version": "0.2.10",
     "private": false,
     "type": "module",
     "description": "freqhole auth domain: identity, webauthn, knock + friendz protocols, permissions",
