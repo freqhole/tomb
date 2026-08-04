@@ -857,7 +857,7 @@ export async function preCacheNextP2PSongs(
         "blobResolver",
         `first song audio is local (charnel-managed): ${firstEntry.sha256.slice(0, 8)}...`
       );
-    } else if (useEphemeralPreFetch && fetchEphemeralForSong && firstEntry.song.blake3) {
+    } else if (useEphemeralPreFetch && firstEntry.song.blake3) {
       // rodio + sync_queue_to_local=off: warm `<fetch_dir>/_ephemeral/`
       // so the next track is already on disk for `loadAndPlay`. the
       // tauri command is idempotent — already-present files return
@@ -948,7 +948,7 @@ export async function preCacheNextP2PSongs(
       // charnel-managed local remote: audio already on disk, nothing
       // to pre-fetch or pre-cache (waveform + thumbnail still cached
       // below for instant display).
-    } else if (useEphemeralPreFetch && fetchEphemeralForSong && entry.song.blake3) {
+    } else if (useEphemeralPreFetch && entry.song.blake3) {
       // skip the queue entirely if the file is already on disk —
       // no need to re-await the rust round-trip (and no need to
       // light up a spinner that would just immediately turn off).
@@ -1012,13 +1012,12 @@ export async function preCacheNextP2PSongs(
   // process rodio + sync-off pre-fetches sequentially. each call is
   // idempotent on the rust side so re-fires across overlapping
   // pre-cache passes are cheap.
-  if (ephemeralEntries.length > 0 && fetchEphemeralForSong) {
-    const fetchEphemeral = fetchEphemeralForSong;
+  if (ephemeralEntries.length > 0) {
     void (async () => {
       for (const entry of ephemeralEntries) {
         addToLoadingSet(entry.sha256);
         try {
-          await fetchEphemeral(entry.song);
+          await fetchEphemeralForSong(entry.song);
         } catch (err) {
           warn("blobResolver", `p2p ephemeral pre-fetch failed for ${entry.sha256.slice(0, 8)}:`, err);
         } finally {
