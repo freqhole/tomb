@@ -46,8 +46,8 @@ pub mod snatch;
 
 #[cfg(feature = "blobz")]
 pub use blobz::{
-    BlobRecord, BlobStore, BlobStoreError, BlobType, NewBlobMeta, SoftDeleteOutcome,
-    SqliteBlobStore, UsageStats,
+    BlobRecord, BlobSortField, BlobStore, BlobStoreError, BlobType, NewBlobMeta, SoftDeleteOutcome,
+    SortDirection, SqliteBlobStore, UsageStats,
 };
 #[cfg(feature = "chunked_import")]
 pub use chunked_import::ChunkedImport;

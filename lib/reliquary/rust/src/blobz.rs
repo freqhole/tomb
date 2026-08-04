@@ -85,6 +85,24 @@ impl BlobType {
     }
 }
 
+/// sort field for `list_filtered` - deliberately a closed enum (not a raw
+/// column name string) so the resulting `ORDER BY` clause is always built
+/// from a fixed, safe set of column names, never user input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlobSortField {
+    #[default]
+    CreatedAt,
+    Size,
+    Filename,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortDirection {
+    #[default]
+    Desc,
+    Asc,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobRecord {
     pub blake3: String,
@@ -258,6 +276,21 @@ pub trait BlobStore: Send + Sync {
     /// paginated, non-soft-deleted, most recent first.
     async fn list(&self, limit: i64, offset: i64)
         -> Result<(Vec<BlobRecord>, u64), BlobStoreError>;
+
+    /// paginated, non-soft-deleted, sortable by `sort`/`direction`, and
+    /// optionally filtered to filenames containing `search` (case-sensitive
+    /// substring, sqlite `LIKE`). returns `(page, total_count, total_size)`
+    /// where the latter two reflect every row matching `search` (not just
+    /// this page) - lets a caller show "N files, X total" without a
+    /// separate round trip. used by the filez widget's local-files tab.
+    async fn list_filtered(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort: BlobSortField,
+        direction: SortDirection,
+        search: Option<&str>,
+    ) -> Result<(Vec<BlobRecord>, u64, u64), BlobStoreError>;
 
     /// paginated soft-deleted rows with total count.
     async fn list_soft_deleted(
@@ -931,6 +964,70 @@ impl BlobStore for SqliteBlobStore {
         Ok((rows.into_iter().map(Into::into).collect(), total))
     }
 
+    async fn list_filtered(
+        &self,
+        limit: i64,
+        offset: i64,
+        sort: BlobSortField,
+        direction: SortDirection,
+        search: Option<&str>,
+    ) -> Result<(Vec<BlobRecord>, u64, u64), BlobStoreError> {
+        let order_col = match sort {
+            BlobSortField::CreatedAt => "created_at",
+            BlobSortField::Size => "size",
+            BlobSortField::Filename => "filename",
+        };
+        let order_dir = match direction {
+            SortDirection::Desc => "DESC",
+            SortDirection::Asc => "ASC",
+        };
+        // `search` is never interpolated into the query string itself (only
+        // bound as a parameter) - `order_col`/`order_dir` are the only
+        // pieces of runtime-built SQL, and both come from the closed enums
+        // above, never from caller-supplied text.
+        let has_search = search.is_some_and(|s| !s.is_empty());
+        let where_clause = if has_search {
+            "WHERE soft_deleted_at IS NULL AND filename LIKE ?"
+        } else {
+            "WHERE soft_deleted_at IS NULL"
+        };
+
+        let count_sql = format!("SELECT COUNT(*) FROM blobz {where_clause}");
+        let size_sql = format!("SELECT COALESCE(SUM(size), 0) FROM blobz {where_clause}");
+        let list_sql = format!(
+            r#"SELECT blake3, iroh_hash, sha256, old_grimoire_id, filename, mime,
+                      size, path, external,
+                      blob_type, parent_blake3, width, height, metadata,
+                      created_at, soft_deleted_at, soft_deleted_by
+               FROM blobz
+               {where_clause}
+               ORDER BY {order_col} {order_dir}
+               LIMIT ? OFFSET ?"#
+        );
+
+        let pattern = search.map(|s| format!("%{s}%"));
+
+        let mut count_query = sqlx::query_scalar::<_, i64>(&count_sql);
+        let mut size_query = sqlx::query_scalar::<_, i64>(&size_sql);
+        let mut list_query = sqlx::query_as::<_, BlobRow>(&list_sql);
+        if let Some(pattern) = &pattern {
+            count_query = count_query.bind(pattern.clone());
+            size_query = size_query.bind(pattern.clone());
+            list_query = list_query.bind(pattern.clone());
+        }
+        list_query = list_query.bind(limit).bind(offset);
+
+        let total_count = count_query.fetch_one(&self.pool).await? as u64;
+        let total_size = size_query.fetch_one(&self.pool).await? as u64;
+        let rows: Vec<BlobRow> = list_query.fetch_all(&self.pool).await?;
+
+        Ok((
+            rows.into_iter().map(Into::into).collect(),
+            total_count,
+            total_size,
+        ))
+    }
+
     async fn list_soft_deleted(
         &self,
         limit: i64,
@@ -1330,6 +1427,64 @@ mod tests {
         let (next, _) = store.list(2, 2).await.unwrap();
         assert_eq!(next.len(), 2);
         assert!(next[0].created_at <= page[1].created_at);
+    }
+
+    #[tokio::test]
+    async fn list_filtered_sorts_by_size_and_filters_by_search() {
+        let (store, _pool, _tmp) = make_store().await;
+        store
+            .insert(
+                b"a",
+                NewBlobMeta {
+                    filename: Some("apple.txt".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .insert(
+                b"bbbbb",
+                NewBlobMeta {
+                    filename: Some("banana.txt".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .insert(
+                b"ccc",
+                NewBlobMeta {
+                    filename: Some("cherry.txt".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let (page, total_count, total_size) = store
+            .list_filtered(10, 0, BlobSortField::Size, SortDirection::Asc, None)
+            .await
+            .unwrap();
+        assert_eq!(total_count, 3);
+        assert_eq!(total_size, 1 + 5 + 3);
+        let sizes: Vec<u64> = page.iter().map(|b| b.size).collect();
+        assert_eq!(sizes, vec![1, 3, 5]);
+
+        let (filtered, filtered_count, filtered_size) = store
+            .list_filtered(
+                10,
+                0,
+                BlobSortField::Filename,
+                SortDirection::Asc,
+                Some("an"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(filtered_count, 1);
+        assert_eq!(filtered_size, 5);
+        assert_eq!(filtered[0].filename.as_deref(), Some("banana.txt"));
     }
 
     #[tokio::test]

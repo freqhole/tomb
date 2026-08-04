@@ -30,9 +30,12 @@ import {
   getRecord,
   getRecordByBlake3,
   getRecordBySha256,
+  listBlobs,
   putRecord,
   removeAllCanvasRefsForCanvas,
   removeCanvasRef,
+  type ListBlobsOptions,
+  type ListBlobsPage,
 } from "./db.js";
 import {
   createOpfsBackend,
@@ -47,6 +50,7 @@ import type { BlobLocalityInfo, BlobRecord, NewBlobMeta } from "./types.js";
 
 export { isOPFSSupported } from "./bytes-backend.js";
 export type { BlobLocalityInfo, BlobLocalityMetadata, BlobRecord, BlobType, BytesBackendName, NewBlobMeta } from "./types.js";
+export type { ListBlobsOptions, ListBlobsPage } from "./db.js";
 
 /** default IndexedDB database name for apps that don't need to preserve an
  *  existing one. */
@@ -105,6 +109,9 @@ export interface BlobStore {
   getCanvasRefs(blobId: string): Promise<string[]>;
   /** remove every ref row for `canvasDocId` (the whole canvas was deleted). */
   removeAllCanvasRefsForCanvas(canvasDocId: string): Promise<void>;
+  /** paginated/sortable/searchable local listing - backs the filez widget's
+   *  local-files tab. see `db.ts`'s `listBlobs` doc comment for perf notes. */
+  listBlobs(options?: ListBlobsOptions): Promise<ListBlobsPage>;
 }
 
 /** create a blob store instance. each instance owns its own object-url
@@ -354,6 +361,7 @@ export function createBlobStore(options: BlobStoreOptions = {}): BlobStore {
     removeCanvasRef: (blobId: string, canvasDocId: string) => removeCanvasRef(dbName, blobId, canvasDocId),
     getCanvasRefs: (blobId: string) => getCanvasRefs(dbName, blobId),
     removeAllCanvasRefsForCanvas: (canvasDocId: string) => removeAllCanvasRefsForCanvas(dbName, canvasDocId),
+    listBlobs: (options?: ListBlobsOptions) => listBlobs(dbName, options),
   };
 }
 

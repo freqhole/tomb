@@ -13,6 +13,7 @@ import {
   getRecord,
   getRecordByBlake3,
   getRecordBySha256,
+  listBlobs,
   putRecord,
   removeAllCanvasRefsForCanvas,
   removeCanvasRef,
@@ -186,3 +187,74 @@ describe("pre-existing database at a higher version", () => {
     expect(await getRecordByBlake3(dbName, record.blake3)).toEqual(record);
   });
 });
+
+describe("listBlobs", () => {
+  async function seedThree(): Promise<void> {
+    await putRecord(
+      DB_NAME,
+      makeRecord({ blob_id: "a", blake3: "a", filename: "apple.txt", size: 1, created_at: 1 })
+    );
+    await putRecord(
+      DB_NAME,
+      makeRecord({ blob_id: "b", blake3: "b", filename: "banana.txt", size: 5, created_at: 2 })
+    );
+    await putRecord(
+      DB_NAME,
+      makeRecord({ blob_id: "c", blake3: "c", filename: "cherry.txt", size: 3, created_at: 3 })
+    );
+  }
+
+  it("defaults to created_at desc", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, {});
+    expect(page.items.map((r) => r.blob_id)).toEqual(["c", "b", "a"]);
+    expect(page.totalCount).toBe(3);
+    expect(page.totalSize).toBe(9);
+  });
+
+  it("sorts by size ascending via the size index", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, { sort: "size", direction: "asc" });
+    expect(page.items.map((r) => r.blob_id)).toEqual(["a", "c", "b"]);
+  });
+
+  it("sorts by size descending", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, { sort: "size", direction: "desc" });
+    expect(page.items.map((r) => r.blob_id)).toEqual(["b", "c", "a"]);
+  });
+
+  it("sorts by filename via the in-memory fallback (no index)", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, { sort: "filename", direction: "asc" });
+    expect(page.items.map((r) => r.blob_id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("paginates with limit/offset while preserving totals across the whole filter", async () => {
+    await seedThree();
+    const page1 = await listBlobs(DB_NAME, { sort: "size", direction: "asc", limit: 2, offset: 0 });
+    expect(page1.items.map((r) => r.blob_id)).toEqual(["a", "c"]);
+    expect(page1.totalCount).toBe(3);
+
+    const page2 = await listBlobs(DB_NAME, { sort: "size", direction: "asc", limit: 2, offset: 2 });
+    expect(page2.items.map((r) => r.blob_id)).toEqual(["b"]);
+    expect(page2.totalCount).toBe(3);
+  });
+
+  it("filters by a case-insensitive filename substring", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, { search: "AN" });
+    expect(page.items.map((r) => r.blob_id)).toEqual(["b"]);
+    expect(page.totalCount).toBe(1);
+    expect(page.totalSize).toBe(5);
+  });
+
+  it("returns an empty page with zero totals when nothing matches", async () => {
+    await seedThree();
+    const page = await listBlobs(DB_NAME, { search: "nope" });
+    expect(page.items).toEqual([]);
+    expect(page.totalCount).toBe(0);
+    expect(page.totalSize).toBe(0);
+  });
+});
+

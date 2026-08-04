@@ -13,6 +13,7 @@ export type {
   StoreBlobFromFileOptions,
   BytesBackend,
 } from "./store.js";
+export type { ListBlobsOptions, ListBlobsPage } from "./db.js";
 export type {
   BlobLocalityInfo,
   BlobLocalityMetadata,
