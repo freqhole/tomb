@@ -11,6 +11,10 @@ import { isCharnelMode } from "./charnel/mode";
 import { checkConfigNeedsUpgrade, openSetupWizard } from "./charnel/commands";
 import { solidColors } from "../../design-system/colors";
 import { Icon } from "../../components/icons/registry";
+import { getRemoteById, getAllRemotes } from "./remotes/remoteManager";
+import { whoamiForRemote } from "./remotes/authService";
+import { adminClientFor } from "../api/adminClient";
+import { getAuthInfo } from "./remotes/authStatusStore";
 
 // track currently showing toast IDs to prevent duplicates
 const activeToasts = new Set<string>();
@@ -372,6 +376,7 @@ interface KnockRowLite {
 
 async function countLocalCharnelPending(): Promise<number> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     const response = (await invoke("api_call", {
       path: "/api/admin/knocks",
@@ -389,14 +394,7 @@ async function countPendingForRemote(remote: {
   remote_id: string;
   is_charnel_managed?: boolean;
 }): Promise<number> {
-  // dynamic imports to avoid pulling p2p admin transport into every entry
-  // (and to keep this module's existing tauri-only dynamic-import style).
   try {
-    const { getRemoteById } = await import("./remotes/remoteManager");
-    const { whoamiForRemote } = await import("./remotes/authService");
-    const { adminClientFor } = await import("../api/adminClient");
-    const { getAuthInfo } = await import("./remotes/authStatusStore");
-
     const r = await getRemoteById(remote.remote_id);
     if (!r || r.is_offline === true) return 0;
 
@@ -437,7 +435,6 @@ export async function checkPendingKnocks(): Promise<void> {
     }
 
     try {
-      const { getAllRemotes } = await import("./remotes/remoteManager");
       const all = await getAllRemotes();
       for (const r of all) {
         // charnel-managed entries are already covered by countLocalCharnelPending

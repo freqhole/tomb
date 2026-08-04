@@ -204,6 +204,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           position: "relative",
         }}
       >
+        {/* eslint-disable-next-line solid/prefer-for -- virtualizer drives this imperatively; <For> would fight its own keying/reordering */}
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const item = props.items[virtualRow.index];
           if (!item) return null;

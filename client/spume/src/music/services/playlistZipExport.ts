@@ -1,5 +1,6 @@
 import { buildPlaylistZip, cleanupOpfsTempFile } from "@freqhole/playlistz/zip-bundle";
 import type { BlobFetcher, PlaylistZipEntry } from "@freqhole/playlistz/zip-bundle";
+import { generatePlaylistzJs, generateIndexHtml } from "@freqhole/playlistz/templates";
 import type { Transport } from "../../app/api/client";
 import { getTransportForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../data/currentState";
@@ -205,6 +206,7 @@ async function downloadPlaylistZipTauri(
   songs: Song[],
   filename: string,
 ): Promise<ZipDownloadResult> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
   const fetchBlob = await makeSpumeBlobFetcher(playlist, songs);
 
@@ -293,7 +295,6 @@ async function downloadPlaylistZipTauri(
     }];
 
     // generatePlaylistzJs from the @freqhole/playlistz package
-    const { generatePlaylistzJs, generateIndexHtml } = await import("@freqhole/playlistz/templates");
     await appendText(`${rootName}/playlistz.js`, generatePlaylistzJs(playlistzData));
     await appendText(`${rootName}/index.html`, generateIndexHtml());
 

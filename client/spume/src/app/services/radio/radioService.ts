@@ -24,7 +24,7 @@ import {
   currentRadioStation,
   setCurrentRadioStationPersisted,
 } from "../storage/currentRadioStation";
-import { getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
+import { getRemoteByPeerAddr, getTauriManagedRemote, getRemoteById } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
 
 // queue-mode adapter api injected at module init via
@@ -274,9 +274,7 @@ async function endRadioListenSession(
   if (!sess) return;
   activeRadioListenSession = null;
   try {
-    const remote = await import("../remotes/remoteManager").then((m) =>
-      m.getRemoteById(sess.remoteId),
-    );
+    const remote = await getRemoteById(sess.remoteId);
     if (!remote) return;
     const client = await getClientForRemote(remote);
     await client.music.updateListenSessionStatus(sess.sessionId, status);

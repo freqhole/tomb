@@ -25,6 +25,7 @@ export function getQueueSizeLimit(): number {
 export async function initQueueSizeLimit(): Promise<number> {
   if (typeof window !== "undefined" && "__TAURI__" in window) {
     try {
+      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
       const { invoke } = await import("@tauri-apps/api/core");
       const cfg = await invoke<{ queue_size_limit: number }>("get_client_config");
       if (cfg && Number.isFinite(cfg.queue_size_limit) && cfg.queue_size_limit > 0) {

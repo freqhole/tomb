@@ -79,9 +79,10 @@ notes:
 
 ## pr checks (every non-release PR)
 
-- `rust-check`: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo check`
-  (workspace), unit tests (`cargo test`). sqlite db + migrations seeded so online
-  sqlx macros compile.
+- `rust-lint`: `cargo fmt --check`, `cargo clippy -D warnings` (workspace).
+  sqlite db + migrations seeded so online sqlx macros compile.
+- `rust-test`: unit tests (`cargo test --workspace --lib --bins`). runs in
+  parallel with `rust-lint` on its own runner (same db/migration setup).
 - `web-check`: build midden wasm + codegen client, then spume `typecheck` +
   `vitest` + `lint`.
 - `changeset-check`: `changeset status` — comments / fails when a PR adds no

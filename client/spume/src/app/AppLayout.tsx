@@ -122,7 +122,9 @@ import {
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
+  initAppDB,
 } from "./services/storage/db";
+import { clearBlobCache } from "../music/services/cache/blobCache";
 import { getPageInfo } from "./services/pageInfo";
 import {
   queueHistory,
@@ -529,7 +531,6 @@ export function AppLayout(props: AppLayoutProps) {
 
       // clear queue history entries for this remote
       try {
-        const { initAppDB } = await import("./services/storage/db");
         const db = await initAppDB();
         const allEntries = await db.getAll(STORE_QUEUE_HISTORY);
         const toDelete = (allEntries as QueueHistoryEntry[]).filter(
@@ -544,7 +545,6 @@ export function AppLayout(props: AppLayoutProps) {
 
       // clear cached blobs for this remote
       try {
-        const { clearBlobCache } = await import("../music/services/cache/blobCache");
         await clearBlobCache(remoteId);
       } catch (e) {
         debug("AppLayout", "failed to clear blob cache:", e);
@@ -1397,10 +1397,8 @@ export function AppLayout(props: AppLayoutProps) {
                 if (result.success) {
                   // also remove from queue after deletion
                   await removeFromQueue(index);
-                  const { toast } = await import("../components/feedback/Toast");
                   toast.success("removed from local library");
                 } else {
-                  const { toast } = await import("../components/feedback/Toast");
                   toast.error(result.error || "failed to delete");
                 }
               },

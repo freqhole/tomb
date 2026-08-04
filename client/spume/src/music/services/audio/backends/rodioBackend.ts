@@ -105,6 +105,7 @@ export class RodioBackend implements PlayerBackend {
       throw new Error("rodio backend: send called after dispose");
     }
     debug("player.rodio", `send: ${cmd.kind}`);
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     // tauri serializes the second arg as a json object; we need the
     // host-side `cmd: PlayerCommand` parameter name to match.
@@ -352,6 +353,7 @@ export class RodioBackend implements PlayerBackend {
   /// `BackendPlaybackError` with a structured `error_type`
   /// discriminant on failure so callers can branch.
   private async resolveLocalPath(blobId: string): Promise<string> {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     try {
       const result = await invoke<{ id: string; path: string; mime?: string }>(
@@ -410,6 +412,7 @@ export class RodioBackend implements PlayerBackend {
       return;
     }
     this.unlistenPromise = (async () => {
+      // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
       const { listen } = await import("@tauri-apps/api/event");
       return listen<PlayerEvent>(TAURI_EVENT, (envelope) => {
         const event = envelope.payload;

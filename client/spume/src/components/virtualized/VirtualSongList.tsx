@@ -324,6 +324,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
             onMouseOver={handleContainerMouseOver}
             onMouseLeave={handleContainerMouseLeave}
           >
+            {/* eslint-disable-next-line solid/prefer-for -- virtualizer drives this imperatively; <For> would fight its own keying/reordering */}
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const song = props.songs[virtualRow.index];
               if (!song) return null;
@@ -418,6 +419,7 @@ export function VirtualSongList(props: VirtualSongListProps) {
               onMouseOver={handleContainerMouseOver}
               onMouseLeave={handleContainerMouseLeave}
             >
+              {/* eslint-disable-next-line solid/prefer-for -- virtualizer drives this imperatively; <For> would fight its own keying/reordering */}
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const song = props.songs[virtualRow.index];
                 if (!song) return null;

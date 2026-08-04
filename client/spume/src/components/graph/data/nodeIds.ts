@@ -20,7 +20,7 @@ export type RelationKind =
   | "label"
   | "favorite"
   | "recently_added"
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | (string & {}); // user-defined kind_slugs
 
 // ---- slug ------------------------------------------------------------------

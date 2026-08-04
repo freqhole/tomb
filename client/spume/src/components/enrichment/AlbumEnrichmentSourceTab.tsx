@@ -11,7 +11,7 @@
 // the modal owns the polling loop so multiple tabs share one in-flight
 // request; this component just receives `progress` + a refresh callback.
 
-import { createMemo, createSignal, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "../feedback/Toast";
 import { Button } from "../buttons/Button";
 import { getCurrentRemote } from "../../music/data";
@@ -267,12 +267,14 @@ function SnapshotSummary(props: { source: EnrichmentSource; snapshot: unknown })
       }
     >
       <div class="px-3 py-2 text-xs bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded space-y-1">
-        {rows().map((r) => (
-          <div class="flex gap-2">
-            <span class="w-20 text-[var(--color-text-tertiary)]">{r.k}</span>
-            <span class="flex-1 text-[var(--color-text-primary)] break-words">{r.v}</span>
-          </div>
-        ))}
+        <For each={rows()}>
+          {(r) => (
+            <div class="flex gap-2">
+              <span class="w-20 text-[var(--color-text-tertiary)]">{r.k}</span>
+              <span class="flex-1 text-[var(--color-text-primary)] break-words">{r.v}</span>
+            </div>
+          )}
+        </For>
       </div>
     </Show>
   );

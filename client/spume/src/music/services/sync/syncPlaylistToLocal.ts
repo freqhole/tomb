@@ -26,6 +26,7 @@ async function syncPlaylistViaLocalGrimoire(
   remote: { remote_id: string; name: string },
 ): Promise<void> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
 
     // sync each song first so the local grimoire can resolve blake3 → song.

@@ -19,7 +19,7 @@ export type RelationKind =
   | "recently_added"
   /** artist node connected to one of its in-library albums */
   | "artist_album"
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | (string & {}); // user-defined kind_slugs (e.g. "vibe", "decade")
 
 /** discriminator for the graph node union. albums get `"album"`, artist
@@ -30,7 +30,7 @@ export type NodeKind = "album" | "artist";
 
 // allow arbitrary user-defined taxon keys (e.g. "vibe", "decade") while
 // preserving autocomplete for the well-known set above.
-// eslint-disable-next-line @typescript-eslint/ban-types
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type RelationKindLike = RelationKind | (string & {});
 
 export interface AlbumNodeData {

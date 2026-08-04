@@ -22,6 +22,7 @@ type UnlistenFn = () => void;
 
 // dynamically import tauri to allow tree-shaking in browser builds
 async function getListen() {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { listen } = await import("@tauri-apps/api/event");
   return listen;
 }

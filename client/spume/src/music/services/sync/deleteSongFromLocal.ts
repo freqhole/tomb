@@ -77,6 +77,7 @@ async function deleteSongFromBrowser(songId: string): Promise<DeleteSongResult> 
  */
 async function deleteSongViaOffal(songId: string): Promise<DeleteSongResult> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
     
     const response = await invoke("api_call", {

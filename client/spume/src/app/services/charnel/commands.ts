@@ -14,6 +14,7 @@ import {
 
 // dynamically import tauri to allow tree-shaking in browser builds
 async function getInvoke() {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke;
 }
@@ -76,6 +77,7 @@ export async function openSetupWizard(route: string = "/"): Promise<void> {
  */
 export async function setWindowTitle(title: string): Promise<void> {
   try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const window = getCurrentWindow();
     await window.setTitle(title);
