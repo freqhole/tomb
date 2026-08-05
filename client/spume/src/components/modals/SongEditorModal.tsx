@@ -502,6 +502,7 @@ export function SongEditorModal(props: SongEditorModalProps) {
       title="edit song"
       size="lg"
       elevated={props.disableNestedModals}
+      disableBackdropClose
       headerActions={
         <Show when={hasChanges()}>
           <Button onClick={handleResetAll} variant="ghost" size="sm">

@@ -11,9 +11,67 @@ use futures_util::stream::{self, StreamExt};
 use iroh_blobs::api::blobs::AddPathOptions;
 use iroh_blobs::api::proto::ImportMode;
 use iroh_blobs::{BlobFormat, Hash};
+use std::error::Error as _;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+
+/// log pre-flight metadata about a path before handing it to iroh-blobs'
+/// reference-mode import, since iroh-blobs' own io errors are too terse
+/// (e.g. `Error::Io` with no path/kind/errno) to tell us why an import
+/// failed. also warns if the source file and the blobs store's data_dir
+/// live on different devices/volumes, since `ImportMode::TryReference`
+/// likely relies on a hardlink under the hood, which can't cross devices.
+fn log_preflight_metadata(canonical: &Path) {
+    match std::fs::symlink_metadata(canonical) {
+        Ok(meta) => {
+            #[cfg(unix)]
+            let (dev, ino) = {
+                use std::os::unix::fs::MetadataExt;
+                (Some(meta.dev()), Some(meta.ino()))
+            };
+            #[cfg(not(unix))]
+            let (dev, ino): (Option<u64>, Option<u64>) = (None, None);
+
+            tracing::info!(
+                path = ?canonical,
+                is_file = meta.is_file(),
+                is_dir = meta.is_dir(),
+                is_symlink = meta.is_symlink(),
+                len = meta.len(),
+                readonly = meta.permissions().readonly(),
+                ?dev,
+                ?ino,
+                "add_file_to_store: pre-flight metadata"
+            );
+
+            #[cfg(unix)]
+            if let (Some(file_dev), Ok(store_meta)) = (
+                dev,
+                std::fs::metadata(&crate::config::get_config().data_dir),
+            ) {
+                use std::os::unix::fs::MetadataExt;
+                if file_dev != store_meta.dev() {
+                    tracing::warn!(
+                        path = ?canonical,
+                        file_dev,
+                        data_dir_dev = store_meta.dev(),
+                        "add_file_to_store: source file and blobs store data_dir are on \
+                         different devices/volumes - a reference-mode (hardlink) import may \
+                         fail and require falling back to a copy"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                path = ?canonical,
+                error = ?e,
+                "add_file_to_store: failed to stat file before import"
+            );
+        }
+    }
+}
 
 /// add a file to the shared storage node's iroh-blobs store using reference
 /// mode, avoiding a copy of the file's bytes.
@@ -28,6 +86,8 @@ pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
 
     let canonical = crate::paths::canonical_path(path);
 
+    log_preflight_metadata(&canonical);
+
     let options = AddPathOptions {
         path: canonical.clone(),
         format: BlobFormat::Raw,
@@ -35,13 +95,28 @@ pub async fn add_file_to_store(path: &Path) -> GrimoireResult<Hash> {
     };
 
     let tag = store.add_path_with_opts(options).await.map_err(|e| {
+        // debug (`{:?}`) formatting and the source chain often carry the
+        // underlying io::Error's kind/errno/message that Display (`{}`)
+        // drops - both are logged since we don't yet know which iroh-blobs
+        // surfaces more detail through.
+        let source_chain: Vec<String> = {
+            let mut chain = Vec::new();
+            let mut source = e.source();
+            while let Some(s) = source {
+                chain.push(s.to_string());
+                source = s.source();
+            }
+            chain
+        };
         tracing::error!(
             path = ?canonical,
-            error = %e,
+            error_display = %e,
+            error_debug = ?e,
+            ?source_chain,
             "failed to add file to blobs store"
         );
         GrimoireError::ProcessingFailed {
-            message: format!("failed to add file to blobs store: {}", e),
+            message: format!("failed to add file to blobs store: {} (debug: {:?})", e, e),
         }
     })?;
 
