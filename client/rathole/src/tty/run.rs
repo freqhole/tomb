@@ -1113,12 +1113,25 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
             } else {
                 0
             };
-            app.state.ephemeral.jobs_status = Some(crate::ratcore::app::JobsStatus {
-                kind,
-                percent,
-                jobs_total,
-                jobs_pending,
-            });
+            // a progress tick with zero pending/running jobs means the
+            // session is effectively done - the runner always emits this
+            // exact tick immediately before (and sometimes instead of, if
+            // the job-events broadcast channel lags and drops the terminal
+            // `Completed` message) the `JobSessionComplete` event. clearing
+            // here too - mirroring how `scan_status.active` is already
+            // recomputed fresh on every tick below - keeps the top-bar
+            // badge from getting stuck showing "100%" forever when that
+            // broadcast message is missed.
+            app.state.ephemeral.jobs_status = if jobs_total > 0 && jobs_pending == 0 {
+                None
+            } else {
+                Some(crate::ratcore::app::JobsStatus {
+                    kind,
+                    percent,
+                    jobs_total,
+                    jobs_pending,
+                })
+            };
             if app
                 .state
                 .ephemeral

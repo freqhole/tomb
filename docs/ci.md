@@ -50,9 +50,12 @@ hosted defaults with self-hosted labels. unset = hosted default.
 
 `release.yml` runs while the changesets "chore: version packages" PR is open. it is
 triggered (no PAT) by: a push to `changeset-release/main`, the version PR being
-reopened or synchronized (close+reopen it, or push a commit to it), or
-`workflow_dispatch`. the changesets bot's own push uses `GITHUB_TOKEN`, which
-github's recursion guard stops from auto-starting workflows - so the first build
+opened, reopened, or synchronized (close+reopen it, or push a commit to it, still
+works as a fallback), or `workflow_dispatch`. the changesets bot's own push/PR-open
+uses `GITHUB_TOKEN`, which github's recursion guard stops from auto-starting workflows
+
+- but the run still queues and shows an "approve workflow run" button, so the first build
+
 is kicked off by one of those user-driven levers.
 
 `create-release` runs first (draft release, version read from root

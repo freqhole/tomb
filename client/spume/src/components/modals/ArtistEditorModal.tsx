@@ -379,6 +379,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       title="edit artist"
       size="lg"
       elevated={props.disableNestedModals}
+      disableBackdropClose
     >
       {/* content */}
       <Show

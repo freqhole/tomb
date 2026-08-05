@@ -932,44 +932,9 @@ export function App() {
         // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
         const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
           readFile: (path: string) => Promise<Uint8Array>;
-          readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
-        };
-        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
-        const pathModule = (await import("@tauri-apps/api/path" as any)) as {
-          join: (...parts: string[]) => Promise<string>;
         };
 
-        // expand any directory entries (e.g. from the "select folder" picker)
-        // into the audio files they contain, recursing into subfolders -
-        // a bare path may be a file or a directory, so we probe with
-        // readDir and fall back to treating it as a file on failure.
-        const audioFilePaths: string[] = [];
-        const collectAudioFiles = async (path: string): Promise<void> => {
-          let entries: { name: string; isDirectory: boolean }[] | null = null;
-          try {
-            entries = await fsModule.readDir(path);
-          } catch {
-            // not a directory - treat as a single file path
-          }
-          if (entries === null) {
-            audioFilePaths.push(path);
-            return;
-          }
-          for (const entry of entries) {
-            const entryPath = await pathModule.join(path, entry.name);
-            if (entry.isDirectory) {
-              await collectAudioFiles(entryPath);
-            } else {
-              const ext = entry.name.split(".").pop()?.toLowerCase() || "";
-              if (AUDIO_EXTS.includes(ext)) {
-                audioFilePaths.push(entryPath);
-              }
-            }
-          }
-        };
-        for (const path of paths) {
-          await collectAudioFiles(path);
-        }
+        const audioFilePaths = await expandPathsToAudioFiles(paths);
 
         const files: File[] = [];
         for (const filePath of audioFilePaths) {
@@ -1011,7 +976,8 @@ export function App() {
     // P2P remote: upload each file via iroh-blobs pull model
     // (import into local blobs store, then remote peer pulls via verified streaming)
     if (remote.peer_addr) {
-      await uploadPathsToRemote(paths, onRemoteJobComplete);
+      const audioFilePaths = await expandPathsToAudioFiles(paths);
+      await uploadPathsToRemote(audioFilePaths, onRemoteJobComplete);
       return;
     }
 
@@ -1027,7 +993,8 @@ export function App() {
     // the add music modal shows a review card when the session finishes;
     // the user clicks it to open the review modal rather than auto-opening.
     try {
-      await importPathsToLocal(paths, onRemoteJobComplete);
+      const audioFilePaths = await expandPathsToAudioFiles(paths);
+      await importPathsToLocal(audioFilePaths, onRemoteJobComplete);
     } catch (error) {
       console.error("failed to import paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -1314,6 +1281,54 @@ export function App() {
 }
 
 export default App;
+
+/**
+ * expand a list of tauri-dialog-selected paths into audio file paths,
+ * recursing into any directories (e.g. from the "select folder" picker).
+ * a bare path may be a file or a directory, so each is probed with readDir
+ * and falls back to being treated as a single file on failure. shared by
+ * every `handlePathsSelected` branch (local, P2P remote, charnel-managed
+ * remote) so directory-select works the same way regardless of remote type.
+ */
+async function expandPathsToAudioFiles(paths: string[]): Promise<string[]> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+    readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
+  };
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const pathModule = (await import("@tauri-apps/api/path" as any)) as {
+    join: (...parts: string[]) => Promise<string>;
+  };
+
+  const audioFilePaths: string[] = [];
+  const collectAudioFiles = async (path: string): Promise<void> => {
+    let entries: { name: string; isDirectory: boolean }[] | null = null;
+    try {
+      entries = await fsModule.readDir(path);
+    } catch {
+      // not a directory - treat as a single file path
+    }
+    if (entries === null) {
+      audioFilePaths.push(path);
+      return;
+    }
+    for (const entry of entries) {
+      const entryPath = await pathModule.join(path, entry.name);
+      if (entry.isDirectory) {
+        await collectAudioFiles(entryPath);
+      } else {
+        const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+        if (AUDIO_EXTS.includes(ext)) {
+          audioFilePaths.push(entryPath);
+        }
+      }
+    }
+  };
+  for (const path of paths) {
+    await collectAudioFiles(path);
+  }
+  return audioFilePaths;
+}
 
 /**
  * extract a share token from a `freqhole://` deep-link url.

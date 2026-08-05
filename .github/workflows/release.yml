@@ -27,11 +27,13 @@ on:
   push:
     branches:
       - "changeset-release/main"
-  # closing + reopening the version PR, or pushing a commit to it, re-runs the
-  # builds. (the changesets bot's own push uses GITHUB_TOKEN and is suppressed
-  # by github's recursion guard, so these user-driven events are the lever.)
+  # opening/reopening the version PR, or pushing a commit to it, re-runs the
+  # builds. (the changesets bot's own push/PR-open uses GITHUB_TOKEN and is
+  # suppressed by github's recursion guard - the run still queues though, and
+  # shows an "approve workflow run" button, so `opened` is worth keeping even
+  # though closing+reopening the PR remains a fallback lever.)
   pull_request:
-    types: [reopened, synchronize]
+    types: [opened, reopened, synchronize]
     branches:
       - main
   workflow_dispatch:
