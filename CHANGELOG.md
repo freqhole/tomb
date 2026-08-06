@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.2.12
+
+### Patch Changes
+
+- b8de110: rathole: try to clean up scan header notif when done;
+- ffccb7a: try to fix entire folder music upload; some more error loggin'; add open trigger to ci; disable click away on artist + song edit modalz;
+
 ## 0.2.11
 
 ### Patch Changes
