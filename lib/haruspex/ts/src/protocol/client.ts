@@ -161,6 +161,14 @@ export function createFriendzClient(options: FriendzClientOptions): FriendzClien
       if (!destroyed && !wasReplaced) markOffline(peerId);
     } finally {
       if (streams.get(peerId) === stream) streams.delete(peerId);
+      // release the underlying transport handle every time this loop ends,
+      // whether from clean eof or an error - otherwise the native/wasm side
+      // never hears about it (nothing else calls close() on this exact
+      // instance once it's no longer the map's current entry), leaking one
+      // stream handle per dropped/reconnected peer for as long as the
+      // process runs. safe to call even if already closed (e.g. replaced by
+      // handleIncomingStream, which already closed this same instance).
+      stream.close();
     }
   }
 

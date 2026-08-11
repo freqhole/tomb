@@ -54,7 +54,8 @@ use iroh_blobs::{
 use range_collections::range_set::RangeSetRange;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
+use web_time::Instant;
 
 use super::{
     gc::{GcOptions, ProtectOutcome},
@@ -495,11 +496,15 @@ impl<D: BlobDir> Ctx<D> {
     }
 
     /// register a known-complete entry from existing files (startup scan).
-    async fn register_complete(&self, hash: Hash) -> io::Result<()> {
+    /// `has_obao` is precomputed by the caller from a single directory
+    /// listing (see `spawn_store`) — this used to re-list the whole
+    /// directory per blob via `self.dir.list()`, making the startup scan
+    /// O(n^2) in blob count; confirmed as the dominant cost of slow browser
+    /// boot at scale via the periodic progress log below.
+    async fn register_complete(&self, hash: Hash, has_obao: bool) -> io::Result<()> {
         let data = self.dir.open(&data_name(&hash)).await?;
         let size = data.len()?;
-        let obao_present = self.dir.list().await?.contains(&obao_name(&hash));
-        let outboard = if obao_present {
+        let outboard = if has_obao {
             Some(self.dir.open(&obao_name(&hash)).await?)
         } else {
             None
@@ -721,14 +726,27 @@ pub async fn spawn_store<D: BlobDir + 'static>(
         next_import_id: Cell::new(1),
     });
 
-    // startup scan: resume persisted state
+    // startup scan: resume persisted state. logged (count + elapsed) since
+    // this runs fresh on every worker boot (no cross-session warm cache
+    // like the native FsStore's `has()` pre-check) - unlike the native
+    // side, every blob here gets 2-3 real OPFS sync-access-handles opened
+    // and held for the worker's whole lifetime, so this is the prime
+    // suspect for slow/heavy browser boot at scale.
+    let scan_started = Instant::now();
     let names = ctx.dir.list().await?;
     let mut metas = std::collections::HashSet::new();
+    let mut obaos = std::collections::HashSet::new();
     for name in &names {
         if let Some(stem) = name.strip_suffix(".meta") {
             metas.insert(stem.to_string());
         }
+        if let Some(stem) = name.strip_suffix(".obao") {
+            obaos.insert(stem.to_string());
+        }
     }
+    info!(files = names.len(), "opfs-store: startup scan enumerated directory");
+    let mut resumed_complete = 0usize;
+    let mut resumed_partial = 0usize;
     for name in &names {
         if name.starts_with("import-") && name.ends_with(".tmp") {
             // leftover in-flight import from a previous session
@@ -744,10 +762,23 @@ pub async fn spawn_store<D: BlobDir + 'static>(
                 // partial — entry created lazily with its persisted
                 // bitfield via get_or_create_entry
                 ctx.get_or_create_entry(hash).await?;
+                resumed_partial += 1;
                 debug!("resumed partial blob {}", stem);
             } else {
-                ctx.register_complete(hash).await?;
+                ctx.register_complete(hash, obaos.contains(stem)).await?;
+                resumed_complete += 1;
                 debug!("resumed complete blob {}", stem);
+            }
+            // TEMP DIAGNOSTIC (remove after boot-time investigation): periodic
+            // progress log to see whether scan time grows linearly or
+            // superlinearly with blob count.
+            let done = resumed_complete + resumed_partial;
+            if done % 500 == 0 {
+                info!(
+                    done,
+                    elapsed_ms = scan_started.elapsed().as_millis(),
+                    "opfs-store: startup scan progress"
+                );
             }
         }
         if name == "tags.json" {
@@ -772,6 +803,13 @@ pub async fn spawn_store<D: BlobDir + 'static>(
             }
         }
     }
+
+    info!(
+        complete = resumed_complete,
+        partial = resumed_partial,
+        elapsed_ms = scan_started.elapsed().as_millis(),
+        "opfs-store: startup scan resumed blobs"
+    );
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Command>(32);
     let client: StoreClient = tx.clone().into();
