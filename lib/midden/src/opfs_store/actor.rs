@@ -747,7 +747,7 @@ pub async fn spawn_store<D: BlobDir + 'static>(
     info!(
         files = names.len(),
         "opfs-store: startup scan enumerated directory"
-    );    
+    );
     let mut resumed_complete = 0usize;
     let mut resumed_partial = 0usize;
     for name in &names {
