@@ -744,7 +744,10 @@ pub async fn spawn_store<D: BlobDir + 'static>(
             obaos.insert(stem.to_string());
         }
     }
-    info!(files = names.len(), "opfs-store: startup scan enumerated directory");
+    info!(
+        files = names.len(),
+        "opfs-store: startup scan enumerated directory"
+    );    
     let mut resumed_complete = 0usize;
     let mut resumed_partial = 0usize;
     for name in &names {
