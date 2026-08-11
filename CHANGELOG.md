@@ -1,5 +1,11 @@
 # freqhole-release
 
+## 0.2.13
+
+### Patch Changes
+
+- 4121d96: fix some perf issues in haruspex + midden
+
 ## 0.2.12
 
 ### Patch Changes
