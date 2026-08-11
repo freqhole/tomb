@@ -776,7 +776,7 @@ pub async fn spawn_store<D: BlobDir + 'static>(
             // progress log to see whether scan time grows linearly or
             // superlinearly with blob count.
             let done = resumed_complete + resumed_partial;
-            if done % 500 == 0 {
+            if done.is_multiple_of(500) {
                 info!(
                     done,
                     elapsed_ms = scan_started.elapsed().as_millis(),
