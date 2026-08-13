@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.2.14
+
+### Patch Changes
+
+- 167a735: use trixi for, hopefully, newer version of webkitgtk
+- dfa3822: show sync queue to local setting for android userz
+
 ## 0.2.13
 
 ### Patch Changes
