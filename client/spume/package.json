@@ -58,7 +58,7 @@
     "autoprefixer": "^10.4.24",
     "d3-force": "^3.0.0",
     "d3-quadtree": "^3.0.1",
-    "eslint": "^9.0.0",
+    "eslint": "^10.7.0",
     "eslint-plugin-solid": "^0.14.5",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
