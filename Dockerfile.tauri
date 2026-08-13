@@ -3,7 +3,11 @@
 #    or: docker build --build-arg TARGET_ARCH=aarch64-unknown-linux-gnu --platform linux/arm64
 ARG TARGET_ARCH=x86_64-unknown-linux-gnu
 ARG FREQHOLE_GIT_SHA=unknown
-FROM node:24-bookworm
+# trixie (not bookworm) for a much newer webkitgtk (2.52.5-1~deb13u1 vs
+# bookworm's 2.50.6-1~deb12u2, confirmed via trixie-security on both amd64
+# and arm64) - webkitgtk's html <audio> reliability was the original driver,
+# though most audio now goes through the native rodio backend instead.
+FROM node:24-trixie
 
 ARG TARGET_ARCH
 ARG FREQHOLE_GIT_SHA
