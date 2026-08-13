@@ -570,8 +570,13 @@ export function App() {
       sync_queue_to_local: config.sync_queue_to_local,
     });
 
-    // sync charnel config to spume AppState
-    await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
+    // sync charnel config to spume AppState. skipped on android: there's no
+    // wizard window there to manage `sync_queue_to_local`, so the toggle in
+    // StorageSettingsView is the only source of truth for it — overwriting
+    // it here on every cold start would silently revert the user's choice.
+    if (!/android/i.test(navigator.userAgent)) {
+      await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
+    }
 
     try {
       // upsert creates or updates the tauri-managed remote

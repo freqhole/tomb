@@ -575,8 +575,11 @@ export function StorageSettingsView() {
               />
             </div>
 
-            {/* sync settings - only show in browser mode (tauri has its own settings) */}
-            <Show when={!isCharnelMode()}>
+            {/* sync settings - hidden for desktop tauri (managed via the setup
+                wizard window's own settings instead), but shown for android
+                tauri: there's no wizard window on android, so this toggle is
+                the only way to reach the setting there. */}
+            <Show when={!isCharnelMode() || /android/i.test(navigator.userAgent)}>
               <div class="border-t border-[var(--color-border-subtle)] pt-6 mb-6">
                 <h2 class="text-sm font-medium text-[var(--color-text-primary)] mb-3">
                   sync settings
