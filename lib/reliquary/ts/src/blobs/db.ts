@@ -22,17 +22,32 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
       let store: IDBObjectStore;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         store = db.createObjectStore(STORE_NAME, { keyPath: "blob_id" });
-        store.createIndex("sha256", "sha256", { unique: false });
-        store.createIndex("blake3", "blake3", { unique: false });
-        store.createIndex("blob_type", "blob_type", { unique: false });
-        store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
       } else {
-        // pre-existing store from an earlier DB_VERSION - new indexes can
-        // still be added via the in-flight version-change transaction
+        // pre-existing store from an earlier DB_VERSION - or, for an app
+        // that used this same store/db name before adopting reliquary at
+        // all, a store that never had ANY of these indexes. new indexes
+        // can still be added via the in-flight version-change transaction
         // (`req.transaction`), they just can't be added outside
-        // onupgradeneeded. without this branch a version bump would silently
-        // never add the index for anyone who already has a v1/v2 database.
+        // onupgradeneeded.
         store = req.transaction!.objectStore(STORE_NAME);
+      }
+      // every index gets the "add if missing" treatment (not just the
+      // v3 ones below) - a pre-reliquary store sharing this db/store name
+      // would otherwise hit the `else` branch above with none of these
+      // indexes present, and every `.index(...)` lookup would throw
+      // "the specified index was not found" instead of falling through
+      // the resolver chain the way a missing record does.
+      if (!store.indexNames.contains("sha256")) {
+        store.createIndex("sha256", "sha256", { unique: false });
+      }
+      if (!store.indexNames.contains("blake3")) {
+        store.createIndex("blake3", "blake3", { unique: false });
+      }
+      if (!store.indexNames.contains("blob_type")) {
+        store.createIndex("blob_type", "blob_type", { unique: false });
+      }
+      if (!store.indexNames.contains("parent_blob_id")) {
+        store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
       }
       // added in v3 - supports sorting the local-files list (filez tab 2)
       // by size without a full-store scan.
