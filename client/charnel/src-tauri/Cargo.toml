@@ -43,6 +43,8 @@ urlencoding = "2"
 chrono = "0.4"
 base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+lofty = { workspace = true }
+shell-words = { workspace = true }
 
 # internal dependencies
 grimoire = { path = "../../../grimoire", default-features = false }

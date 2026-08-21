@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalStorageSettings {
     pub default_subpath: String,
+    pub playlists_subpath: String,
     pub reencode_enabled: bool,
     pub reencode_args: String,
 }
@@ -28,6 +29,35 @@ pub struct DiskUsageResult {
     pub total_bytes: u64,
     pub free_bytes: u64,
     pub used_bytes: u64,
+}
+
+/// a configured device, enriched with stats that live in grimoire's sql
+/// db (migration 053) rather than in the toml config alongside the
+/// device's own identity fields.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceWithStats {
+    #[serde(flatten)]
+    pub device: ExternalStorageDevice,
+    /// unix ms timestamp of the last completed sync to this device, if any.
+    pub last_synced_at: Option<i64>,
+}
+
+async fn with_stats(device: ExternalStorageDevice) -> DeviceWithStats {
+    let last_synced_at = grimoire::external_storage::get_device_last_synced_at(&device.id)
+        .await
+        .unwrap_or(None);
+    DeviceWithStats {
+        device,
+        last_synced_at,
+    }
+}
+
+async fn with_stats_many(devices: Vec<ExternalStorageDevice>) -> Vec<DeviceWithStats> {
+    let mut out = Vec::with_capacity(devices.len());
+    for device in devices {
+        out.push(with_stats(device).await);
+    }
+    out
 }
 
 /// tagged action payload for `external_storage_command`.
@@ -60,6 +90,46 @@ pub enum ExternalStorageAction {
     EjectDevice { id: String },
     /// total/free space on the filesystem a remembered device lives on.
     DiskUsage { id: String },
+    /// copy (or re-encode) one song onto a device, tagging/moving/merging
+    /// as needed - see `copy_engine`.
+    SyncSong { device_id: String, song_id: String },
+    /// resolve the exact selection of sync target ids (real playlist ids,
+    /// the synthetic `"favorites"` id, and/or filter-set ids) currently
+    /// written to a device's playlists subpath, for pre-checking the
+    /// overview view's selection state.
+    GetSyncedPlaylistIds { device_id: String },
+    /// sync exactly this set of targets (playlist ids, `"favorites"`,
+    /// and/or filter-set ids) to a device - see `playlist_sync`.
+    SyncPlaylists {
+        device_id: String,
+        playlist_ids: Vec<String>,
+    },
+    /// list every named sync filter-set (phase 6).
+    ListFilterSets,
+    /// create a new, empty named sync filter-set.
+    CreateFilterSet { name: String },
+    /// rename an existing sync filter-set.
+    RenameFilterSet { id: String, name: String },
+    /// delete a sync filter-set (and its filter clauses, via cascade).
+    DeleteFilterSet { id: String },
+    /// get (or lazily create) the one default filter-set for a device -
+    /// the primary entry point the ui uses today (see
+    /// docs/removable-storage-sync-plan.md phase 6).
+    GetOrCreateDefaultFilterSet { device_id: String },
+    /// list a filter-set's include/exclude filter clauses.
+    ListFilterSetFilters { filter_set_id: String },
+    /// add one include/exclude filter clause to a filter-set.
+    AddFilterSetFilter {
+        filter_set_id: String,
+        filter_type: String,
+        filter_value: String,
+        mode: String,
+    },
+    /// remove one filter clause by its own id.
+    RemoveFilterSetFilter { filter_id: String },
+    /// resolve a filter-set to its effective (distinct) song id list, for
+    /// previewing a filter-set's song count before syncing.
+    ResolveFilterSet { filter_set_id: String },
 }
 
 /// serialize a response value, mapping serde errors to the plain `String`
@@ -71,7 +141,7 @@ fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, String> {
 /// single tauri command entrypoint for all removable-storage sync
 /// operations.
 #[tauri::command]
-pub fn external_storage_command(
+pub async fn external_storage_command(
     app_handle: tauri::AppHandle,
     action: ExternalStorageAction,
 ) -> Result<serde_json::Value, String> {
@@ -80,6 +150,7 @@ pub fn external_storage_command(
             let config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
             to_value(ExternalStorageSettings {
                 default_subpath: config.external_storage_default_subpath,
+                playlists_subpath: config.external_storage_playlists_subpath,
                 reencode_enabled: config.external_storage_reencode_enabled,
                 reencode_args: config.external_storage_reencode_args,
             })
@@ -88,6 +159,7 @@ pub fn external_storage_command(
         ExternalStorageAction::SetSettings { settings } => {
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
             config.external_storage_default_subpath = settings.default_subpath;
+            config.external_storage_playlists_subpath = settings.playlists_subpath;
             config.external_storage_reencode_enabled = settings.reencode_enabled;
             config.external_storage_reencode_args = settings.reencode_args;
             config.save(&app_handle)?;
@@ -98,7 +170,7 @@ pub fn external_storage_command(
             let devices = FreqholeAppConfig::load(&app_handle)
                 .map(|c| c.external_storage_devices)
                 .unwrap_or_default();
-            to_value(devices)
+            to_value(with_stats_many(devices).await)
         }
 
         ExternalStorageAction::ListMounted => {
@@ -108,7 +180,7 @@ pub fn external_storage_command(
                 .into_iter()
                 .filter(is_still_mounted)
                 .collect();
-            to_value(mounted)
+            to_value(with_stats_many(mounted).await)
         }
 
         ExternalStorageAction::GetActive => {
@@ -124,7 +196,10 @@ pub fn external_storage_command(
                         .cloned()
                 })
                 .filter(|d| is_still_mounted(d));
-            to_value(active)
+            match active {
+                Some(device) => to_value(Some(with_stats(device).await)),
+                None => to_value(Option::<DeviceWithStats>::None),
+            }
         }
 
         ExternalStorageAction::AddDevice { path, subpath } => {
@@ -153,7 +228,6 @@ pub fn external_storage_command(
                     volume_name,
                     volume_uuid,
                     subpath,
-                    last_synced_at: None,
                 };
                 config.external_storage_devices.push(device.clone());
                 device
@@ -164,7 +238,7 @@ pub fn external_storage_command(
             // first device just got configured - safe to start the mount
             // watcher now (no-op if it's already running).
             super::watcher::ensure_started(app_handle.clone());
-            to_value(device)
+            to_value(with_stats(device).await)
         }
 
         ExternalStorageAction::SetActive { id } => {
@@ -209,6 +283,103 @@ pub fn external_storage_command(
                 free_bytes,
                 used_bytes: total_bytes.saturating_sub(free_bytes),
             })
+        }
+
+        ExternalStorageAction::SyncSong { device_id, song_id } => {
+            let result =
+                super::copy_engine::sync_song_to_device(&app_handle, &device_id, &song_id).await?;
+            to_value(result)
+        }
+
+        ExternalStorageAction::GetSyncedPlaylistIds { device_id } => {
+            let ids = super::playlist_sync::get_synced_playlist_ids(&device_id).await?;
+            to_value(ids)
+        }
+
+        ExternalStorageAction::SyncPlaylists {
+            device_id,
+            playlist_ids,
+        } => {
+            let result = super::playlist_sync::sync_playlists_to_device(
+                &app_handle,
+                &device_id,
+                &playlist_ids,
+            )
+            .await?;
+            to_value(result)
+        }
+
+        ExternalStorageAction::ListFilterSets => {
+            let sets = grimoire::external_storage::list_filter_sets()
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(sets)
+        }
+
+        ExternalStorageAction::CreateFilterSet { name } => {
+            let set = grimoire::external_storage::create_filter_set(&name)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(set)
+        }
+
+        ExternalStorageAction::RenameFilterSet { id, name } => {
+            let set = grimoire::external_storage::rename_filter_set(&id, &name)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(set)
+        }
+
+        ExternalStorageAction::DeleteFilterSet { id } => {
+            grimoire::external_storage::delete_filter_set(&id)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(())
+        }
+
+        ExternalStorageAction::GetOrCreateDefaultFilterSet { device_id } => {
+            let set = grimoire::external_storage::get_or_create_default_filter_set(&device_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(set)
+        }
+
+        ExternalStorageAction::ListFilterSetFilters { filter_set_id } => {
+            let filters = grimoire::external_storage::list_filter_set_filters(&filter_set_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(filters)
+        }
+
+        ExternalStorageAction::AddFilterSetFilter {
+            filter_set_id,
+            filter_type,
+            filter_value,
+            mode,
+        } => {
+            let filter = grimoire::external_storage::add_filter_set_filter(
+                &filter_set_id,
+                &filter_type,
+                &filter_value,
+                &mode,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            to_value(filter)
+        }
+
+        ExternalStorageAction::RemoveFilterSetFilter { filter_id } => {
+            grimoire::external_storage::remove_filter_set_filter(&filter_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(())
+        }
+
+        ExternalStorageAction::ResolveFilterSet { filter_set_id } => {
+            let song_ids = grimoire::external_storage::resolve_filter_set(&filter_set_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            to_value(song_ids)
         }
     }
 }

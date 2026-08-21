@@ -6,6 +6,9 @@
 //! the tauri command surface lives in the `commands` submodule.
 
 pub mod commands;
+pub mod copy_engine;
+pub mod path_naming;
+pub mod playlist_sync;
 pub mod watcher;
 
 use crate::app_config::ExternalStorageDevice;

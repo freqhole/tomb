@@ -99,9 +99,16 @@ pub struct FreqholeAppConfig {
     pub active_external_storage_device_id: Option<String>,
 
     /// default sub-path where music is written on a device, relative to its
-    /// mount root, when the device itself has no override (default: "music")
+    /// mount root, when the device itself has no override (default: "Music")
     #[serde(default = "default_external_storage_subpath")]
     pub external_storage_default_subpath: String,
+
+    /// sub-path (relative to a device's mount root) where synced `.m3u8`
+    /// playlist/favorites manifests are written (default: "Playlists") -
+    /// a sibling of `external_storage_default_subpath`, not nested under it
+    /// (see phase 3 of docs/removable-storage-sync-plan.md).
+    #[serde(default = "default_external_storage_playlists_subpath")]
+    pub external_storage_playlists_subpath: String,
 
     /// re-encode songs with ffmpeg before writing them to a device
     /// (default: false - raw file bytes are copied as-is)
@@ -116,6 +123,11 @@ pub struct FreqholeAppConfig {
 }
 
 /// a removable/mounted storage device selected for music sync.
+///
+/// note: `last_synced_at` used to live here, but moved to grimoire's
+/// `external_storage_device_statz` table (migration 053) — see
+/// `commands::DeviceWithStats` for the enriched response shape the
+/// frontend actually receives.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalStorageDevice {
     /// stable identity for this device across remounts: `volume_uuid` when
@@ -139,14 +151,16 @@ pub struct ExternalStorageDevice {
     /// `external_storage_default_subpath` when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subpath: Option<String>,
-    /// unix ms timestamp of the last completed sync to this device, if any
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_synced_at: Option<i64>,
 }
 
-/// default value for `external_storage_default_subpath` ("music")
+/// default value for `external_storage_default_subpath` ("Music")
 fn default_external_storage_subpath() -> String {
-    "music".to_string()
+    "Music".to_string()
+}
+
+/// default value for `external_storage_playlists_subpath` ("Playlists")
+fn default_external_storage_playlists_subpath() -> String {
+    "Playlists".to_string()
 }
 
 /// default ffmpeg re-encode command: mp3, resampled to 48khz if not
