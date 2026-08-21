@@ -82,6 +82,79 @@ pub struct FreqholeAppConfig {
     /// where the `rodio-playback` cargo feature is enabled.
     #[serde(default = "default_use_rodio_playback")]
     pub use_rodio_playback: bool,
+
+    /// known removable/mounted storage devices configured for music sync
+    /// (tauri desktop only). an empty list means the feature has never been
+    /// set up. multiple devices can be remembered (e.g. several usb drives
+    /// used at different times) but only one is "active" at a time - see
+    /// `active_external_storage_device_id` (see
+    /// docs/removable-storage-sync-plan.md).
+    #[serde(default)]
+    pub external_storage_devices: Vec<ExternalStorageDevice>,
+
+    /// id (`ExternalStorageDevice.id`) of the device currently being
+    /// managed/synced in the ui. `None` means no device is selected, even
+    /// if some are remembered in `external_storage_devices`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_external_storage_device_id: Option<String>,
+
+    /// default sub-path where music is written on a device, relative to its
+    /// mount root, when the device itself has no override (default: "music")
+    #[serde(default = "default_external_storage_subpath")]
+    pub external_storage_default_subpath: String,
+
+    /// re-encode songs with ffmpeg before writing them to a device
+    /// (default: false - raw file bytes are copied as-is)
+    #[serde(default)]
+    pub external_storage_reencode_enabled: bool,
+
+    /// ffmpeg command template used when `external_storage_reencode_enabled`
+    /// is true. placeholders: {input}, {output} (same convention as
+    /// [media].extract_album_art_args in freqhole-config.toml).
+    #[serde(default = "default_external_storage_reencode_args")]
+    pub external_storage_reencode_args: String,
+}
+
+/// a removable/mounted storage device selected for music sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalStorageDevice {
+    /// stable identity for this device across remounts: `volume_uuid` when
+    /// resolvable, otherwise falls back to `path`.
+    pub id: String,
+    /// absolute filesystem path to the device's mount root, as picked via
+    /// the folder chooser (or last known mount path, if not currently
+    /// mounted)
+    pub path: String,
+    /// best-effort human-readable volume name (e.g. "MY_USB"), if resolved.
+    /// this is what's shown in the ui as the device's name; falls back to
+    /// the final path component when unresolved (e.g. a plain folder, not a
+    /// removable disk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_name: Option<String>,
+    /// best-effort volume uuid/serial, used to re-recognize this device if
+    /// it's unmounted and remounted at a different path later
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_uuid: Option<String>,
+    /// sub-path (relative to `path`) where music is written. falls back to
+    /// `external_storage_default_subpath` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subpath: Option<String>,
+    /// unix ms timestamp of the last completed sync to this device, if any
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_synced_at: Option<i64>,
+}
+
+/// default value for `external_storage_default_subpath` ("music")
+fn default_external_storage_subpath() -> String {
+    "music".to_string()
+}
+
+/// default ffmpeg re-encode command: mp3, resampled to 48khz if not
+/// already (most removable-device/car-stereo players expect this; source
+/// files ripped/downloaded at other rates - 44.1khz, 96khz, etc - get
+/// normalized here).
+fn default_external_storage_reencode_args() -> String {
+    "-i {input} -vn -c:a libmp3lame -q:a 2 -ar 48000 -y {output}".to_string()
 }
 
 /// default value for sync_queue_to_local (true)

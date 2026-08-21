@@ -4,6 +4,7 @@ mod admin_commands;
 mod app_config;
 mod commands;
 mod ephemeral_blob_commands;
+mod external_storage;
 
 #[cfg(desktop)]
 mod menu;
@@ -781,6 +782,7 @@ pub fn run() {
             commands::set_sync_queue_to_local,
             commands::get_rodio_playback,
             commands::set_rodio_playback,
+            external_storage::commands::external_storage_command,
             commands::check_config_needs_upgrade,
             commands::upgrade_config,
             // server config / image management
