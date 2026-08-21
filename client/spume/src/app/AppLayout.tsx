@@ -140,6 +140,7 @@ import { reconnectProgressTracking } from "../music/services/queue/listenProgres
 import {
   isCharnelMode,
   listMountedExternalStorageDevices,
+  onExternalStorageMountedChanged,
   setWindowTitle,
   updateServerInfo,
 } from "./services/charnel";
@@ -452,25 +453,24 @@ export function AppLayout(props: AppLayoutProps) {
     // poll for mounted removable-storage devices (desktop/tauri only) -
     // drives playerbar icon visibility, so it should disappear fairly
     // promptly once a device is unplugged.
-    let externalStorageInterval: ReturnType<typeof setInterval> | undefined;
     if (isCharnelMode()) {
       const updateExternalStorageMounted = async () => {
         try {
           const mounted = await listMountedExternalStorageDevices();
           setExternalStorageMounted(mounted.length > 0);
         } catch (error) {
-          console.error("failed to poll mounted external storage devices:", error);
+          console.error("failed to check mounted external storage devices:", error);
         }
       };
       void updateExternalStorageMounted();
-      externalStorageInterval = setInterval(updateExternalStorageMounted, 15000);
+      const unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
+        () => void updateExternalStorageMounted()
+      );
+      onCleanup(() => unlistenExternalStorageMounted());
     }
 
     return () => {
       clearInterval(interval);
-      if (externalStorageInterval) {
-        clearInterval(externalStorageInterval);
-      }
       unsubscribeStatusChange();
       unsubscribeSwitchToLocal();
     };

@@ -24,12 +24,14 @@ export {
   ScanProgressEventSchema,
   ScanCompleteEventSchema,
   PeerOfflineEventSchema,
+  ExternalStorageMountedChangedEventSchema,
   type FreqholeConfig,
   type TauriEvent,
   type ConfigChangedEvent,
   type ScanProgressEvent,
   type ScanCompleteEvent,
   type PeerOfflineEvent,
+  type ExternalStorageMountedChangedEvent,
 } from "./schema";
 
 // re-export commands
@@ -61,4 +63,5 @@ export {
   onScanProgress,
   onScanComplete,
   onPeerOffline,
+  onExternalStorageMountedChanged,
 } from "./events";

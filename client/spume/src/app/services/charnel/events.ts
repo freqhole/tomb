@@ -13,6 +13,7 @@ import {
   type ScanCompleteEvent,
   type KnockCreatedEvent,
   type PeerOfflineEvent,
+  type ExternalStorageMountedChangedEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -37,7 +38,7 @@ async function getListen() {
  */
 export async function onEvent(callback: (event: TauriEvent) => void): Promise<UnlistenFn> {
   const listen = await getListen();
-  
+
   const unlisten = await listen<unknown>(EVENT_NAME, (event) => {
     try {
       const parsed = TauriEventSchema.parse(event.payload);
@@ -46,7 +47,7 @@ export async function onEvent(callback: (event: TauriEvent) => void): Promise<Un
       console.error("[tauri/events] failed to parse event:", error, event.payload);
     }
   });
-  
+
   return unlisten;
 }
 
@@ -121,6 +122,22 @@ export async function onPeerOffline(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "peer-offline") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for external-storage-mounted-changed events
+ *
+ * fired by the rust-side disk-arbitration/udev watcher whenever a
+ * removable-storage device is mounted or unmounted.
+ */
+export async function onExternalStorageMountedChanged(
+  callback: (event: ExternalStorageMountedChangedEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "external-storage-mounted-changed") {
       callback(event);
     }
   });

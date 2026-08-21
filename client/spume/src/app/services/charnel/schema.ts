@@ -159,6 +159,16 @@ export const ShareLinkReceivedEventSchema = z.object({
 });
 
 /**
+ * external-storage-mounted-changed event - a removable-storage device was
+ * mounted or unmounted (rust-side disk-arbitration/udev watcher). spume
+ * should refetch mounted/active device state.
+ */
+export const ExternalStorageMountedChangedEventSchema = z.object({
+  type: z.literal("external-storage-mounted-changed"),
+  data: z.object({}),
+});
+
+/**
  * discriminated union of all event types
  */
 export const UpdateCheckResultEventSchema = z.object({
@@ -183,6 +193,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   KnockAcceptedEventSchema,
   ShareLinkReceivedEventSchema,
   UpdateCheckResultEventSchema,
+  ExternalStorageMountedChangedEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -196,3 +207,6 @@ export type DeviceLinkedEvent = z.infer<typeof DeviceLinkedEventSchema>;
 export type KnockAcceptedEvent = z.infer<typeof KnockAcceptedEventSchema>;
 export type ShareLinkReceivedEvent = z.infer<typeof ShareLinkReceivedEventSchema>;
 export type UpdateCheckResultEvent = z.infer<typeof UpdateCheckResultEventSchema>;
+export type ExternalStorageMountedChangedEvent = z.infer<
+  typeof ExternalStorageMountedChangedEventSchema
+>;

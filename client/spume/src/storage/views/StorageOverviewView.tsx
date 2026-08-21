@@ -13,16 +13,12 @@ import {
   getActiveExternalStorageDevice,
   getExternalStorageDiskUsage,
   openSetupWizard,
+  onExternalStorageMountedChanged,
   type ExternalStorageDevice,
   type DiskUsageResult,
 } from "../../app/services/charnel";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { formatBytes } from "../../settings/services/storageManager";
-
-// how often to re-check mount status while this view is open - needs to
-// be fairly prompt since we navigate away the moment the active device
-// disappears (there's nothing left on this page to show once it's gone).
-const MOUNT_POLL_INTERVAL_MS = 3000;
 
 export function StorageOverviewView() {
   const navigate = useNavigate();
@@ -68,8 +64,10 @@ export function StorageOverviewView() {
 
   onMount(() => {
     void refresh();
-    const interval = setInterval(() => void refresh(), MOUNT_POLL_INTERVAL_MS);
-    onCleanup(() => clearInterval(interval));
+    void (async () => {
+      const unlisten = await onExternalStorageMountedChanged(() => void refresh());
+      onCleanup(() => unlisten());
+    })();
   });
 
   createEffect(() => {
