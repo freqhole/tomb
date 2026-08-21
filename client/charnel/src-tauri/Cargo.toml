@@ -52,7 +52,6 @@ server = { path = "../../../server", default-features = false }
 async-trait = "0.1"
 iroh = { workspace = true }
 tauri-plugin-android-media-session = { path = "plugins/tauri-plugin-android-media-session" }
-sysinfo = "0.39.6"
 
 # desktop-only: the cli library exposes the full `rathole` subcommand
 # surface as a callable function. when the tauri binary is launched

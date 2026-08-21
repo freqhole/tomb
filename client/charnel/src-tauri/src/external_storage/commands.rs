@@ -247,7 +247,7 @@ pub async fn external_storage_command(
                         .find(|d| &d.id == active_id)
                         .cloned()
                 })
-                .filter(|d| is_still_mounted(d));
+                .filter(is_still_mounted);
             match active {
                 Some(device) => to_value(Some(with_stats(device).await)),
                 None => to_value(Option::<DeviceWithStats>::None),

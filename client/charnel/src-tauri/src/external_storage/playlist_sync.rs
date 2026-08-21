@@ -82,8 +82,8 @@ pub struct SyncPlaylistsResult {
     /// `sync_set_ids` just resumes from wherever this one left off.
     pub paused: bool,
     /// true if this run stopped early because the device looked too full
-    /// to safely fit the next song (see `LOW_DISK_SPACE_SAFETY_MARGIN_BYTES`)
-    /// - also sets `paused`, since the resume story is identical: free up
+    /// to safely fit the next song (see `LOW_DISK_SPACE_SAFETY_MARGIN_BYTES`).
+    /// also sets `paused`, since the resume story is identical: free up
     /// space (or plug in a roomier device) and call sync again.
     pub low_disk_space: bool,
 }

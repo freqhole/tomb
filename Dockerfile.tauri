@@ -29,6 +29,9 @@ RUN apt-get update && apt-get install -y \
     # alsa headers — required by cpal (pulled in via grimoire's
     # `rodio-playback` feature) for native audio output on linux.
     libasound2-dev \
+    # libudev.pc — required by the linux-only `udev` crate used by
+    # charnel's external-storage device watcher.
+    libudev-dev \
     # for rpm builds
     rpm \
     && rm -rf /var/lib/apt/lists/*

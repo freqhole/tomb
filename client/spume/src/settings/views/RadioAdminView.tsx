@@ -14,15 +14,7 @@
 // view double-checks via `whoamiForRemote` and renders a "not admin"
 // state if the role changed.
 
-import {
-  createSignal,
-  createResource,
-  createEffect,
-  onCleanup,
-  onMount,
-  Show,
-  For,
-} from "solid-js";
+import { createSignal, createResource, createEffect, onMount, Show, For } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
