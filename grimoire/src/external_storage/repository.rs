@@ -8,12 +8,12 @@
 //! device list itself lives in charnel's local config, not on the
 //! device), so this doesn't change portability semantics.
 //!
-//! filter-set resolution (`resolve_filter_set`) reuses
+//! filter-set resolution (`resolve_filter_set_groups`) reuses
 //! `radio::stations::repository`'s `song_ids_for_clause`/
 //! `all_playable_song_ids`/`parse_filter_clause` — the two tables have
 //! identical filter-clause shapes (see migrations 051 and 053).
 
-use super::models::{FilterSet, FilterSetFilter, SyncManifest, SyncedSong};
+use super::models::{FilterSet, FilterSetFilter, FilterSetGroup, SyncManifest, SyncedSong};
 use crate::database;
 use crate::error::{GrimoireError, GrimoireResult};
 use crate::radio::stations::repository::{
@@ -376,7 +376,10 @@ pub async fn list_filter_set_filters(filter_set_id: &str) -> GrimoireResult<Vec<
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
                   COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
-                  f.mode as "mode!", f.created_at as "created_at!"
+                  f.mode as "mode!", f.created_at as "created_at!",
+                  CASE WHEN f.filter_type IN ('favorite', 'rating_gte', 'rating_lte')
+                       THEN CASE WHEN f.criteria_scope = 1 THEN 'everyone' ELSE 'me' END
+                       ELSE NULL END as "criteria_scope: String"
            FROM external_storage_filter_set_filterz f
            LEFT JOIN artistz   ar ON ar.id = f.artist_id
            LEFT JOIN albumz    al ON al.id = f.album_id
@@ -398,6 +401,7 @@ pub async fn add_filter_set_filter(
     filter_type: &str,
     filter_value: &str,
     mode: &str,
+    criteria_scope: Option<&str>,
 ) -> GrimoireResult<FilterSetFilter> {
     let pool = database::connect().await?;
 
@@ -405,10 +409,19 @@ pub async fn add_filter_set_filter(
         parse_filter_clause("sync filter", filter_type, filter_value, mode)?;
     let kind_str = kind.as_str();
 
+    // only "favorite"/"rating_gte"/"rating_lte" have a scope choice -
+    // "everyone" stores 1, everything else (including "me", the default)
+    // stores NULL, matching the behavior every pre-existing `favorite`
+    // row already had.
+    let criteria_scope_value: Option<i64> = match (kind_str, criteria_scope) {
+        ("favorite" | "rating_gte" | "rating_lte", Some("everyone")) => Some(1),
+        _ => None,
+    };
+
     let id: String = sqlx::query_scalar!(
         r#"INSERT INTO external_storage_filter_set_filterz
-              (filter_set_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (filter_set_id, filter_type, mode, artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value, criteria_scope)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id"#,
         filter_set_id,
         kind_str,
@@ -420,6 +433,7 @@ pub async fn add_filter_set_filter(
         song_id,
         playlist_id,
         criteria_value,
+        criteria_scope_value,
     )
     .fetch_one(&pool)
     .await?;
@@ -431,7 +445,10 @@ pub async fn add_filter_set_filter(
                   COALESCE(f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
                            CAST(f.criteria_value AS TEXT), '') as "filter_value!: String",
                   COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "filter_label!: String",
-                  f.mode as "mode!", f.created_at as "created_at!"
+                  f.mode as "mode!", f.created_at as "created_at!",
+                  CASE WHEN f.filter_type IN ('favorite', 'rating_gte', 'rating_lte')
+                       THEN CASE WHEN f.criteria_scope = 1 THEN 'everyone' ELSE 'me' END
+                       ELSE NULL END as "criteria_scope: String"
            FROM external_storage_filter_set_filterz f
            LEFT JOIN artistz   ar ON ar.id = f.artist_id
            LEFT JOIN albumz    al ON al.id = f.album_id
@@ -460,67 +477,181 @@ pub async fn remove_filter_set_filter(filter_id: &str) -> GrimoireResult<()> {
 
 // ---------- filter-set resolution ------------------------------------------
 
-/// resolve a filter-set's effective song list. returns DISTINCT song
-/// ids. identical algorithm to
-/// `radio::stations::repository::resolve_playlist` — see that
-/// function's doc comment for the include/exclude/union/intersect
-/// rules — against `external_storage_filter_set_filterz` instead of
-/// `radio_station_filterz`.
-pub async fn resolve_filter_set(filter_set_id: &str) -> GrimoireResult<Vec<String>> {
-    let pool = database::connect().await?;
-
-    let filters = list_filter_set_rows(&pool, filter_set_id).await?;
-    if filters.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let includes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "include").collect();
-    let excludes: Vec<&FilterRow> = filters.iter().filter(|f| f.mode == "exclude").collect();
-
-    let mut result: std::collections::HashSet<String> = if includes.is_empty() {
-        all_playable_song_ids(&pool).await?.into_iter().collect()
-    } else {
-        let mut by_type: std::collections::HashMap<String, std::collections::HashSet<String>> =
-            std::collections::HashMap::new();
-        for clause in &includes {
-            let matches = song_ids_for_clause(&pool, clause).await?;
-            by_type
-                .entry(clause.filter_type.clone())
-                .or_default()
-                .extend(matches);
-        }
-        let mut iter = by_type.into_values();
-        let mut acc = iter.next().unwrap_or_default();
-        for next in iter {
-            acc = acc.intersection(&next).cloned().collect();
-        }
-        acc
-    };
-
-    for clause in &excludes {
-        let matches = song_ids_for_clause(&pool, clause).await?;
-        for id in matches {
-            result.remove(&id);
-        }
-    }
-
-    Ok(result.into_iter().collect())
+/// internal row carrying both the typed FK columns (needed by
+/// `song_ids_for_clause`) and the clause's own id + joined display label
+/// — `list_filter_set_rows`'s `FilterRow` has neither, since
+/// `resolve_filter_set`'s combined-list algorithm doesn't need per-clause
+/// identity.
+struct FilterClauseRow {
+    id: String,
+    filter_type: String,
+    mode: String,
+    artist_id: Option<String>,
+    album_id: Option<String>,
+    taxon_id: Option<String>,
+    tag_id: Option<String>,
+    song_id: Option<String>,
+    playlist_id: Option<String>,
+    criteria_value: Option<i64>,
+    criteria_scope: Option<i64>,
+    label: String,
 }
 
-async fn list_filter_set_rows(
+async fn list_filter_set_clause_rows(
     pool: &sqlx::SqlitePool,
     filter_set_id: &str,
-) -> GrimoireResult<Vec<FilterRow>> {
+) -> GrimoireResult<Vec<FilterClauseRow>> {
     sqlx::query_as!(
-        FilterRow,
-        r#"SELECT filter_type as "filter_type!", mode as "mode!",
-                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value
-           FROM external_storage_filter_set_filterz
-           WHERE filter_set_id = ?
-           ORDER BY created_at ASC"#,
+        FilterClauseRow,
+        r#"SELECT f.id as "id!", f.filter_type as "filter_type!", f.mode as "mode!",
+                  f.artist_id, f.album_id, f.taxon_id, f.tag_id, f.song_id, f.playlist_id,
+                  f.criteria_value, f.criteria_scope,
+                  COALESCE(ar.name, al.title, tx.label, t.name, s.title, p.title, '') as "label!: String"
+           FROM external_storage_filter_set_filterz f
+           LEFT JOIN artistz   ar ON ar.id = f.artist_id
+           LEFT JOIN albumz    al ON al.id = f.album_id
+           LEFT JOIN taxonz    tx ON tx.id = f.taxon_id
+           LEFT JOIN tagz      t  ON t.id  = f.tag_id
+           LEFT JOIN songz     s  ON s.id  = f.song_id
+           LEFT JOIN playlistz p  ON p.id  = f.playlist_id
+           WHERE f.filter_set_id = ?
+           ORDER BY f.created_at ASC"#,
         filter_set_id
     )
     .fetch_all(pool)
     .await
     .map_err(GrimoireError::from)
+}
+
+/// stable manifest key + display name for one include clause, keyed by
+/// the referenced entity so re-adding the same playlist/tag/taxon after
+/// removing it reuses the same `.m3u8` instead of creating a duplicate.
+fn group_identity(clause: &FilterClauseRow) -> (String, String) {
+    match clause.filter_type.as_str() {
+        "playlist" => (
+            format!(
+                "playlist:{}",
+                clause.playlist_id.clone().unwrap_or_default()
+            ),
+            clause.label.clone(),
+        ),
+        "tag" => (
+            format!("tag:{}", clause.tag_id.clone().unwrap_or_default()),
+            clause.label.clone(),
+        ),
+        "taxon" => (
+            format!("taxon:{}", clause.taxon_id.clone().unwrap_or_default()),
+            clause.label.clone(),
+        ),
+        "artist" => (
+            format!("artist:{}", clause.artist_id.clone().unwrap_or_default()),
+            clause.label.clone(),
+        ),
+        "album" => (
+            format!("album:{}", clause.album_id.clone().unwrap_or_default()),
+            clause.label.clone(),
+        ),
+        "track" => (
+            format!("track:{}", clause.song_id.clone().unwrap_or_default()),
+            clause.label.clone(),
+        ),
+        "favorite" => ("favorite".to_string(), "favorites".to_string()),
+        other => (format!("{other}:{}", clause.id), clause.label.clone()),
+    }
+}
+
+/// resolve a filter-set into one independently-matched group per include
+/// clause — phase 8: lets sync write a separate `.m3u8` per
+/// playlist/tag/taxon/favorites the user included, instead of one
+/// combined manifest for the whole filter-set.
+///
+/// every include clause becomes its own group, keyed by the entity it
+/// references so two
+/// clauses pointing at the same playlist/tag/taxon (or two `favorite`
+/// clauses) merge into one group instead of writing duplicate `.m3u8`
+/// files; the union of every exclude clause's matches is still
+/// subtracted from each group. when only excludes are configured, falls
+/// back to a single group over the whole playable library (minus
+/// excludes), named after the filter-set itself.
+///
+/// `user_id` scopes the `"favorite"`/`"rating_gte"`/`"rating_lte"`
+/// clauses to that user's own favorites/ratings only, unless a given
+/// clause opted into `criteria_scope = 1` ("everyone's") — unlike radio
+/// stations, a device sync belongs to one user.
+pub async fn resolve_filter_set_groups(
+    filter_set_id: &str,
+    user_id: &str,
+) -> GrimoireResult<Vec<FilterSetGroup>> {
+    let pool = database::connect().await?;
+    let rows = list_filter_set_clause_rows(&pool, filter_set_id).await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let as_filter_row = |r: &FilterClauseRow| FilterRow {
+        filter_type: r.filter_type.clone(),
+        mode: r.mode.clone(),
+        artist_id: r.artist_id.clone(),
+        album_id: r.album_id.clone(),
+        taxon_id: r.taxon_id.clone(),
+        tag_id: r.tag_id.clone(),
+        song_id: r.song_id.clone(),
+        playlist_id: r.playlist_id.clone(),
+        criteria_value: r.criteria_value,
+        criteria_scope: r.criteria_scope,
+    };
+
+    let includes: Vec<&FilterClauseRow> = rows.iter().filter(|f| f.mode == "include").collect();
+    let excludes: Vec<&FilterClauseRow> = rows.iter().filter(|f| f.mode == "exclude").collect();
+
+    let mut excluded_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for clause in &excludes {
+        excluded_ids
+            .extend(song_ids_for_clause(&pool, &as_filter_row(clause), Some(user_id)).await?);
+    }
+
+    if includes.is_empty() {
+        let mut all: std::collections::HashSet<String> =
+            all_playable_song_ids(&pool).await?.into_iter().collect();
+        for id in &excluded_ids {
+            all.remove(id);
+        }
+        let name = get_filter_set(filter_set_id)
+            .await?
+            .map(|s| s.name)
+            .unwrap_or_else(|| "default".to_string());
+        return Ok(vec![FilterSetGroup {
+            key: filter_set_id.to_string(),
+            name,
+            song_ids: all.into_iter().collect(),
+        }]);
+    }
+
+    // merge include clauses that share a group key (e.g. the same
+    // playlist added twice) into one group instead of one per clause row.
+    let mut merged: std::collections::HashMap<String, (String, std::collections::HashSet<String>)> =
+        std::collections::HashMap::new();
+    for clause in &includes {
+        let matches = song_ids_for_clause(&pool, &as_filter_row(clause), Some(user_id)).await?;
+        let (key, name) = group_identity(clause);
+        let entry = merged
+            .entry(key)
+            .or_insert_with(|| (name, std::collections::HashSet::new()));
+        entry.1.extend(matches);
+    }
+
+    let groups = merged
+        .into_iter()
+        .map(|(key, (name, mut matches))| {
+            for id in &excluded_ids {
+                matches.remove(id);
+            }
+            FilterSetGroup {
+                key,
+                name,
+                song_ids: matches.into_iter().collect(),
+            }
+        })
+        .collect();
+    Ok(groups)
 }

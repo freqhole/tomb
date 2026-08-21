@@ -9,13 +9,12 @@
 // but wired to `grimoire::external_storage`'s filter-set commands instead
 // of the radio admin dispatch.
 
-import { createSignal, createResource, createEffect, Show, For } from "solid-js";
+import { createSignal, createResource, Show, For } from "solid-js";
 import { type AdminClient } from "@freqhole/api-client";
 import {
   listFilterSetFilters,
   addFilterSetFilter,
   removeFilterSetFilter,
-  resolveFilterSet,
 } from "../../app/services/charnel";
 import { getLocalAdminClient } from "../../app/api/adminClient";
 import { SeedSuggestInput, SongSuggestInput } from "../../components/radio/SeedSuggestInputs";
@@ -25,12 +24,13 @@ import {
   type FilterType,
   isReferenceFilterType,
   isRatingFilterType,
+  isScopableFilterType,
   filterDisplayValue,
   FILTER_MODES,
 } from "../../components/radio/filterTypes";
 import { toast } from "../../components/feedback/Toast";
 
-export function FilterSetManager(props: { filterSetId: string }) {
+export function FilterSetManager(props: { filterSetId: string; onFiltersChanged?: () => void }) {
   const client = getLocalAdminClient();
 
   return (
@@ -42,41 +42,34 @@ export function FilterSetManager(props: { filterSetId: string }) {
         </div>
       }
     >
-      <FilterSetClauseEditor filterSetId={props.filterSetId} client={client!} />
+      <FilterSetClauseEditor
+        filterSetId={props.filterSetId}
+        client={client!}
+        onFiltersChanged={props.onFiltersChanged}
+      />
     </Show>
   );
 }
 
-function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient }) {
+function FilterSetClauseEditor(props: {
+  filterSetId: string;
+  client: AdminClient;
+  onFiltersChanged?: () => void;
+}) {
   const [filters, { refetch: refetchFilters }] = createResource(
     () => props.filterSetId,
     (filterSetId) => listFilterSetFilters(filterSetId)
   );
-  const [songCount, setSongCount] = createSignal<number | null>(null);
-  const [resolving, setResolving] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [fType, setFType] = createSignal<FilterType>("tag");
   const [fValue, setFValue] = createSignal("");
   const [fMode, setFMode] = createSignal("include");
+  const [fScope, setFScope] = createSignal<"me" | "everyone">("me");
 
-  // song count is always computed, never behind a manual button - re-runs
-  // whenever the filter-set id changes or its clauses are added/removed.
-  // TODO(later phase): replace the count with a full song list (plus each
-  // song's sync state) once storage-space-awareness lands - see
-  // docs/removable-storage-sync-plan.md "future improvements".
-  const refreshCount = async () => {
-    setResolving(true);
-    try {
-      const ids = await resolveFilterSet(props.filterSetId);
-      setSongCount(ids.length);
-    } finally {
-      setResolving(false);
-    }
-  };
-
-  createEffect(() => {
-    if (!filters.loading) void refreshCount();
-  });
+  // song-count/projection preview lives in `StorageOverviewView.tsx` now
+  // (see `getFilterSetProjection`) - it needs a device-wide, segmented
+  // "actual vs projected" display, not just this editor's own clause
+  // list, so `onFiltersChanged` tells it when to re-fetch.
 
   const addFilter = async (e: Event) => {
     e.preventDefault();
@@ -90,15 +83,16 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
         props.filterSetId,
         fType(),
         fType() === "favorite" ? "" : fValue().trim(),
-        fMode()
+        fMode(),
+        isScopableFilterType(fType()) ? fScope() : undefined
       );
       if (!filter) {
         toast.error("failed to add filter");
         return;
       }
       setFValue("");
-      setSongCount(null);
       await refetchFilters();
+      props.onFiltersChanged?.();
     } finally {
       setBusy(false);
     }
@@ -112,8 +106,8 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
         toast.error("failed to remove filter");
         return;
       }
-      setSongCount(null);
       await refetchFilters();
+      props.onFiltersChanged?.();
     } finally {
       setBusy(false);
     }
@@ -121,15 +115,6 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
 
   return (
     <div class="space-y-3">
-      <div class="flex items-center justify-between gap-2 text-xs">
-        <div class="text-[var(--color-text-muted)]">
-          include rows define the candidate set (intersection); exclude rows subtract from it.
-        </div>
-        <span class="px-2 py-1 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] whitespace-nowrap">
-          {resolving() ? "counting..." : songCount() !== null ? `${songCount()} songs` : "\u2013"}
-        </span>
-      </div>
-
       <Show
         when={!filters.loading && (filters()?.length ?? 0) > 0}
         fallback={
@@ -155,7 +140,7 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
                   <code class="text-[var(--color-text-secondary)]">{f.filter_type}</code>
                   <span class="text-[var(--color-text-muted)]"> = </span>
                   <span class="text-[var(--color-text-primary)]" title={f.filter_value}>
-                    {filterDisplayValue(f)}
+                    {filterDisplayValue(f, "you")}
                   </span>
                 </span>
                 <button
@@ -185,6 +170,7 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
           onChange={(e) => {
             setFType(e.currentTarget.value as FilterType);
             setFValue("");
+            setFScope("me");
           }}
         >
           <optgroup label="reference">
@@ -224,6 +210,18 @@ function FilterSetClauseEditor(props: { filterSetId: string; client: AdminClient
             value={fValue()}
             onInput={(e) => setFValue(e.currentTarget.value)}
           />
+        </Show>
+        <Show when={isScopableFilterType(fType())}>
+          <select
+            class="text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
+            value={fScope()}
+            onChange={(e) => setFScope(e.currentTarget.value as "me" | "everyone")}
+          >
+            <option value="me">my {isRatingFilterType(fType()) ? "ratings" : "favorites"}</option>
+            <option value="everyone">
+              everyone's {isRatingFilterType(fType()) ? "ratings" : "favorites"}
+            </option>
+          </select>
         </Show>
         <button
           type="submit"

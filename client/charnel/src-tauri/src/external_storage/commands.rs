@@ -7,7 +7,7 @@
 //! `action` rather than registering a separate tauri command per
 //! operation.
 
-use super::{disk_usage, eject_device, is_still_mounted, resolve_volume_info};
+use super::{disk_usage, eject_device, is_still_mounted, path_naming, resolve_volume_info};
 use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
 use serde::{Deserialize, Serialize};
 
@@ -18,8 +18,10 @@ use serde::{Deserialize, Serialize};
 pub struct ExternalStorageSettings {
     pub default_subpath: String,
     pub playlists_subpath: String,
+    pub playlists_sync_enabled: bool,
     pub reencode_enabled: bool,
     pub reencode_args: String,
+    pub reencode_extension: String,
 }
 
 /// total/free/used space (bytes) on the filesystem a device lives on,
@@ -58,6 +60,28 @@ async fn with_stats_many(devices: Vec<ExternalStorageDevice>) -> Vec<DeviceWithS
         out.push(with_stats(device).await);
     }
     out
+}
+
+/// one group's contribution to a filter-set projection - named the same
+/// as the `.m3u8` a real sync would write for it (see
+/// `FilterSetProjection`).
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterSetGroupCount {
+    pub name: String,
+    pub song_count: usize,
+}
+
+/// a filter-set's actual, per-group resolved song matches - what
+/// `sync_playlists_to_device` would actually copy/write if run right
+/// now, broken down the same way it breaks manifests down (one entry per
+/// include clause's group).
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterSetProjection {
+    pub groups: Vec<FilterSetGroupCount>,
+    /// distinct song count across every group combined (the same dedup
+    /// `sync_playlists_to_device` does before copying) - the actual
+    /// number of song files a sync would end up with.
+    pub total_song_count: usize,
 }
 
 /// tagged action payload for `external_storage_command`.
@@ -104,6 +128,17 @@ pub enum ExternalStorageAction {
         device_id: String,
         playlist_ids: Vec<String>,
     },
+    /// best-effort "would this fit" size estimate for a selection of
+    /// sync targets, without actually syncing anything - lets the ui
+    /// warn before starting if the device looks too full.
+    EstimateSyncSize {
+        device_id: String,
+        playlist_ids: Vec<String>,
+    },
+    /// stop the in-progress sync for a device before its next song -
+    /// sync is additive/idempotent, so a later `SyncPlaylists` call with
+    /// the same targets just resumes from where this paused.
+    PauseSync { device_id: String },
     /// list every named sync filter-set (phase 6).
     ListFilterSets,
     /// create a new, empty named sync filter-set.
@@ -124,12 +159,23 @@ pub enum ExternalStorageAction {
         filter_type: String,
         filter_value: String,
         mode: String,
+        /// only meaningful for `filter_type` `"favorite"`/`"rating_gte"`/
+        /// `"rating_lte"`: `"me"` (default) or `"everyone"`. ignored for
+        /// every other type.
+        criteria_scope: Option<String>,
     },
     /// remove one filter clause by its own id.
     RemoveFilterSetFilter { filter_id: String },
-    /// resolve a filter-set to its effective (distinct) song id list, for
-    /// previewing a filter-set's song count before syncing.
-    ResolveFilterSet { filter_set_id: String },
+    /// resolve a filter-set into its actual per-group song matches, for
+    /// previewing what a sync would write before running it - mirrors
+    /// `sync_playlists_to_device`'s per-group `.m3u8` expansion exactly
+    /// (one group per include clause), unlike the old single
+    /// all-clauses-intersected `ResolveFilterSet` preview this replaced.
+    GetFilterSetProjection { filter_set_id: String },
+    /// count of distinct songs already copied onto a device - the
+    /// "actual" half of the overview view's actual-vs-projected songs
+    /// display.
+    GetSyncedSongCount { device_id: String },
 }
 
 /// serialize a response value, mapping serde errors to the plain `String`
@@ -151,17 +197,23 @@ pub async fn external_storage_command(
             to_value(ExternalStorageSettings {
                 default_subpath: config.external_storage_default_subpath,
                 playlists_subpath: config.external_storage_playlists_subpath,
+                playlists_sync_enabled: !config.external_storage_playlists_sync_disabled,
                 reencode_enabled: config.external_storage_reencode_enabled,
                 reencode_args: config.external_storage_reencode_args,
+                reencode_extension: config.external_storage_reencode_extension,
             })
         }
 
         ExternalStorageAction::SetSettings { settings } => {
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
-            config.external_storage_default_subpath = settings.default_subpath;
-            config.external_storage_playlists_subpath = settings.playlists_subpath;
+            config.external_storage_default_subpath =
+                path_naming::sanitize_subpath(&settings.default_subpath);
+            config.external_storage_playlists_subpath =
+                path_naming::sanitize_subpath(&settings.playlists_subpath);
+            config.external_storage_playlists_sync_disabled = !settings.playlists_sync_enabled;
             config.external_storage_reencode_enabled = settings.reencode_enabled;
             config.external_storage_reencode_args = settings.reencode_args;
+            config.external_storage_reencode_extension = settings.reencode_extension;
             config.save(&app_handle)?;
             to_value(())
         }
@@ -206,6 +258,9 @@ pub async fn external_storage_command(
             let resolved_path = grimoire::paths::canonical_path_string(&path);
             let (volume_name, volume_uuid) = resolve_volume_info(&resolved_path);
             let id = volume_uuid.clone().unwrap_or_else(|| resolved_path.clone());
+            let subpath = subpath
+                .map(|s| path_naming::sanitize_subpath(&s))
+                .filter(|s| !s.is_empty());
 
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
 
@@ -309,6 +364,21 @@ pub async fn external_storage_command(
             to_value(result)
         }
 
+        ExternalStorageAction::EstimateSyncSize {
+            device_id,
+            playlist_ids,
+        } => {
+            let estimate =
+                super::playlist_sync::estimate_sync_size(&app_handle, &device_id, &playlist_ids)
+                    .await?;
+            to_value(estimate)
+        }
+
+        ExternalStorageAction::PauseSync { device_id } => {
+            super::playlist_sync::request_pause(&device_id);
+            to_value(())
+        }
+
         ExternalStorageAction::ListFilterSets => {
             let sets = grimoire::external_storage::list_filter_sets()
                 .await
@@ -356,12 +426,14 @@ pub async fn external_storage_command(
             filter_type,
             filter_value,
             mode,
+            criteria_scope,
         } => {
             let filter = grimoire::external_storage::add_filter_set_filter(
                 &filter_set_id,
                 &filter_type,
                 &filter_value,
                 &mode,
+                criteria_scope.as_deref(),
             )
             .await
             .map_err(|e| e.to_string())?;
@@ -375,11 +447,34 @@ pub async fn external_storage_command(
             to_value(())
         }
 
-        ExternalStorageAction::ResolveFilterSet { filter_set_id } => {
-            let song_ids = grimoire::external_storage::resolve_filter_set(&filter_set_id)
+        ExternalStorageAction::GetFilterSetProjection { filter_set_id } => {
+            let user_id = crate::commands::get_caller_from_app_config(&app_handle)?.user_id;
+            let groups =
+                grimoire::external_storage::resolve_filter_set_groups(&filter_set_id, &user_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            let mut distinct: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let groups: Vec<FilterSetGroupCount> = groups
+                .iter()
+                .map(|g| {
+                    distinct.extend(g.song_ids.iter().cloned());
+                    FilterSetGroupCount {
+                        name: g.name.clone(),
+                        song_count: g.song_ids.len(),
+                    }
+                })
+                .collect();
+            to_value(FilterSetProjection {
+                groups,
+                total_song_count: distinct.len(),
+            })
+        }
+
+        ExternalStorageAction::GetSyncedSongCount { device_id } => {
+            let songs = grimoire::external_storage::list_synced_songs(&device_id)
                 .await
                 .map_err(|e| e.to_string())?;
-            to_value(song_ids)
+            to_value(songs.len())
         }
     }
 }

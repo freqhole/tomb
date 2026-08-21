@@ -111,6 +111,20 @@ export async function ejectExternalStorageDevice(id: string): Promise<boolean> {
 }
 
 /**
+ * switch which remembered device is "active" - used by the storage
+ * overview view's device picker when more than one device is mounted.
+ */
+export async function setActiveExternalStorageDevice(id: string): Promise<boolean> {
+  try {
+    await externalStorageCommand({ action: "set_active", id });
+    return true;
+  } catch (error) {
+    console.error("[charnel/externalStorage] failed to set active device:", error);
+    return false;
+  }
+}
+
+/**
  * playlist ids (plus the synthetic `"favorites"` id) currently synced to
  * a device - drives the overview view's checkbox state.
  */
@@ -138,6 +152,8 @@ const PlaylistSyncOutcomeSchema = z.object({
 const SyncPlaylistsResultSchema = z.object({
   synced: z.array(PlaylistSyncOutcomeSchema),
   removed: z.array(z.string()),
+  paused: z.boolean(),
+  low_disk_space: z.boolean(),
 });
 
 export type SyncPlaylistsResult = z.infer<typeof SyncPlaylistsResultSchema>;
@@ -165,6 +181,51 @@ export async function syncPlaylistsToDevice(
   }
 }
 
+const SyncSizeEstimateSchema = z.object({
+  needed_bytes: z.number(),
+  available_bytes: z.number().nullable(),
+  pending_song_count: z.number(),
+});
+
+export type SyncSizeEstimate = z.infer<typeof SyncSizeEstimateSchema>;
+
+/**
+ * best-effort "would this fit" size estimate for a selection of sync
+ * targets, without actually syncing anything - lets the ui warn before
+ * starting if the device looks too full.
+ */
+export async function estimateSyncSize(
+  deviceId: string,
+  playlistIds: string[]
+): Promise<SyncSizeEstimate | null> {
+  try {
+    const result = await externalStorageCommand({
+      action: "estimate_sync_size",
+      device_id: deviceId,
+      playlist_ids: playlistIds,
+    });
+    return SyncSizeEstimateSchema.parse(result);
+  } catch (error) {
+    console.error("[charnel/externalStorage] failed to estimate sync size:", error);
+    return null;
+  }
+}
+
+/**
+ * stop an in-progress sync for a device before its next song - sync is
+ * additive/idempotent, so a later `syncPlaylistsToDevice` call with the
+ * same target ids just resumes from wherever this paused.
+ */
+export async function pauseExternalStorageSync(deviceId: string): Promise<boolean> {
+  try {
+    await externalStorageCommand({ action: "pause_sync", device_id: deviceId });
+    return true;
+  } catch (error) {
+    console.error("[charnel/externalStorage] failed to pause sync:", error);
+    return false;
+  }
+}
+
 const FilterSetSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -183,6 +244,7 @@ const FilterSetFilterSchema = z.object({
   filter_label: z.string(),
   mode: z.string(),
   created_at: z.number(),
+  criteria_scope: z.string().nullish(),
 });
 
 export type FilterSetFilter = z.infer<typeof FilterSetFilterSchema>;
@@ -277,12 +339,15 @@ export async function listFilterSetFilters(filterSetId: string): Promise<FilterS
  * add one include/exclude filter clause to a filter-set. `filterType` is
  * one of the `StationFilterType` variants (snake_case on the wire, e.g.
  * `"artist"`, `"rating_gte"`), `mode` is `"include"` or `"exclude"`.
+ * `criteriaScope` only matters for `"favorite"`/`"rating_gte"`/
+ * `"rating_lte"`: `"me"` (default) or `"everyone"`.
  */
 export async function addFilterSetFilter(
   filterSetId: string,
   filterType: string,
   filterValue: string,
-  mode: string
+  mode: string,
+  criteriaScope?: string
 ): Promise<FilterSetFilter | null> {
   try {
     const result = await externalStorageCommand({
@@ -291,6 +356,7 @@ export async function addFilterSetFilter(
       filter_type: filterType,
       filter_value: filterValue,
       mode,
+      criteria_scope: criteriaScope ?? null,
     });
     return FilterSetFilterSchema.parse(result);
   } catch (error) {
@@ -313,18 +379,55 @@ export async function removeFilterSetFilter(filterId: string): Promise<boolean> 
 }
 
 /**
- * resolve a filter-set to its effective (distinct) song id list, for
- * previewing a filter-set's song count before syncing.
+ * per-group (one entry per include clause's playlist/tag/taxon/
+ * favorites/etc.) breakdown of a filter-set's actual resolved song
+ * matches, plus the combined distinct total - mirrors exactly what a
+ * sync would write (one `.m3u8` per group), unlike a naive
+ * intersect-everything preview.
  */
-export async function resolveFilterSet(filterSetId: string): Promise<string[]> {
+const FilterSetGroupCountSchema = z.object({
+  name: z.string(),
+  song_count: z.number(),
+});
+
+const FilterSetProjectionSchema = z.object({
+  groups: z.array(FilterSetGroupCountSchema),
+  total_song_count: z.number(),
+});
+
+export type FilterSetProjection = z.infer<typeof FilterSetProjectionSchema>;
+
+/**
+ * resolve a filter-set's actual per-group song matches, for previewing
+ * what a sync would write before running it.
+ */
+export async function getFilterSetProjection(
+  filterSetId: string
+): Promise<FilterSetProjection | null> {
   try {
     const result = await externalStorageCommand({
-      action: "resolve_filter_set",
+      action: "get_filter_set_projection",
       filter_set_id: filterSetId,
     });
-    return z.array(z.string()).parse(result);
+    return FilterSetProjectionSchema.parse(result);
   } catch (error) {
-    console.error("[charnel/externalStorage] failed to resolve filter set:", error);
-    return [];
+    console.error("[charnel/externalStorage] failed to get filter set projection:", error);
+    return null;
+  }
+}
+
+/**
+ * count of distinct songs already copied onto a device.
+ */
+export async function getSyncedSongCount(deviceId: string): Promise<number> {
+  try {
+    const result = await externalStorageCommand({
+      action: "get_synced_song_count",
+      device_id: deviceId,
+    });
+    return z.number().parse(result);
+  } catch (error) {
+    console.error("[charnel/externalStorage] failed to get synced song count:", error);
+    return 0;
   }
 }

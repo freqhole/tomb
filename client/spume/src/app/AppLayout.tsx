@@ -141,9 +141,15 @@ import {
   isCharnelMode,
   listMountedExternalStorageDevices,
   onExternalStorageMountedChanged,
+  onExternalStorageSyncProgress,
   setWindowTitle,
   updateServerInfo,
 } from "./services/charnel";
+import {
+  externalStorageSyncingSignal,
+  externalStorageSyncProgressSignal,
+  setExternalStorageSyncProgress,
+} from "./services/charnel/externalStorageSyncState";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -467,6 +473,18 @@ export function AppLayout(props: AppLayoutProps) {
         () => void updateExternalStorageMounted()
       );
       onCleanup(() => unlistenExternalStorageMounted());
+
+      // global per-song sync progress - lives here (not just
+      // StorageOverviewView) so the playerbar icon keeps showing live
+      // progress even after navigating away mid-sync.
+      const unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
+        setExternalStorageSyncProgress({
+          title: event.data.title,
+          current: event.data.current,
+          total: event.data.total,
+        });
+      });
+      onCleanup(() => unlistenSyncProgress());
     }
 
     return () => {
@@ -1790,6 +1808,8 @@ export function AppLayout(props: AppLayoutProps) {
               statusBadge={statusBadge()}
               isLiveStream={isRadio()}
               showExternalStorageIcon={externalStorageMounted()}
+              externalStorageBusy={externalStorageSyncingSignal()}
+              externalStorageProgress={externalStorageSyncProgressSignal()}
               onExternalStorageIconClick={() => navigate("/storage-overview")}
             />
           );

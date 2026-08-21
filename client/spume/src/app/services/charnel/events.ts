@@ -14,6 +14,7 @@ import {
   type KnockCreatedEvent,
   type PeerOfflineEvent,
   type ExternalStorageMountedChangedEvent,
+  type ExternalStorageSyncProgressEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -138,6 +139,22 @@ export async function onExternalStorageMountedChanged(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "external-storage-mounted-changed") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for external-storage-sync-progress events
+ *
+ * fired once per song while a removable-storage sync is running, so the
+ * ui can show "song N of M" instead of only a final all-or-nothing result.
+ */
+export async function onExternalStorageSyncProgress(
+  callback: (event: ExternalStorageSyncProgressEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "external-storage-sync-progress") {
       callback(event);
     }
   });

@@ -404,7 +404,7 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
         let mut by_type: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for clause in &includes {
-            let matches = song_ids_for_clause(&pool, clause).await?;
+            let matches = song_ids_for_clause(&pool, clause, None).await?;
             by_type
                 .entry(clause.filter_type.clone())
                 .or_default()
@@ -420,7 +420,7 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
 
     // subtract excludes (union of every exclude clause).
     for clause in &excludes {
-        let matches = song_ids_for_clause(&pool, clause).await?;
+        let matches = song_ids_for_clause(&pool, clause, None).await?;
         for id in matches {
             result.remove(&id);
         }
@@ -464,6 +464,11 @@ pub(crate) struct FilterRow {
     pub(crate) song_id: Option<String>,
     pub(crate) playlist_id: Option<String>,
     pub(crate) criteria_value: Option<i64>,
+    /// 1 = "everyone's" (favorite/rating), NULL/anything else = "just this
+    /// user's". `radio_station_filterz` has no such column (radio's
+    /// `favorite`/`rating_gte`/`rating_lte` are always any-user, see
+    /// `song_ids_for_clause`) - always NULL there.
+    pub(crate) criteria_scope: Option<i64>,
 }
 
 async fn list_filters_with_fks(
@@ -474,7 +479,8 @@ async fn list_filters_with_fks(
         FilterRow,
         r#"SELECT filter_type as "filter_type!",
                   mode as "mode!",
-                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value
+                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value,
+                  NULL as "criteria_scope: i64"
            FROM radio_station_filterz
            WHERE station_id = ?
            ORDER BY created_at ASC"#,
@@ -489,12 +495,18 @@ async fn list_filters_with_fks(
 /// filter_type values (or rows with all FK columns null — should be
 /// impossible thanks to the CHECK constraint) yield an empty vec.
 ///
+/// `scoped_user_id` scopes the `"favorite"`/`"rating_gte"`/`"rating_lte"`
+/// clauses to one user's favorites/ratings instead of any user's —
+/// `None` preserves the original any-user cascade (radio stations are
+/// shared, not per-listener).
+///
 /// `pub(crate)` — shared with `external_storage::repository` so
 /// removable-storage sync filter-sets resolve identically to radio
 /// station seed filters, without duplicating this SQL.
 pub(crate) async fn song_ids_for_clause(
     pool: &sqlx::SqlitePool,
     clause: &FilterRow,
+    scoped_user_id: Option<&str>,
 ) -> GrimoireResult<Vec<String>> {
     let rows: Vec<String> = match clause.filter_type.as_str() {
         "artist" => match &clause.artist_id {
@@ -578,9 +590,40 @@ pub(crate) async fn song_ids_for_clause(
         // every song on a favorited album/by a favorited artist (not just
         // individually-favorited songs) so album-mode stations can still
         // play the whole album in track order instead of a sparse subset.
-        "favorite" => {
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT s.id as "song_id!"
+        // per-clause opt-out: a "favorite" clause defaults to the calling
+        // user's own favorites (scoped_user_id), but `criteria_scope = 1`
+        // ("everyone's favorites", chosen per-clause in the sync filter
+        // editor) falls back to the any-user cascade instead - same one
+        // radio stations always use, since they have no per-listener user.
+        "favorite" => match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+            Some(uid) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT s.id as "song_id!"
+                   FROM songz s
+                   LEFT JOIN user_favoritez fs
+                          ON fs.target_type = 'song' AND fs.target_id = s.id AND fs.user_id = ?
+                   LEFT JOIN album_songz als ON als.song_id = s.id
+                   LEFT JOIN user_favoritez fal
+                          ON fal.target_type = 'album' AND fal.target_id = als.album_id AND fal.user_id = ?
+                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                   LEFT JOIN user_favoritez far
+                          ON far.target_type = 'artist' AND far.target_id = ars.artist_id AND far.user_id = ?
+                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN user_favoritez fap
+                          ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id AND fap.user_id = ?
+                   WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
+                      OR far.id IS NOT NULL OR fap.id IS NOT NULL"#,
+                    uid,
+                    uid,
+                    uid,
+                    uid,
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT s.id as "song_id!"
                    FROM songz s
                    LEFT JOIN user_favoritez fs
                           ON fs.target_type = 'song' AND fs.target_id = s.id
@@ -595,53 +638,117 @@ pub(crate) async fn song_ids_for_clause(
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
                       OR far.id IS NOT NULL OR fap.id IS NOT NULL"#
-            )
-            .fetch_all(pool)
-            .await?
-        }
-        "rating_gte" => match clause.criteria_value {
-            Some(threshold) => {
-                sqlx::query_scalar!(
-                    r#"SELECT DISTINCT s.id as "song_id!"
-                   FROM songz s
-                   LEFT JOIN user_ratingz rs
-                          ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating >= ?
-                   LEFT JOIN album_songz als ON als.song_id = s.id
-                   LEFT JOIN user_ratingz ral
-                          ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating >= ?
-                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
-                   LEFT JOIN user_ratingz rar
-                          ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating >= ?
-                   WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
-                    threshold,
-                    threshold,
-                    threshold,
                 )
                 .fetch_all(pool)
                 .await?
+            }
+        },
+        // same per-clause opt-out as "favorite" above: defaults to the
+        // calling user's own ratings, `criteria_scope = 1` ("everyone's
+        // ratings") falls back to the any-user cascade radio always uses.
+        "rating_gte" => match clause.criteria_value {
+            Some(threshold) => {
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id
+                                     AND rs.rating >= ? AND rs.user_id = ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id
+                                     AND ral.rating >= ? AND ral.user_id = ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id
+                                     AND rar.rating >= ? AND rar.user_id = ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating >= ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating >= ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating >= ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
             }
             None => Vec::new(),
         },
         "rating_lte" => match clause.criteria_value {
             Some(threshold) => {
-                sqlx::query_scalar!(
-                    r#"SELECT DISTINCT s.id as "song_id!"
-                   FROM songz s
-                   LEFT JOIN user_ratingz rs
-                          ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating <= ?
-                   LEFT JOIN album_songz als ON als.song_id = s.id
-                   LEFT JOIN user_ratingz ral
-                          ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating <= ?
-                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
-                   LEFT JOIN user_ratingz rar
-                          ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating <= ?
-                   WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
-                    threshold,
-                    threshold,
-                    threshold,
-                )
-                .fetch_all(pool)
-                .await?
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id
+                                     AND rs.rating <= ? AND rs.user_id = ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id
+                                     AND ral.rating <= ? AND ral.user_id = ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id
+                                     AND rar.rating <= ? AND rar.user_id = ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating <= ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating <= ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating <= ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
             }
             None => Vec::new(),
         },

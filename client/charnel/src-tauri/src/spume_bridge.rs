@@ -67,6 +67,19 @@ pub enum SpumeEvent {
     #[serde(rename = "external-storage-mounted-changed")]
     ExternalStorageMountedChanged {},
 
+    /// per-song progress during a removable-storage sync (phase 5) - lets
+    /// the playerbar icon and the overview view show "song N of M" instead
+    /// of only a final all-or-nothing result.
+    #[serde(rename = "external-storage-sync-progress")]
+    ExternalStorageSyncProgress {
+        device_id: String,
+        /// title of the sync target (playlist/favorites/filter-set name)
+        /// currently being synced.
+        title: String,
+        current: u32,
+        total: u32,
+    },
+
     /// result of a manual "check for updates" menu action
     #[serde(rename = "update-check-result")]
     UpdateCheckResult {
@@ -194,6 +207,27 @@ pub fn notify_peer_offline(
 /// spume should refetch mounted/active device state.
 pub fn notify_external_storage_mounted_changed(app: &AppHandle<Wry>) -> Result<(), String> {
     emit_event(app, SpumeEvent::ExternalStorageMountedChanged {})
+}
+
+/// notify spume of per-song sync progress for a removable-storage sync
+/// target (phase 5 progress ui) - best-effort, callers should ignore a
+/// failed emit rather than aborting the sync over it.
+pub fn notify_external_storage_sync_progress(
+    app: &AppHandle<Wry>,
+    device_id: &str,
+    title: &str,
+    current: u32,
+    total: u32,
+) -> Result<(), String> {
+    emit_event(
+        app,
+        SpumeEvent::ExternalStorageSyncProgress {
+            device_id: device_id.to_string(),
+            title: title.to_string(),
+            current,
+            total,
+        },
+    )
 }
 
 /// notify spume of the result of a manual update check (menu-triggered)

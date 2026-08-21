@@ -110,6 +110,17 @@ pub struct FreqholeAppConfig {
     #[serde(default = "default_external_storage_playlists_subpath")]
     pub external_storage_playlists_subpath: String,
 
+    /// whether `.m3u8` playlist/favorites manifests get written at all
+    /// during a sync (default: false, i.e. playlist syncing is enabled by
+    /// default). songs are still synced either way when this is set -
+    /// it only controls the manifest files under
+    /// `external_storage_playlists_subpath`. stored inverted (a "disabled"
+    /// flag defaulting to false) so an unset/brand-new config - which
+    /// bypasses serde's per-field defaults and uses `bool`'s own default -
+    /// still comes out enabled.
+    #[serde(default)]
+    pub external_storage_playlists_sync_disabled: bool,
+
     /// re-encode songs with ffmpeg before writing them to a device
     /// (default: false - raw file bytes are copied as-is)
     #[serde(default)]
@@ -120,6 +131,17 @@ pub struct FreqholeAppConfig {
     /// [media].extract_album_art_args in freqhole-config.toml).
     #[serde(default = "default_external_storage_reencode_args")]
     pub external_storage_reencode_args: String,
+
+    /// target container/extension re-encoded files are written with (e.g.
+    /// "mp3", "opus", "m4a") - drives both the synced file's actual
+    /// extension and the ffmpeg muxer (`-f`) forced on the command above,
+    /// so it should match whatever codec `external_storage_reencode_args`
+    /// actually encodes to. also protects against a lingering bug where a
+    /// local-library file's own extension is wrongly ".bin" (see
+    /// docs/removable-storage-sync-plan.md known bugs) - since that source
+    /// extension is never used while re-encoding anyway.
+    #[serde(default = "default_external_storage_reencode_extension")]
+    pub external_storage_reencode_extension: String,
 }
 
 /// a removable/mounted storage device selected for music sync.
@@ -163,12 +185,16 @@ fn default_external_storage_playlists_subpath() -> String {
     "Playlists".to_string()
 }
 
-/// default ffmpeg re-encode command: mp3, resampled to 48khz if not
-/// already (most removable-device/car-stereo players expect this; source
-/// files ripped/downloaded at other rates - 44.1khz, 96khz, etc - get
-/// normalized here).
+/// default ffmpeg re-encode command: mp3, resampled to 44.1khz if not
+/// already (the most common source rate; other rates - 48khz, 96khz,
+/// etc - get normalized here for consistent playback across devices).
 fn default_external_storage_reencode_args() -> String {
-    "-i {input} -vn -c:a libmp3lame -q:a 2 -ar 48000 -y {output}".to_string()
+    "-i {input} -vn -c:a libmp3lame -q:a 2 -ar 44100 -y {output}".to_string()
+}
+
+/// default value for `external_storage_reencode_extension` ("mp3")
+fn default_external_storage_reencode_extension() -> String {
+    "mp3".to_string()
 }
 
 /// default value for sync_queue_to_local (true)

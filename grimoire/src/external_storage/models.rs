@@ -54,4 +54,23 @@ pub struct FilterSetFilter {
     pub filter_label: String,
     pub mode: String,
     pub created_at: i64,
+    /// only set for `filter_type` `"favorite"`/`"rating_gte"`/`"rating_lte"` -
+    /// `"me"` (default) or `"everyone"`. `None` for every other filter type.
+    pub criteria_scope: Option<String>,
+}
+
+/// one independently-resolved slice of a filter-set — phase 8: instead
+/// of intersecting every include clause into a single combined song
+/// list, each include clause gets its own group so sync can write one
+/// `.m3u8` per playlist/tag/taxon/favorites the user included, named
+/// after what it is (see `repository::resolve_filter_set_groups`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterSetGroup {
+    /// stable key derived from the clause's referenced entity (e.g.
+    /// `"playlist:{id}"`, `"tag:{id}"`, `"favorite"`) — reused as the
+    /// manifest's sync_set_id suffix so re-adding the same clause after
+    /// removing it reuses the same `.m3u8` instead of duplicating it.
+    pub key: String,
+    pub name: String,
+    pub song_ids: Vec<String>,
 }

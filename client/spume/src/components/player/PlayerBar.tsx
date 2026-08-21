@@ -90,6 +90,10 @@ export interface PlayerBarProps {
   showExternalStorageIcon?: boolean;
   /** whether a sync is in progress (reuses the comet-tail loading ring). */
   externalStorageBusy?: boolean;
+  /** live per-song sync progress, if known - drives the determinate
+   * progress-fill ring + "N/M" badge instead of a plain indeterminate
+   * spin once at least one song's progress has been reported. */
+  externalStorageProgress?: { current: number; total: number } | null;
   /** callback when the removable-storage icon is clicked (opens the storage overview). */
   onExternalStorageIconClick?: () => void;
   /** additional classes */
@@ -108,6 +112,18 @@ export function PlayerBar(props: PlayerBarProps) {
   const isLiveStream = () => props.isLiveStream ?? false;
   const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
   const songMetaClickable = () => !!props.onSongMetaClick && !!props.song;
+  // fraction complete for the removable-storage sync ring, or null while
+  // busy but no per-song progress has arrived yet (falls back to a plain
+  // indeterminate spin).
+  const externalStorageProgressPct = () => {
+    const p = props.externalStorageProgress;
+    if (!p || p.total <= 0) return null;
+    return Math.min(100, Math.max(0, (p.current / p.total) * 100));
+  };
+  const externalStorageTitle = () => {
+    const p = props.externalStorageProgress;
+    return p ? `syncing to removable storage (${p.current}/${p.total})` : "removable storage";
+  };
   // true while a click on the thumbnail is still resolving image urls
   // for the carousel — shows a spinner instead of the carousel icon.
   const imageCarouselLoading = useImageCarouselLoading();
@@ -326,22 +342,34 @@ export function PlayerBar(props: PlayerBarProps) {
                   class="absolute inset-[-4px] rounded-full pointer-events-none"
                   style={{
                     background:
-                      "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                      externalStorageProgressPct() !== null
+                        ? `conic-gradient(from -90deg, #ec4899 ${externalStorageProgressPct()}%, #ec489930 ${externalStorageProgressPct()}%)`
+                        : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                     mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                     "-webkit-mask":
                       "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                    animation: "spin 1.5s linear infinite",
+                    animation:
+                      externalStorageProgressPct() !== null
+                        ? "external-storage-sync-pulse 1.6s ease-in-out infinite"
+                        : "spin 1.5s linear infinite",
                   }}
                 />
               </Show>
               <button
                 class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30"
                 onClick={() => props.onExternalStorageIconClick?.()}
-                title="removable storage"
+                title={externalStorageTitle()}
                 aria-label="removable storage"
               >
                 <Icon name={IconNames.sdCard} size={16} />
               </button>
+              <Show when={props.externalStorageBusy && props.externalStorageProgress}>
+                {(p) => (
+                  <span class="absolute -bottom-1 -right-1 px-1 rounded-full bg-[var(--color-bg-primary)] border border-[var(--color-accent-500)]/50 text-[8px] leading-[10px] text-[var(--color-accent-500)] font-semibold tabular-nums whitespace-nowrap pointer-events-none">
+                    {p().current}/{p().total}
+                  </span>
+                )}
+              </Show>
             </div>
           </Show>
 
@@ -521,22 +549,34 @@ export function PlayerBar(props: PlayerBarProps) {
                     class="absolute inset-[-4px] rounded-full pointer-events-none"
                     style={{
                       background:
-                        "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                        externalStorageProgressPct() !== null
+                          ? `conic-gradient(from -90deg, #ec4899 ${externalStorageProgressPct()}%, #ec489930 ${externalStorageProgressPct()}%)`
+                          : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                       mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                       "-webkit-mask":
                         "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                      animation: "spin 1.5s linear infinite",
+                      animation:
+                        externalStorageProgressPct() !== null
+                          ? "external-storage-sync-pulse 1.6s ease-in-out infinite"
+                          : "spin 1.5s linear infinite",
                     }}
                   />
                 </Show>
                 <button
                   class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30"
                   onClick={() => props.onExternalStorageIconClick?.()}
-                  title="removable storage"
+                  title={externalStorageTitle()}
                   aria-label="removable storage"
                 >
                   <Icon name={IconNames.sdCard} size={20} />
                 </button>
+                <Show when={props.externalStorageBusy && props.externalStorageProgress}>
+                  {(p) => (
+                    <span class="absolute -bottom-1 -right-1 px-1 rounded-full bg-[var(--color-bg-primary)] border border-[var(--color-accent-500)]/50 text-[9px] leading-[11px] text-[var(--color-accent-500)] font-semibold tabular-nums whitespace-nowrap pointer-events-none">
+                      {p().current}/{p().total}
+                    </span>
+                  )}
+                </Show>
               </div>
             </Show>
 

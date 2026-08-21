@@ -434,6 +434,70 @@ pub async fn get_all_song_sha256s() -> GrimoireResult<Vec<String>> {
     Ok(sha256s)
 }
 
+/// reorder a set of song ids (order of the input slice is ignored) into
+/// "album order" - grouped by artist, then grouped by album, then by
+/// disc/track number within the album, matching how a listener actually
+/// wants to hear an album straight through. used by manifests that don't
+/// already carry an explicit user-curated order (e.g. favorites/taxon/
+/// tag/artist/album external-storage sync groups) - a real playlist's
+/// own position order should never be run through this.
+///
+/// a song with no album mapping sorts by its own title after every album
+/// it shares an artist with; a song with no artist mapping at all sorts
+/// first (empty string sorts before any real name).
+pub async fn sort_song_ids_by_album_order(song_ids: &[String]) -> GrimoireResult<Vec<String>> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let pool = database::connect().await?;
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        r#"
+        SELECT s.id AS song_id
+        FROM songz s
+        LEFT JOIN (
+            SELECT ars.song_id AS song_id, MIN(ars.artist_id) AS artist_id
+            FROM artist_songz ars
+            GROUP BY ars.song_id
+        ) armap ON armap.song_id = s.id
+        LEFT JOIN artistz ar ON ar.id = armap.artist_id
+        LEFT JOIN (
+            SELECT als.song_id AS song_id, MIN(als.album_id) AS album_id
+            FROM album_songz als
+            GROUP BY als.song_id
+        ) almap ON almap.song_id = s.id
+        LEFT JOIN albumz al ON al.id = almap.album_id
+        WHERE s.id IN (
+        "#,
+    );
+
+    {
+        let mut separated = qb.separated(", ");
+        for id in song_ids {
+            separated.push_bind(id);
+        }
+    }
+
+    qb.push(
+        r#")
+        ORDER BY
+            LOWER(COALESCE(ar.name, '')) ASC,
+            LOWER(COALESCE(al.title, '')) ASC,
+            almap.album_id ASC,
+            COALESCE(s.disc_number, 1) ASC,
+            COALESCE(s.track_number, 1) ASC,
+            LOWER(s.title) ASC,
+            s.id ASC"#,
+    );
+
+    let ids: Vec<String> = qb
+        .build_query_scalar()
+        .fetch_all(&pool)
+        .await
+        .map_err(GrimoireError::from)?;
+    Ok(ids)
+}
+
 /// add an image to a song
 ///
 /// if `created_by` is provided (as (user_id, username)), a feed event will be created

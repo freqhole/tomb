@@ -10,12 +10,12 @@
 pub mod models;
 pub mod repository;
 
-pub use models::{FilterSet, FilterSetFilter, SyncManifest, SyncedSong};
+pub use models::{FilterSet, FilterSetFilter, FilterSetGroup, SyncManifest, SyncedSong};
 pub use repository::{
     add_filter_set_filter, claim_path, create_filter_set, delete_filter_set,
     get_device_last_synced_at, get_filter_set, get_manifest, get_or_create_default_filter_set,
     get_synced_song, is_path_claimed, list_claimed_paths, list_filter_set_filters,
     list_filter_sets, list_manifests, list_synced_songs, remove_filter_set_filter, remove_manifest,
-    remove_synced_song, rename_filter_set, resolve_filter_set, set_device_last_synced_at,
+    remove_synced_song, rename_filter_set, resolve_filter_set_groups, set_device_last_synced_at,
     unclaim_path, upsert_manifest, upsert_synced_song,
 };

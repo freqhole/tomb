@@ -26,7 +26,9 @@ use lofty::{Accessor, Probe, Tag, TagExt, TaggedFileExt};
 use serde::Serialize;
 
 use grimoire::media_blobz::{get_media_blob_stream_source, BlobStreamSource, MediaBlob};
-use grimoire::music::crud::create_or_update::{get_current_album_for_song, get_current_artist_for_song};
+use grimoire::music::crud::create_or_update::{
+    get_current_album_for_song, get_current_artist_for_song,
+};
 use grimoire::music::entities::songs::get_song;
 
 use crate::app_config::FreqholeAppConfig;
@@ -89,7 +91,15 @@ pub async fn sync_song_to_device(
         .await
         .map_err(|e| e.to_string())?;
 
-    let ext = resolve_extension(&blob);
+    // when re-encoding, the destination bytes are a different format than
+    // the source regardless of what the source looks like, so the configured
+    // target extension wins; otherwise prefer the source's own extension,
+    // falling back to its mime type (see `resolve_extension`).
+    let ext = if config.external_storage_reencode_enabled {
+        normalize_extension(&config.external_storage_reencode_extension)
+    } else {
+        resolve_extension(&blob)
+    };
     let base_relative = path_naming::compute_relative_path(
         &artist_name,
         &album_title,
@@ -177,7 +187,14 @@ pub async fn sync_song_to_device(
         // audio bytes are already correct at dest_path; only the tags
         // (title/artist/album/track/disc) may need refreshing, since this
         // file is freqhole-owned once it has a state entry.
-        force_set_tags(&dest_path, &song.title, &artist_name, &album_title, song.track_number, song.disc_number)?;
+        force_set_tags(
+            &dest_path,
+            &song.title,
+            &artist_name,
+            &album_title,
+            song.track_number,
+            song.disc_number,
+        )?;
     } else {
         let grimoire_config = grimoire::config::get_config();
         write_audio(
@@ -186,15 +203,30 @@ pub async fn sync_song_to_device(
             config.external_storage_reencode_enabled,
             &grimoire_config.media.ffmpeg_path,
             &config.external_storage_reencode_args,
+            &ext,
         )?;
 
         if existing.is_some() {
             // re-tagging a previously-tracked (freqhole-owned) file: force
             // the fields we know, since it already carries our own tags.
-            force_set_tags(&dest_path, &song.title, &artist_name, &album_title, song.track_number, song.disc_number)?;
+            force_set_tags(
+                &dest_path,
+                &song.title,
+                &artist_name,
+                &album_title,
+                song.track_number,
+                song.disc_number,
+            )?;
         } else {
             // first-ever sync: only fill gaps, respecting a pre-tagged source.
-            fill_missing_tags(&dest_path, &song.title, &artist_name, &album_title, song.track_number, song.disc_number)?;
+            fill_missing_tags(
+                &dest_path,
+                &song.title,
+                &artist_name,
+                &album_title,
+                song.track_number,
+                song.disc_number,
+            )?;
         }
 
         if let Some(old_abs) = &old_absolute_to_move {
@@ -237,12 +269,18 @@ pub async fn sync_song_to_device(
 }
 
 /// prefer the source blob's real filename extension; fall back to a mime
-/// guess, then to mp3 as a last resort.
+/// guess, then to mp3 as a last resort. `.bin` is never trusted as a real
+/// extension - local-library fetches sometimes stash content under a
+/// `.bin` name (a known, separately-tracked lingering bug - see
+/// docs/removable-storage-sync-plan.md known bugs), so that case is
+/// treated the same as "no usable extension" and the mime-based guess
+/// (already saved in the db from the original fetch/scan) is used instead.
 fn resolve_extension(blob: &MediaBlob) -> String {
     if let Some(filename) = &blob.filename {
         if let Some(ext) = Path::new(filename).extension().and_then(|e| e.to_str()) {
-            if !ext.is_empty() {
-                return ext.to_lowercase();
+            let ext = ext.to_lowercase();
+            if !ext.is_empty() && ext != "bin" {
+                return ext;
             }
         }
     }
@@ -253,9 +291,32 @@ fn resolve_extension(blob: &MediaBlob) -> String {
         Some("audio/ogg") | Some("audio/vorbis") => "ogg",
         Some("audio/wav") | Some("audio/x-wav") | Some("audio/vnd.wave") => "wav",
         Some("audio/aac") => "aac",
+        Some("audio/opus") => "opus",
         _ => "mp3",
     }
     .to_string()
+}
+
+/// strips a leading `.` and lowercases a user-configured extension
+/// (`external_storage_reencode_extension`); falls back to "mp3" if empty.
+fn normalize_extension(raw: &str) -> String {
+    let trimmed = raw.trim().trim_start_matches('.').to_lowercase();
+    if trimmed.is_empty() {
+        "mp3".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// maps a target extension to the ffmpeg muxer name to pass via `-f` -
+/// most extensions are already valid muxer names, but a few need
+/// translating (e.g. `.m4a` is muxed as `ipod`, not `m4a`).
+fn ffmpeg_format_for_extension(ext: &str) -> &str {
+    match ext {
+        "m4a" => "ipod",
+        "aac" => "adts",
+        other => other,
+    }
 }
 
 fn compute_tag_hash(title: &str, artist: &str, album: &str, track: i64, disc: i64) -> String {
@@ -308,6 +369,7 @@ fn write_audio(
     reencode: bool,
     ffmpeg_path: &str,
     reencode_args: &str,
+    target_ext: &str,
 ) -> Result<(), String> {
     if !reencode {
         return match source {
@@ -333,7 +395,7 @@ fn write_audio(
         }
     };
 
-    let result = run_ffmpeg(ffmpeg_path, reencode_args, &input_path, dest);
+    let result = run_ffmpeg(ffmpeg_path, reencode_args, &input_path, dest, target_ext);
     if let Some(temp) = temp_input {
         let _ = std::fs::remove_file(temp);
     }
@@ -350,8 +412,18 @@ fn temp_file_name(ext: &str) -> String {
 
 /// splits `args_template` shell-word-style (matches the convention used by
 /// grimoire's `extract_album_art_args`), substitutes `{input}`/`{output}`,
-/// then runs it.
-fn run_ffmpeg(ffmpeg_path: &str, args_template: &str, input: &Path, output: &Path) -> Result<(), String> {
+/// then runs it. ffmpeg otherwise picks its output muxer by guessing from
+/// `output`'s extension, which fails outright on an untrustworthy one
+/// (e.g. the lingering `.bin` bug - see `resolve_extension`) - so unless
+/// `args_template` already specifies `-f` itself, the muxer matching
+/// `target_ext` is forced explicitly instead of ever being guessed.
+fn run_ffmpeg(
+    ffmpeg_path: &str,
+    args_template: &str,
+    input: &Path,
+    output: &Path,
+    target_ext: &str,
+) -> Result<(), String> {
     let mut args = shell_words::split(args_template)
         .map_err(|e| format!("failed to parse ffmpeg args: {e}"))?;
     for arg in args.iter_mut() {
@@ -361,6 +433,18 @@ fn run_ffmpeg(ffmpeg_path: &str, args_template: &str, input: &Path, output: &Pat
         if arg.contains("{output}") {
             *arg = arg.replace("{output}", &output.to_string_lossy());
         }
+    }
+    if !args.iter().any(|a| a == "-f") {
+        let output_str = output.to_string_lossy().into_owned();
+        let insert_at = args
+            .iter()
+            .position(|a| a == &output_str)
+            .unwrap_or(args.len());
+        args.insert(
+            insert_at,
+            ffmpeg_format_for_extension(target_ext).to_string(),
+        );
+        args.insert(insert_at, "-f".to_string());
     }
     let result = std::process::Command::new(ffmpeg_path)
         .args(&args)
@@ -411,7 +495,7 @@ fn fill_missing_tags(
     if tag.disk().is_none() && disc > 0 {
         tag.set_disk(disc as u32);
     }
-    tag.save_to_path(path).map_err(|e| format!("failed to write tags: {e}"))
+    save_tags_with_fallback(tag, tag_type, path)
 }
 
 /// unconditionally overwrites title/artist/album/track/disc - used when
@@ -445,5 +529,44 @@ fn force_set_tags(
     if disc > 0 {
         tag.set_disk(disc as u32);
     }
-    tag.save_to_path(path).map_err(|e| format!("failed to write tags: {e}"))
+    save_tags_with_fallback(tag, tag_type, path)
+}
+
+/// saves `tag` as-is, but falls back to a freshly-built minimal tag
+/// (title/artist/album/track/disc only, same values as `tag` currently
+/// holds) on failure. `save_to_path` re-serializes and re-validates every
+/// item on the tag, including ones this module never touched - a single
+/// pre-existing malformed frame from the source file (e.g. an id3v2 ISRC
+/// frame holding free text instead of an isrc code) aborts the whole
+/// save, which would otherwise silently drop the title/artist/album/
+/// track/disc updates this function was asked to make. discarding every
+/// other item is safe here since this module only ever manages those
+/// five fields.
+fn save_tags_with_fallback(tag: &Tag, tag_type: lofty::TagType, path: &Path) -> Result<(), String> {
+    match tag.save_to_path(path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let mut minimal = Tag::new(tag_type);
+            if let Some(v) = tag.title() {
+                minimal.set_title(v.to_string());
+            }
+            if let Some(v) = tag.artist() {
+                minimal.set_artist(v.to_string());
+            }
+            if let Some(v) = tag.album() {
+                minimal.set_album(v.to_string());
+            }
+            if let Some(v) = tag.track() {
+                minimal.set_track(v);
+            }
+            if let Some(v) = tag.disk() {
+                minimal.set_disk(v);
+            }
+            minimal.save_to_path(path).map_err(|fallback_err| {
+                format!(
+                    "failed to write tags: {e} (fallback keeping only title/artist/album/track/disc also failed: {fallback_err})"
+                )
+            })
+        }
+    }
 }
