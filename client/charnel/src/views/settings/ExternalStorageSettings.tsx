@@ -7,7 +7,7 @@ import { resolvePath } from "../../util/resolvePath";
 // docs/removable-storage-sync-plan.md). talks to a single tauri command,
 // `external_storage_command`, which dispatches on an `action` tag rather
 // than registering one command per operation (see
-// client/charnel/src-tauri/src/external_storage_commands.rs).
+// client/charnel/src-tauri/src/external_storage/commands.rs).
 
 interface ExternalStorageDevice {
   id: string;
@@ -250,9 +250,8 @@ export default function ExternalStorageSettingsSection() {
           "margin-bottom": "0.75rem",
         }}
       >
-        sync music to a removable disk or any mounted folder. picking a device
-        turns this feature on. the playerbar's storage icon only shows up while
-        a device is plugged in.
+        sync music to a removable disk or any mounted folder. the playerbar's
+        storage icon shows up when a device is plugged in.
       </p>
 
       <Show

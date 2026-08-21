@@ -86,6 +86,12 @@ export interface PlayerBarProps {
   statusBadge?: JSX.Element;
   /** live stream mode: hide seek/progress + total duration. */
   isLiveStream?: boolean;
+  /** show the removable-storage icon slot (only when a device is mounted). */
+  showExternalStorageIcon?: boolean;
+  /** whether a sync is in progress (reuses the comet-tail loading ring). */
+  externalStorageBusy?: boolean;
+  /** callback when the removable-storage icon is clicked (opens the storage overview). */
+  onExternalStorageIconClick?: () => void;
   /** additional classes */
   class?: string;
 }
@@ -312,6 +318,33 @@ export function PlayerBar(props: PlayerBarProps) {
 
         {/* row 2: thumbnail, fav, title/artist, controls, queue */}
         <div class="flex items-center gap-2 flex-1 min-h-0">
+          {/* removable-storage icon */}
+          <Show when={props.showExternalStorageIcon}>
+            <div class="relative flex-shrink-0">
+              <Show when={props.externalStorageBusy}>
+                <div
+                  class="absolute inset-[-4px] rounded-full pointer-events-none"
+                  style={{
+                    background:
+                      "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                    mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                    "-webkit-mask":
+                      "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                    animation: "spin 1.5s linear infinite",
+                  }}
+                />
+              </Show>
+              <button
+                class="w-8 h-8 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30"
+                onClick={() => props.onExternalStorageIconClick?.()}
+                title="removable storage"
+                aria-label="removable storage"
+              >
+                <Icon name={IconNames.sdCard} size={16} />
+              </button>
+            </div>
+          </Show>
+
           {/* thumbnail */}
           <div
             class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
@@ -480,6 +513,33 @@ export function PlayerBar(props: PlayerBarProps) {
         {/* song info - left side with flex-1 */}
         <div class="flex items-center gap-4 flex-1 min-w-0">
           <div class="flex items-center gap-4 flex-shrink-0">
+            {/* removable-storage icon */}
+            <Show when={props.showExternalStorageIcon}>
+              <div class="relative flex-shrink-0">
+                <Show when={props.externalStorageBusy}>
+                  <div
+                    class="absolute inset-[-4px] rounded-full pointer-events-none"
+                    style={{
+                      background:
+                        "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                      mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                      "-webkit-mask":
+                        "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
+                      animation: "spin 1.5s linear infinite",
+                    }}
+                  />
+                </Show>
+                <button
+                  class="w-10 h-10 rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] border-none cursor-pointer transition-colors flex items-center justify-center hover:bg-[var(--color-accent-500)]/30"
+                  onClick={() => props.onExternalStorageIconClick?.()}
+                  title="removable storage"
+                  aria-label="removable storage"
+                >
+                  <Icon name={IconNames.sdCard} size={20} />
+                </button>
+              </div>
+            </Show>
+
             {/* thumbnail */}
             <div
               class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}

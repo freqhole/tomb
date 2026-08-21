@@ -6,6 +6,7 @@
 //! the tauri command surface lives in the `commands` submodule.
 
 pub mod commands;
+pub mod watcher;
 
 use crate::app_config::ExternalStorageDevice;
 
@@ -195,6 +196,76 @@ mod desktop {
         // powershell one-liner that's easy to get subtly wrong.
         Err("eject is not yet supported on windows".to_string())
     }
+
+    /// best-effort (total_bytes, free_bytes) for the filesystem containing
+    /// `path`.
+    pub fn disk_usage(path: &str) -> Option<(u64, u64)> {
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            unix_disk_usage(path)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            windows_disk_usage(path)
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn unix_disk_usage(path: &str) -> Option<(u64, u64)> {
+        // `df -k <path>` prints a header line then one data line:
+        //   Filesystem    1024-blocks      Used Available Capacity Mounted on
+        //   /dev/disk4s1      61067384  12345678  47654321      21%  /Volumes/MY_USB
+        let output = Command::new("df").args(["-k", path]).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let data_line = text.lines().nth(1)?;
+        let mut fields = data_line.split_whitespace();
+        let _filesystem = fields.next()?;
+        let total_kb: u64 = fields.next()?.parse().ok()?;
+        let _used_kb: u64 = fields.next()?.parse().ok()?;
+        let avail_kb: u64 = fields.next()?.parse().ok()?;
+        Some((total_kb * 1024, avail_kb * 1024))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn windows_disk_usage(path: &str) -> Option<(u64, u64)> {
+        // `fsutil volume diskfree <drive>` prints lines like:
+        //   Total # of free bytes        : 123456789
+        //   Total # of bytes             : 987654321
+        //   Total # of avail free bytes  : 123456789
+        let drive = Path::new(path)
+            .components()
+            .next()
+            .and_then(|c| c.as_os_str().to_str())
+            .map(|s| s.to_string())?;
+        let output = Command::new("cmd")
+            .args(["/C", "fsutil", "volume", "diskfree", &drive])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut total = None;
+        let mut free = None;
+        for line in text.lines() {
+            let Some((label, value)) = line.split_once(':') else {
+                continue;
+            };
+            let label = label.trim();
+            let Ok(value) = value.trim().parse::<u64>() else {
+                continue;
+            };
+            if label.starts_with("Total # of bytes") {
+                total = Some(value);
+            } else if label.starts_with("Total # of avail free bytes") {
+                free = Some(value);
+            }
+        }
+        Some((total?, free?))
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -208,9 +279,13 @@ mod desktop {
     pub fn eject_device(_path: &str) -> Result<(), String> {
         Err("removable storage sync is desktop-only".to_string())
     }
+
+    pub fn disk_usage(_path: &str) -> Option<(u64, u64)> {
+        None
+    }
 }
 
-pub use desktop::{eject_device, resolve_volume_info};
+pub use desktop::{disk_usage, eject_device, resolve_volume_info};
 
 /// does the configured device still look mounted/present? checked by
 /// path existence, refined by a re-check of the volume uuid when we

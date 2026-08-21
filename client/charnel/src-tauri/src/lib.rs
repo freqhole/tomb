@@ -452,6 +452,14 @@ pub fn run() {
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: app config loaded");
 
+            // only start the removable-storage mount watcher if the user
+            // has already configured at least one device - no reason to
+            // run a background disk-arbitration/udev thread otherwise.
+            #[cfg(desktop)]
+            if !app_config.external_storage_devices.is_empty() {
+                external_storage::watcher::ensure_started(app.handle().clone());
+            }
+
             // on mobile, auto-initialize if needed (skip wizard entirely)
             #[cfg(mobile)]
             if !is_setup_complete(app.handle()) {

@@ -7,7 +7,7 @@
 //! `action` rather than registering a separate tauri command per
 //! operation.
 
-use super::{eject_device, is_still_mounted, resolve_volume_info};
+use super::{disk_usage, eject_device, is_still_mounted, resolve_volume_info};
 use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
 use crate::spume_bridge::notify_config_changed;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,15 @@ pub struct ExternalStorageSettings {
     pub default_subpath: String,
     pub reencode_enabled: bool,
     pub reencode_args: String,
+}
+
+/// total/free/used space (bytes) on the filesystem a device lives on,
+/// for the phase-1 read-only storage overview.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiskUsageResult {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+    pub used_bytes: u64,
 }
 
 /// tagged action payload for `external_storage_command`.
@@ -50,6 +59,8 @@ pub enum ExternalStorageAction {
     RemoveDevice { id: String },
     /// ask the os to unmount/eject a device by id.
     EjectDevice { id: String },
+    /// total/free space on the filesystem a remembered device lives on.
+    DiskUsage { id: String },
 }
 
 /// serialize a response value, mapping serde errors to the plain `String`
@@ -153,6 +164,9 @@ pub fn external_storage_command(
             config.active_external_storage_device_id = Some(id);
             config.save(&app_handle)?;
             let _ = notify_config_changed(&app_handle, "external_storage_devices changed");
+            // first device just got configured - safe to start the mount
+            // watcher now (no-op if it's already running).
+            super::watcher::ensure_started(app_handle.clone());
             to_value(device)
         }
 
@@ -184,6 +198,22 @@ pub fn external_storage_command(
                 .ok_or_else(|| "device not found".to_string())?;
             eject_device(&device.path)?;
             to_value(())
+        }
+
+        ExternalStorageAction::DiskUsage { id } => {
+            let config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let device = config
+                .external_storage_devices
+                .iter()
+                .find(|d| d.id == id)
+                .ok_or_else(|| "device not found".to_string())?;
+            let (total_bytes, free_bytes) =
+                disk_usage(&device.path).ok_or_else(|| "failed to read disk usage".to_string())?;
+            to_value(DiskUsageResult {
+                total_bytes,
+                free_bytes,
+                used_bytes: total_bytes.saturating_sub(free_bytes),
+            })
         }
     }
 }

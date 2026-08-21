@@ -26,6 +26,7 @@ import { PlaylistsView } from "../../music/views/PlaylistsView";
 import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
 import { SharedItemsView } from "../../music/views/SharedItemsView";
+import { StorageOverviewView } from "../../storage/views/StorageOverviewView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -155,6 +156,9 @@ export function routes(props: RoutesProps) {
 
         {/* shared links history (persisted in app IndexedDB) */}
         <Route path="/shared" component={SharedItemsView} />
+
+        {/* removable-storage sync overview (desktop/tauri only) */}
+        {isCharnelMode() && <Route path="/storage-overview" component={StorageOverviewView} />}
 
         {/* local context routes - hidden in tauri mode (always uses remote server) */}
         {!isCharnelMode() && (

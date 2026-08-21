@@ -137,7 +137,12 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { isCharnelMode, setWindowTitle, updateServerInfo } from "./services/charnel";
+import {
+  isCharnelMode,
+  listMountedExternalStorageDevices,
+  setWindowTitle,
+  updateServerInfo,
+} from "./services/charnel";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -190,6 +195,7 @@ export function AppLayout(props: AppLayoutProps) {
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
+  const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
 
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
@@ -442,8 +448,29 @@ export function AppLayout(props: AppLayoutProps) {
     await updateStorage();
     // refresh storage info every 30 seconds
     const interval = setInterval(updateStorage, 30000);
+
+    // poll for mounted removable-storage devices (desktop/tauri only) -
+    // drives playerbar icon visibility, so it should disappear fairly
+    // promptly once a device is unplugged.
+    let externalStorageInterval: ReturnType<typeof setInterval> | undefined;
+    if (isCharnelMode()) {
+      const updateExternalStorageMounted = async () => {
+        try {
+          const mounted = await listMountedExternalStorageDevices();
+          setExternalStorageMounted(mounted.length > 0);
+        } catch (error) {
+          console.error("failed to poll mounted external storage devices:", error);
+        }
+      };
+      void updateExternalStorageMounted();
+      externalStorageInterval = setInterval(updateExternalStorageMounted, 15000);
+    }
+
     return () => {
       clearInterval(interval);
+      if (externalStorageInterval) {
+        clearInterval(externalStorageInterval);
+      }
       unsubscribeStatusChange();
       unsubscribeSwitchToLocal();
     };
@@ -1762,6 +1789,8 @@ export function AppLayout(props: AppLayoutProps) {
               showPrevious={!isRadio()}
               statusBadge={statusBadge()}
               isLiveStream={isRadio()}
+              showExternalStorageIcon={externalStorageMounted()}
+              onExternalStorageIconClick={() => navigate("/storage-overview")}
             />
           );
         })()}
