@@ -5,7 +5,8 @@
 // mount status, disk free/used/total space. song/album/artist sync counts
 // and "last synced" are deferred until the phase-2 copy engine + state file
 // exist - there's no sync history to show yet.
-import { createSignal, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   isCharnelMode,
   listMountedExternalStorageDevices,
@@ -15,14 +16,24 @@ import {
   type ExternalStorageDevice,
   type DiskUsageResult,
 } from "../../app/services/charnel";
+import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { formatBytes } from "../../settings/services/storageManager";
 
+// how often to re-check mount status while this view is open - needs to
+// be fairly prompt since we navigate away the moment the active device
+// disappears (there's nothing left on this page to show once it's gone).
+const MOUNT_POLL_INTERVAL_MS = 3000;
+
 export function StorageOverviewView() {
+  const navigate = useNavigate();
   const [device, setDevice] = createSignal<ExternalStorageDevice | null>(null);
   const [mountedCount, setMountedCount] = createSignal(0);
   const [diskUsage, setDiskUsage] = createSignal<DiskUsageResult | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  // tracks whether we've ever actually shown an active device, so we can
+  // tell "never had one" apart from "had one, then it got unmounted".
+  let hadActiveDevice = false;
 
   const refresh = async () => {
     try {
@@ -30,6 +41,15 @@ export function StorageOverviewView() {
         getActiveExternalStorageDevice(),
         listMountedExternalStorageDevices(),
       ]);
+      if (hadActiveDevice && !active) {
+        // the device we were showing just disappeared - nothing left to
+        // show here, so back out rather than sitting on a stale view.
+        navigate(-1);
+        return;
+      }
+      if (active) {
+        hadActiveDevice = true;
+      }
       setDevice(active);
       setMountedCount(mounted.length);
       if (active) {
@@ -48,16 +68,21 @@ export function StorageOverviewView() {
 
   onMount(() => {
     void refresh();
+    const interval = setInterval(() => void refresh(), MOUNT_POLL_INTERVAL_MS);
+    onCleanup(() => clearInterval(interval));
   });
+
+  createEffect(() => {
+    setPageInfo({ title: "removable storage" });
+  });
+  onCleanup(() => clearPageInfo());
 
   return (
     <div class="p-6 max-w-2xl mx-auto">
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold text-[var(--color-text-primary)] mb-1">removable storage</h1>
-        <p class="text-sm text-[var(--color-text-muted)]">
-          status of the music library synced to a removable device
-        </p>
-      </div>
+      {/* no in-view title/subtitle here - just reserved space so the
+          floating top nav (title now comes from setPageInfo above) has
+          room above the card. */}
+      <div class="mb-6 h-10" />
 
       <Show when={!isCharnelMode()}>
         <div class="mb-4 p-3 bg-yellow-600/20 border border-yellow-600/30 rounded-lg text-sm text-yellow-400">

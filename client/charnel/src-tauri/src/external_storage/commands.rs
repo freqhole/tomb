@@ -9,7 +9,6 @@
 
 use super::{disk_usage, eject_device, is_still_mounted, resolve_volume_info};
 use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
-use crate::spume_bridge::notify_config_changed;
 use serde::{Deserialize, Serialize};
 
 /// global removable-storage sync settings, shared by every configured
@@ -92,7 +91,6 @@ pub fn external_storage_command(
             config.external_storage_reencode_enabled = settings.reencode_enabled;
             config.external_storage_reencode_args = settings.reencode_args;
             config.save(&app_handle)?;
-            let _ = notify_config_changed(&app_handle, "external_storage_settings changed");
             to_value(())
         }
 
@@ -163,7 +161,6 @@ pub fn external_storage_command(
 
             config.active_external_storage_device_id = Some(id);
             config.save(&app_handle)?;
-            let _ = notify_config_changed(&app_handle, "external_storage_devices changed");
             // first device just got configured - safe to start the mount
             // watcher now (no-op if it's already running).
             super::watcher::ensure_started(app_handle.clone());
@@ -174,7 +171,6 @@ pub fn external_storage_command(
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
             config.active_external_storage_device_id = Some(id);
             config.save(&app_handle)?;
-            let _ = notify_config_changed(&app_handle, "external_storage_devices changed");
             to_value(())
         }
 
@@ -185,7 +181,6 @@ pub fn external_storage_command(
                 config.active_external_storage_device_id = None;
             }
             config.save(&app_handle)?;
-            let _ = notify_config_changed(&app_handle, "external_storage_devices changed");
             to_value(())
         }
 

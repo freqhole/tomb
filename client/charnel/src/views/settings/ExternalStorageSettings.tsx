@@ -33,23 +33,19 @@ function externalStorageCommand<T>(action: Record<string, unknown>) {
  * re-encode files with ffmpeg on the way out. isolated into its own
  * component so it doesn't keep piling onto `SettingsView.tsx`. */
 export default function ExternalStorageSettingsSection() {
-  const [mountedDevices, setMountedDevices] = createSignal<
-    ExternalStorageDevice[]
-  >([]);
-  const [activeDevice, setActiveDevice] =
-    createSignal<ExternalStorageDevice | null>(null);
+  const [mountedDevices, setMountedDevices] = createSignal<ExternalStorageDevice[]>([]);
+  const [configuredDeviceCount, setConfiguredDeviceCount] = createSignal(0);
+  const [activeDevice, setActiveDevice] = createSignal<ExternalStorageDevice | null>(null);
   const [externalSubpathDraft, setExternalSubpathDraft] = createSignal("");
-  const [externalSettings, setExternalSettings] =
-    createSignal<ExternalStorageSettings>({
-      default_subpath: "music",
-      reencode_enabled: false,
-      reencode_args: "",
-    });
+  const [externalSettings, setExternalSettings] = createSignal<ExternalStorageSettings>({
+    default_subpath: "music",
+    reencode_enabled: false,
+    reencode_args: "",
+  });
   const [reencodeArgsDraft, setReencodeArgsDraft] = createSignal("");
   const [externalStorageBusy, setExternalStorageBusy] = createSignal(false);
   const [externalStorageMessage, setExternalStorageMessage] = createSignal("");
-  const [externalStorageIsError, setExternalStorageIsError] =
-    createSignal(false);
+  const [externalStorageIsError, setExternalStorageIsError] = createSignal(false);
 
   /** display name shown throughout the ui: the volume's name if we
    * resolved one, otherwise the final path component (e.g. a plain
@@ -62,7 +58,7 @@ export default function ExternalStorageSettingsSection() {
 
   onMount(async () => {
     try {
-      const [mounted, active, settings] = await Promise.all([
+      const [mounted, active, settings, devices] = await Promise.all([
         externalStorageCommand<ExternalStorageDevice[]>({
           action: "list_mounted",
         }),
@@ -72,12 +68,16 @@ export default function ExternalStorageSettingsSection() {
         externalStorageCommand<ExternalStorageSettings>({
           action: "get_settings",
         }),
+        externalStorageCommand<ExternalStorageDevice[]>({
+          action: "get_devices",
+        }),
       ]);
       setMountedDevices(mounted);
       setActiveDevice(active);
       setExternalSubpathDraft(active?.subpath ?? "");
       setExternalSettings(settings);
       setReencodeArgsDraft(settings.reencode_args);
+      setConfiguredDeviceCount(devices.length);
     } catch (e) {
       console.error("failed to load external storage state:", e);
     }
@@ -85,17 +85,21 @@ export default function ExternalStorageSettingsSection() {
 
   async function refreshExternalStorageDevices() {
     try {
-      const [mounted, active] = await Promise.all([
+      const [mounted, active, devices] = await Promise.all([
         externalStorageCommand<ExternalStorageDevice[]>({
           action: "list_mounted",
         }),
         externalStorageCommand<ExternalStorageDevice | null>({
           action: "get_active",
         }),
+        externalStorageCommand<ExternalStorageDevice[]>({
+          action: "get_devices",
+        }),
       ]);
       setMountedDevices(mounted);
       setActiveDevice(active);
       setExternalSubpathDraft(active?.subpath ?? "");
+      setConfiguredDeviceCount(devices.length);
     } catch (e) {
       console.error("failed to refresh external storage devices:", e);
     }
@@ -114,9 +118,7 @@ export default function ExternalStorageSettingsSection() {
         path: resolved,
         subpath: null,
       });
-      setExternalStorageMessage(
-        `device set: ${externalDeviceDisplayName(device)}`,
-      );
+      setExternalStorageMessage(`device set: ${externalDeviceDisplayName(device)}`);
       await refreshExternalStorageDevices();
     } catch (e) {
       setExternalStorageMessage(`failed to set device: ${e}`);
@@ -240,9 +242,7 @@ export default function ExternalStorageSettingsSection() {
 
   return (
     <div style={{ "margin-top": "2rem" }}>
-      <h3 style={{ "font-size": "1rem", "margin-bottom": "0.5rem" }}>
-        external storage
-      </h3>
+      <h3 style={{ "font-size": "1rem", "margin-bottom": "0.5rem" }}>external storage</h3>
       <p
         style={{
           "font-size": "0.875rem",
@@ -250,8 +250,8 @@ export default function ExternalStorageSettingsSection() {
           "margin-bottom": "0.75rem",
         }}
       >
-        sync music to a removable disk or any mounted folder. the playerbar's
-        storage icon shows up when a device is plugged in.
+        sync music to a removable disk or any mounted folder. the playerbar's storage icon shows up
+        when a device is plugged in.
       </p>
 
       <Show
@@ -288,9 +288,7 @@ export default function ExternalStorageSettingsSection() {
               <For each={mountedDevices()}>
                 {(device) => (
                   <button
-                    class={`button ${
-                      activeDevice()?.id === device.id ? "primary" : "secondary"
-                    }`}
+                    class={`button ${activeDevice()?.id === device.id ? "primary" : "secondary"}`}
                     onClick={() => handleSelectActiveDevice(device.id)}
                     disabled={externalStorageBusy()}
                   >
@@ -312,9 +310,7 @@ export default function ExternalStorageSettingsSection() {
               }}
             >
               <div>
-                <span style={{ "font-weight": "500" }}>
-                  {externalDeviceDisplayName(device())}
-                </span>
+                <span style={{ "font-weight": "500" }}>{externalDeviceDisplayName(device())}</span>
                 <span
                   style={{
                     "font-size": "0.8125rem",
@@ -336,8 +332,7 @@ export default function ExternalStorageSettingsSection() {
                     color: "var(--color-text-secondary, #888)",
                   }}
                 >
-                  sub-path on this device (default:{" "}
-                  {externalSettings().default_subpath})
+                  sub-path on this device (default: {externalSettings().default_subpath})
                 </label>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   <input
@@ -345,9 +340,7 @@ export default function ExternalStorageSettingsSection() {
                     type="text"
                     placeholder={externalSettings().default_subpath}
                     value={externalSubpathDraft()}
-                    onInput={(e) =>
-                      setExternalSubpathDraft(e.currentTarget.value)
-                    }
+                    onInput={(e) => setExternalSubpathDraft(e.currentTarget.value)}
                     style={{ width: "100%", "max-width": "240px" }}
                   />
                   <button
@@ -402,107 +395,112 @@ export default function ExternalStorageSettingsSection() {
         </div>
       </Show>
 
-      <div
-        style={{
-          "margin-top": "1.5rem",
-          "padding-top": "1rem",
-          "border-top": "1px solid var(--color-border, #333)",
-        }}
-      >
+      <Show when={configuredDeviceCount() > 0}>
         <div
           style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "1rem",
+            "margin-top": "1.5rem",
+            "padding-top": "1rem",
+            "border-top": "1px solid var(--color-border, #333)",
           }}
         >
-          <button
-            class={`toggle-button ${
-              externalSettings().reencode_enabled ? "active" : ""
-            }`}
-            onClick={handleToggleExternalStorageReencode}
+          <div
             style={{
-              flex: "none",
-              width: "44px",
-              height: "24px",
-              "border-radius": "12px",
-              border: "none",
-              padding: "0",
-              background: externalSettings().reencode_enabled
-                ? "var(--color-accent-500, #ff69b4)"
-                : "var(--color-bg-tertiary, #333)",
-              cursor: "pointer",
-              position: "relative",
-              transition: "background 0.2s",
-              "flex-shrink": "0",
+              display: "flex",
+              "align-items": "center",
+              gap: "1rem",
             }}
           >
-            <div
+            <button
+              class={`toggle-button ${externalSettings().reencode_enabled ? "active" : ""}`}
+              onClick={handleToggleExternalStorageReencode}
               style={{
-                position: "absolute",
-                top: "4px",
-                left: externalSettings().reencode_enabled ? "24px" : "4px",
-                width: "16px",
-                height: "16px",
-                "border-radius": "50%",
-                background: "white",
-                transition: "left 0.2s",
-              }}
-            />
-          </button>
-          <div>
-            <div style={{ "font-weight": "500" }}>re-encode with ffmpeg</div>
-            <div
-              style={{
-                "font-size": "0.875rem",
-                color: "var(--color-text-secondary, #888)",
-                "margin-top": "0.25rem",
+                flex: "none",
+                width: "44px",
+                height: "24px",
+                "border-radius": "12px",
+                border: "none",
+                padding: "0",
+                background: externalSettings().reencode_enabled
+                  ? "var(--color-accent-500, #ff69b4)"
+                  : "var(--color-bg-tertiary, #333)",
+                cursor: "pointer",
+                position: "relative",
+                transition: "background 0.2s",
+                "flex-shrink": "0",
               }}
             >
-              off by default (raw file bytes are copied as-is). applies to every
-              device.
+              <div
+                style={{
+                  position: "absolute",
+                  top: "4px",
+                  left: externalSettings().reencode_enabled ? "24px" : "4px",
+                  width: "16px",
+                  height: "16px",
+                  "border-radius": "50%",
+                  background: "white",
+                  transition: "left 0.2s",
+                }}
+              />
+            </button>
+            <div>
+              <div style={{ "font-weight": "500" }}>re-encode with ffmpeg</div>
+              <div
+                style={{
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                  "margin-top": "0.25rem",
+                }}
+              >
+                off by default (raw file bytes are copied as-is). applies to every device.
+              </div>
             </div>
           </div>
-        </div>
 
-        <Show when={externalSettings().reencode_enabled}>
-          <div class="form-group" style={{ "margin-top": "0.75rem" }}>
-            <label
-              for="external-storage-reencode-args"
-              style={{
-                display: "block",
-                "margin-bottom": "0.25rem",
-                "font-size": "0.875rem",
-                color: "var(--color-text-secondary, #888)",
-              }}
-            >
-              ffmpeg command ({"{input}"}/{"{output}"} placeholders)
-            </label>
-            <div
-              style={{
-                display: "flex",
-                gap: "0.5rem",
-                "align-items": "flex-start",
-              }}
-            >
+          <Show when={externalSettings().reencode_enabled}>
+            <div class="form-group" style={{ "margin-top": "0.75rem" }}>
+              <label
+                for="external-storage-reencode-args"
+                style={{
+                  display: "block",
+                  "margin-bottom": "0.25rem",
+                  "font-size": "0.875rem",
+                  color: "var(--color-text-secondary, #888)",
+                }}
+              >
+                ffmpeg command ({"{input}"}/{"{output}"} placeholders)
+              </label>
               <textarea
                 id="external-storage-reencode-args"
-                rows="2"
+                rows="3"
                 value={reencodeArgsDraft()}
                 onInput={(e) => setReencodeArgsDraft(e.currentTarget.value)}
-                style={{ width: "100%", "max-width": "480px" }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  "max-width": "480px",
+                  resize: "vertical",
+                  background: "var(--color-bg-secondary, #1a1a1a)",
+                  color: "var(--color-text-primary, #fff)",
+                  border: "1px solid var(--color-border, #333)",
+                  "border-radius": "4px",
+                  padding: "0.5rem",
+                  "font-family": "var(--font-mono, monospace)",
+                  "font-size": "0.8125rem",
+                }}
               />
-              <button
-                class="button"
-                onClick={handleSaveExternalStorageReencodeArgs}
-                disabled={externalStorageBusy()}
-              >
-                save
-              </button>
+              <div style={{ "margin-top": "0.5rem" }}>
+                <button
+                  class="button"
+                  onClick={handleSaveExternalStorageReencodeArgs}
+                  disabled={externalStorageBusy()}
+                >
+                  save
+                </button>
+              </div>
             </div>
-          </div>
-        </Show>
-      </div>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }

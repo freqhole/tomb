@@ -62,6 +62,11 @@ pub enum SpumeEvent {
         reason: String,
     },
 
+    /// a removable-storage device was mounted or unmounted (fired by the
+    /// rust-side disk-arbitration/udev watcher, see external_storage::watcher)
+    #[serde(rename = "external-storage-mounted-changed")]
+    ExternalStorageMountedChanged {},
+
     /// result of a manual "check for updates" menu action
     #[serde(rename = "update-check-result")]
     UpdateCheckResult {
@@ -183,6 +188,12 @@ pub fn notify_peer_offline(
             reason: reason.to_string(),
         },
     )
+}
+
+/// notify spume that a removable-storage device appeared/disappeared -
+/// spume should refetch mounted/active device state.
+pub fn notify_external_storage_mounted_changed(app: &AppHandle<Wry>) -> Result<(), String> {
+    emit_event(app, SpumeEvent::ExternalStorageMountedChanged {})
 }
 
 /// notify spume of the result of a manual update check (menu-triggered)

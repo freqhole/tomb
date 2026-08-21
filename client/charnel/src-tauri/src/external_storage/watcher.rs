@@ -1,9 +1,10 @@
 //! event-driven watcher for removable-storage mount/unmount changes.
 //!
 //! replaces js-side polling: a rust background thread (macos:
-//! DiskArbitration, linux: udev) emits the `external_storage_mounted_changed`
-//! tauri event whenever a disk appears/disappears, and the frontend just
-//! listens instead of calling `list_mounted` on a timer.
+//! DiskArbitration, linux: udev) notifies spume via the unified
+//! `spume_bridge::notify_external_storage_mounted_changed` event whenever a
+//! disk appears/disappears, and the frontend just listens instead of
+//! calling `list_mounted` on a timer.
 //!
 //! only ever started via `ensure_started`, and only once the user has
 //! configured at least one removable storage device - no reason to run a
@@ -33,7 +34,7 @@ mod platform {
     use objc2_disk_arbitration::{
         DADisk, DARegisterDiskAppearedCallback, DARegisterDiskDisappearedCallback, DASession,
     };
-    use tauri::{AppHandle, Emitter};
+    use tauri::AppHandle;
 
     pub fn spawn(app_handle: AppHandle) {
         std::thread::spawn(move || {
@@ -66,7 +67,7 @@ mod platform {
 
     unsafe extern "C-unwind" fn disk_changed(_disk: NonNull<DADisk>, context: *mut c_void) {
         let app_handle = unsafe { &*(context as *const AppHandle) };
-        let _ = app_handle.emit("external_storage_mounted_changed", ());
+        let _ = crate::spume_bridge::notify_external_storage_mounted_changed(app_handle);
     }
 }
 
@@ -74,7 +75,7 @@ mod platform {
 mod platform {
     use std::os::unix::io::AsRawFd;
 
-    use tauri::{AppHandle, Emitter};
+    use tauri::AppHandle;
 
     pub fn spawn(app_handle: AppHandle) {
         std::thread::spawn(move || {
@@ -105,7 +106,8 @@ mod platform {
                     return;
                 }
                 for _event in socket.iter() {
-                    let _ = app_handle.emit("external_storage_mounted_changed", ());
+                    let _ =
+                        crate::spume_bridge::notify_external_storage_mounted_changed(&app_handle);
                 }
             }
         });

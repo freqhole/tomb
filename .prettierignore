@@ -1,0 +1,27 @@
+# build outputs / caches
+**/dist/
+**/build/
+**/target/
+**/.vite/
+**/storybook-static/
+**/coverage/
+**/test-results/
+**/node_modules/
+
+# rust / cargo
+**/*.rs
+**/Cargo.lock
+
+# generated codegen output - formatted by its own generator, not by hand
+client-codegen/freqhole-api-client/src/codegen/
+
+# wasm/pkg build output
+lib/**/pkg/
+
+# misc data / non-source
+data/
+assets/config/
+migrations/
+package-lock.json
+CHANGELOG.md
+**/CHANGELOG.md
