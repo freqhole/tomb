@@ -14,10 +14,13 @@
         "build:libs": "npm --prefix lib/haruspex/ts ci && npm --prefix lib/haruspex/ts run build && npm --prefix lib/reliquary/ts ci && npm --prefix lib/reliquary/ts run build",
         "deploy:spume": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build && (make -C client/rathole deploy-spume || true)",
         "deploy:freqhole-net": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix freqhole.net install && npm --prefix freqhole.net run build",
-        "deploy:storybook": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build-storybook"
+        "deploy:storybook": "npm --prefix client-codegen/freqhole-api-client install && npm run build:libs && npm --prefix client/spume install && npm --prefix client/spume run build-storybook",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
     },
     "devDependencies": {
-        "@changesets/cli": "^2.27.10"
+        "@changesets/cli": "^2.27.10",
+        "prettier": "3.9.6"
     },
     "overrides": {
         "@types/node": "^12.7.1"

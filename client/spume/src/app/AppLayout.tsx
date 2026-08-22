@@ -137,7 +137,19 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
-import { isCharnelMode, setWindowTitle, updateServerInfo } from "./services/charnel";
+import {
+  isCharnelMode,
+  listMountedExternalStorageDevices,
+  onExternalStorageMountedChanged,
+  onExternalStorageSyncProgress,
+  setWindowTitle,
+  updateServerInfo,
+} from "./services/charnel";
+import {
+  externalStorageSyncingSignal,
+  externalStorageSyncProgressSignal,
+  setExternalStorageSyncProgress,
+} from "./services/charnel/externalStorageSyncState";
 import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
@@ -190,6 +202,7 @@ export function AppLayout(props: AppLayoutProps) {
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
+  const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
 
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
@@ -442,6 +455,38 @@ export function AppLayout(props: AppLayoutProps) {
     await updateStorage();
     // refresh storage info every 30 seconds
     const interval = setInterval(updateStorage, 30000);
+
+    // poll for mounted removable-storage devices (desktop/tauri only) -
+    // drives playerbar icon visibility, so it should disappear fairly
+    // promptly once a device is unplugged.
+    if (isCharnelMode()) {
+      const updateExternalStorageMounted = async () => {
+        try {
+          const mounted = await listMountedExternalStorageDevices();
+          setExternalStorageMounted(mounted.length > 0);
+        } catch (error) {
+          console.error("failed to check mounted external storage devices:", error);
+        }
+      };
+      void updateExternalStorageMounted();
+      const unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
+        () => void updateExternalStorageMounted()
+      );
+      onCleanup(() => unlistenExternalStorageMounted());
+
+      // global per-song sync progress - lives here (not just
+      // StorageOverviewView) so the playerbar icon keeps showing live
+      // progress even after navigating away mid-sync.
+      const unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
+        setExternalStorageSyncProgress({
+          title: event.data.title,
+          current: event.data.current,
+          total: event.data.total,
+        });
+      });
+      onCleanup(() => unlistenSyncProgress());
+    }
+
     return () => {
       clearInterval(interval);
       unsubscribeStatusChange();
@@ -1762,6 +1807,10 @@ export function AppLayout(props: AppLayoutProps) {
               showPrevious={!isRadio()}
               statusBadge={statusBadge()}
               isLiveStream={isRadio()}
+              showExternalStorageIcon={externalStorageMounted()}
+              externalStorageBusy={externalStorageSyncingSignal()}
+              externalStorageProgress={externalStorageSyncProgressSignal()}
+              onExternalStorageIconClick={() => navigate("/storage-overview")}
             />
           );
         })()}

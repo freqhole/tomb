@@ -16,6 +16,7 @@ pub mod database;
 pub mod dbinfo;
 pub mod error;
 pub mod events;
+pub mod external_storage;
 pub mod federation;
 pub mod health;
 pub mod jobs;

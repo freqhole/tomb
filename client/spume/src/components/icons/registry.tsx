@@ -334,6 +334,14 @@ export const DatabaseIcon = (props: IconProps) => (
   </BaseIcon>
 );
 
+// removable-storage sync icon: sd card outline with a notched corner
+export const SdCardIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Removable storage"}>
+    <path d="M16 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8l-5-5z" />
+    <path d="M9 3v6M12 3v6M15 3v6" />
+  </StrokeBaseIcon>
+);
+
 export const HeadphonesIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Headphones"}>
     <path d="M12 3C7.03 3 3 7.03 3 12v7c0 1.1.9 2 2 2h2v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-2v8h2c1.1 0 2-.9 2-2v-7c0-4.97-4.03-9-9-9z" />
@@ -546,6 +554,7 @@ export const IconRegistry = {
   alertTriangle: AlertTriangleIcon,
   loader: LoaderIcon,
   database: DatabaseIcon,
+  sdCard: SdCardIcon,
   headphones: HeadphonesIcon,
   radioTower: RadioTowerIcon,
   carousel: CarouselIcon,
@@ -656,6 +665,7 @@ export const IconNames = {
   alertTriangle: "alertTriangle",
   loader: "loader",
   database: "database",
+  sdCard: "sdCard",
   headphones: "headphones",
   radioTower: "radioTower",
   carousel: "carousel",

@@ -141,7 +141,11 @@ export function AddToStationModal() {
         }
         setRemoteName(remote.name);
         try {
-          client = await adminClientFor(remote);
+          // charnel-managed self is an HTTP-only remote record (no
+          // peer_addr) representing "the local library" - route it
+          // through the in-process admin transport instead of
+          // adminClientFor, which rejects non-P2P remotes.
+          client = remote.is_charnel_managed ? getLocalAdminClient() : await adminClientFor(remote);
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "failed to connect to remote");
           return [];

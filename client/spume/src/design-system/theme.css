@@ -511,6 +511,19 @@ select option {
   }
 }
 
+/* playerbar removable-storage sync ring (determinate progress-fill) -
+ * a gentle breathing opacity instead of a nonstop spin, since the arc
+ * length itself already conveys progress. see `PlayerBar.tsx`. */
+@keyframes external-storage-sync-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* kobalte's popper positioner uses position: absolute with no z-index by
  * default, which puts it below any positioned ancestor with a positive
  * z-index (e.g. the playlist panel's relative z-10 div). give it a high

@@ -14,15 +14,7 @@
 // view double-checks via `whoamiForRemote` and renders a "not admin"
 // state if the role changed.
 
-import {
-  createSignal,
-  createResource,
-  createEffect,
-  onCleanup,
-  onMount,
-  Show,
-  For,
-} from "solid-js";
+import { createSignal, createResource, createEffect, onMount, Show, For } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { whoamiForRemote } from "../../app/services/remotes/authService";
@@ -35,10 +27,19 @@ import {
   type CreateStationRequest,
   type UpdateStationRequest,
   type StationFilter,
-  type RadioSeedSuggestion,
   type RadioConfigPayload,
 } from "@freqhole/api-client";
 import { toast } from "../../components/feedback/Toast";
+import { SeedSuggestInput, SongSuggestInput } from "../../components/radio/SeedSuggestInputs";
+import {
+  REFERENCE_FILTER_TYPES,
+  CRITERIA_FILTER_TYPES,
+  type FilterType,
+  isReferenceFilterType,
+  isRatingFilterType,
+  filterDisplayValue,
+  FILTER_MODES,
+} from "../../components/radio/filterTypes";
 
 export function RadioAdminView() {
   const params = useParams<{ remoteId: string }>();
@@ -687,61 +688,10 @@ function CreateStationSection(props: {
 // ------------------------------------------------------------------
 // per-station seed editor (filters + explicit songs)
 // ------------------------------------------------------------------
-
-const REFERENCE_FILTER_TYPES = ["tag", "taxon", "artist", "album", "track", "playlist"] as const;
-const CRITERIA_FILTER_TYPES = [
-  "favorite",
-  "rating_gte",
-  "rating_lte",
-  "play_count_gte",
-  "play_count_lte",
-  "duration_gte",
-  "duration_lte",
-  "added_days_gte",
-  "added_days_lte",
-] as const;
-const FILTER_TYPES = [...REFERENCE_FILTER_TYPES, ...CRITERIA_FILTER_TYPES] as const;
-type FilterType = (typeof FILTER_TYPES)[number];
-type ReferenceFilterType = (typeof REFERENCE_FILTER_TYPES)[number];
-const FILTER_MODES = ["include", "exclude"];
-
-// criteria filters cascade to whole matched albums/artists/playlists (see
-// grimoire's radio/stations/repository.rs) — favorite has no value at
-// all, rating is clamped 1-5, the rest are plain non-negative integers.
-function isReferenceFilterType(t: FilterType): t is ReferenceFilterType {
-  return (REFERENCE_FILTER_TYPES as readonly string[]).includes(t);
-}
-
-function isRatingFilterType(t: FilterType): boolean {
-  return t === "rating_gte" || t === "rating_lte";
-}
-
-// friendly label for criteria-type filters, which have no filter_label
-// from the backend (only reference types get a joined name).
-function filterDisplayValue(f: StationFilter): string {
-  switch (f.filter_type as FilterType) {
-    case "favorite":
-      return "favorited (any user)";
-    case "rating_gte":
-      return `rating >= ${f.filter_value}`;
-    case "rating_lte":
-      return `rating <= ${f.filter_value}`;
-    case "play_count_gte":
-      return `play count >= ${f.filter_value}`;
-    case "play_count_lte":
-      return `play count <= ${f.filter_value}`;
-    case "duration_gte":
-      return `duration >= ${f.filter_value}s`;
-    case "duration_lte":
-      return `duration <= ${f.filter_value}s`;
-    case "added_days_gte":
-      return `added at least ${f.filter_value}d ago`;
-    case "added_days_lte":
-      return `added at most ${f.filter_value}d ago`;
-    default:
-      return f.filter_label && f.filter_label.length > 0 ? f.filter_label : f.filter_value;
-  }
-}
+//
+// filter-type constants/helpers (`FILTER_TYPES`, `isReferenceFilterType`,
+// `filterDisplayValue`, ...) live in `components/radio/filterTypes.ts` -
+// shared with the removable-storage sync filter-set editor.
 
 function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
   const [filters, { refetch: refetchFilters }] = createResource<StationFilter[]>(async () => {
@@ -919,169 +869,6 @@ function StationSeedEditor(props: { stationId: string; client: AdminClient }) {
   );
 }
 
-// ------------------------------------------------------------------
-// seed value autocomplete helpers
-// ------------------------------------------------------------------
-//
-// both inputs query `radio_seed_suggest` over the active admin transport
-// (debounced ~200ms) so suggestions come from the same library the
-// station is being configured against — not the local spume cache. uses
-// the native <datalist> for keyboard nav + accessibility; for songs we
-// keep a label↔id map so the user picks by title but we still submit
-// the uuid that `radio_songs_add` requires.
-
-interface SeedSuggestInputProps {
-  client: AdminClient;
-  kind: "tag" | "taxon" | "artist" | "album" | "playlist";
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-}
-
-function SeedSuggestInput(props: SeedSuggestInputProps) {
-  const listId = `seed-suggest-${Math.random().toString(36).slice(2, 9)}`;
-  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
-  const [text, setText] = createSignal("");
-  let timer: number | null = null;
-
-  // when caller resets value (e.g. after submit / type switch), wipe the
-  // visible text too — props.value is the FK id, not the display label.
-  createEffect(() => {
-    if (props.value === "") setText("");
-  });
-
-  const fetchSuggestions = (q: string) => {
-    if (timer !== null) window.clearTimeout(timer);
-    if (q.trim().length === 0) {
-      setItems([]);
-      return;
-    }
-    timer = window.setTimeout(async () => {
-      try {
-        const data = await props.client.dispatchOrThrow("radio_seed_suggest", {
-          kind: props.kind,
-          query: q.trim(),
-          limit: 15,
-        });
-        setItems((data ?? []) as RadioSeedSuggestion[]);
-      } catch {
-        // silent: autocomplete is opportunistic.
-        setItems([]);
-      }
-    }, 200);
-  };
-
-  // resolve typed text → FK id: only commit when there's an exact label
-  // match in the current suggestion list. server enforces FK ids now,
-  // free-text would always fail the schema CHECK.
-  const resolve = (typed: string) => {
-    const match = items().find((it) => it.name === typed);
-    props.onChange(match ? match.id : "");
-  };
-
-  onCleanup(() => {
-    if (timer !== null) window.clearTimeout(timer);
-  });
-
-  return (
-    <>
-      <input
-        class="flex-1 min-w-[10rem] text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
-        type="text"
-        list={listId}
-        placeholder={props.placeholder ?? "value"}
-        value={text()}
-        disabled={props.disabled}
-        autocomplete="off"
-        onInput={(e) => {
-          const v = e.currentTarget.value;
-          setText(v);
-          fetchSuggestions(v);
-          resolve(v);
-        }}
-        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
-      />
-      <datalist id={listId}>
-        <For each={items()}>
-          {(it) => <option value={it.name}>{it.subtitle ? `${it.subtitle}` : ""}</option>}
-        </For>
-      </datalist>
-    </>
-  );
-}
-
-interface SongSuggestInputProps {
-  client: AdminClient;
-  value: string;
-  onChange: (songId: string) => void;
-  disabled?: boolean;
-}
-
-function SongSuggestInput(props: SongSuggestInputProps) {
-  const listId = `song-suggest-${Math.random().toString(36).slice(2, 9)}`;
-  const [items, setItems] = createSignal<RadioSeedSuggestion[]>([]);
-  // local input shows the human label; props.value tracks the resolved id.
-  const [text, setText] = createSignal("");
-  let timer: number | null = null;
-
-  // when caller resets value (e.g. after submit), clear the visible text too.
-  createEffect(() => {
-    if (props.value === "") setText("");
-  });
-
-  const fetchSuggestions = (q: string) => {
-    if (timer !== null) window.clearTimeout(timer);
-    if (q.trim().length === 0) {
-      setItems([]);
-      return;
-    }
-    timer = window.setTimeout(async () => {
-      try {
-        const data = await props.client.dispatchOrThrow("radio_seed_suggest", {
-          kind: "song",
-          query: q.trim(),
-          limit: 15,
-        });
-        setItems((data ?? []) as RadioSeedSuggestion[]);
-      } catch {
-        setItems([]);
-      }
-    }, 200);
-  };
-
-  // resolve typed text → id: prefer exact label match in current items, else
-  // pass through (allowing pasted uuids).
-  const resolve = (typed: string) => {
-    const match = items().find((it) => it.name === typed);
-    props.onChange(match ? match.id : typed.trim());
-  };
-
-  onCleanup(() => {
-    if (timer !== null) window.clearTimeout(timer);
-  });
-
-  return (
-    <>
-      <input
-        class="flex-1 text-xs px-2 py-1 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border-subtle)] text-[var(--color-text-primary)]"
-        type="text"
-        list={listId}
-        placeholder="song title or uuid"
-        value={text()}
-        disabled={props.disabled}
-        autocomplete="off"
-        onInput={(e) => {
-          const v = e.currentTarget.value;
-          setText(v);
-          fetchSuggestions(v);
-          resolve(v);
-        }}
-        onFocus={(e) => fetchSuggestions(e.currentTarget.value)}
-      />
-      <datalist id={listId}>
-        <For each={items()}>{(it) => <option value={it.name}>{it.subtitle ?? ""}</option>}</For>
-      </datalist>
-    </>
-  );
-}
+// seed value autocomplete inputs (`SeedSuggestInput`/`SongSuggestInput`)
+// live in `components/radio/SeedSuggestInputs.tsx` - shared with the
+// removable-storage sync filter-set editor.

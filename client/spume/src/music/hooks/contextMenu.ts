@@ -22,10 +22,7 @@ import type { RemoteSong } from "../data/remote/adapters";
 import type { Song } from "../data/types";
 import type { ImageMetadata } from "../services/storage/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
-import {
-  useToggleFavoriteMutation,
-  type FavoriteTarget,
-} from "../queries/favorites";
+import { useToggleFavoriteMutation, type FavoriteTarget } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "../services/queue/queue";
@@ -47,7 +44,7 @@ export function createFavoriteMenuAction(
   targetId: string,
   isFavorite: boolean,
   sha256?: string, // only needed for songs (for queue updates)
-  remote?: Remote, // when set, scope the mutation to this remote
+  remote?: Remote // when set, scope the mutation to this remote
 ): MenuAction {
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
@@ -118,7 +115,7 @@ export interface ContextMenuOptions {
 export function createShareMenuAction(
   target: ShareTarget,
   buildSendPayload?: () => SendPayload | Promise<SendPayload>,
-  sourceRemoteId?: string,
+  sourceRemoteId?: string
 ): MenuAction {
   return {
     label: "share...",
@@ -148,10 +145,7 @@ export function createShareMenuAction(
 }
 
 // build context menu actions for a single song
-export function useSongContextMenu(
-  song: Song,
-  options: ContextMenuOptions = {},
-): MenuAction[] {
+export function useSongContextMenu(song: Song, options: ContextMenuOptions = {}): MenuAction[] {
   const navigate = useNavigate();
   const toggleFavoriteMutation = useToggleFavoriteMutation();
   const actions: MenuAction[] = [];
@@ -160,8 +154,7 @@ export function useSongContextMenu(
   // against the same source. `options.remote` (when the caller knows
   // it eagerly) wins; otherwise we lazily look up by
   // `song.remote_server_id` at click time.
-  const effectiveRemoteId =
-    options.remote?.remote_id ?? song.remote_server_id ?? undefined;
+  const effectiveRemoteId = options.remote?.remote_id ?? song.remote_server_id ?? undefined;
   const resolveSongRemote = async (): Promise<Remote | undefined> => {
     if (options.remote) return options.remote;
     if (!song.remote_server_id) return undefined;
@@ -272,9 +265,7 @@ export function useSongContextMenu(
         const remote = await resolveSongRemote();
         const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
         if (dataSource.removeSongsFromPlaylist) {
-          await dataSource.removeSongsFromPlaylist(options.playlistId!, [
-            song.id,
-          ]);
+          await dataSource.removeSongsFromPlaylist(options.playlistId!, [song.id]);
           // invalidate playlist queries to refresh song list
           queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
           queryClient.invalidateQueries({ queryKey: ["playlists", options.playlistId, "songs"] });
@@ -318,7 +309,7 @@ export function useSongContextMenu(
       onClick: () => {
         void showStationSelector(
           { kind: "songs", songIds: [song.id] },
-          song.remote_server_id ?? undefined,
+          song.remote_server_id ?? undefined
         );
       },
     });
@@ -344,8 +335,8 @@ export function useSongContextMenu(
         // touches blake3/sha256/title/album fields, all present here.
         song: song as unknown as RemoteSong,
       }),
-      effectiveRemoteId,
-    ),
+      effectiveRemoteId
+    )
   );
 
   // tags
@@ -448,7 +439,7 @@ export function useSongContextMenu(
 // build context menu actions for multiple songs
 export function useMultipleSongsContextMenu(
   songs: Song[],
-  options: ContextMenuOptions = {},
+  options: ContextMenuOptions = {}
 ): MenuAction[] {
   const actions: MenuAction[] = [];
 
@@ -468,7 +459,10 @@ export function useMultipleSongsContextMenu(
       label: "play next",
       icon: IconNames.queue,
       onClick: async () => {
-        await addToQueue(songs, { position: "next", source: { type: "song", label: `${songs.length} songs` } });
+        await addToQueue(songs, {
+          position: "next",
+          source: { type: "song", label: `${songs.length} songs` },
+        });
       },
     });
 
@@ -570,7 +564,7 @@ export interface AlbumContextMenuData {
 
 export function useAlbumContextMenu(
   album: AlbumContextMenuData,
-  options: ContextMenuOptions = {},
+  options: ContextMenuOptions = {}
 ): MenuAction[] {
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
@@ -597,7 +591,9 @@ export function useAlbumContextMenu(
         const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
-          await playQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
+          await playQueue(response.items, {
+            source: { type: "album", label: album.title, entity_id: album.id },
+          });
         }
       },
     });
@@ -610,7 +606,9 @@ export function useAlbumContextMenu(
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
-          await playQueue(shuffled, { source: { type: "shuffle", label: album.title, entity_id: album.id } });
+          await playQueue(shuffled, {
+            source: { type: "shuffle", label: album.title, entity_id: album.id },
+          });
         }
       },
     });
@@ -622,7 +620,9 @@ export function useAlbumContextMenu(
         const dataSource = dataSourceFor();
         if (dataSource.getAlbumSongs) {
           const response = await dataSource.getAlbumSongs(album.id);
-          await addToQueue(response.items, { source: { type: "album", label: album.title, entity_id: album.id } });
+          await addToQueue(response.items, {
+            source: { type: "album", label: album.title, entity_id: album.id },
+          });
         }
       },
     });
@@ -653,13 +653,7 @@ export function useAlbumContextMenu(
 
   // favorites
   actions.push(
-    createFavoriteMenuAction(
-      "album",
-      album.id,
-      options.isFavorite ?? false,
-      undefined,
-      remote,
-    ),
+    createFavoriteMenuAction("album", album.id, options.isFavorite ?? false, undefined, remote)
   );
 
   // add all to playlist
@@ -688,7 +682,7 @@ export function useAlbumContextMenu(
       onClick: () => {
         void showStationSelector(
           { kind: "album", albumId: album.id, albumTitle: album.title },
-          remoteId ?? currentRemote?.remote_id,
+          remoteId ?? currentRemote?.remote_id
         );
       },
     });
@@ -718,14 +712,18 @@ export function useAlbumContextMenu(
           albumType: songList[0]?.album_type ?? null,
           releaseDate: null,
           label: null,
-          genres: songList[0]?.album_taxons?.filter((t) => t.kind_slug === "genre").map((t) => t.label).filter(Boolean) ?? [],
+          genres:
+            songList[0]?.album_taxons
+              ?.filter((t) => t.kind_slug === "genre")
+              .map((t) => t.label)
+              .filter(Boolean) ?? [],
           // album-level images live on each song (denormalized). use the first
           // song's copy so dest gets cover art alongside the album row.
           images: songList[0]?.album_images ?? [],
           songs: songList as unknown as RemoteSong[],
         };
-      },
-    ),
+      }
+    )
   );
 
   // tags - only for admins
@@ -773,7 +771,7 @@ export interface PlaylistContextMenuData {
 
 export function usePlaylistContextMenu(
   playlist: PlaylistContextMenuData,
-  options: ContextMenuOptions = {},
+  options: ContextMenuOptions = {}
 ): MenuAction[] {
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
@@ -787,7 +785,9 @@ export function usePlaylistContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
-          await playQueue(response.items, { source: { type: "playlist", label: playlist.title, entity_id: playlist.id } });
+          await playQueue(response.items, {
+            source: { type: "playlist", label: playlist.title, entity_id: playlist.id },
+          });
           // fire-and-forget: record initiated playlist play
           try {
             const remoteClient = await getRemoteClient();
@@ -809,7 +809,9 @@ export function usePlaylistContextMenu(
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
           const shuffled = [...response.items].sort(() => Math.random() - 0.5);
-          await playQueue(shuffled, { source: { type: "shuffle", label: playlist.title, entity_id: playlist.id } });
+          await playQueue(shuffled, {
+            source: { type: "shuffle", label: playlist.title, entity_id: playlist.id },
+          });
         }
       },
     });
@@ -821,7 +823,9 @@ export function usePlaylistContextMenu(
         const dataSource = getDataSource();
         if (dataSource.getPlaylistSongs) {
           const response = await dataSource.getPlaylistSongs(playlist.id);
-          await addToQueue(response.items, { source: { type: "playlist", label: playlist.title, entity_id: playlist.id } });
+          await addToQueue(response.items, {
+            source: { type: "playlist", label: playlist.title, entity_id: playlist.id },
+          });
         }
       },
     });
@@ -841,13 +845,7 @@ export function usePlaylistContextMenu(
   actions.push({ type: "separator" });
 
   // favorites
-  actions.push(
-    createFavoriteMenuAction(
-      "playlist",
-      playlist.id,
-      options.isFavorite ?? false,
-    ),
-  );
+  actions.push(createFavoriteMenuAction("playlist", playlist.id, options.isFavorite ?? false));
 
   // share — permalink + send-to. send-to builder fetches the playlist's
   // song list lazily so the menu click stays snappy.
@@ -870,8 +868,8 @@ export function usePlaylistContextMenu(
           images: playlist.images ?? [],
           songs: response.items as unknown as RemoteSong[],
         };
-      },
-    ),
+      }
+    )
   );
 
   // edit - only for owner or admin
@@ -936,7 +934,7 @@ export interface ArtistContextMenuData {
 
 export function useArtistContextMenu(
   artist: ArtistContextMenuData,
-  options: ContextMenuOptions = {},
+  options: ContextMenuOptions = {}
 ): MenuAction[] {
   const navigate = useNavigate();
   const actions: MenuAction[] = [];
@@ -1001,9 +999,7 @@ export function useArtistContextMenu(
   actions.push({ type: "separator" });
 
   // favorites
-  actions.push(
-    createFavoriteMenuAction("artist", artist.id, options.isFavorite ?? false),
-  );
+  actions.push(createFavoriteMenuAction("artist", artist.id, options.isFavorite ?? false));
 
   // radio station: local (charnel) or remote (if browsing a remote)
   if (isCharnelMode() || !!getCurrentRemote()) {
@@ -1013,7 +1009,7 @@ export function useArtistContextMenu(
       onClick: () => {
         void showStationSelector(
           { kind: "artist", artistId: artist.id, artistName: artist.name },
-          getCurrentRemote()?.remote_id,
+          getCurrentRemote()?.remote_id
         );
       },
     });
@@ -1036,7 +1032,7 @@ export interface GenreContextMenuData {
 
 export function useGenreContextMenu(
   genre: GenreContextMenuData,
-  options: ContextMenuOptions = {},
+  options: ContextMenuOptions = {}
 ): MenuAction[] {
   const actions: MenuAction[] = [];
 
@@ -1086,7 +1082,7 @@ export function useGenreContextMenu(
       onClick: () => {
         void showStationSelector(
           { kind: "genre", genreId: genre.id, genreName: genre.name },
-          getCurrentRemote()?.remote_id,
+          getCurrentRemote()?.remote_id
         );
       },
     });

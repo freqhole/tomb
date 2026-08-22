@@ -26,7 +26,7 @@
     "@freqhole/api-client": "file:../../client-codegen/freqhole-api-client",
     "@freqhole/haruspex": "file:../../lib/haruspex/ts",
     "@freqhole/midden": "file:../../lib/midden/pkg",
-    "@freqhole/playlistz": "^0.0.5",
+    "@freqhole/playlistz": "^0.0.6",
     "@freqhole/reliquary": "file:../../lib/reliquary/ts",
     "qrcode": "^1.5.4"
   },

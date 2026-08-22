@@ -13,6 +13,8 @@ import {
   type ScanCompleteEvent,
   type KnockCreatedEvent,
   type PeerOfflineEvent,
+  type ExternalStorageMountedChangedEvent,
+  type ExternalStorageSyncProgressEvent,
 } from "./schema";
 
 // event name used for all freqhole events (single channel, discriminated by type)
@@ -37,7 +39,7 @@ async function getListen() {
  */
 export async function onEvent(callback: (event: TauriEvent) => void): Promise<UnlistenFn> {
   const listen = await getListen();
-  
+
   const unlisten = await listen<unknown>(EVENT_NAME, (event) => {
     try {
       const parsed = TauriEventSchema.parse(event.payload);
@@ -46,7 +48,7 @@ export async function onEvent(callback: (event: TauriEvent) => void): Promise<Un
       console.error("[tauri/events] failed to parse event:", error, event.payload);
     }
   });
-  
+
   return unlisten;
 }
 
@@ -121,6 +123,38 @@ export async function onPeerOffline(
 ): Promise<UnlistenFn> {
   return onEvent((event) => {
     if (event.type === "peer-offline") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for external-storage-mounted-changed events
+ *
+ * fired by the rust-side disk-arbitration/udev watcher whenever a
+ * removable-storage device is mounted or unmounted.
+ */
+export async function onExternalStorageMountedChanged(
+  callback: (event: ExternalStorageMountedChangedEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "external-storage-mounted-changed") {
+      callback(event);
+    }
+  });
+}
+
+/**
+ * listen specifically for external-storage-sync-progress events
+ *
+ * fired once per song while a removable-storage sync is running, so the
+ * ui can show "song N of M" instead of only a final all-or-nothing result.
+ */
+export async function onExternalStorageSyncProgress(
+  callback: (event: ExternalStorageSyncProgressEvent) => void
+): Promise<UnlistenFn> {
+  return onEvent((event) => {
+    if (event.type === "external-storage-sync-progress") {
       callback(event);
     }
   });

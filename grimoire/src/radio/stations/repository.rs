@@ -196,7 +196,10 @@ pub async fn list_filters(station_id: &str) -> GrimoireResult<Vec<StationFilter>
 /// (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)
 /// — exactly one of these seven is `Some` for a given filter row (or none,
 /// for `favorite`), per the CHECK constraint added in migration 051.
-type FilterInsertCols<'a> = (
+///
+/// `pub(crate)` — shared with `external_storage::repository`, whose
+/// filter-set-filter table has the identical FK/criteria shape.
+pub(crate) type FilterInsertCols<'a> = (
     Option<&'a str>,
     Option<&'a str>,
     Option<&'a str>,
@@ -206,19 +209,24 @@ type FilterInsertCols<'a> = (
     Option<i64>,
 );
 
-pub async fn add_filter(
-    station_id: &str,
+/// validate a `(filter_type, filter_value, mode)` triple and route the
+/// value into the right FK/criteria column, per the CHECK constraint
+/// added in migration 051. shared by radio's `add_filter` and
+/// `external_storage::repository::add_filter_set_filter` — the two
+/// tables have identical filter-clause shapes, just different owners
+/// (`station_id` vs `filter_set_id`).
+///
+/// `label` is used only in error messages (e.g. "radio" vs "sync filter").
+pub(crate) fn parse_filter_clause<'a>(
+    label: &str,
     filter_type: &str,
-    filter_value: &str,
+    filter_value: &'a str,
     mode: &str,
-) -> GrimoireResult<StationFilter> {
-    let pool = database::connect().await?;
-
-    // validate filter_type up front so we can route the FK/criteria insert.
+) -> GrimoireResult<(StationFilterType, &'static str, FilterInsertCols<'a>)> {
     let kind =
         StationFilterType::parse(filter_type).ok_or_else(|| GrimoireError::ProcessingFailed {
             message: format!(
-                "radio: unknown filter_type '{filter_type}' (expected one of artist, album, \
+                "{label}: unknown filter_type '{filter_type}' (expected one of artist, album, \
                  taxon, tag, track, playlist, favorite, rating_gte, rating_lte, \
                  play_count_gte, play_count_lte, duration_gte, duration_lte, \
                  added_days_gte, added_days_lte)"
@@ -231,7 +239,7 @@ pub async fn add_filter(
         other => {
             return Err(GrimoireError::ProcessingFailed {
                 message: format!(
-                    "radio: unknown filter mode '{other}' (expected include or exclude)"
+                    "{label}: unknown filter mode '{other}' (expected include or exclude)"
                 ),
             });
         }
@@ -240,8 +248,7 @@ pub async fn add_filter(
     // route the supplied value into the right column. all other FK
     // columns (and criteria_value, for reference types) are left null —
     // the schema CHECK constraint enforces this.
-    let (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value): FilterInsertCols =
-        match kind {
+    let cols: FilterInsertCols = match kind {
         StationFilterType::Artist => (Some(filter_value), None, None, None, None, None, None),
         StationFilterType::Album => (None, Some(filter_value), None, None, None, None, None),
         StationFilterType::Taxon => (None, None, Some(filter_value), None, None, None, None),
@@ -256,14 +263,14 @@ pub async fn add_filter(
                     .parse()
                     .map_err(|_| GrimoireError::ProcessingFailed {
                         message: format!(
-                            "radio: filter_value '{filter_value}' for {} must be an integer 1-5",
+                            "{label}: filter_value '{filter_value}' for {} must be an integer 1-5",
                             kind.as_str()
                         ),
                     })?;
             if !(1..=5).contains(&n) {
                 return Err(GrimoireError::ProcessingFailed {
                     message: format!(
-                        "radio: filter_value '{n}' for {} must be between 1 and 5",
+                        "{label}: filter_value '{n}' for {} must be between 1 and 5",
                         kind.as_str()
                     ),
                 });
@@ -282,14 +289,14 @@ pub async fn add_filter(
                     .parse()
                     .map_err(|_| GrimoireError::ProcessingFailed {
                         message: format!(
-                    "radio: filter_value '{filter_value}' for {} must be a non-negative integer",
+                    "{label}: filter_value '{filter_value}' for {} must be a non-negative integer",
                     kind.as_str()
                 ),
                     })?;
             if n < 0 {
                 return Err(GrimoireError::ProcessingFailed {
                     message: format!(
-                        "radio: filter_value '{n}' for {} must be non-negative",
+                        "{label}: filter_value '{n}' for {} must be non-negative",
                         kind.as_str()
                     ),
                 });
@@ -297,6 +304,19 @@ pub async fn add_filter(
             (None, None, None, None, None, None, Some(n))
         }
     };
+    Ok((kind, mode, cols))
+}
+
+pub async fn add_filter(
+    station_id: &str,
+    filter_type: &str,
+    filter_value: &str,
+    mode: &str,
+) -> GrimoireResult<StationFilter> {
+    let pool = database::connect().await?;
+
+    let (kind, mode, (artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value)) =
+        parse_filter_clause("radio", filter_type, filter_value, mode)?;
     let kind_str = kind.as_str();
 
     let id: String = sqlx::query_scalar!(
@@ -384,7 +404,7 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
         let mut by_type: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for clause in &includes {
-            let matches = song_ids_for_clause(&pool, clause).await?;
+            let matches = song_ids_for_clause(&pool, clause, None).await?;
             by_type
                 .entry(clause.filter_type.clone())
                 .or_default()
@@ -400,7 +420,7 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
 
     // subtract excludes (union of every exclude clause).
     for clause in &excludes {
-        let matches = song_ids_for_clause(&pool, clause).await?;
+        let matches = song_ids_for_clause(&pool, clause, None).await?;
         for id in matches {
             result.remove(&id);
         }
@@ -413,7 +433,10 @@ pub async fn resolve_playlist(station_id: &str) -> GrimoireResult<Vec<String>> {
 /// station has only `exclude` filters configured. mirrors the query in
 /// `playlist::all_playable_songs` but lives here to avoid a cross-module
 /// dependency.
-async fn all_playable_song_ids(pool: &sqlx::SqlitePool) -> GrimoireResult<Vec<String>> {
+///
+/// `pub(crate)` — shared with `external_storage::repository` for the
+/// same include-fallback role in filter-set resolution.
+pub(crate) async fn all_playable_song_ids(pool: &sqlx::SqlitePool) -> GrimoireResult<Vec<String>> {
     sqlx::query_scalar!(
         r#"SELECT DISTINCT s.id as "song_id!"
            FROM songz s
@@ -428,16 +451,24 @@ async fn all_playable_song_ids(pool: &sqlx::SqlitePool) -> GrimoireResult<Vec<St
 }
 
 /// internal row carrying the typed FK columns alongside the metadata.
-struct FilterRow {
-    filter_type: String,
-    mode: String,
-    artist_id: Option<String>,
-    album_id: Option<String>,
-    taxon_id: Option<String>,
-    tag_id: Option<String>,
-    song_id: Option<String>,
-    playlist_id: Option<String>,
-    criteria_value: Option<i64>,
+///
+/// `pub(crate)` — shared with `external_storage::repository`'s filter-set
+/// resolution, which builds this same shape from its own table.
+pub(crate) struct FilterRow {
+    pub(crate) filter_type: String,
+    pub(crate) mode: String,
+    pub(crate) artist_id: Option<String>,
+    pub(crate) album_id: Option<String>,
+    pub(crate) taxon_id: Option<String>,
+    pub(crate) tag_id: Option<String>,
+    pub(crate) song_id: Option<String>,
+    pub(crate) playlist_id: Option<String>,
+    pub(crate) criteria_value: Option<i64>,
+    /// 1 = "everyone's" (favorite/rating), NULL/anything else = "just this
+    /// user's". `radio_station_filterz` has no such column (radio's
+    /// `favorite`/`rating_gte`/`rating_lte` are always any-user, see
+    /// `song_ids_for_clause`) - always NULL there.
+    pub(crate) criteria_scope: Option<i64>,
 }
 
 async fn list_filters_with_fks(
@@ -448,7 +479,8 @@ async fn list_filters_with_fks(
         FilterRow,
         r#"SELECT filter_type as "filter_type!",
                   mode as "mode!",
-                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value
+                  artist_id, album_id, taxon_id, tag_id, song_id, playlist_id, criteria_value,
+                  NULL as "criteria_scope: i64"
            FROM radio_station_filterz
            WHERE station_id = ?
            ORDER BY created_at ASC"#,
@@ -462,9 +494,19 @@ async fn list_filters_with_fks(
 /// look up song ids for one filter clause via FK joins. unknown
 /// filter_type values (or rows with all FK columns null — should be
 /// impossible thanks to the CHECK constraint) yield an empty vec.
-async fn song_ids_for_clause(
+///
+/// `scoped_user_id` scopes the `"favorite"`/`"rating_gte"`/`"rating_lte"`
+/// clauses to one user's favorites/ratings instead of any user's —
+/// `None` preserves the original any-user cascade (radio stations are
+/// shared, not per-listener).
+///
+/// `pub(crate)` — shared with `external_storage::repository` so
+/// removable-storage sync filter-sets resolve identically to radio
+/// station seed filters, without duplicating this SQL.
+pub(crate) async fn song_ids_for_clause(
     pool: &sqlx::SqlitePool,
     clause: &FilterRow,
+    scoped_user_id: Option<&str>,
 ) -> GrimoireResult<Vec<String>> {
     let rows: Vec<String> = match clause.filter_type.as_str() {
         "artist" => match &clause.artist_id {
@@ -548,9 +590,40 @@ async fn song_ids_for_clause(
         // every song on a favorited album/by a favorited artist (not just
         // individually-favorited songs) so album-mode stations can still
         // play the whole album in track order instead of a sparse subset.
-        "favorite" => {
-            sqlx::query_scalar!(
-                r#"SELECT DISTINCT s.id as "song_id!"
+        // per-clause opt-out: a "favorite" clause defaults to the calling
+        // user's own favorites (scoped_user_id), but `criteria_scope = 1`
+        // ("everyone's favorites", chosen per-clause in the sync filter
+        // editor) falls back to the any-user cascade instead - same one
+        // radio stations always use, since they have no per-listener user.
+        "favorite" => match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+            Some(uid) => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT s.id as "song_id!"
+                   FROM songz s
+                   LEFT JOIN user_favoritez fs
+                          ON fs.target_type = 'song' AND fs.target_id = s.id AND fs.user_id = ?
+                   LEFT JOIN album_songz als ON als.song_id = s.id
+                   LEFT JOIN user_favoritez fal
+                          ON fal.target_type = 'album' AND fal.target_id = als.album_id AND fal.user_id = ?
+                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                   LEFT JOIN user_favoritez far
+                          ON far.target_type = 'artist' AND far.target_id = ars.artist_id AND far.user_id = ?
+                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN user_favoritez fap
+                          ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id AND fap.user_id = ?
+                   WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
+                      OR far.id IS NOT NULL OR fap.id IS NOT NULL"#,
+                    uid,
+                    uid,
+                    uid,
+                    uid,
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            None => {
+                sqlx::query_scalar!(
+                    r#"SELECT DISTINCT s.id as "song_id!"
                    FROM songz s
                    LEFT JOIN user_favoritez fs
                           ON fs.target_type = 'song' AND fs.target_id = s.id
@@ -565,53 +638,117 @@ async fn song_ids_for_clause(
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
                       OR far.id IS NOT NULL OR fap.id IS NOT NULL"#
-            )
-            .fetch_all(pool)
-            .await?
-        }
-        "rating_gte" => match clause.criteria_value {
-            Some(threshold) => {
-                sqlx::query_scalar!(
-                    r#"SELECT DISTINCT s.id as "song_id!"
-                   FROM songz s
-                   LEFT JOIN user_ratingz rs
-                          ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating >= ?
-                   LEFT JOIN album_songz als ON als.song_id = s.id
-                   LEFT JOIN user_ratingz ral
-                          ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating >= ?
-                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
-                   LEFT JOIN user_ratingz rar
-                          ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating >= ?
-                   WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
-                    threshold,
-                    threshold,
-                    threshold,
                 )
                 .fetch_all(pool)
                 .await?
+            }
+        },
+        // same per-clause opt-out as "favorite" above: defaults to the
+        // calling user's own ratings, `criteria_scope = 1` ("everyone's
+        // ratings") falls back to the any-user cascade radio always uses.
+        "rating_gte" => match clause.criteria_value {
+            Some(threshold) => {
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id
+                                     AND rs.rating >= ? AND rs.user_id = ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id
+                                     AND ral.rating >= ? AND ral.user_id = ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id
+                                     AND rar.rating >= ? AND rar.user_id = ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating >= ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating >= ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating >= ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
             }
             None => Vec::new(),
         },
         "rating_lte" => match clause.criteria_value {
             Some(threshold) => {
-                sqlx::query_scalar!(
-                    r#"SELECT DISTINCT s.id as "song_id!"
-                   FROM songz s
-                   LEFT JOIN user_ratingz rs
-                          ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating <= ?
-                   LEFT JOIN album_songz als ON als.song_id = s.id
-                   LEFT JOIN user_ratingz ral
-                          ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating <= ?
-                   LEFT JOIN artist_songz ars ON ars.song_id = s.id
-                   LEFT JOIN user_ratingz rar
-                          ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating <= ?
-                   WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
-                    threshold,
-                    threshold,
-                    threshold,
-                )
-                .fetch_all(pool)
-                .await?
+                match scoped_user_id.filter(|_| clause.criteria_scope != Some(1)) {
+                    Some(uid) => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id
+                                     AND rs.rating <= ? AND rs.user_id = ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id
+                                     AND ral.rating <= ? AND ral.user_id = ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id
+                                     AND rar.rating <= ? AND rar.user_id = ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                            threshold,
+                            uid,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                    None => {
+                        sqlx::query_scalar!(
+                            r#"SELECT DISTINCT s.id as "song_id!"
+                           FROM songz s
+                           LEFT JOIN user_ratingz rs
+                                  ON rs.target_type = 'song' AND rs.target_id = s.id AND rs.rating <= ?
+                           LEFT JOIN album_songz als ON als.song_id = s.id
+                           LEFT JOIN user_ratingz ral
+                                  ON ral.target_type = 'album' AND ral.target_id = als.album_id AND ral.rating <= ?
+                           LEFT JOIN artist_songz ars ON ars.song_id = s.id
+                           LEFT JOIN user_ratingz rar
+                                  ON rar.target_type = 'artist' AND rar.target_id = ars.artist_id AND rar.rating <= ?
+                           WHERE rs.id IS NOT NULL OR ral.id IS NOT NULL OR rar.id IS NOT NULL"#,
+                            threshold,
+                            threshold,
+                            threshold,
+                        )
+                        .fetch_all(pool)
+                        .await?
+                    }
+                }
             }
             None => Vec::new(),
         },

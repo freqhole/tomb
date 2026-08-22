@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
+import ExternalStorageSettingsSection from "./settings/ExternalStorageSettings";
 import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
@@ -400,7 +401,9 @@ export default function SettingsView() {
 
               <Show when={infoMessage()}>
                 <div
-                  class={`wizard-notification sticky-bottom ${infoIsError() ? "error" : "success"}`}
+                  class={`wizard-notification sticky-bottom ${
+                    infoIsError() ? "error" : "success"
+                  }`}
                 >
                   <span class="message-text">{infoMessage()}</span>
                   <button
@@ -650,6 +653,8 @@ export default function SettingsView() {
                   </Show>
                 </div>
               </div>
+
+              <ExternalStorageSettingsSection />
             </div>
           </Show>
 
@@ -705,7 +710,9 @@ export default function SettingsView() {
               </div>
               <Show when={restartMessage()}>
                 <div
-                  class={`wizard-notification ${restartIsError() ? "error" : "success"}`}
+                  class={`wizard-notification ${
+                    restartIsError() ? "error" : "success"
+                  }`}
                   style={{ "margin-top": "0.75rem" }}
                 >
                   <span class="message-text">{restartMessage()}</span>

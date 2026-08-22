@@ -159,6 +159,30 @@ export const ShareLinkReceivedEventSchema = z.object({
 });
 
 /**
+ * external-storage-mounted-changed event - a removable-storage device was
+ * mounted or unmounted (rust-side disk-arbitration/udev watcher). spume
+ * should refetch mounted/active device state.
+ */
+export const ExternalStorageMountedChangedEventSchema = z.object({
+  type: z.literal("external-storage-mounted-changed"),
+  data: z.object({}),
+});
+
+/**
+ * external-storage-sync-progress event - per-song progress during a
+ * removable-storage sync (phase 5 progress ui).
+ */
+export const ExternalStorageSyncProgressEventSchema = z.object({
+  type: z.literal("external-storage-sync-progress"),
+  data: z.object({
+    device_id: z.string(),
+    title: z.string(),
+    current: z.number(),
+    total: z.number(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const UpdateCheckResultEventSchema = z.object({
@@ -183,6 +207,8 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   KnockAcceptedEventSchema,
   ShareLinkReceivedEventSchema,
   UpdateCheckResultEventSchema,
+  ExternalStorageMountedChangedEventSchema,
+  ExternalStorageSyncProgressEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -196,3 +222,9 @@ export type DeviceLinkedEvent = z.infer<typeof DeviceLinkedEventSchema>;
 export type KnockAcceptedEvent = z.infer<typeof KnockAcceptedEventSchema>;
 export type ShareLinkReceivedEvent = z.infer<typeof ShareLinkReceivedEventSchema>;
 export type UpdateCheckResultEvent = z.infer<typeof UpdateCheckResultEventSchema>;
+export type ExternalStorageMountedChangedEvent = z.infer<
+  typeof ExternalStorageMountedChangedEventSchema
+>;
+export type ExternalStorageSyncProgressEvent = z.infer<
+  typeof ExternalStorageSyncProgressEventSchema
+>;
