@@ -1,5 +1,14 @@
 # freqhole-release
 
+## 0.2.15
+
+### Patch Changes
+
+- ed4527b: fix +radio action button bug when trying to add music to a local radio station
+- 2fe58d2: bump @freqhole/playlistz 0.0.6 to fix m3u8 playlist song file pathz
+- 8011a27: backfill sha256/blake3/blob_type/parent_blob_id idb blob db
+- 2145e9e: removable media sync feature; sync stuff to removable storage! re-use radio filterz to select music to sync, write artist/album/song.ext files and add mp3 id3 metadata, and can re-encode filez as well!
+
 ## 0.2.14
 
 ### Patch Changes
