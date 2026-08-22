@@ -45,7 +45,7 @@ async function toPlaylistZipEntry(playlist: Playlist, songs: Song[]): Promise<Pl
         fileSize: s.file_size ?? undefined,
         lyrics: s.lyrics ?? undefined,
       };
-    }),
+    })
   );
 
   return {
@@ -114,7 +114,10 @@ async function makeSpumeBlobFetcher(playlist: Playlist, songs: Song[]): Promise<
   let transport: Transport | null = null;
   if (remoteBlobMap.size > 0) {
     const remote = getCurrentRemote();
-    if (!remote) throw new Error("playlist has remote blobs but no active remote - cannot fetch blobs for zip");
+    if (!remote)
+      throw new Error(
+        "playlist has remote blobs but no active remote - cannot fetch blobs for zip"
+      );
     transport = await getTransportForRemote(remote);
   }
 
@@ -166,13 +169,11 @@ async function makeSpumeBlobFetcher(playlist: Playlist, songs: Song[]): Promise<
   };
 }
 
-export type ZipDownloadResult =
-  | { kind: "browser" }
-  | { kind: "tauri"; filePath: string };
+export type ZipDownloadResult = { kind: "browser" } | { kind: "tauri"; filePath: string };
 
 export async function downloadPlaylistZip(
   playlist: Playlist,
-  songs: Song[],
+  songs: Song[]
 ): Promise<ZipDownloadResult> {
   const entry = await toPlaylistZipEntry(playlist, songs);
   const filename = `${playlist.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "playlist"}.zip`;
@@ -207,7 +208,7 @@ async function downloadPlaylistZipTauri(
   entry: PlaylistZipEntry,
   playlist: Playlist,
   songs: Song[],
-  filename: string,
+  filename: string
 ): Promise<ZipDownloadResult> {
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
@@ -239,10 +240,18 @@ async function downloadPlaylistZipTauri(
 
     // songs: one at a time so only one audio file is in memory at once
     const resolvedSongs: Array<{
-      id: string; title: string; artist?: string; album?: string;
-      duration: number; originalFilename: string; mimeType: string;
-      sha?: string; audioPath: string; imagePath?: string;
-      safeFilename: string; fileSize: number;
+      id: string;
+      title: string;
+      artist?: string;
+      album?: string;
+      duration: number;
+      originalFilename: string;
+      mimeType: string;
+      sha?: string;
+      audioPath: string;
+      imagePath?: string;
+      safeFilename: string;
+      fileSize: number;
       imageType?: string;
     }> = [];
 
@@ -271,10 +280,18 @@ async function downloadPlaylistZipTauri(
       }
 
       resolvedSongs.push({
-        id: song.id, title: song.title, artist: song.artist, album: song.album,
-        duration: song.duration, originalFilename: song.originalFilename,
-        mimeType: song.mimeType, sha: song.sha,
-        audioPath, imagePath, safeFilename, fileSize,
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        duration: song.duration,
+        originalFilename: song.originalFilename,
+        mimeType: song.mimeType,
+        sha: song.sha,
+        audioPath,
+        imagePath,
+        safeFilename,
+        fileSize,
         imageType: song.imageType,
       });
     }
@@ -283,35 +300,54 @@ async function downloadPlaylistZipTauri(
     const relativeToData = (p: string) => p.replace(/^data\//, "");
     const m3uContent = generateM3UContent(
       {
-        id: entry.playlist.id, title: entry.playlist.title,
-        description: entry.playlist.description, rev: entry.playlist.rev,
+        id: entry.playlist.id,
+        title: entry.playlist.title,
+        description: entry.playlist.description,
+        rev: entry.playlist.rev,
         imagePath: playlistImagePath && relativeToData(playlistImagePath),
       },
       resolvedSongs.map((r) => ({
-        title: r.title, artist: r.artist ?? "", album: r.album ?? "",
-        duration: r.duration, audioPath: relativeToData(r.audioPath),
+        title: r.title,
+        artist: r.artist ?? "",
+        album: r.album ?? "",
+        duration: r.duration,
+        audioPath: relativeToData(r.audioPath),
         imagePath: r.imagePath && relativeToData(r.imagePath),
-      })),
+      }))
     );
     await appendText(`${rootName}/data/${rootName}.m3u8`, m3uContent);
 
     // metadata files (small, no memory concern)
-    const playlistzData = [{
-      playlist: {
-        id: entry.playlist.id, title: entry.playlist.title,
-        description: entry.playlist.description, rev: entry.playlist.rev,
-        imageMimeType: entry.playlist.imageType ?? (playlistImagePath ? mimeFromPath(playlistImagePath) : undefined),
-        imageFilePath: playlistImagePath, safeFilename: rootName,
+    const playlistzData = [
+      {
+        playlist: {
+          id: entry.playlist.id,
+          title: entry.playlist.title,
+          description: entry.playlist.description,
+          rev: entry.playlist.rev,
+          imageMimeType:
+            entry.playlist.imageType ??
+            (playlistImagePath ? mimeFromPath(playlistImagePath) : undefined),
+          imageFilePath: playlistImagePath,
+          safeFilename: rootName,
+        },
+        songs: resolvedSongs.map((r) => ({
+          id: r.id,
+          title: r.title,
+          artist: r.artist ?? "",
+          album: r.album ?? "",
+          duration: r.duration,
+          originalFilename: r.originalFilename,
+          filePath: r.audioPath,
+          safeFilename: r.safeFilename,
+          fileSize: r.fileSize,
+          mimeType: r.mimeType,
+          sha: r.sha,
+          imageMimeType: r.imageType ?? (r.imagePath ? mimeFromPath(r.imagePath) : undefined),
+          imageFilePath: r.imagePath,
+        })),
       },
-      songs: resolvedSongs.map((r) => ({
-        id: r.id, title: r.title, artist: r.artist ?? "", album: r.album ?? "",
-        duration: r.duration, originalFilename: r.originalFilename,
-        filePath: r.audioPath, safeFilename: r.safeFilename,
-        fileSize: r.fileSize, mimeType: r.mimeType, sha: r.sha,
-        imageMimeType: r.imageType ?? (r.imagePath ? mimeFromPath(r.imagePath) : undefined),
-        imageFilePath: r.imagePath,
-      })),
-    }];
+    ];
 
     // generatePlaylistzJs from the @freqhole/playlistz package
     await appendText(`${rootName}/playlistz.js`, generatePlaylistzJs(playlistzData));
@@ -321,9 +357,14 @@ async function downloadPlaylistZipTauri(
     try {
       const res = await fetch(`${window.location.origin}/freqhole-playlistz.js`);
       if (res.ok) {
-        await appendFile(`${rootName}/freqhole-playlistz.js`, new Uint8Array(await res.arrayBuffer()));
+        await appendFile(
+          `${rootName}/freqhole-playlistz.js`,
+          new Uint8Array(await res.arrayBuffer())
+        );
       }
-    } catch { /* bundle not available - zip still works for http serving */ }
+    } catch {
+      /* bundle not available - zip still works for http serving */
+    }
 
     const filePath = await invoke<string>("zip_finish", { tempId, filename });
     return { kind: "tauri", filePath };
@@ -336,8 +377,11 @@ async function downloadPlaylistZipTauri(
 // derive a file extension from a mime type string
 function extFromMime(mime: string): string {
   const map: Record<string, string> = {
-    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
-    "image/webp": ".webp", "image/avif": ".avif",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/avif": ".avif",
   };
   return map[mime] ?? ".jpg";
 }
@@ -346,15 +390,24 @@ function extFromMime(mime: string): string {
 function mimeFromPath(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase();
   const map: Record<string, string> = {
-    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    gif: "image/gif", webp: "image/webp", avif: "image/avif",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
   };
-  return (ext && map[ext]) ? map[ext]! : "image/jpeg";
+  return ext && map[ext] ? map[ext]! : "image/jpeg";
 }
 
 // sanitize a filename for use in a zip path (strip unsafe chars)
 function sanitizeForZip(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "_").replace(/^\.+/, "").trim() || "file";
+  return (
+    name
+      .replace(/[/\\:*?"<>|]/g, "_")
+      .replace(/^\.+/, "")
+      .trim() || "file"
+  );
 }
 
 // mirrors @freqhole/playlistz's zip-bundle/m3u.ts format exactly (not
