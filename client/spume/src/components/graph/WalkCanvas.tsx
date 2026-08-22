@@ -110,7 +110,7 @@ import { edgeKindColor, hubEdgeColor } from "./walkCanvas/nodeStyle";
 import { nodeShapePath, pointInPolygon } from "./walkCanvas/shapes";
 import { drawNode, drawLabel, drawLoadingComet } from "./walkCanvas/drawing";
 
-export default function WalkCanvas(props: WalkCanvasProps) {
+function WalkCanvas(props: WalkCanvasProps) {
   let canvas!: HTMLCanvasElement;
 
   // when no explicit dimensions given, fill the window minus any chrome insets.
@@ -1376,6 +1376,8 @@ export default function WalkCanvas(props: WalkCanvasProps) {
     />
   );
 }
+
+export default WalkCanvas;
 
 // ---- helpers ----------------------------------------------------------------
 
