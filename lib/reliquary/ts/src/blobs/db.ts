@@ -14,6 +14,13 @@ const STORE_NAME = "blobs";
 const REFS_STORE_NAME = "blob_canvas_refs";
 const DB_VERSION = 3;
 
+// kept in sync with the createIndex calls in onupgradeneeded below - used
+// by openDb's version-fallback path to detect an already-existing database
+// that's missing an index added by a newer db.ts than whatever build last
+// touched it.
+const BLOB_INDEXES = ["sha256", "blake3", "blob_type", "parent_blob_id", "size", "created_at"];
+const REFS_INDEXES = ["blob_id", "canvas_doc_id"];
+
 function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, version);
@@ -37,25 +44,10 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
       // indexes present, and every `.index(...)` lookup would throw
       // "the specified index was not found" instead of falling through
       // the resolver chain the way a missing record does.
-      if (!store.indexNames.contains("sha256")) {
-        store.createIndex("sha256", "sha256", { unique: false });
-      }
-      if (!store.indexNames.contains("blake3")) {
-        store.createIndex("blake3", "blake3", { unique: false });
-      }
-      if (!store.indexNames.contains("blob_type")) {
-        store.createIndex("blob_type", "blob_type", { unique: false });
-      }
-      if (!store.indexNames.contains("parent_blob_id")) {
-        store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
-      }
-      // added in v3 - supports sorting the local-files list (filez tab 2)
-      // by size without a full-store scan.
-      if (!store.indexNames.contains("size")) {
-        store.createIndex("size", "size", { unique: false });
-      }
-      if (!store.indexNames.contains("created_at")) {
-        store.createIndex("created_at", "created_at", { unique: false });
+      for (const name of BLOB_INDEXES) {
+        if (!store.indexNames.contains(name)) {
+          store.createIndex(name, name, { unique: false });
+        }
       }
       if (!db.objectStoreNames.contains(REFS_STORE_NAME)) {
         // tracks which canvas documents currently have a widget
@@ -64,8 +56,17 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
         // canvas. composite key so re-adding an existing ref is a no-op
         // (put with the same key overwrites, add() would throw).
         const refs = db.createObjectStore(REFS_STORE_NAME, { keyPath: ["blob_id", "canvas_doc_id"] });
-        refs.createIndex("blob_id", "blob_id", { unique: false });
-        refs.createIndex("canvas_doc_id", "canvas_doc_id", { unique: false });
+        for (const name of REFS_INDEXES) {
+          refs.createIndex(name, name, { unique: false });
+        }
+      } else {
+        // same "add if missing" treatment for the refs store's own indexes.
+        const refs = req.transaction!.objectStore(REFS_STORE_NAME);
+        for (const name of REFS_INDEXES) {
+          if (!refs.indexNames.contains(name)) {
+            refs.createIndex(name, name, { unique: false });
+          }
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -84,37 +85,68 @@ function openVersioned(dbName: string, version: number): Promise<IDBDatabase> {
 // used throughout this module.
 const resolvedVersions = new Map<string, number>();
 
+// true only if both stores exist AND every index in BLOB_INDEXES/
+// REFS_INDEXES is present on them. used to detect a database that's
+// already sitting at the version we're about to (re)open with but never
+// actually got every index this file expects - reopening at the exact
+// same version is a no-op in indexedDB (onupgradeneeded only fires when
+// the requested version is HIGHER than the database's current one), so
+// that case has to be caught explicitly rather than left to
+// onupgradeneeded's own "add if missing" logic.
+function hasAllIndexes(db: IDBDatabase): boolean {
+  if (!db.objectStoreNames.contains(STORE_NAME) || !db.objectStoreNames.contains(REFS_STORE_NAME)) {
+    return false;
+  }
+  const tx = db.transaction([STORE_NAME, REFS_STORE_NAME], "readonly");
+  const blobIndexes = tx.objectStore(STORE_NAME).indexNames;
+  const refsIndexes = tx.objectStore(REFS_STORE_NAME).indexNames;
+  return (
+    BLOB_INDEXES.every((name) => blobIndexes.contains(name)) &&
+    REFS_INDEXES.every((name) => refsIndexes.contains(name))
+  );
+}
+
 async function openDb(dbName: string): Promise<IDBDatabase> {
   const cachedVersion = resolvedVersions.get(dbName);
   if (cachedVersion !== undefined) {
     return openVersioned(dbName, cachedVersion);
   }
 
+  let db: IDBDatabase;
+  let currentVersion: number;
   try {
-    const db = await openVersioned(dbName, DB_VERSION);
-    resolvedVersions.set(dbName, DB_VERSION);
-    return db;
+    db = await openVersioned(dbName, DB_VERSION);
+    currentVersion = DB_VERSION;
   } catch (err) {
     if (!(err instanceof DOMException) || err.name !== "VersionError") throw err;
 
-    // the database already exists at some higher version - open it
-    // version-less to discover what that is, then reopen at that exact
-    // version (creating the store if a pre-existing database somehow
-    // never had one).
+    // the database already exists at some higher version than DB_VERSION -
+    // open it version-less to discover what that is, then reopen at that
+    // exact version.
     const probe = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(dbName);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    const currentVersion = probe.version;
-    const hasStore =
-      probe.objectStoreNames.contains(STORE_NAME) && probe.objectStoreNames.contains(REFS_STORE_NAME);
+    currentVersion = probe.version;
     probe.close();
-
-    const targetVersion = hasStore ? currentVersion : currentVersion + 1;
-    resolvedVersions.set(dbName, targetVersion);
-    return openVersioned(dbName, targetVersion);
+    db = await openVersioned(dbName, currentVersion);
   }
+
+  // a database can reach `currentVersion` under an earlier build that
+  // didn't yet create every index this file expects - opening at that
+  // exact same version again (either branch above) never fires
+  // onupgradeneeded, so the "add index if missing" repair in
+  // onupgradeneeded never gets a chance to run. detect that case here and
+  // force a real upgrade by reopening one version higher.
+  if (!hasAllIndexes(db)) {
+    db.close();
+    currentVersion += 1;
+    db = await openVersioned(dbName, currentVersion);
+  }
+
+  resolvedVersions.set(dbName, currentVersion);
+  return db;
 }
 
 export async function putRecord(dbName: string, record: BlobRecord): Promise<void> {
@@ -153,7 +185,17 @@ async function getByIndex(
   const db = await openDb(dbName);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
-    const req = tx.objectStore(STORE_NAME).index(indexName).get(value);
+    const store = tx.objectStore(STORE_NAME);
+    // belt-and-suspenders: openDb's upgrade path should always ensure this
+    // index exists, but if it's somehow still missing, fall through the
+    // resolver chain (return null) rather than throwing - matches the
+    // "missing record" behavior every other step of resolveBlob already has.
+    if (!store.indexNames.contains(indexName)) {
+      tx.oncomplete = () => db.close();
+      resolve(null);
+      return;
+    }
+    const req = store.index(indexName).get(value);
     req.onsuccess = () => resolve((req.result as BlobRecord) ?? null);
     req.onerror = () => reject(req.error);
     tx.oncomplete = () => db.close();

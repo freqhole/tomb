@@ -176,14 +176,17 @@ export async function downloadPlaylistZip(
 ): Promise<ZipDownloadResult> {
   const entry = await toPlaylistZipEntry(playlist, songs);
   const filename = `${playlist.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "playlist"}.zip`;
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   // in tauri: stream bytes to rust one file at a time so only one song lives in
   // memory at once. rust writes each file to a temp zip on disk immediately.
-  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+  if (isTauri) {
     return downloadPlaylistZipTauri(entry, playlist, songs, filename);
   }
 
-  // browser: build zip in js (fflate → OPFS when available) then download
+  // browser: build zip in js (fflate → OPFS when available) then download.
+  // buildPlaylistZip (from @freqhole/playlistz) is called with no options, so
+  // it uses its defaults - notably generateM3U: true - see zipBuilder.ts.
   const fetchBlob = await makeSpumeBlobFetcher(playlist, songs);
   const zipBlob = await buildPlaylistZip(entry, fetchBlob);
   const url = URL.createObjectURL(zipBlob);
@@ -276,6 +279,22 @@ async function downloadPlaylistZipTauri(
       });
     }
 
+    // m3u8 file - paths inside are relative to the data/ folder it lives in
+    const relativeToData = (p: string) => p.replace(/^data\//, "");
+    const m3uContent = generateM3UContent(
+      {
+        id: entry.playlist.id, title: entry.playlist.title,
+        description: entry.playlist.description, rev: entry.playlist.rev,
+        imagePath: playlistImagePath && relativeToData(playlistImagePath),
+      },
+      resolvedSongs.map((r) => ({
+        title: r.title, artist: r.artist ?? "", album: r.album ?? "",
+        duration: r.duration, audioPath: relativeToData(r.audioPath),
+        imagePath: r.imagePath && relativeToData(r.imagePath),
+      })),
+    );
+    await appendText(`${rootName}/data/${rootName}.m3u8`, m3uContent);
+
     // metadata files (small, no memory concern)
     const playlistzData = [{
       playlist: {
@@ -336,4 +355,48 @@ function mimeFromPath(filePath: string): string {
 // sanitize a filename for use in a zip path (strip unsafe chars)
 function sanitizeForZip(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, "_").replace(/^\.+/, "").trim() || "file";
+}
+
+// mirrors @freqhole/playlistz's zip-bundle/m3u.ts format exactly (not
+// currently exported from that package's public surface - duplicated here
+// rather than reaching into its internal src path). the tauri export path
+// builds its own zip by hand (unlike the browser path, which delegates to
+// buildPlaylistZip and gets this for free), so it needs its own m3u8 step.
+interface M3uSong {
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  audioPath: string;
+  imagePath?: string;
+}
+
+interface M3uPlaylist {
+  id: string;
+  title: string;
+  description?: string;
+  rev?: number;
+  imagePath?: string;
+}
+
+function generateM3UContent(playlist: M3uPlaylist, songs: M3uSong[]): string {
+  let out = "#EXTM3U\n";
+  out += `# Playlist: ${playlist.title}\n`;
+  out += `# PlaylistId: ${playlist.id}\n`;
+  out += `# PlaylistRev: ${playlist.rev ?? 0}\n`;
+  if (playlist.description) out += `# Description: ${playlist.description}\n`;
+  if (playlist.imagePath) out += `# PlaylistImage: ${playlist.imagePath}\n`;
+  out += "\n";
+
+  for (const song of songs) {
+    const duration = Math.round(song.duration);
+    out += `#EXTINF:${duration}, ${song.artist} - ${song.title}\n`;
+    out += `# Title: ${song.title}\n`;
+    out += `# Artist: ${song.artist}\n`;
+    out += `# Album: ${song.album}\n`;
+    if (song.imagePath) out += `# Image: ${song.imagePath}\n`;
+    out += `${song.audioPath}\n\n`;
+  }
+
+  return out;
 }

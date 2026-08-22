@@ -186,6 +186,46 @@ describe("pre-existing database at a higher version", () => {
     expect(await getRecord(dbName, record.blob_id)).toEqual(record);
     expect(await getRecordByBlake3(dbName, record.blake3)).toEqual(record);
   });
+
+  it("repairs a missing index even when both stores already exist at DB_VERSION", async () => {
+    // reproduces a real-world case: a database that reached DB_VERSION
+    // under an earlier build of this module - one that created both
+    // stores but not yet the "sha256" index added later. since both
+    // stores already exist and the version already matches, naively
+    // reusing that version would never fire onupgradeneeded again,
+    // permanently leaving the missing index unrepaired - getRecordBySha256
+    // would then always report a miss instead of finding the record
+    // (getByIndex falls through gracefully rather than throwing, so a
+    // silent "never repaired" regression wouldn't otherwise be caught).
+    const dbName = "already-at-version-missing-index-db";
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open(dbName, 3);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        const store = db.createObjectStore("blobs", { keyPath: "blob_id" });
+        // deliberately missing: "sha256" index.
+        store.createIndex("blake3", "blake3", { unique: false });
+        store.createIndex("blob_type", "blob_type", { unique: false });
+        store.createIndex("parent_blob_id", "parent_blob_id", { unique: false });
+        store.createIndex("size", "size", { unique: false });
+        store.createIndex("created_at", "created_at", { unique: false });
+        const refs = db.createObjectStore("blob_canvas_refs", {
+          keyPath: ["blob_id", "canvas_doc_id"],
+        });
+        refs.createIndex("blob_id", "blob_id", { unique: false });
+        refs.createIndex("canvas_doc_id", "canvas_doc_id", { unique: false });
+      };
+      req.onsuccess = () => {
+        req.result.close();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    const record = makeRecord();
+    await putRecord(dbName, record);
+    expect(await getRecordBySha256(dbName, record.sha256!)).toEqual(record);
+  });
 });
 
 describe("listBlobs", () => {
