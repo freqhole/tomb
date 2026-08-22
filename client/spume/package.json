@@ -81,6 +81,10 @@
     "vitest": "^4.0.17",
     "zod": "^4.3.6"
   },
+  "overrides": {
+    "@swc/core": "1.15.47",
+    "@swc/wasm": "1.15.30"
+  },
   "prettier": {
     "semi": true,
     "trailingComma": "es5",
