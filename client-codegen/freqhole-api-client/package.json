@@ -1,6 +1,6 @@
 {
   "name": "@freqhole/api-client",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "repository": {
     "type": "git",
@@ -22,15 +22,17 @@
     "auth-test": "vite --config vite.config.js"
   },
   "dependencies": {
-    "zod": "^4.3.5",
-    "@freqhole/haruspex": "file:../../lib/haruspex/ts"
+    "@freqhole/haruspex": "file:../../lib/haruspex/ts",
+    "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@tauri-apps/api": "^2.10.1",
     "@types/node": "^25.0.8",
     "tsx": "^4.7.0",
-    "vitest": "^2.1.0",
     "typescript": "^5.3.0",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^2.1.0"
   }
 }

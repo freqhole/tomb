@@ -45,7 +45,7 @@ async function toPlaylistZipEntry(playlist: Playlist, songs: Song[]): Promise<Pl
         fileSize: s.file_size ?? undefined,
         lyrics: s.lyrics ?? undefined,
       };
-    }),
+    })
   );
 
   return {
@@ -114,7 +114,10 @@ async function makeSpumeBlobFetcher(playlist: Playlist, songs: Song[]): Promise<
   let transport: Transport | null = null;
   if (remoteBlobMap.size > 0) {
     const remote = getCurrentRemote();
-    if (!remote) throw new Error("playlist has remote blobs but no active remote - cannot fetch blobs for zip");
+    if (!remote)
+      throw new Error(
+        "playlist has remote blobs but no active remote - cannot fetch blobs for zip"
+      );
     transport = await getTransportForRemote(remote);
   }
 
@@ -166,24 +169,25 @@ async function makeSpumeBlobFetcher(playlist: Playlist, songs: Song[]): Promise<
   };
 }
 
-export type ZipDownloadResult =
-  | { kind: "browser" }
-  | { kind: "tauri"; filePath: string };
+export type ZipDownloadResult = { kind: "browser" } | { kind: "tauri"; filePath: string };
 
 export async function downloadPlaylistZip(
   playlist: Playlist,
-  songs: Song[],
+  songs: Song[]
 ): Promise<ZipDownloadResult> {
   const entry = await toPlaylistZipEntry(playlist, songs);
   const filename = `${playlist.title.replace(/[^a-zA-Z0-9_-]/g, "_") || "playlist"}.zip`;
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   // in tauri: stream bytes to rust one file at a time so only one song lives in
   // memory at once. rust writes each file to a temp zip on disk immediately.
-  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+  if (isTauri) {
     return downloadPlaylistZipTauri(entry, playlist, songs, filename);
   }
 
-  // browser: build zip in js (fflate → OPFS when available) then download
+  // browser: build zip in js (fflate → OPFS when available) then download.
+  // buildPlaylistZip (from @freqhole/playlistz) is called with no options, so
+  // it uses its defaults - notably generateM3U: true - see zipBuilder.ts.
   const fetchBlob = await makeSpumeBlobFetcher(playlist, songs);
   const zipBlob = await buildPlaylistZip(entry, fetchBlob);
   const url = URL.createObjectURL(zipBlob);
@@ -204,7 +208,7 @@ async function downloadPlaylistZipTauri(
   entry: PlaylistZipEntry,
   playlist: Playlist,
   songs: Song[],
-  filename: string,
+  filename: string
 ): Promise<ZipDownloadResult> {
   // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
   const { invoke } = await import("@tauri-apps/api/core");
@@ -236,10 +240,18 @@ async function downloadPlaylistZipTauri(
 
     // songs: one at a time so only one audio file is in memory at once
     const resolvedSongs: Array<{
-      id: string; title: string; artist?: string; album?: string;
-      duration: number; originalFilename: string; mimeType: string;
-      sha?: string; audioPath: string; imagePath?: string;
-      safeFilename: string; fileSize: number;
+      id: string;
+      title: string;
+      artist?: string;
+      album?: string;
+      duration: number;
+      originalFilename: string;
+      mimeType: string;
+      sha?: string;
+      audioPath: string;
+      imagePath?: string;
+      safeFilename: string;
+      fileSize: number;
       imageType?: string;
     }> = [];
 
@@ -268,31 +280,74 @@ async function downloadPlaylistZipTauri(
       }
 
       resolvedSongs.push({
-        id: song.id, title: song.title, artist: song.artist, album: song.album,
-        duration: song.duration, originalFilename: song.originalFilename,
-        mimeType: song.mimeType, sha: song.sha,
-        audioPath, imagePath, safeFilename, fileSize,
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        album: song.album,
+        duration: song.duration,
+        originalFilename: song.originalFilename,
+        mimeType: song.mimeType,
+        sha: song.sha,
+        audioPath,
+        imagePath,
+        safeFilename,
+        fileSize,
         imageType: song.imageType,
       });
     }
 
-    // metadata files (small, no memory concern)
-    const playlistzData = [{
-      playlist: {
-        id: entry.playlist.id, title: entry.playlist.title,
-        description: entry.playlist.description, rev: entry.playlist.rev,
-        imageMimeType: entry.playlist.imageType ?? (playlistImagePath ? mimeFromPath(playlistImagePath) : undefined),
-        imageFilePath: playlistImagePath, safeFilename: rootName,
+    // m3u8 file - paths inside are relative to the data/ folder it lives in
+    const relativeToData = (p: string) => p.replace(/^data\//, "");
+    const m3uContent = generateM3UContent(
+      {
+        id: entry.playlist.id,
+        title: entry.playlist.title,
+        description: entry.playlist.description,
+        rev: entry.playlist.rev,
+        imagePath: playlistImagePath && relativeToData(playlistImagePath),
       },
-      songs: resolvedSongs.map((r) => ({
-        id: r.id, title: r.title, artist: r.artist ?? "", album: r.album ?? "",
-        duration: r.duration, originalFilename: r.originalFilename,
-        filePath: r.audioPath, safeFilename: r.safeFilename,
-        fileSize: r.fileSize, mimeType: r.mimeType, sha: r.sha,
-        imageMimeType: r.imageType ?? (r.imagePath ? mimeFromPath(r.imagePath) : undefined),
-        imageFilePath: r.imagePath,
-      })),
-    }];
+      resolvedSongs.map((r) => ({
+        title: r.title,
+        artist: r.artist ?? "",
+        album: r.album ?? "",
+        duration: r.duration,
+        audioPath: relativeToData(r.audioPath),
+        imagePath: r.imagePath && relativeToData(r.imagePath),
+      }))
+    );
+    await appendText(`${rootName}/data/${rootName}.m3u8`, m3uContent);
+
+    // metadata files (small, no memory concern)
+    const playlistzData = [
+      {
+        playlist: {
+          id: entry.playlist.id,
+          title: entry.playlist.title,
+          description: entry.playlist.description,
+          rev: entry.playlist.rev,
+          imageMimeType:
+            entry.playlist.imageType ??
+            (playlistImagePath ? mimeFromPath(playlistImagePath) : undefined),
+          imageFilePath: playlistImagePath,
+          safeFilename: rootName,
+        },
+        songs: resolvedSongs.map((r) => ({
+          id: r.id,
+          title: r.title,
+          artist: r.artist ?? "",
+          album: r.album ?? "",
+          duration: r.duration,
+          originalFilename: r.originalFilename,
+          filePath: r.audioPath,
+          safeFilename: r.safeFilename,
+          fileSize: r.fileSize,
+          mimeType: r.mimeType,
+          sha: r.sha,
+          imageMimeType: r.imageType ?? (r.imagePath ? mimeFromPath(r.imagePath) : undefined),
+          imageFilePath: r.imagePath,
+        })),
+      },
+    ];
 
     // generatePlaylistzJs from the @freqhole/playlistz package
     await appendText(`${rootName}/playlistz.js`, generatePlaylistzJs(playlistzData));
@@ -302,9 +357,14 @@ async function downloadPlaylistZipTauri(
     try {
       const res = await fetch(`${window.location.origin}/freqhole-playlistz.js`);
       if (res.ok) {
-        await appendFile(`${rootName}/freqhole-playlistz.js`, new Uint8Array(await res.arrayBuffer()));
+        await appendFile(
+          `${rootName}/freqhole-playlistz.js`,
+          new Uint8Array(await res.arrayBuffer())
+        );
       }
-    } catch { /* bundle not available - zip still works for http serving */ }
+    } catch {
+      /* bundle not available - zip still works for http serving */
+    }
 
     const filePath = await invoke<string>("zip_finish", { tempId, filename });
     return { kind: "tauri", filePath };
@@ -317,8 +377,11 @@ async function downloadPlaylistZipTauri(
 // derive a file extension from a mime type string
 function extFromMime(mime: string): string {
   const map: Record<string, string> = {
-    "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
-    "image/webp": ".webp", "image/avif": ".avif",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/avif": ".avif",
   };
   return map[mime] ?? ".jpg";
 }
@@ -327,13 +390,66 @@ function extFromMime(mime: string): string {
 function mimeFromPath(filePath: string): string {
   const ext = filePath.split(".").pop()?.toLowerCase();
   const map: Record<string, string> = {
-    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    gif: "image/gif", webp: "image/webp", avif: "image/avif",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
   };
-  return (ext && map[ext]) ? map[ext]! : "image/jpeg";
+  return ext && map[ext] ? map[ext]! : "image/jpeg";
 }
 
 // sanitize a filename for use in a zip path (strip unsafe chars)
 function sanitizeForZip(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, "_").replace(/^\.+/, "").trim() || "file";
+  return (
+    name
+      .replace(/[/\\:*?"<>|]/g, "_")
+      .replace(/^\.+/, "")
+      .trim() || "file"
+  );
+}
+
+// mirrors @freqhole/playlistz's zip-bundle/m3u.ts format exactly (not
+// currently exported from that package's public surface - duplicated here
+// rather than reaching into its internal src path). the tauri export path
+// builds its own zip by hand (unlike the browser path, which delegates to
+// buildPlaylistZip and gets this for free), so it needs its own m3u8 step.
+interface M3uSong {
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  audioPath: string;
+  imagePath?: string;
+}
+
+interface M3uPlaylist {
+  id: string;
+  title: string;
+  description?: string;
+  rev?: number;
+  imagePath?: string;
+}
+
+function generateM3UContent(playlist: M3uPlaylist, songs: M3uSong[]): string {
+  let out = "#EXTM3U\n";
+  out += `# Playlist: ${playlist.title}\n`;
+  out += `# PlaylistId: ${playlist.id}\n`;
+  out += `# PlaylistRev: ${playlist.rev ?? 0}\n`;
+  if (playlist.description) out += `# Description: ${playlist.description}\n`;
+  if (playlist.imagePath) out += `# PlaylistImage: ${playlist.imagePath}\n`;
+  out += "\n";
+
+  for (const song of songs) {
+    const duration = Math.round(song.duration);
+    out += `#EXTINF:${duration}, ${song.artist} - ${song.title}\n`;
+    out += `# Title: ${song.title}\n`;
+    out += `# Artist: ${song.artist}\n`;
+    out += `# Album: ${song.album}\n`;
+    if (song.imagePath) out += `# Image: ${song.imagePath}\n`;
+    out += `${song.audioPath}\n\n`;
+  }
+
+  return out;
 }

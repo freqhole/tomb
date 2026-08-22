@@ -147,6 +147,7 @@ const PlaylistSyncOutcomeSchema = z.object({
   filename: z.string(),
   song_count: z.number(),
   failed_songs: z.array(z.string()),
+  tag_warnings: z.array(z.string()),
 });
 
 const SyncPlaylistsResultSchema = z.object({
