@@ -42,6 +42,12 @@ pub struct SyncSongResult {
     pub skipped: bool,
     /// true when an existing file was moved to a new path (metadata changed).
     pub moved: bool,
+    /// set when the audio synced fine but writing id3/vorbis tags onto it
+    /// failed (e.g. a malformed source frame) - non-fatal, since the song
+    /// is still fully playable and counts as synced; surfaced separately
+    /// from `failed_songs` so the ui can show it as a warning rather than
+    /// a hard failure.
+    pub tag_warning: Option<String>,
 }
 
 pub async fn sync_song_to_device(
@@ -144,6 +150,7 @@ pub async fn sync_song_to_device(
                     relative_path: existing.relative_path.clone(),
                     skipped: true,
                     moved: false,
+                    tag_warning: None,
                 });
             }
 
@@ -173,6 +180,7 @@ pub async fn sync_song_to_device(
 
     let content_unchanged = existing.as_ref().is_some_and(|e| e.sha256 == blob.sha256);
     let mut moved = false;
+    let tag_warning: Option<String>;
 
     if content_unchanged {
         if let Some(old_abs) = &old_absolute_to_move {
@@ -184,17 +192,36 @@ pub async fn sync_song_to_device(
                 }
             }
         }
-        // audio bytes are already correct at dest_path; only the tags
+        if !dest_path.exists() {
+            // recorded as already-synced with unchanged audio, but the
+            // file isn't actually sitting at dest_path (e.g. the device's
+            // music subpath was reconfigured since the last sync, or the
+            // file was removed directly on-device) - write it fresh
+            // instead of assuming the bytes are already there.
+            let grimoire_config = grimoire::config::get_config();
+            write_audio(
+                &source,
+                &dest_path,
+                config.external_storage_reencode_enabled,
+                &grimoire_config.media.ffmpeg_path,
+                &config.external_storage_reencode_args,
+                &ext,
+            )?;
+        }
+        // audio bytes are now correct at dest_path; only the tags
         // (title/artist/album/track/disc) may need refreshing, since this
-        // file is freqhole-owned once it has a state entry.
-        force_set_tags(
+        // file is freqhole-owned once it has a state entry. a tag-write
+        // failure here (e.g. a malformed source frame) shouldn't fail the
+        // whole song - the audio is already synced and playable.
+        tag_warning = force_set_tags(
             &dest_path,
             &song.title,
             &artist_name,
             &album_title,
             song.track_number,
             song.disc_number,
-        )?;
+        )
+        .err();
     } else {
         let grimoire_config = grimoire::config::get_config();
         write_audio(
@@ -206,7 +233,7 @@ pub async fn sync_song_to_device(
             &ext,
         )?;
 
-        if existing.is_some() {
+        tag_warning = if existing.is_some() {
             // re-tagging a previously-tracked (freqhole-owned) file: force
             // the fields we know, since it already carries our own tags.
             force_set_tags(
@@ -216,7 +243,8 @@ pub async fn sync_song_to_device(
                 &album_title,
                 song.track_number,
                 song.disc_number,
-            )?;
+            )
+            .err()
         } else {
             // first-ever sync: only fill gaps, respecting a pre-tagged source.
             fill_missing_tags(
@@ -226,8 +254,9 @@ pub async fn sync_song_to_device(
                 &album_title,
                 song.track_number,
                 song.disc_number,
-            )?;
-        }
+            )
+            .err()
+        };
 
         if let Some(old_abs) = &old_absolute_to_move {
             if old_abs != &dest_path {
@@ -265,6 +294,7 @@ pub async fn sync_song_to_device(
         relative_path: relative_path_str,
         skipped: false,
         moved,
+        tag_warning,
     })
 }
 

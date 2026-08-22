@@ -67,6 +67,11 @@ pub struct PlaylistSyncOutcome {
     /// `"{song_id}: {error}"` for any song that failed to sync - the
     /// manifest is still written with whichever songs succeeded.
     pub failed_songs: Vec<String>,
+    /// `"{song_id}: {warning}"` for any song whose audio synced fine but
+    /// whose id3/vorbis tags failed to write (e.g. a malformed source
+    /// frame) - non-fatal, the song is still counted in `song_count` and
+    /// listed in the manifest.
+    pub tag_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -248,15 +253,20 @@ async fn resolve_unique_song_ids(
 }
 
 /// best-effort estimated bytes this song still needs on `device_id` -
-/// zero once it's already synced with unchanged source audio (a later
-/// rename/retag-only re-sync uses `std::fs::rename` on the same
-/// filesystem, which costs no meaningful extra space - see
-/// `copy_engine::sync_song_to_device`). only an estimate: it's the
-/// *source* file's size, so a re-encode
-/// (`external_storage_reencode_enabled`) producing a differently-sized
-/// output isn't reflected - good enough for a heads-up warning and a
-/// stop-before-writing safety check, not an exact accounting.
-async fn estimate_pending_song_bytes(device_id: &str, song_id: &str) -> u64 {
+/// zero once it's already synced with unchanged source audio *and* the
+/// synced file is actually still sitting at its recorded path under
+/// `music_root` (a later rename/retag-only re-sync uses `std::fs::rename`
+/// on the same filesystem, which costs no meaningful extra space - see
+/// `copy_engine::sync_song_to_device`). if the recorded file is missing
+/// (deleted directly on-device, or the device's music subpath changed
+/// since the last sync), the full size is needed again, since
+/// `sync_song_to_device` will now re-write it rather than assume it's
+/// already there. only an estimate: it's the *source* file's size, so a
+/// re-encode (`external_storage_reencode_enabled`) producing a
+/// differently-sized output isn't reflected - good enough for a heads-up
+/// warning and a stop-before-writing safety check, not an exact
+/// accounting.
+async fn estimate_pending_song_bytes(device_id: &str, song_id: &str, music_root: &Path) -> u64 {
     let Some(song) = get_song(song_id).await.data else {
         return 0;
     };
@@ -267,7 +277,13 @@ async fn estimate_pending_song_bytes(device_id: &str, song_id: &str) -> u64 {
         return 0;
     };
     match grimoire::external_storage::get_synced_song(device_id, song_id).await {
-        Ok(Some(existing)) if existing.sha256 == blob.sha256 => 0,
+        Ok(Some(existing)) if existing.sha256 == blob.sha256 => {
+            if music_root.join(&existing.relative_path).exists() {
+                0
+            } else {
+                size
+            }
+        }
         _ => size,
     }
 }
@@ -292,10 +308,16 @@ pub async fn estimate_sync_size(
 
     let unique_song_ids = resolve_unique_song_ids(app_handle, sync_set_ids).await?;
 
+    let music_subpath = device
+        .subpath
+        .clone()
+        .unwrap_or_else(|| config.external_storage_default_subpath.clone());
+    let music_root = Path::new(&device.path).join(&music_subpath);
+
     let mut needed_bytes: u64 = 0;
     let mut pending_song_count = 0usize;
     for song_id in &unique_song_ids {
-        let bytes = estimate_pending_song_bytes(device_id, song_id).await;
+        let bytes = estimate_pending_song_bytes(device_id, song_id, &music_root).await;
         if bytes > 0 {
             needed_bytes += bytes;
             pending_song_count += 1;
@@ -336,6 +358,7 @@ pub async fn sync_playlists_to_device(
         .subpath
         .clone()
         .unwrap_or_else(|| config.external_storage_default_subpath.clone());
+    let music_root = Path::new(&device.path).join(&music_subpath);
     let playlists_enabled = !config.external_storage_playlists_sync_disabled;
     let playlists_subpath = config.external_storage_playlists_subpath.clone();
     let playlists_root = Path::new(&device.path).join(&playlists_subpath);
@@ -401,8 +424,10 @@ pub async fn sync_playlists_to_device(
         }
     }
 
-    let mut song_results: std::collections::HashMap<String, Result<String, String>> =
-        std::collections::HashMap::new();
+    let mut song_results: std::collections::HashMap<
+        String,
+        Result<(String, Option<String>), String>,
+    > = std::collections::HashMap::new();
     let total = unique_song_ids.len() as u32;
 
     // running free-space estimate: read it once here rather than re-
@@ -419,7 +444,7 @@ pub async fn sync_playlists_to_device(
             break;
         }
 
-        let estimated_bytes = estimate_pending_song_bytes(device_id, song_id).await;
+        let estimated_bytes = estimate_pending_song_bytes(device_id, song_id, &music_root).await;
         if let Some(free) = remaining_free_bytes {
             if estimated_bytes.saturating_add(LOW_DISK_SPACE_SAFETY_MARGIN_BYTES) > free {
                 // not enough room left for this song (or its safety
@@ -441,7 +466,7 @@ pub async fn sync_playlists_to_device(
             total,
         );
         let outcome = match sync_song_to_device(app_handle, device_id, song_id).await {
-            Ok(result) => Ok(result.relative_path),
+            Ok(result) => Ok((result.relative_path, result.tag_warning)),
             Err(e) => Err(format!("{song_id}: {e}")),
         };
         if let Some(free) = remaining_free_bytes.as_mut() {
@@ -452,22 +477,44 @@ pub async fn sync_playlists_to_device(
 
     // every target still gets its manifest (re)written with whichever
     // songs were synced so far, even on a paused run - a song this target
-    // references that wasn't reached yet is simply left out of both its
-    // `.m3u8` and its failed list, and picks up on the next sync call.
+    // references that wasn't reached this run falls back to its
+    // already-on-device path from an earlier sync (see the `None` arm
+    // below), so a low-disk-space/cancelled run never clobbers a
+    // previously-complete manifest down to only the songs it happened to
+    // touch this time.
     for target in &resolved_targets {
         let title = &target.title;
 
         let mut lines = vec!["#EXTM3U".to_string()];
         let mut failed_songs = Vec::new();
+        let mut tag_warnings = Vec::new();
         let mut synced_count = 0usize;
         for song_id in &target.song_ids {
             match song_results.get(song_id) {
-                Some(Ok(relative_path)) => {
+                Some(Ok((relative_path, tag_warning))) => {
                     lines.push(format!("{up_prefix}{music_subpath}/{relative_path}"));
                     synced_count += 1;
+                    if let Some(warning) = tag_warning {
+                        tag_warnings.push(format!("{song_id}: {warning}"));
+                    }
                 }
                 Some(Err(e)) => failed_songs.push(e.clone()),
-                None => {}
+                None => {
+                    // this run paused (disk-full/cancelled) before ever
+                    // reaching this song - if it's already on the device
+                    // from an earlier sync, keep it in the manifest
+                    // rather than silently dropping it just because this
+                    // run didn't re-touch it.
+                    if let Ok(Some(existing)) =
+                        grimoire::external_storage::get_synced_song(device_id, song_id).await
+                    {
+                        lines.push(format!(
+                            "{up_prefix}{music_subpath}/{}",
+                            existing.relative_path
+                        ));
+                        synced_count += 1;
+                    }
+                }
             }
         }
 
@@ -505,6 +552,7 @@ pub async fn sync_playlists_to_device(
             filename,
             song_count: synced_count,
             failed_songs,
+            tag_warnings,
         });
     }
 

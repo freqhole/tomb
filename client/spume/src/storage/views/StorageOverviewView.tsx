@@ -68,16 +68,20 @@ export function StorageOverviewView() {
   // tell "never had one" apart from "had one, then it got unmounted".
   let hadActiveDevice = false;
 
-  // re-fetches both halves of the actual-vs-projected songs display, plus
-  // the size estimate - called after initial load, after any filter
-  // clause add/remove (via `FilterSetManager`'s `onFiltersChanged`), and
-  // after a sync completes.
+  // re-fetches both halves of the actual-vs-projected songs display, the
+  // size estimate, and disk free/used space - called after initial load,
+  // after any filter clause add/remove (via `FilterSetManager`'s
+  // `onFiltersChanged`), and after a sync completes (disk usage in
+  // particular needs a fresh read here, since a sync just wrote new
+  // files - without this the "free" figure at the top stays stuck at
+  // whatever it read on initial load).
   const refreshStats = async () => {
     const active = device();
     const filterSet = defaultFilterSet();
     setSyncedSongCount(active ? await getSyncedSongCount(active.id) : null);
     setFilterProjection(filterSet ? await getFilterSetProjection(filterSet.id) : null);
     setSizeEstimate(active && filterSet ? await estimateSyncSize(active.id, [filterSet.id]) : null);
+    setDiskUsage(active ? await getExternalStorageDiskUsage(active.id) : null);
   };
 
   const refresh = async () => {
@@ -98,10 +102,8 @@ export function StorageOverviewView() {
       setDevice(active);
       setMountedDevices(mounted);
       if (active) {
-        setDiskUsage(await getExternalStorageDiskUsage(active.id));
         setDefaultFilterSet(await getOrCreateDefaultFilterSet(active.id));
       } else {
-        setDiskUsage(null);
         setDefaultFilterSet(null);
       }
       await refreshStats();
@@ -173,6 +175,16 @@ export function StorageOverviewView() {
       const unlisten = await onExternalStorageMountedChanged(() => void refresh());
       onCleanup(() => unlisten());
     })();
+  });
+
+  // disk usage/song-count stats otherwise only update once a sync
+  // finishes - keep them live-ish (roughly every 8s) while a sync is
+  // actually running, so the bar at the top reflects progress rather
+  // than sitting frozen at its pre-sync snapshot the whole time.
+  createEffect(() => {
+    if (!syncing()) return;
+    const interval = setInterval(() => void refreshStats(), 8000);
+    onCleanup(() => clearInterval(interval));
   });
 
   createEffect(() => {
@@ -280,48 +292,84 @@ export function StorageOverviewView() {
                   </div>
                 }
               >
-                {(usage) => (
-                  <div class="space-y-2">
-                    <div class="w-full h-2 rounded-full bg-[var(--color-bg-tertiary)] overflow-hidden">
-                      <div
-                        class="h-full bg-[var(--color-accent-500)]"
-                        style={{
-                          width: `${Math.min(100, (usage().used_bytes / Math.max(1, usage().total_bytes)) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <div class="flex justify-between text-xs text-[var(--color-text-muted)]">
-                      <span>{formatBytes(usage().used_bytes)} used</span>
-                      <span>{formatBytes(usage().free_bytes)} free</span>
-                      <span>{formatBytes(usage().total_bytes)} total</span>
-                    </div>
-                  </div>
-                )}
-              </Show>
-
-              <div class="mt-4 pt-4 border-t border-[var(--color-border-subtle)] text-xs text-[var(--color-text-muted)] space-y-2">
-                <div class="flex items-center justify-between">
-                  <span>on this device</span>
-                  <span class="text-[var(--color-text-primary)] font-medium tabular-nums">
-                    {syncedSongCount() !== null
-                      ? `${syncedSongCount()} song${syncedSongCount() === 1 ? "" : "s"}`
-                      : "\u2013"}
-                  </span>
-                </div>
-
-                <Show when={filterProjection()}>
-                  {(projection) => (
-                    <div>
-                      <div class="flex items-center justify-between">
-                        <span>current filters match</span>
-                        <span class="text-[var(--color-text-primary)] font-medium tabular-nums">
-                          {projection().total_song_count} song
-                          {projection().total_song_count === 1 ? "" : "s"}
-                        </span>
+                {(usage) => {
+                  const totalBytes = () => Math.max(1, usage().total_bytes);
+                  const usedPct = () => Math.min(100, (usage().used_bytes / totalBytes()) * 100);
+                  const neededBytes = () => sizeEstimate()?.needed_bytes ?? 0;
+                  const pendingFits = () => neededBytes() <= usage().free_bytes;
+                  // portion of the "needed" bytes that fits within the
+                  // currently-free space vs. the portion that wouldn't -
+                  // rendered as two differently-colored segments so an
+                  // over-budget sync is visible directly on the bar, not
+                  // just in the text below it.
+                  const pendingFitPct = () =>
+                    Math.max(0, (Math.min(neededBytes(), usage().free_bytes) / totalBytes()) * 100);
+                  const pendingOverflowPct = () =>
+                    Math.max(0, ((neededBytes() - usage().free_bytes) / totalBytes()) * 100);
+                  return (
+                    <div class="space-y-2">
+                      <div class="w-full h-3 rounded-full bg-[var(--color-bg-tertiary)] overflow-hidden flex">
+                        <div
+                          class="h-full bg-[var(--color-accent-500)]"
+                          style={{ width: `${usedPct()}%` }}
+                        />
+                        <Show when={neededBytes() > 0}>
+                          <div
+                            class="h-full bg-[var(--color-accent-500)]/40"
+                            style={{ width: `${pendingFitPct()}%` }}
+                          />
+                          <Show when={!pendingFits()}>
+                            <div
+                              class="h-full bg-red-500"
+                              style={{ width: `${pendingOverflowPct()}%` }}
+                            />
+                          </Show>
+                        </Show>
                       </div>
-                      <Show when={projection().groups.length > 1}>
-                        <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                          <For each={projection().groups}>
+                      <div class="flex justify-between text-xs text-[var(--color-text-muted)]">
+                        <span>{formatBytes(usage().used_bytes)} used</span>
+                        <Show when={neededBytes() > 0}>
+                          <span
+                            class={
+                              pendingFits() ? "text-[var(--color-accent-500)]" : "text-red-400"
+                            }
+                          >
+                            +{formatBytes(neededBytes())} to sync
+                          </span>
+                        </Show>
+                        <span>{formatBytes(usage().free_bytes)} free</span>
+                        <span>{formatBytes(usage().total_bytes)} total</span>
+                      </div>
+
+                      <div class="flex items-center justify-between text-xs pt-1">
+                        <div class="flex items-center gap-1.5">
+                          <span class="w-2 h-2 rounded-full bg-[var(--color-accent-500)]" />
+                          <span class="text-[var(--color-text-primary)] font-medium tabular-nums">
+                            {syncedSongCount() ?? "\u2013"}
+                          </span>
+                          <span>on device</span>
+                        </div>
+                        <Show when={(sizeEstimate()?.pending_song_count ?? 0) > 0}>
+                          <div class="flex items-center gap-1.5">
+                            <span
+                              class={`w-2 h-2 rounded-full ${pendingFits() ? "bg-[var(--color-accent-500)]/40" : "bg-red-500"}`}
+                            />
+                            <span class="text-[var(--color-text-primary)] font-medium tabular-nums">
+                              {sizeEstimate()!.pending_song_count}
+                            </span>
+                            <span>pending</span>
+                          </div>
+                        </Show>
+                        <Show when={filterProjection()}>
+                          {(projection) => (
+                            <span>{projection().total_song_count} match filters</span>
+                          )}
+                        </Show>
+                      </div>
+
+                      <Show when={(filterProjection()?.groups.length ?? 0) > 1}>
+                        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-[var(--color-text-muted)]">
+                          <For each={filterProjection()!.groups}>
                             {(group) => (
                               <span>
                                 {group.name}: {group.song_count}
@@ -331,9 +379,11 @@ export function StorageOverviewView() {
                         </div>
                       </Show>
                     </div>
-                  )}
-                </Show>
+                  );
+                }}
+              </Show>
 
+              <div class="mt-4 pt-4 border-t border-[var(--color-border-subtle)] text-xs text-[var(--color-text-muted)] space-y-2">
                 <div>
                   last synced:{" "}
                   {activeDevice().last_synced_at
@@ -371,6 +421,13 @@ export function StorageOverviewView() {
                                   ({outcome.failed_songs.length} failed)
                                 </span>
                               </Show>
+                              <Show when={outcome.tag_warnings.length > 0}>
+                                <span class="text-yellow-400">
+                                  {" "}
+                                  ({outcome.tag_warnings.length} tag warning
+                                  {outcome.tag_warnings.length === 1 ? "" : "s"})
+                                </span>
+                              </Show>
                             </div>
                             <Show when={outcome.failed_songs.length > 0}>
                               <ul class="ml-3 mt-1 list-disc text-red-400/80">
@@ -378,6 +435,18 @@ export function StorageOverviewView() {
                                   {(reason) => <li>{reason}</li>}
                                 </For>
                               </ul>
+                            </Show>
+                            <Show when={outcome.tag_warnings.length > 0}>
+                              <ul class="ml-3 mt-1 list-disc text-yellow-400/80">
+                                <For each={outcome.tag_warnings}>
+                                  {(reason) => <li>{reason}</li>}
+                                </For>
+                              </ul>
+                              <div class="ml-3 mt-1 text-[var(--color-text-muted)]">
+                                audio synced fine - only the tag metadata couldn't be written
+                                (usually a malformed source file). enabling ffmpeg re-encode for
+                                this device re-muxes the audio and usually clears these up.
+                              </div>
                             </Show>
                           </div>
                         )}
