@@ -32,6 +32,8 @@ pub enum Domain {
     Auth,
     Music,
     Admin,
+    Video,
+    Entities,
 }
 
 impl Domain {
@@ -41,6 +43,8 @@ impl Domain {
             Domain::Auth => "auth",
             Domain::Music => "music",
             Domain::Admin => "admin",
+            Domain::Video => "video",
+            Domain::Entities => "entities",
         }
     }
 }
@@ -341,6 +345,24 @@ pub mod type_registry {
         CreateVideoRequest, CreateVideoSeasonRequest, CreateVideoSeriesRequest, EntityTaxonLink,
         PlaybackProgress, PlaylistItem, SeasonWithVideos, SeriesDetail, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, Video, VideoSeason, VideoSeries,
+    };
+
+    // video domain offal request/response types (phase 2-3)
+    use crate::offal::entities::playlist_items::{
+        AddPlaylistItemRequest, ListPlaylistItemsRequest, RemovePlaylistItemRequest,
+    };
+    use crate::offal::entities::taxon_links::{
+        AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
+    };
+    use crate::offal::video::seasons::{
+        DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
+    };
+    use crate::offal::video::series::{
+        DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
+    };
+    use crate::offal::video::videos::{
+        DeleteVideoRequest, GetVideoRequest, ListVideosBySeasonRequest, ListVideosBySeriesRequest,
+        ListVideosUnattachedRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -799,6 +821,46 @@ pub mod type_registry {
         registered.insert("PlaylistItem".to_string());
         gen.add_schema::<PlaybackProgress>("PlaybackProgress");
         registered.insert("PlaybackProgress".to_string());
+
+        // video domain offal request/response types (phase 2-3)
+        gen.add_schema::<GetVideoSeriesRequest>("GetVideoSeriesRequest");
+        registered.insert("GetVideoSeriesRequest".to_string());
+        gen.add_schema::<ListVideoSeriesRequest>("ListVideoSeriesRequest");
+        registered.insert("ListVideoSeriesRequest".to_string());
+        gen.add_schema::<DeleteVideoSeriesRequest>("DeleteVideoSeriesRequest");
+        registered.insert("DeleteVideoSeriesRequest".to_string());
+
+        gen.add_schema::<GetVideoSeasonRequest>("GetVideoSeasonRequest");
+        registered.insert("GetVideoSeasonRequest".to_string());
+        gen.add_schema::<ListVideoSeasonsRequest>("ListVideoSeasonsRequest");
+        registered.insert("ListVideoSeasonsRequest".to_string());
+        gen.add_schema::<DeleteVideoSeasonRequest>("DeleteVideoSeasonRequest");
+        registered.insert("DeleteVideoSeasonRequest".to_string());
+
+        gen.add_schema::<GetVideoRequest>("GetVideoRequest");
+        registered.insert("GetVideoRequest".to_string());
+        gen.add_schema::<ListVideosBySeriesRequest>("ListVideosBySeriesRequest");
+        registered.insert("ListVideosBySeriesRequest".to_string());
+        gen.add_schema::<ListVideosBySeasonRequest>("ListVideosBySeasonRequest");
+        registered.insert("ListVideosBySeasonRequest".to_string());
+        gen.add_schema::<ListVideosUnattachedRequest>("ListVideosUnattachedRequest");
+        registered.insert("ListVideosUnattachedRequest".to_string());
+        gen.add_schema::<DeleteVideoRequest>("DeleteVideoRequest");
+        registered.insert("DeleteVideoRequest".to_string());
+
+        gen.add_schema::<GetEntityTaxonsRequest>("GetEntityTaxonsRequest");
+        registered.insert("GetEntityTaxonsRequest".to_string());
+        gen.add_schema::<AddEntityTaxonRequest>("AddEntityTaxonRequest");
+        registered.insert("AddEntityTaxonRequest".to_string());
+        gen.add_schema::<RemoveEntityTaxonRequest>("RemoveEntityTaxonRequest");
+        registered.insert("RemoveEntityTaxonRequest".to_string());
+
+        gen.add_schema::<ListPlaylistItemsRequest>("ListPlaylistItemsRequest");
+        registered.insert("ListPlaylistItemsRequest".to_string());
+        gen.add_schema::<AddPlaylistItemRequest>("AddPlaylistItemRequest");
+        registered.insert("AddPlaylistItemRequest".to_string());
+        gen.add_schema::<RemovePlaylistItemRequest>("RemovePlaylistItemRequest");
+        registered.insert("RemovePlaylistItemRequest".to_string());
 
         // album metadata blob types — single source of truth.
         gen.add_schema::<MbLookupStatus>("MbLookupStatus");

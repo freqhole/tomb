@@ -25,11 +25,12 @@ pub enum FavoriteTarget {
     Album,
     Taxon,
     Playlist,
+    Video,
 }
 
 impl ZodSchemaTrait for FavoriteTarget {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")])"#.to_string()
     }
 }
 
@@ -41,6 +42,7 @@ impl fmt::Display for FavoriteTarget {
             FavoriteTarget::Album => write!(f, "album"),
             FavoriteTarget::Taxon => write!(f, "taxon"),
             FavoriteTarget::Playlist => write!(f, "playlist"),
+            FavoriteTarget::Video => write!(f, "video"),
         }
     }
 }
@@ -55,6 +57,7 @@ impl From<String> for FavoriteTarget {
             // renamed by migration 037)
             "taxon" | "genre" => FavoriteTarget::Taxon,
             "playlist" => FavoriteTarget::Playlist,
+            "video" => FavoriteTarget::Video,
             _ => FavoriteTarget::Song,
         }
     }
@@ -67,11 +70,12 @@ pub enum RatingTarget {
     Song,
     Artist,
     Album,
+    Video,
 }
 
 impl ZodSchemaTrait for RatingTarget {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")])"#.to_string()
     }
 }
 
@@ -81,6 +85,7 @@ impl fmt::Display for RatingTarget {
             RatingTarget::Song => write!(f, "song"),
             RatingTarget::Artist => write!(f, "artist"),
             RatingTarget::Album => write!(f, "album"),
+            RatingTarget::Video => write!(f, "video"),
         }
     }
 }
@@ -90,6 +95,7 @@ impl From<String> for RatingTarget {
         match s.to_lowercase().as_str() {
             "artist" => RatingTarget::Artist,
             "album" => RatingTarget::Album,
+            "video" => RatingTarget::Video,
             _ => RatingTarget::Song,
         }
     }
@@ -101,6 +107,7 @@ impl From<FavoriteTarget> for Option<RatingTarget> {
             FavoriteTarget::Song => Some(RatingTarget::Song),
             FavoriteTarget::Artist => Some(RatingTarget::Artist),
             FavoriteTarget::Album => Some(RatingTarget::Album),
+            FavoriteTarget::Video => Some(RatingTarget::Video),
             FavoriteTarget::Taxon | FavoriteTarget::Playlist => None,
         }
     }

@@ -58,6 +58,12 @@ pub enum Commands {
         action: plumbing::MusicAction,
     },
 
+    /// Video query operations
+    Video {
+        #[command(subcommand)]
+        action: plumbing::VideoAction,
+    },
+
     /// Wordlist operations
     Wordlist {
         #[command(subcommand)]
@@ -361,6 +367,9 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::Music { action } => {
             plumbing::handle_music(action, json_output).await?;
+        }
+        Commands::Video { action } => {
+            plumbing::handle_video(action, json_output).await?;
         }
         Commands::Wordlist { action } => {
             plumbing::handle_wordlist(action, json_output).await?;

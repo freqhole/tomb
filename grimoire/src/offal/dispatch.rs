@@ -99,6 +99,14 @@ pub async fn dispatch(
         return resp;
     }
 
+    if let Some(resp) = super::video::dispatch(path, caller, &body, method).await {
+        return resp;
+    }
+
+    if let Some(resp) = super::entities::dispatch(path, caller, &body, method).await {
+        return resp;
+    }
+
     // no domain handled this path
     GrimoireResponse::failure(
         "route not found",

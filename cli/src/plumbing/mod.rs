@@ -33,6 +33,7 @@ mod rathole_remote;
 mod sync;
 mod users;
 pub mod utils;
+mod video;
 mod wordlist;
 
 // Re-export action enums for use in main CLI
@@ -51,6 +52,7 @@ pub use radio::RadioAction;
 pub use rathole_remote::RatholeRemoteAction;
 pub use sync::SyncAction;
 pub use users::UserAction;
+pub use video::VideoAction;
 pub use wordlist::WordlistAction;
 
 use std::path::PathBuf;
@@ -189,6 +191,12 @@ pub async fn handle_database(action: DatabaseAction, json_output: bool) -> anyho
 pub async fn handle_music(action: MusicAction, json_output: bool) -> anyhow::Result<()> {
     let format = OutputFormat::from_json_flag(json_output);
     let output = music::handle_command(action).await;
+    utils::print_and_exit(output, format);
+}
+
+pub async fn handle_video(action: VideoAction, json_output: bool) -> anyhow::Result<()> {
+    let format = OutputFormat::from_json_flag(json_output);
+    let output = video::handle_command(action).await;
     utils::print_and_exit(output, format);
 }
 
