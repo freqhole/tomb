@@ -13,6 +13,9 @@ pub enum FetchAction {
     Url {
         /// URL to fetch
         url: String,
+        /// media domain to fetch as (music|video)
+        #[arg(long)]
+        domain: String,
     },
     /// Get fetch job status and result
     Status {
@@ -30,8 +33,8 @@ pub enum FetchAction {
 /// Handle fetch commands
 pub async fn handle_command(action: FetchAction) -> CommandOutput<serde_json::Value> {
     match action {
-        FetchAction::Url { url } => {
-            dispatch_to_offal("/api/music/fetch", json!({ "url": url })).await
+        FetchAction::Url { url, domain } => {
+            dispatch_to_offal("/api/music/fetch", json!({ "url": url, "domain": domain })).await
         }
 
         FetchAction::Status { job_id } => {

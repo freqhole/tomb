@@ -29,6 +29,10 @@ pub enum JobType {
     // upload processing
     ConvertWebp,
     ImportMusic,
+    ImportVideo,
+
+    // video transcoding: produces rendition MediaBlob rows for a video
+    TranscodeVideo,
 
     // musicbrainz enrichment
     MbAlbumSearch,
@@ -52,6 +56,21 @@ pub enum JobType {
     // every album + artist remote image candidate. final step flips
     // the album to `enriched`.
     AutoApplyAlbumEnrichment,
+}
+
+/// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`
+/// rows for an already-imported video.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct TranscodeVideoParams {
+    pub media_blob_id: String,
+    pub video_id: String,
+}
+
+/// result of a `TranscodeVideo` job
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct TranscodeVideoResult {
+    pub video_id: String,
+    pub rendition_blob_ids: Vec<String>,
 }
 
 /// external enrichment sources the pipeline can run against.

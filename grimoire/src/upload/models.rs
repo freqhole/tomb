@@ -87,6 +87,38 @@ pub struct MusicMetadataHints {
     pub genre: Option<String>,
 }
 
+/// response for video upload endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoUploadResponse {
+    /// ID of the created media blob
+    pub blob_id: String,
+    /// ID of the processing job (for polling status)
+    pub job_id: String,
+    /// SHA256 hash of the uploaded file
+    pub sha256: String,
+    /// File size in bytes
+    pub size: i64,
+    /// MIME type of the file
+    pub mime: String,
+    /// Whether this blob already existed (deduplication)
+    pub existing: bool,
+    /// Success message
+    pub message: String,
+}
+
+/// metadata hints for video upload processing (optional)
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoMetadataHints {
+    /// series ID hint (associates the video with an existing series)
+    pub series_id: Option<String>,
+    /// season ID hint (associates the video with an existing season)
+    pub season_id: Option<String>,
+    /// episode number hint
+    pub episode_number: Option<i64>,
+    /// video title hint
+    pub title: Option<String>,
+}
+
 /// request to delete (unlink) an image from an entity
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteImageRequest {

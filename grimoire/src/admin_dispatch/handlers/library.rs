@@ -333,6 +333,7 @@ pub(in crate::admin_dispatch) async fn fetch(
     let params = crate::music::fetch::FetchMediaParams {
         url: url.clone(),
         user_id: Some(caller.user_id.clone()),
+        domain: crate::media_domain::MediaDomain::Music,
     };
     let parameters = match serde_json::to_value(&params) {
         Ok(v) => v,

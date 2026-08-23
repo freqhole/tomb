@@ -124,6 +124,55 @@ thumbnail_sizes = [50, 200]
 # (default: false)
 thumbnail_on_demand_enabled = false
 
+# OPTIONAL: supported video file formats for video scanning
+# files with these extensions will be processed by the video pipeline
+# (default: ["mp4", "mkv", "webm", "mov", "avi"])
+supported_video_formats = ["mp4", "mkv", "webm", "mov", "avi"]
+
+# OPTIONAL: ffprobe args for extracting video duration/resolution/codec info
+# (placeholder: {input}). output must be JSON with format and streams sections.
+# (default: "-v quiet -print_format json -show_format -show_streams {input}")
+ffprobe_video_properties_args = "-v quiet -print_format json -show_format -show_streams {input}"
+
+# OPTIONAL: ffmpeg args for extracting a poster/thumbnail frame from a video
+# (placeholders: {input}, {output})
+# (default: "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}")
+extract_video_poster_args = "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}"
+
+# OPTIONAL: renditions produced by the TranscodeVideo job (one entry per
+# output quality level). each entry is transcoded independently via
+# OPTIONAL: enable video transcoding (TranscodeVideo job) after import.
+# requires ffmpeg to be installed - if it isn't, transcoding is skipped
+# per-rendition (best-effort) and imported videos are only ever served in
+# their originally-uploaded format/codec.
+# (default: true)
+transcode_video_enabled = true
+
+# OPTIONAL: renditions produced by the TranscodeVideo job (ignored when
+# transcode_video_enabled is false). one entry per output profile - each
+# supplies its own full ffmpeg args (placeholders: {input}, {output}), so a
+# profile can be as simple as a codec swap or as specific as a fixed
+# resolution/bitrate.
+#
+# the default profile below is a single, widely browser-compatible h264 +
+# aac transcode with no forced resolution or bitrate (keeps the source's
+# own size/bitrate, just swaps codecs/container for compatibility).
+[[media.video_transcode_renditions]]
+label = "compatible"
+args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
+
+# OPTIONAL: add more profiles for fixed-resolution renditions (e.g. lower
+# bandwidth streaming targets) by appending more [[media.video_transcode_renditions]]
+# entries with your own ffmpeg args. examples (uncomment / adapt to enable):
+#
+# [[media.video_transcode_renditions]]
+# label = "480p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:480 -b:v 1000k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+#
+# [[media.video_transcode_renditions]]
+# label = "720p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:720 -b:v 2500k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+
 # ============================================================================
 # MusicBrainz integration for metadata enrichment
 # ============================================================================
@@ -462,6 +511,36 @@ precheck_command = "yt-dlp --print-json --no-download"
 # the command will be invoked as: <command> --paths <job_id_dir> <url>
 # it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
 fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
+
+# ============================================================================
+# OPTIONAL: video fetching from external sources (same shape as
+# [server.fetch_music] above, but downloads full video instead of
+# extracting audio only)
+# this entire section is optional (default: null - feature disabled)
+# ============================================================================
+[server.fetch_video]
+# REQUIRED when section exists: enable video fetching functionality
+# when disabled, fetch routes will return 404
+enabled = false
+
+# REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
+# OPTIONAL when enabled=false (can omit)
+# must be an absolute path
+output_dir = "/path/to/fetch/directory"
+
+# OPTIONAL: command to extract metadata without downloading (default: null)
+# see [server.fetch_music].precheck_command above for details
+# the command will be invoked as: <command> <url>
+precheck_command = "yt-dlp --print-json --no-download"
+
+# OPTIONAL: command to actually fetch and download video files (default: null)
+# same conventions as [server.fetch_music].fetch_command above (playlists,
+# --ignore-errors, unquoted --output template, progress templates) but
+# downloads full video+audio instead of extracting audio only
+#
+# the command will be invoked as: <command> --paths <job_id_dir> <url>
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = "yt-dlp --ignore-errors --format bestvideo+bestaudio/best --merge-output-format mp4 --add-metadata --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
 
 # ============================================================================
 # OPTIONAL: federation/P2P configuration

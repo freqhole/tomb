@@ -18,11 +18,19 @@ pub enum BlobType {
     Waveform,
     /// preview/sample clip - parent_blob_id points to original
     Preview,
+    /// transcoded video rendition (e.g. 480p/720p) - parent_blob_id points to the original video.
+    /// note: not yet in migration 001's `media_blobz.blob_type` CHECK constraint
+    /// (`original`/`thumbnail`/`waveform`/`preview` only) - inserting this blob_type
+    /// fails at runtime until a follow-up migration extends that list.
+    Rendition,
+    /// extracted subtitle track - parent_blob_id points to the original video.
+    /// same CHECK-constraint caveat as `Rendition`.
+    Subtitle,
 }
 
 impl ZodSchema for BlobType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview")])"#.to_string()
+        r#"z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])"#.to_string()
     }
 }
 
@@ -33,6 +41,8 @@ impl BlobType {
             BlobType::Thumbnail => "thumbnail",
             BlobType::Waveform => "waveform",
             BlobType::Preview => "preview",
+            BlobType::Rendition => "rendition",
+            BlobType::Subtitle => "subtitle",
         }
     }
 }
@@ -58,6 +68,8 @@ impl std::str::FromStr for BlobType {
             "thumbnail" => Ok(BlobType::Thumbnail),
             "waveform" => Ok(BlobType::Waveform),
             "preview" => Ok(BlobType::Preview),
+            "rendition" => Ok(BlobType::Rendition),
+            "subtitle" => Ok(BlobType::Subtitle),
             _ => Err(format!("invalid blob_type: {}", s)),
         }
     }

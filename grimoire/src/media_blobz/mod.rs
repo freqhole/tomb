@@ -6,6 +6,7 @@
 mod access;
 mod atlas;
 mod cleanup;
+pub mod ffmpeg_runner;
 mod models;
 mod reliquary_mirror;
 mod service;

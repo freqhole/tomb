@@ -33,13 +33,38 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
         }
     };
 
+    // resolve the effective extension allowlist: an explicit override wins,
+    // otherwise fall back to the domain-specific config list, or the union
+    // of both when no domain was requested (one scan pass finds both music
+    // and video files - each file's own extension decides its actual
+    // domain later, in `file_processor`).
+    let effective_extensions = match &params.file_extensions {
+        Some(exts) => Some(exts.clone()),
+        None => {
+            let media = &crate::config::get_config().media;
+            match params.domain {
+                Some(crate::media_domain::MediaDomain::Music) => {
+                    Some(media.supported_audio_formats.clone())
+                }
+                Some(crate::media_domain::MediaDomain::Video) => {
+                    Some(media.supported_video_formats.clone())
+                }
+                None => {
+                    let mut both = media.supported_audio_formats.clone();
+                    both.extend(media.supported_video_formats.clone());
+                    Some(both)
+                }
+            }
+        }
+    };
+
     // use music scanner to handle directory scanning and job creation
     let outcome = match scanner::scan_directory_and_create_jobs(
         &params.directory_path,
         session_id,
         params.recursive,
         params.max_depth,
-        params.file_extensions,
+        effective_extensions,
         params.skip_tracked_subdirs,
     )
     .await

@@ -160,6 +160,37 @@ pub struct MediaConfig {
     /// when enabled, thumbnails are generated lazily on first request
     #[serde(default)]
     pub thumbnail_on_demand_enabled: bool,
+    /// Supported video file formats
+    #[serde(default = "default_supported_video_formats")]
+    pub supported_video_formats: Vec<String>,
+    /// Args for extracting video duration/resolution/codec via ffprobe
+    /// (placeholder: {input}). output must be JSON with format and streams sections.
+    #[serde(default = "default_ffprobe_video_properties_args")]
+    pub ffprobe_video_properties_args: String,
+    /// Args for extracting a poster frame from a video (placeholders: {input}, {output})
+    #[serde(default = "default_extract_video_poster_args")]
+    pub extract_video_poster_args: String,
+    /// Enable video transcoding (`TranscodeVideo` job). requires ffmpeg to
+    /// be installed. when disabled, imported videos are only ever served in
+    /// their originally-uploaded format/codec.
+    #[serde(default = "default_true")]
+    pub transcode_video_enabled: bool,
+    /// Renditions produced by the TranscodeVideo job (ignored when
+    /// `transcode_video_enabled` is false). each rendition supplies its own
+    /// full ffmpeg args (placeholders: {input}, {output}).
+    #[serde(default = "default_video_transcode_renditions")]
+    pub video_transcode_renditions: Vec<VideoRenditionConfig>,
+}
+
+/// one rendition produced by the `TranscodeVideo` job. `args` is a full
+/// ffmpeg args template (placeholders: {input}, {output}) - scale/bitrate/
+/// codec choices all live in the args string itself, so profiles can be as
+/// simple (just a codec swap) or specific (fixed resolution + bitrate) as
+/// the operator wants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoRenditionConfig {
+    pub label: String,
+    pub args: String,
 }
 
 fn default_max_connections() -> u32 {
@@ -225,6 +256,33 @@ fn default_supported_audio_formats() -> Vec<String> {
         "aif".to_string(),
         "aiff".to_string(),
     ]
+}
+
+fn default_supported_video_formats() -> Vec<String> {
+    vec![
+        "mp4".to_string(),
+        "mkv".to_string(),
+        "webm".to_string(),
+        "mov".to_string(),
+        "avi".to_string(),
+    ]
+}
+
+fn default_ffprobe_video_properties_args() -> String {
+    "-v quiet -print_format json -show_format -show_streams {input}".to_string()
+}
+
+fn default_extract_video_poster_args() -> String {
+    "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}".to_string()
+}
+
+fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
+    // single widely-compatible profile: h264 + aac, no forced resolution
+    // or bitrate (keeps the source's own size/bitrate, just swaps codecs).
+    vec![VideoRenditionConfig {
+        label: "compatible".to_string(),
+        args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
+    }]
 }
 
 /// MusicBrainz integration configuration
@@ -511,6 +569,9 @@ pub struct ServerConfig {
     /// Fetch music configuration
     #[serde(default)]
     pub fetch_music: Option<FetchMusicConfig>,
+    /// Fetch video configuration
+    #[serde(default)]
+    pub fetch_video: Option<FetchVideoConfig>,
     /// Start job processor in server (default: false)
     /// When enabled, server spawns a background task to process jobs
     /// When disabled, jobs must be processed via CLI (freqhole jobs run-processor)
@@ -684,6 +745,19 @@ pub struct FetchMusicConfig {
     pub fetch_command: Option<String>,
 }
 
+/// Fetch video configuration (same shape as `FetchMusicConfig`)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchVideoConfig {
+    /// Enable media fetching functionality
+    pub enabled: bool,
+    /// Absolute path where fetched files are temporarily stored
+    pub output_dir: Option<String>,
+    /// Command to extract metadata without downloading (for precheck/deduplication)
+    pub precheck_command: Option<String>,
+    /// Command to actually fetch media files
+    pub fetch_command: Option<String>,
+}
+
 impl ServerConfig {
     /// Get all allowed origins
     pub fn get_allowed_origins(&self) -> &[String] {
@@ -768,6 +842,21 @@ impl GrimoireConfig {
                         if !path.is_absolute() {
                             return Err(ConfigError::InvalidValue(format!(
                                 "server.fetch_music.output_dir must be an absolute path when enabled, got: {}",
+                                output_dir
+                            )));
+                        }
+                    }
+                }
+            }
+
+            // Validate fetch_video.output_dir is absolute when enabled
+            if let Some(ref fetch) = server.fetch_video {
+                if fetch.enabled {
+                    if let Some(ref output_dir) = fetch.output_dir {
+                        let path = Path::new(output_dir);
+                        if !path.is_absolute() {
+                            return Err(ConfigError::InvalidValue(format!(
+                                "server.fetch_video.output_dir must be an absolute path when enabled, got: {}",
                                 output_dir
                             )));
                         }
@@ -882,6 +971,11 @@ pub fn init_config_for_tests() {
             generate_scan_duplicate_report: default_generate_scan_duplicate_report(),
             thumbnail_sizes: default_thumbnail_sizes(),
             thumbnail_on_demand_enabled: false,
+            supported_video_formats: default_supported_video_formats(),
+            ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+            extract_video_poster_args: default_extract_video_poster_args(),
+            transcode_video_enabled: true,
+            video_transcode_renditions: default_video_transcode_renditions(),
         },
         musicbrainz: MusicBrainzConfig::default(),
         lastfm: LastFmConfig::default(),
@@ -1769,6 +1863,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
@@ -1816,6 +1915,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),
@@ -1861,6 +1965,11 @@ mod tests {
                 skip_duplicates: true,
                 thumbnail_sizes: vec![50, 200],
                 thumbnail_on_demand_enabled: false,
+                supported_video_formats: default_supported_video_formats(),
+                ffprobe_video_properties_args: default_ffprobe_video_properties_args(),
+                extract_video_poster_args: default_extract_video_poster_args(),
+                transcode_video_enabled: true,
+                video_transcode_renditions: default_video_transcode_renditions(),
             },
             musicbrainz: MusicBrainzConfig::default(),
             lastfm: LastFmConfig::default(),

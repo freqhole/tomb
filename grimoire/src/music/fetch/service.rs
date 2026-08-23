@@ -165,26 +165,36 @@ pub async fn download_media(
     job_id: &str,
     config: &GrimoireConfig,
     progress: &dyn FetchProgress,
+    domain: crate::media_domain::MediaDomain,
 ) -> Result<Vec<DownloadedFile>, String> {
-    let fetch_config = config
-        .server
-        .as_ref()
-        .and_then(|s| s.fetch_music.as_ref())
-        .ok_or("fetch_music not configured")?;
+    // `fetch_music`/`fetch_video` are distinct config struct types (same
+    // shape, kept as sibling fields rather than a generic map - see
+    // phase 4 doc), so pull just the fields this function needs out of
+    // whichever one applies instead of trying to unify them into one
+    // reference of a single type.
+    let server = config.server.as_ref();
+    let (fetch_enabled, fetch_output_dir, fetch_cmd_template) = match domain {
+        crate::media_domain::MediaDomain::Music => {
+            let fc = server
+                .and_then(|s| s.fetch_music.as_ref())
+                .ok_or("fetch_music not configured")?;
+            (fc.enabled, fc.output_dir.as_ref(), fc.fetch_command.as_ref())
+        }
+        crate::media_domain::MediaDomain::Video => {
+            let fc = server
+                .and_then(|s| s.fetch_video.as_ref())
+                .ok_or("fetch_video not configured")?;
+            (fc.enabled, fc.output_dir.as_ref(), fc.fetch_command.as_ref())
+        }
+    };
 
-    if !fetch_config.enabled {
-        return Err("fetch_music is not enabled".to_string());
+    if !fetch_enabled {
+        return Err(format!("fetch_{} is not enabled", domain));
     }
 
-    let fetch_cmd = fetch_config
-        .fetch_command
-        .as_ref()
-        .ok_or("fetch_command not configured")?;
+    let fetch_cmd = fetch_cmd_template.ok_or("fetch_command not configured")?;
 
-    let base_output_dir = fetch_config
-        .output_dir
-        .as_ref()
-        .ok_or("output_dir not configured")?;
+    let base_output_dir = fetch_output_dir.ok_or("output_dir not configured")?;
 
     // create job-specific subdirectory
     let output_dir = format!("{}/{}", base_output_dir, job_id);
@@ -414,10 +424,11 @@ pub async fn fetch_media(
     }
 
     // step 3: download media
-    let downloaded_files = match download_media(&params.url, job_id, config, progress).await {
-        Ok(files) => files,
-        Err(e) => return GrimoireResponse::failure(format!("download failed: {}", e), vec![]),
-    };
+    let downloaded_files =
+        match download_media(&params.url, job_id, config, progress, params.domain).await {
+            Ok(files) => files,
+            Err(e) => return GrimoireResponse::failure(format!("download failed: {}", e), vec![]),
+        };
 
     if downloaded_files.is_empty() {
         return GrimoireResponse::failure("no files downloaded", vec![]);

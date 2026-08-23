@@ -11,6 +11,12 @@ pub struct FetchMediaParams {
     pub url: String,
     /// user ID who initiated the fetch
     pub user_id: Option<String>,
+    /// which media pipeline to fetch as (music extraction vs full video
+    /// download - different yt-dlp arguments, can't be deferred like
+    /// scan/process-file's domain detection). defaults to music for
+    /// callers that predate this field.
+    #[serde(default = "crate::media_domain::default_music_domain")]
+    pub domain: crate::media_domain::MediaDomain,
 }
 
 /// parameters for pre-checking a URL without downloading

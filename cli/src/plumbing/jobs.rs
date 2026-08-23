@@ -7,7 +7,9 @@ use grimoire::jobs::{
     CreateJobSessionRequest, JobListResponse, JobStatsResponse, JobStatus, JobType,
     ProcessJobCreatedResponse, ProcessorResponse, ScanDirectoryParams, ScanJobCreatedResponse,
 };
+use grimoire::MediaDomain;
 use serde_json::json;
+use std::str::FromStr;
 
 #[derive(Subcommand)]
 pub enum JobAction {
@@ -32,11 +34,19 @@ pub enum JobAction {
         /// Maximum recursion depth (only with --recursive)
         #[arg(long)]
         max_depth: Option<usize>,
+        /// restrict the scan to one media domain (music|video). omit to
+        /// scan for both in one pass.
+        #[arg(long)]
+        domain: Option<String>,
     },
     /// Process a single file directly
     ProcessFile {
         /// Path to the file to process
         path: String,
+        /// media domain for this file (music|video). omit to auto-detect
+        /// from the file extension.
+        #[arg(long)]
+        domain: Option<String>,
     },
     /// Run the job processor
     RunProcessor {
@@ -121,7 +131,13 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             path,
             recursive,
             max_depth,
+            domain,
         } => {
+            let domain = match domain.as_deref().map(MediaDomain::from_str).transpose() {
+                Ok(d) => d,
+                Err(e) => return CommandOutput::failure(e, vec![], ()),
+            };
+
             // First create a job session for the scan
             let session_request = CreateJobSessionRequest {
                 job_type: JobType::ScanDirectory,
@@ -150,6 +166,7 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                 max_depth: max_depth.map(|d| d as u32),
                 file_extensions: None, // Use default audio extensions
                 skip_tracked_subdirs: false,
+                domain,
             };
 
             let job_request = CreateJobRequest {
@@ -184,7 +201,12 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
             CommandOutput::success(message, result)
         }
 
-        JobAction::ProcessFile { path } => {
+        JobAction::ProcessFile { path, domain } => {
+            let domain = match domain.as_deref().map(MediaDomain::from_str).transpose() {
+                Ok(d) => d,
+                Err(e) => return CommandOutput::failure(e, vec![], ()),
+            };
+
             let job_request = CreateJobRequest {
                 job_type: JobType::ProcessFile,
                 session_id: None,
@@ -192,7 +214,8 @@ pub async fn handle_command(action: JobAction) -> CommandOutput<serde_json::Valu
                     "file_path": path.clone(),
                     "extract_metadata": true,
                     "generate_thumbnail": true,
-                    "generate_waveform": false
+                    "generate_waveform": false,
+                    "domain": domain,
                 }),
                 max_retries: Some(3),
                 scheduled_at: None,

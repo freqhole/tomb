@@ -150,7 +150,15 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
     let emitter = JobProgressEmitter::new(job.clone(), total_items, title_by_content_id);
 
     // step 7: download media
-    let downloaded_files = match download_media(&params.url, &job.id, &config, &emitter).await {
+    let downloaded_files = match download_media(
+        &params.url,
+        &job.id,
+        &config,
+        &emitter,
+        params.domain,
+    )
+    .await
+    {
         Ok(files) => files,
         Err(e) => {
             return Err(JobError::ProcessingFailed {
@@ -258,6 +266,7 @@ pub async fn process_fetch_media_job(job: &Job) -> Result<Option<Value>, JobErro
             source_url: Some(params.url.clone()),
             existing_blob_id: None,
             serialization_group: Some(job.id.clone()),
+            domain: Some(params.domain),
         };
 
         let job_request = CreateJobRequest {

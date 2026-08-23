@@ -11,6 +11,7 @@ use super::music::{
     process_mb_album_detail_job, process_mb_album_search_job, process_precheck_fetch_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
+use super::video::{process_import_video_job, process_transcode_video_job};
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
     mark_job_failed, peek_pending_jobs, try_claim_pending_job,
@@ -62,6 +63,8 @@ fn is_badge_progress_job(job_type: &JobType) -> bool {
     matches!(
         job_type,
         JobType::ImportMusic
+            | JobType::ImportVideo
+            | JobType::TranscodeVideo
             | JobType::ProcessFile
             | JobType::ProcessDirectory
             | JobType::FetchMedia
@@ -137,6 +140,8 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
         JobType::AudioDbArtistDetail => process_audiodb_artist_detail_job(&job).await,
         JobType::AlbumEnrichmentPipeline => process_album_enrichment_pipeline_job(&job).await,
         JobType::AutoApplyAlbumEnrichment => process_auto_apply_album_enrichment_job(&job).await,
+        JobType::ImportVideo => process_import_video_job(&job).await,
+        JobType::TranscodeVideo => process_transcode_video_job(&job).await,
     };
 
     let processing_time = start_time.elapsed().as_millis() as u64;

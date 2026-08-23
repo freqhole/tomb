@@ -8,6 +8,7 @@
 
 pub mod crud;
 pub mod entities;
+pub mod importer;
 
 // series/season/video CRUD (create/get/list/update). deletes are exposed
 // from `crud::delete` instead, since they cascade + clean up side tables.

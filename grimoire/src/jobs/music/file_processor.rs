@@ -8,6 +8,7 @@ use crate::blob_data;
 use crate::config;
 use crate::database;
 use crate::jobs::models::{Job, JobError};
+use crate::media_domain::{detect_media_domain_from_extension, MediaDomain};
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::crud::create_or_update;
 use crate::music::scanner;
@@ -162,6 +163,59 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     };
     time_sha256 = step_start.elapsed();
     debug!("created media blob: {}", media_blob_id);
+
+    // branch by effective media domain: video files skip the entire
+    // music-specific pipeline below (song/artist/album creation, embedded
+    // art collection, waveform generation) and go through their own
+    // importer instead.
+    let effective_domain = params
+        .domain
+        .or_else(|| detect_media_domain_from_extension(&params.file_path, &config));
+
+    if effective_domain == Some(MediaDomain::Video) {
+        let import_result = crate::video::importer::import_video_file(
+            &media_blob_id,
+            file_path,
+            job.created_by.clone(),
+        )
+        .await?;
+
+        let result = ProcessFileResult {
+            media_blob_id: media_blob_id.clone(),
+            song_id: None,
+            artist_id: None,
+            album_id: None,
+            metadata_extracted: !import_result.is_duplicate,
+            thumbnail_generated: import_result.poster_blob_id.is_some(),
+            waveform_generated: false,
+            is_duplicate: import_result.is_duplicate,
+        };
+
+        info!(
+            "video file processing complete: blob={} video_id={} is_duplicate={} (total={:?})",
+            media_blob_id,
+            import_result.video_id,
+            result.is_duplicate,
+            job_start.elapsed(),
+        );
+
+        return Ok(Some(serde_json::to_value(result).map_err(|e| {
+            JobError::ProcessingFailed {
+                reason: format!("failed to serialize result: {}", e),
+            }
+        })?));
+    } else if effective_domain.is_none() {
+        let basename = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("<unknown>");
+        return Err(JobError::ProcessingFailed {
+            reason: format!(
+                "cannot determine media domain for file (unrecognized extension): {}",
+                basename
+            ),
+        });
+    }
 
     // step 2: import audio file (extracts metadata and creates song)
     let mut song_id = None;

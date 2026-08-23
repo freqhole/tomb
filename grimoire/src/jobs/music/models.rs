@@ -14,6 +14,11 @@ pub struct ScanDirectoryParams {
     pub file_extensions: Option<Vec<String>>, // if None, use default audio extensions
     #[serde(default)]
     pub skip_tracked_subdirs: bool,
+    /// which media domain to scan for. `None` = both music and video
+    /// (union of `supported_audio_formats` + `supported_video_formats`).
+    /// ignored when `file_extensions` is explicitly set.
+    #[serde(default)]
+    pub domain: Option<crate::media_domain::MediaDomain>,
 }
 
 /// parameters for file processing jobs
@@ -40,6 +45,10 @@ pub struct ProcessFileParams {
     /// `file_path`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serialization_group: Option<String>,
+    /// which media domain this file belongs to. `None` = auto-detect from
+    /// the file extension (`media_domain::detect_media_domain_from_extension`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<crate::media_domain::MediaDomain>,
 }
 
 /// results from directory scan jobs
