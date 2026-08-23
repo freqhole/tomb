@@ -39,6 +39,7 @@ pub mod updates;
 pub mod upgrade;
 pub mod upload;
 pub mod users;
+pub mod video;
 pub mod wordlist;
 
 // re-export only domain types, no database internals

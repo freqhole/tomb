@@ -336,6 +336,13 @@ pub mod type_registry {
         CreateStationRequest, RadioStation, StationFilter, UpdateStationRequest,
     };
 
+    // video domain types (phase 1)
+    use crate::video::{
+        CreateVideoRequest, CreateVideoSeasonRequest, CreateVideoSeriesRequest, EntityTaxonLink,
+        PlaybackProgress, PlaylistItem, SeasonWithVideos, SeriesDetail, UpdateVideoRequest,
+        UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, Video, VideoSeason, VideoSeries,
+    };
+
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
         // auth types
         gen.add_schema::<WhoAmIResponse>("WhoAmIResponse");
@@ -758,6 +765,40 @@ pub mod type_registry {
 
         gen.add_schema::<Album>("Album");
         registered.insert("Album".to_string());
+
+        // video domain types (phase 1)
+        gen.add_schema::<VideoSeries>("VideoSeries");
+        registered.insert("VideoSeries".to_string());
+        gen.add_schema::<CreateVideoSeriesRequest>("CreateVideoSeriesRequest");
+        registered.insert("CreateVideoSeriesRequest".to_string());
+        gen.add_schema::<UpdateVideoSeriesRequest>("UpdateVideoSeriesRequest");
+        registered.insert("UpdateVideoSeriesRequest".to_string());
+
+        gen.add_schema::<VideoSeason>("VideoSeason");
+        registered.insert("VideoSeason".to_string());
+        gen.add_schema::<CreateVideoSeasonRequest>("CreateVideoSeasonRequest");
+        registered.insert("CreateVideoSeasonRequest".to_string());
+        gen.add_schema::<UpdateVideoSeasonRequest>("UpdateVideoSeasonRequest");
+        registered.insert("UpdateVideoSeasonRequest".to_string());
+
+        gen.add_schema::<Video>("Video");
+        registered.insert("Video".to_string());
+        gen.add_schema::<CreateVideoRequest>("CreateVideoRequest");
+        registered.insert("CreateVideoRequest".to_string());
+        gen.add_schema::<UpdateVideoRequest>("UpdateVideoRequest");
+        registered.insert("UpdateVideoRequest".to_string());
+
+        gen.add_schema::<SeasonWithVideos>("SeasonWithVideos");
+        registered.insert("SeasonWithVideos".to_string());
+        gen.add_schema::<SeriesDetail>("SeriesDetail");
+        registered.insert("SeriesDetail".to_string());
+
+        gen.add_schema::<EntityTaxonLink>("EntityTaxonLink");
+        registered.insert("EntityTaxonLink".to_string());
+        gen.add_schema::<PlaylistItem>("PlaylistItem");
+        registered.insert("PlaylistItem".to_string());
+        gen.add_schema::<PlaybackProgress>("PlaybackProgress");
+        registered.insert("PlaybackProgress".to_string());
 
         // album metadata blob types — single source of truth.
         gen.add_schema::<MbLookupStatus>("MbLookupStatus");

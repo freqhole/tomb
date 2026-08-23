@@ -77,6 +77,18 @@ pub enum GrimoireError {
     #[error("genre not found: {id}")]
     GenreNotFound { id: String },
 
+    #[error("video not found: {id}")]
+    VideoNotFound { id: String },
+
+    #[error("video series not found: {id}")]
+    VideoSeriesNotFound { id: String },
+
+    #[error("video season not found: {id}")]
+    VideoSeasonNotFound { id: String },
+
+    #[error("invalid entity type: {entity_type}")]
+    InvalidEntityType { entity_type: String },
+
     #[error("tag not found: {id}")]
     TagNotFound { id: String },
 
@@ -215,6 +227,10 @@ impl GrimoireError {
             GrimoireError::SongNotInPlaylist { .. } => false,
             GrimoireError::GenreNotFound { .. } => false,
             GrimoireError::TagNotFound { .. } => false,
+            GrimoireError::VideoNotFound { .. } => false,
+            GrimoireError::VideoSeriesNotFound { .. } => false,
+            GrimoireError::VideoSeasonNotFound { .. } => false,
+            GrimoireError::InvalidEntityType { .. } => false,
             GrimoireError::DatabaseNotFound(_) => false,
             GrimoireError::Validation { .. } => false,
             GrimoireError::InvalidSha256 { .. } => false,
@@ -267,6 +283,7 @@ impl GrimoireError {
             GrimoireError::Validation { .. } => 400,
             GrimoireError::InvalidFormat { .. } => 400,
             GrimoireError::Serialization(_) => 400,
+            GrimoireError::InvalidEntityType { .. } => 400,
             // not found errors
             GrimoireError::SongNotFound { .. }
             | GrimoireError::AlbumNotFound { .. }
@@ -276,6 +293,9 @@ impl GrimoireError {
             | GrimoireError::TagNotFound { .. }
             | GrimoireError::MediaBlobNotFound { .. }
             | GrimoireError::KnockNotFound { .. }
+            | GrimoireError::VideoNotFound { .. }
+            | GrimoireError::VideoSeriesNotFound { .. }
+            | GrimoireError::VideoSeasonNotFound { .. }
             | GrimoireError::FileNotFound { .. } => 404,
             // peer auth — client can react by showing knock message
             GrimoireError::PeerUnauthorized { .. } => 403,
