@@ -362,51 +362,8 @@ export function AppLayout(props: AppLayoutProps) {
   });
 
   // load remotes and storage info on mount
-  onMount(async () => {
+  onMount(() => {
     window.addEventListener("resize", handleResize);
-
-    // load queue history from idb
-    await loadQueueHistory();
-
-    // load persisted radio queue entry (display only; no autoplay)
-    await loadCurrentRadioStation();
-
-    // load queue progress from storage
-    loadProgressFromStorage();
-
-    // reconnect progress tracking if there's an active queue from a previous page load
-    reconnectProgressTracking();
-
-    // resume auto-downloads if enabled (downloads songs beyond rolling window)
-    void resumeAutoDownloadsOnInit();
-
-    // start analytics sync loop
-    startAnalyticsSync();
-
-    // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
-    checkAndShowConfigUpgradeToast();
-
-    try {
-      const allRemotes = await getAllRemotes();
-      debug("AppLayout", "loaded remotes from IDB", {
-        count: allRemotes.length,
-        remotes: allRemotes.map((r) => ({
-          id: r.remote_id,
-          name: r.name,
-          is_offline: r.is_offline,
-          last_checked: r.last_checked,
-        })),
-      });
-      setRemotes(allRemotes);
-    } catch (error) {
-      console.error("failed to load remotes:", error);
-    }
-
-    // seed the reactive `isOnline(id)` map and fire a background wake-up
-    // probe for every offline remote. dedupe + backoff lives in
-    // remoteHealth so it's safe to call this freely.
-    void seedOnlineMap();
-    wakeAllRemotes();
 
     // re-probe when the tab/window becomes visible again — covers the
     // "laptop woke from sleep / switched back to tab" case where
@@ -416,82 +373,138 @@ export function AppLayout(props: AppLayoutProps) {
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onVisibility);
+
+    // filled in by the async setup below. `onCleanup` must be registered
+    // synchronously, before any `await`, to actually attach to this
+    // component's disposal - registering it later (after crossing an
+    // await boundary) runs outside solid's reactive ownership tracking
+    // and triggers "cleanups created outside a `createRoot` or `render`
+    // will never be run", so these start undefined and get populated
+    // once each piece of async setup resolves.
+    let unsubscribeStatusChange: (() => void) | undefined;
+    let unsubscribeSwitchToLocalFn: (() => void) | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let unlistenExternalStorageMounted: (() => void) | undefined;
+    let unlistenSyncProgress: (() => void) | undefined;
+
     onCleanup(() => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onVisibility);
+      unsubscribeStatusChange?.();
+      unsubscribeSwitchToLocalFn?.();
+      if (interval !== undefined) clearInterval(interval);
+      unlistenExternalStorageMounted?.();
+      unlistenSyncProgress?.();
     });
 
-    // listen for remote status changes (offline/online) and refresh remotes list
-    const unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
+    void (async () => {
+      // load queue history from idb
+      await loadQueueHistory();
+
+      // load persisted radio queue entry (display only; no autoplay)
+      await loadCurrentRadioStation();
+
+      // load queue progress from storage
+      loadProgressFromStorage();
+
+      // reconnect progress tracking if there's an active queue from a previous page load
+      reconnectProgressTracking();
+
+      // resume auto-downloads if enabled (downloads songs beyond rolling window)
+      void resumeAutoDownloadsOnInit();
+
+      // start analytics sync loop
+      startAnalyticsSync();
+
+      // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
+      checkAndShowConfigUpgradeToast();
+
       try {
         const allRemotes = await getAllRemotes();
-        setRemotes(allRemotes);
-        debug("AppLayout", "refreshed remotes after status change", {
+        debug("AppLayout", "loaded remotes from IDB", {
           count: allRemotes.length,
+          remotes: allRemotes.map((r) => ({
+            id: r.remote_id,
+            name: r.name,
+            is_offline: r.is_offline,
+            last_checked: r.last_checked,
+          })),
         });
+        setRemotes(allRemotes);
       } catch (error) {
-        console.error("failed to refresh remotes after status change:", error);
+        console.error("failed to load remotes:", error);
       }
-    });
 
-    // listen for "switch to local" action from toast
-    const unsubscribeSwitchToLocal = onSwitchToLocal(() => {
-      handleSwitchToLocal();
-    });
+      // seed the reactive `isOnline(id)` map and fire a background wake-up
+      // probe for every offline remote. dedupe + backoff lives in
+      // remoteHealth so it's safe to call this freely.
+      void seedOnlineMap();
+      wakeAllRemotes();
 
-    // update storage usage
-    const updateStorage = async () => {
-      if (navigator.storage?.estimate) {
+      // listen for remote status changes (offline/online) and refresh remotes list
+      unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {
         try {
-          const estimate = await navigator.storage.estimate();
-          setStorageUsage(estimate.usage || 0);
-          setStorageQuota(estimate.quota || 0);
+          const allRemotes = await getAllRemotes();
+          setRemotes(allRemotes);
+          debug("AppLayout", "refreshed remotes after status change", {
+            count: allRemotes.length,
+          });
         } catch (error) {
-          console.error("failed to get storage estimate:", error);
+          console.error("failed to refresh remotes after status change:", error);
         }
-      }
-    };
+      });
 
-    await updateStorage();
-    // refresh storage info every 30 seconds
-    const interval = setInterval(updateStorage, 30000);
+      // listen for "switch to local" action from toast
+      unsubscribeSwitchToLocalFn = onSwitchToLocal(() => {
+        handleSwitchToLocal();
+      });
 
-    // poll for mounted removable-storage devices (desktop/tauri only) -
-    // drives playerbar icon visibility, so it should disappear fairly
-    // promptly once a device is unplugged.
-    if (isCharnelMode()) {
-      const updateExternalStorageMounted = async () => {
-        try {
-          const mounted = await listMountedExternalStorageDevices();
-          setExternalStorageMounted(mounted.length > 0);
-        } catch (error) {
-          console.error("failed to check mounted external storage devices:", error);
+      // update storage usage
+      const updateStorage = async () => {
+        if (navigator.storage?.estimate) {
+          try {
+            const estimate = await navigator.storage.estimate();
+            setStorageUsage(estimate.usage || 0);
+            setStorageQuota(estimate.quota || 0);
+          } catch (error) {
+            console.error("failed to get storage estimate:", error);
+          }
         }
       };
-      void updateExternalStorageMounted();
-      const unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
-        () => void updateExternalStorageMounted()
-      );
-      onCleanup(() => unlistenExternalStorageMounted());
 
-      // global per-song sync progress - lives here (not just
-      // StorageOverviewView) so the playerbar icon keeps showing live
-      // progress even after navigating away mid-sync.
-      const unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
-        setExternalStorageSyncProgress({
-          title: event.data.title,
-          current: event.data.current,
-          total: event.data.total,
+      await updateStorage();
+      // refresh storage info every 30 seconds
+      interval = setInterval(updateStorage, 30000);
+
+      // poll for mounted removable-storage devices (desktop/tauri only) -
+      // drives playerbar icon visibility, so it should disappear fairly
+      // promptly once a device is unplugged.
+      if (isCharnelMode()) {
+        const updateExternalStorageMounted = async () => {
+          try {
+            const mounted = await listMountedExternalStorageDevices();
+            setExternalStorageMounted(mounted.length > 0);
+          } catch (error) {
+            console.error("failed to check mounted external storage devices:", error);
+          }
+        };
+        void updateExternalStorageMounted();
+        unlistenExternalStorageMounted = await onExternalStorageMountedChanged(
+          () => void updateExternalStorageMounted()
+        );
+
+        // global per-song sync progress - lives here (not just
+        // StorageOverviewView) so the playerbar icon keeps showing live
+        // progress even after navigating away mid-sync.
+        unlistenSyncProgress = await onExternalStorageSyncProgress((event) => {
+          setExternalStorageSyncProgress({
+            title: event.data.title,
+            current: event.data.current,
+            total: event.data.total,
+          });
         });
-      });
-      onCleanup(() => unlistenSyncProgress());
-    }
-
-    return () => {
-      clearInterval(interval);
-      unsubscribeStatusChange();
-      unsubscribeSwitchToLocal();
-    };
+      }
+    })();
   });
 
   // handle switching to local source
