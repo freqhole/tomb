@@ -342,6 +342,7 @@ pub mod type_registry {
     };
 
     // video domain types (phase 1)
+    use crate::music::crud::EntityUrl;
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
         CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
@@ -358,6 +359,9 @@ pub mod type_registry {
     use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
     use crate::offal::entities::taxon_links::{
         AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
+    };
+    use crate::offal::entities::url_links::{
+        AddEntityUrlRequest, GetEntityUrlsRequest, RemoveEntityUrlRequest,
     };
     use crate::offal::video::progress::{
         GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
@@ -836,6 +840,8 @@ pub mod type_registry {
 
         gen.add_schema::<EntityTaxonLink>("EntityTaxonLink");
         registered.insert("EntityTaxonLink".to_string());
+        gen.add_schema::<EntityUrl>("EntityUrl");
+        registered.insert("EntityUrl".to_string());
         gen.add_schema::<PlaylistItem>("PlaylistItem");
         registered.insert("PlaylistItem".to_string());
         gen.add_schema::<PlaybackProgress>("PlaybackProgress");
@@ -889,6 +895,13 @@ pub mod type_registry {
         registered.insert("AddEntityTaxonRequest".to_string());
         gen.add_schema::<RemoveEntityTaxonRequest>("RemoveEntityTaxonRequest");
         registered.insert("RemoveEntityTaxonRequest".to_string());
+
+        gen.add_schema::<GetEntityUrlsRequest>("GetEntityUrlsRequest");
+        registered.insert("GetEntityUrlsRequest".to_string());
+        gen.add_schema::<AddEntityUrlRequest>("AddEntityUrlRequest");
+        registered.insert("AddEntityUrlRequest".to_string());
+        gen.add_schema::<RemoveEntityUrlRequest>("RemoveEntityUrlRequest");
+        registered.insert("RemoveEntityUrlRequest".to_string());
 
         gen.add_schema::<ListPlaylistItemsRequest>("ListPlaylistItemsRequest");
         registered.insert("ListPlaylistItemsRequest".to_string());

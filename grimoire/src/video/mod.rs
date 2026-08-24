@@ -49,6 +49,7 @@ pub use crud::query::{
 pub use crud::entity_taxonz::{
     add_entity_taxon, list_entity_taxons, remove_entity_taxon, EntityTaxonLink, VideoEntityType,
 };
+pub use crud::entity_urlz::{add_entity_url, list_entity_urls, remove_entity_url};
 pub use crud::playback_progressz::{
     get_playback_progress, list_playback_progress_for_user, upsert_playback_progress,
     PlaybackProgress,

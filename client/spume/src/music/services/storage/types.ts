@@ -190,9 +190,9 @@ export interface Favorite {
   favorited_at: number;
 }
 
-// user ratings (songs, albums, artists)
+// user ratings (songs, albums, artists, videos)
 export interface Rating {
-  target_type: "song" | "album" | "artist";
+  target_type: "song" | "album" | "artist" | "video";
   target_id: string;
   rating: number; // 1-5
   created_at: number;
