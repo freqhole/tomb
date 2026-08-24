@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
+use crate::video::VideoSearchResult;
+
 /// search field enum for scoping searches
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -15,11 +17,12 @@ pub enum SearchField {
     Songs,
     Genres,
     Playlists,
+    Videos,
 }
 
 impl ZodSchemaTrait for SearchField {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")])"#.to_string()
+        r#"z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")])"#.to_string()
     }
 }
 
@@ -163,6 +166,8 @@ pub struct SearchResponse {
     pub genres: Option<Vec<GenreSearchResult>>,
     #[serde(default)]
     pub playlists: Option<Vec<PlaylistSearchResult>>,
+    #[serde(default)]
+    pub videos: Option<Vec<VideoSearchResult>>,
     pub total_count: i64,
     pub page: u32,
     pub page_size: u32,

@@ -7,6 +7,7 @@
 import type { WalkGraph, WalkNode, WalkEdge, AlbumNodeData, ArtistNodeData } from "../types";
 import {
   rootId,
+  videoRootId,
   remoteHubId,
   relationHubId,
   artistNodeId,
@@ -79,7 +80,17 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
 
   // ---- root ----------------------------------------------------------------
   const rId = rootId();
-  nodes.push({ id: rId, role: "root", label: "root", parentId: null, childCount: remoteIds.length });
+  nodes.push({ id: rId, role: "root", label: "root", parentId: null, childCount: remoteIds.length + 1 });
+
+  // ---- video domain root (synthetic placeholder) ---------------------------
+  // the graph is currently music-only: there is no per-remote video data
+  // feeding this builder yet, so this is a single static stub (no children)
+  // marking where the video domain will attach once it gets real data
+  // plumbing. gives the video root shape a real node to render onto the
+  // canvas ahead of that work.
+  const vId = videoRootId();
+  nodes.push({ id: vId, role: "video_root", label: "video", parentId: rId, childCount: 0 });
+  edges.push({ source: rId, target: vId });
 
   for (const remoteId of remoteIds) {
     const albums  = albumsByRemote.get(remoteId)  ?? [];

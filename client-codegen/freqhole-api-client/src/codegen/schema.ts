@@ -5559,7 +5559,7 @@ export const ScalarAttributeSchema = z.object({
 });
 export type ScalarAttribute = z.infer<typeof ScalarAttributeSchema>;
 
-export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]);
+export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;
 
 export const SearchRecordingsRequestSchema = z.object({
@@ -5581,7 +5581,7 @@ export type SearchReleasesRequest = z.infer<typeof SearchReleasesRequestSchema>;
 
 export const SearchRequestSchema = z.object({
   query: z.string(),
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]).nullish(),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]).nullish(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
   context: z.object({
@@ -5653,6 +5653,20 @@ export const SearchResponseSchema = z.object({
   created_by: z.string(),
   thumbnail_url: z.string().nullish(),
   search_rank: z.number(),
+  highlight: z.string().nullish()
+})).nullish(),
+  videos: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  series_id: z.string().nullish(),
+  series_name: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  thumbnail_url: z.string().nullish(),
+  user_rating: z.number().nullish(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
   highlight: z.string().nullish()
 })).nullish(),
   total_count: z.number(),
@@ -6326,7 +6340,7 @@ export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("alb
 export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 
 export const SuggestionsRequestSchema = z.object({
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists")]),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]),
   partial: z.string(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
@@ -7165,6 +7179,22 @@ export const VideoRenditionSchema = z.object({
   mime: z.string().nullish()
 });
 export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
+
+export const VideoSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  series_id: z.string().nullish(),
+  series_name: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  thumbnail_url: z.string().nullish(),
+  user_rating: z.number().nullish(),
+  is_favorite: z.boolean(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+});
+export type VideoSearchResult = z.infer<typeof VideoSearchResultSchema>;
 
 export const VideoSeasonSchema = z.object({
   id: z.string(),

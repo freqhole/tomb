@@ -97,6 +97,14 @@ describe("buildWalkGraph", () => {
     expect(graph.nodes.find((n) => n.id === "root")).toBeDefined();
   });
 
+  it("includes the synthetic video root node, parented under root", () => {
+    const videoRoot = graph.nodes.find((n) => n.id === "video_root");
+    expect(videoRoot).toBeDefined();
+    expect(videoRoot?.role).toBe("video_root");
+    expect(videoRoot?.parentId).toBe("root");
+    expect(graph.edges.find((e) => e.source === "root" && e.target === "video_root")).toBeDefined();
+  });
+
   it("includes remote hub nodes for both remotes", () => {
     expect(graph.nodes.find((n) => n.id === "remote::local")).toBeDefined();
     expect(graph.nodes.find((n) => n.id === "remote::raid")).toBeDefined();

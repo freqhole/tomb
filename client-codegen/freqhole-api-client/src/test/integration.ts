@@ -13,11 +13,7 @@
 //
 // runs without API_KEY - uses placeholder data to trigger auth checks
 import { createHttpClient } from "../FreqholeClient.js";
-import {
-  fixtures,
-  PLACEHOLDER_ID,
-  queryParams,
-} from "./fixtures.js";
+import { fixtures, PLACEHOLDER_ID, queryParams } from "./fixtures.js";
 
 const baseUrl = process.env.API_URL || "http://localhost:8080";
 
@@ -34,9 +30,7 @@ export async function runIntegrationTests() {
       console.log(`✓ ${name}`);
       passed++;
     } catch (err) {
-      console.log(
-        `✗ ${name}: ${err instanceof Error ? err.message : "unknown error"}`,
-      );
+      console.log(`✗ ${name}: ${err instanceof Error ? err.message : "unknown error"}`);
       failed++;
     }
   }
@@ -145,13 +139,11 @@ export async function runIntegrationTests() {
     },
     {
       name: "music.removeSongsFromPlaylist",
-      fn: () =>
-        client.music.removeSongsFromPlaylist(fixtures.removeSongsFromPlaylist),
+      fn: () => client.music.removeSongsFromPlaylist(fixtures.removeSongsFromPlaylist),
     },
     {
       name: "music.reorderPlaylistSongs",
-      fn: () =>
-        client.music.reorderPlaylistSongs(fixtures.reorderPlaylistSongs),
+      fn: () => client.music.reorderPlaylistSongs(fixtures.reorderPlaylistSongs),
     },
     {
       name: "music.deleteImage",
@@ -167,22 +159,22 @@ export async function runIntegrationTests() {
       fn: () => client.music.listFavorites(fixtures.listFavorites),
     },
     {
-      name: "music.setFavorite",
-      fn: () => client.music.setFavorite(fixtures.setFavorite),
+      name: "entities.setFavorite",
+      fn: () => client.entities.setFavorite(fixtures.setFavorite),
     },
 
     // ratings
     {
-      name: "music.setRating",
-      fn: () => client.music.setRating(fixtures.setRating),
+      name: "entities.setRating",
+      fn: () => client.entities.setRating(fixtures.setRating),
     },
     {
-      name: "music.removeRating",
-      fn: () => client.music.removeRating(fixtures.removeRating),
+      name: "entities.removeRating",
+      fn: () => client.entities.removeRating(fixtures.removeRating),
     },
     {
-      name: "music.getRatingStats",
-      fn: () => client.music.getRatingStats(fixtures.getRatingStats),
+      name: "entities.getRatingStats",
+      fn: () => client.entities.getRatingStats(fixtures.getRatingStats),
     },
 
     // tags
@@ -249,8 +241,7 @@ export async function runIntegrationTests() {
     // musicbrainz
     {
       name: "music.searchMusicbrainzReleases",
-      fn: () =>
-        client.music.searchMusicbrainzReleases(fixtures.searchReleases),
+      fn: () => client.music.searchMusicbrainzReleases(fixtures.searchReleases),
     },
     {
       name: "music.getMusicbrainzRelease",
@@ -307,12 +298,8 @@ export async function runIntegrationTests() {
   }
 
   console.log("");
-  console.log(
-    "✓ auth validation complete - all routes reject without credentials\n",
-  );
-  console.log(
-    "  (authenticated workflows tested in stateful tests - see stateful.ts)\n",
-  );
+  console.log("✓ auth validation complete - all routes reject without credentials\n");
+  console.log("  (authenticated workflows tested in stateful tests - see stateful.ts)\n");
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
 

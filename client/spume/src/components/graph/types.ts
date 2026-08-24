@@ -183,10 +183,7 @@ export function nodeKind(n: GraphNodeData): NodeKind {
 
 /** membership check used by per-remote filters. handles both the
  *  modern `sourceRemoteIds` field and the legacy single-id field. */
-export function belongsToRemote(
-  n: AlbumNodeData | ArtistNodeData,
-  remoteId: string
-): boolean {
+export function belongsToRemote(n: AlbumNodeData | ArtistNodeData, remoteId: string): boolean {
   const ids = n.sourceRemoteIds;
   if (ids && ids.length > 0) return ids.includes(remoteId);
   return (n as AlbumNodeData).sourceRemoteId === remoteId;
@@ -229,6 +226,7 @@ export interface ViewportTransform {
 
 export type NodeRole =
   | "root"
+  | "video_root"
   | "remote"
   | "relation"
   | "value"

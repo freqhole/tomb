@@ -614,7 +614,16 @@ function WalkCanvas(props: WalkCanvasProps) {
       }
 
       // draw nodes (back to front: ghosts (label-only) first, then albums, artists, values, relations, remotes, root)
-      const roleOrder = ["ghost_artist", "album", "artist", "value", "relation", "remote", "root"];
+      const roleOrder = [
+        "ghost_artist",
+        "album",
+        "artist",
+        "value",
+        "relation",
+        "remote",
+        "video_root",
+        "root",
+      ];
       const sorted = [...nodes.keys()].sort((a, b) => {
         return roleOrder.indexOf(nodes[a].role) - roleOrder.indexOf(nodes[b].role);
       });

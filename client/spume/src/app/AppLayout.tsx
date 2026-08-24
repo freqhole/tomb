@@ -122,6 +122,8 @@ import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
+import { loadVideoQueueHistory } from "../video/services/queue/videoQueueHistory";
+import { reconnectVideoProgressTracking } from "../video/services/queue/videoListenProgress";
 import {
   isCharnelMode,
   listMountedExternalStorageDevices,
@@ -385,6 +387,7 @@ export function AppLayout(props: AppLayoutProps) {
     void (async () => {
       // load queue history from idb
       await loadQueueHistory();
+      await loadVideoQueueHistory();
 
       // load persisted radio queue entry (display only; no autoplay)
       await loadCurrentRadioStation();
@@ -394,6 +397,7 @@ export function AppLayout(props: AppLayoutProps) {
 
       // reconnect progress tracking if there's an active queue from a previous page load
       reconnectProgressTracking();
+      reconnectVideoProgressTracking();
 
       // resume auto-downloads if enabled (downloads songs beyond rolling window)
       void resumeAutoDownloadsOnInit();

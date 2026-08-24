@@ -9,6 +9,11 @@
 pub mod crud;
 pub mod entities;
 pub mod importer;
+pub mod scanner;
+pub mod search;
+
+// directory scanning entry point (mirrors `crate::music::scan_directory`)
+pub use scanner::scan_directory;
 
 // series/season/video CRUD (create/get/list/update). deletes are exposed
 // from `crud::delete` instead, since they cascade + clean up side tables.
@@ -51,3 +56,6 @@ pub use crud::playback_progressz::{
 pub use crud::playlist_itemz::{
     add_playlist_item, list_playlist_items, remove_playlist_item, PlaylistItem,
 };
+
+// full-text search
+pub use search::{search_videos, VideoSearchResult};

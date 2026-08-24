@@ -87,6 +87,13 @@ export function nodeShapePath(
       ctx.closePath();
       break;
     }
+    case "video_root": {
+      // right-pointing play triangle — reuses the same regular-polygon
+      // primitive as the hex/heptagon/octagon hubs, distinguished by its
+      // 3-sided count and zero rotation so it reads as a play glyph.
+      drawPolygon(ctx, x, y, r + gap, 3, 0);
+      break;
+    }
     case "remote": {
       // rounded square — hosts the remote's avatar image or a
       // deterministic 3-color gradient. ~12% larger than album squares
@@ -151,6 +158,8 @@ export function shapePolyline(
         { x: cx - half, y: cy + half },
       ];
     }
+    case "video_root":
+      return regularPolyVerts(cx, cy, r + outset, 3, 0);
     case "relation":
       return regularPolyVerts(cx, cy, r + outset, 6, 0);
     case "group":
@@ -198,11 +207,7 @@ export function regularPolyVerts(
 }
 
 // ray-casting point-in-polygon test (crossing number algorithm).
-export function pointInPolygon(
-  px: number,
-  py: number,
-  poly: { x: number; y: number }[]
-): boolean {
+export function pointInPolygon(px: number, py: number, poly: { x: number; y: number }[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const xi = poly[i].x,

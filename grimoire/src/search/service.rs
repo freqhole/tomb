@@ -128,6 +128,8 @@ pub async fn get_suggestions(
                 }
             }
         }
+        // no typeahead suggestions for videos yet - full search only
+        SearchField::Videos => Vec::new(),
     };
 
     // apply confidence filtering per field type
@@ -194,6 +196,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         albums: None,
         genres: None,
         playlists: None,
+        videos: None,
         total_count: 0,
         page,
         page_size,
@@ -255,6 +258,14 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                             "failed to search playlists",
                             vec![e.into()],
                         )
+                    }
+                },
+            );
+            response.videos = Some(
+                match crate::video::search_videos(&pool, &req.query, user_id, 10, 0).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search videos", vec![e.into()])
                     }
                 },
             );
@@ -335,6 +346,19 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 };
             response.total_count = playlists.len() as i64;
             response.playlists = Some(playlists);
+        }
+        SearchField::Videos => {
+            let videos =
+                match crate::video::search_videos(&pool, &req.query, user_id, page_size, offset)
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return GrimoireResponse::failure("failed to search videos", vec![e.into()])
+                    }
+                };
+            response.total_count = videos.len() as i64;
+            response.videos = Some(videos);
         }
     }
 

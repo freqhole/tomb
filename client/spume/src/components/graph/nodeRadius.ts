@@ -12,6 +12,8 @@ export function nodeDisplayRadius(role: NodeRole, childCount: number): number {
   switch (role) {
     case "root":
       return 34;
+    case "video_root":
+      return 30;
     case "remote":
       return 28 + Math.min(Math.sqrt(childCount) * 3, 16);
     case "relation":

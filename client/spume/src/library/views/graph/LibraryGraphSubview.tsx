@@ -3162,7 +3162,8 @@ function Inner(props: {
   const isOfflineNode = (id: string): boolean => {
     try {
       const parsed = parseNodeId(id);
-      if (parsed.kind === "root" || parsed.kind === "ghost_artist") return false;
+      if (parsed.kind === "root" || parsed.kind === "video_root" || parsed.kind === "ghost_artist")
+        return false;
       return (
         offlineByRemote().get(parsed.remoteId) === true ||
         graphDisabledByRemote().get(parsed.remoteId) === true
@@ -3177,7 +3178,8 @@ function Inner(props: {
   const isDisabledNode = (id: string): boolean => {
     try {
       const parsed = parseNodeId(id);
-      if (parsed.kind === "root" || parsed.kind === "ghost_artist") return false;
+      if (parsed.kind === "root" || parsed.kind === "video_root" || parsed.kind === "ghost_artist")
+        return false;
       return graphDisabledByRemote().get(parsed.remoteId) === true;
     } catch {
       return false;
