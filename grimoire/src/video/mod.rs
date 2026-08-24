@@ -26,10 +26,19 @@ pub use entities::videos::{
 };
 
 // cascading delete + side-table cleanup
-pub use crud::delete::{delete_video, delete_video_season, delete_video_series};
+pub use crud::delete::{
+    bulk_delete_videos, delete_video, delete_video_season, delete_video_series,
+    BulkDeleteVideosResponse,
+};
+
+// bulk update
+pub use crud::update::{update_videos, UpdateVideosRequest, UpdateVideosResult};
 
 // cross-entity queries
-pub use crud::query::{get_series_detail, SeasonWithVideos, SeriesDetail};
+pub use crud::query::{
+    get_series_detail, query_video_seriez, query_videos, SeasonWithVideos, SeriesDetail,
+    SeriesQueryResult, VideosQueryResult,
+};
 
 // generalized entity_taxonz / playlist_itemz / playback_progressz, as used by video
 pub use crud::entity_taxonz::{

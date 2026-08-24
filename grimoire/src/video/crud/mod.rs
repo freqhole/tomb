@@ -7,3 +7,4 @@ pub mod entity_taxonz;
 pub mod playback_progressz;
 pub mod playlist_itemz;
 pub mod query;
+pub mod update;

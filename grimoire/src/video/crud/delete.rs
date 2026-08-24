@@ -7,13 +7,24 @@
 //! tables (mirroring how `delete_album` already cleans up `entity_urlz`
 //! today), rather than relying on the db to do it.
 
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use zod_gen_derive::ZodSchema;
 
 use super::entity_taxonz::VideoEntityType;
 use crate::database;
 use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
 use crate::video::entities::{seasons, series, videos};
+
+/// result of a bulk video delete operation
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkDeleteVideosResponse {
+    pub success: bool,
+    pub message: String,
+    pub deleted_count: u32,
+    pub failed_ids: Vec<String>,
+}
 
 /// remove every `entity_taxonz`/`playlist_itemz`/`playback_progressz` row
 /// for a single entity. best-effort per table - the first error is
@@ -235,4 +246,42 @@ pub async fn delete_video_series(series_id: &str, deleted_by: Option<String>) ->
     }
 
     GrimoireResponse::success_unit("Video series deleted successfully")
+}
+
+/// bulk soft-delete videos (each via `delete_video`, so side-table cleanup
+/// happens per id). best-effort - a failed id is recorded but doesn't stop
+/// the rest from being deleted, mirroring `bulk_delete_songs`.
+pub async fn bulk_delete_videos(
+    video_ids: Vec<String>,
+    deleted_by: Option<String>,
+) -> BulkDeleteVideosResponse {
+    let mut deleted_count: u32 = 0;
+    let mut failed_ids = Vec::new();
+
+    for video_id in video_ids {
+        let response = delete_video(&video_id, deleted_by.clone()).await;
+        if response.success {
+            deleted_count += 1;
+        } else {
+            failed_ids.push(video_id);
+        }
+    }
+
+    let success = failed_ids.is_empty();
+    let message = if success {
+        format!("deleted {} video(s)", deleted_count)
+    } else {
+        format!(
+            "deleted {} video(s), {} failed",
+            deleted_count,
+            failed_ids.len()
+        )
+    };
+
+    BulkDeleteVideosResponse {
+        success,
+        message,
+        deleted_count,
+        failed_ids,
+    }
 }

@@ -1,9 +1,14 @@
 //! cross-entity video queries (composing series/season/video reads that
 //! don't belong to any single entity's own repository.rs)
 
+use sea_query::{Cond, Expr, Iden, Order, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 use zod_gen_derive::ZodSchema;
 
+use crate::database;
+use crate::error::ErrorDetail;
+use crate::music::crud::QueryParams;
 use crate::response::GrimoireResponse;
 use crate::video::entities::seasons::{self, VideoSeason};
 use crate::video::entities::series::{self, VideoSeries};
@@ -72,3 +77,307 @@ pub async fn get_series_detail(series_id: &str) -> GrimoireResponse<SeriesDetail
         },
     )
 }
+
+// ============================================================================
+// query_video_seriez / query_videos - filtered/sorted/paginated listings,
+// hand-rolled against `video_seriez`/`videoz` directly (not a sql view -
+// favorites/ratings only ever apply to `videoz` rows, not series/seasons).
+// ============================================================================
+
+#[derive(Iden)]
+enum VideoSeriezCol {
+    #[iden = "video_seriez"]
+    Table,
+    #[iden = "title"]
+    Title,
+    #[iden = "description"]
+    Description,
+    #[iden = "created_at"]
+    CreatedAt,
+    #[iden = "deleted_at"]
+    DeletedAt,
+}
+
+#[derive(Iden)]
+enum VideozCol {
+    #[iden = "videoz"]
+    Table,
+    #[iden = "series_id"]
+    SeriesId,
+    #[iden = "season_id"]
+    SeasonId,
+    #[iden = "episode_number"]
+    EpisodeNumber,
+    #[iden = "title"]
+    Title,
+    #[iden = "description"]
+    Description,
+    #[iden = "duration_seconds"]
+    DurationSeconds,
+    #[iden = "release_date"]
+    ReleaseDate,
+    #[iden = "created_at"]
+    CreatedAt,
+    #[iden = "deleted_at"]
+    DeletedAt,
+}
+
+/// bind a sea_query value list onto a sqlx query in declaration order
+/// (mirrors the same manual binding loop used by `query_albums`/
+/// `query_artists` in `music/crud/query.rs`).
+fn bind_values<'q, O>(
+    mut q: sqlx::query::QueryAs<'q, sqlx::Sqlite, O, sqlx::sqlite::SqliteArguments<'q>>,
+    values: sea_query::Values,
+) -> sqlx::query::QueryAs<'q, sqlx::Sqlite, O, sqlx::sqlite::SqliteArguments<'q>> {
+    for v in values.0 {
+        match v {
+            sea_query::Value::String(Some(s)) => {
+                q = q.bind(s.as_ref().to_string());
+            }
+            sea_query::Value::BigInt(Some(i)) => {
+                q = q.bind(i);
+            }
+            sea_query::Value::BigUnsigned(Some(i)) => {
+                q = q.bind(i as i64);
+            }
+            _ => {}
+        }
+    }
+    q
+}
+
+/// paginated/filtered/sorted video series listing
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SeriesQueryResult {
+    pub items: Vec<VideoSeries>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+/// paginated/filtered/sorted video listing
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideosQueryResult {
+    pub items: Vec<Video>,
+    pub total_count: i64,
+    pub has_more: bool,
+    pub offset: i64,
+    pub limit: i64,
+    pub query_time_ms: Option<u64>,
+}
+
+/// query video series with search/sort/pagination
+pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQueryResult> {
+    let start_time = Instant::now();
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let limit = params.limit.unwrap_or(50).min(1000);
+    let offset = params.offset.unwrap_or(0);
+
+    let apply_filters = |q: &mut sea_query::SelectStatement| {
+        q.and_where(Expr::col(VideoSeriezCol::DeletedAt).is_null());
+        if let Some(search) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
+            let pattern = format!("%{}%", search);
+            q.cond_where(
+                Cond::any()
+                    .add(Expr::col(VideoSeriezCol::Title).like(pattern.clone()))
+                    .add(Expr::col(VideoSeriezCol::Description).like(pattern)),
+            );
+        }
+    };
+
+    let mut count_q = Query::select();
+    count_q.expr(Expr::cust("COUNT(*)")).from(VideoSeriezCol::Table);
+    apply_filters(&mut count_q);
+    let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
+    let total_count = bind_values(sqlx::query_as::<_, (i64,)>(&count_sql), count_values)
+        .fetch_one(&pool)
+        .await
+        .map(|(n,)| n)
+        .unwrap_or(0);
+
+    let mut query = Query::select();
+    query.column(sea_query::Asterisk).from(VideoSeriezCol::Table);
+    apply_filters(&mut query);
+
+    let sort_direction = match params.sort_direction.as_deref() {
+        Some("desc") => Order::Desc,
+        _ => Order::Asc,
+    };
+    match params.sort_by.as_deref() {
+        Some("title") => {
+            query.order_by(VideoSeriezCol::Title, sort_direction);
+        }
+        _ => {
+            let dir = match params.sort_direction.as_deref() {
+                Some("asc") => Order::Asc,
+                _ => Order::Desc,
+            };
+            query.order_by(VideoSeriezCol::CreatedAt, dir);
+        }
+    }
+    query.limit(limit as u64).offset(offset as u64);
+
+    let (sql, values) = query.build(SqliteQueryBuilder);
+    let items = match bind_values(sqlx::query_as::<_, VideoSeries>(&sql), values)
+        .fetch_all(&pool)
+        .await
+    {
+        Ok(items) => items,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to query video series",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    GrimoireResponse::success(
+        format!("Found {} video series", total_count),
+        SeriesQueryResult {
+            has_more: items.len() == limit as usize,
+            items,
+            total_count,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
+}
+
+/// query videos with search/sort/pagination, optionally scoped to a
+/// series/season or to standalone (unattached) videos, and optionally
+/// filtered by the caller's own favorites/ratings (`target_type = 'video'`).
+pub async fn query_videos(
+    params: QueryParams,
+    series_id: Option<String>,
+    season_id: Option<String>,
+    unassigned: bool,
+) -> GrimoireResponse<VideosQueryResult> {
+    let start_time = Instant::now();
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let limit = params.limit.unwrap_or(50).min(1000);
+    let offset = params.offset.unwrap_or(0);
+
+    let apply_filters = |q: &mut sea_query::SelectStatement| {
+        q.and_where(Expr::col(VideozCol::DeletedAt).is_null());
+        if let Some(search) = params.q.as_ref().filter(|s| !s.trim().is_empty()) {
+            let pattern = format!("%{}%", search);
+            q.cond_where(
+                Cond::any()
+                    .add(Expr::col(VideozCol::Title).like(pattern.clone()))
+                    .add(Expr::col(VideozCol::Description).like(pattern)),
+            );
+        }
+        if let Some(ref sid) = series_id {
+            q.and_where(Expr::col(VideozCol::SeriesId).eq(sid.clone()));
+        }
+        if let Some(ref seid) = season_id {
+            q.and_where(Expr::col(VideozCol::SeasonId).eq(seid.clone()));
+        }
+        if unassigned {
+            q.and_where(Expr::col(VideozCol::SeriesId).is_null());
+        }
+        if params.favorites_only == Some(true) {
+            if let Some(uid) = params.user_id.as_deref().filter(|s| !s.is_empty()) {
+                let uid_escaped = uid.replace('\'', "''");
+                q.and_where(Expr::cust(format!(
+                    "EXISTS (SELECT 1 FROM user_favoritez uf WHERE uf.target_type = 'video' \
+                     AND uf.target_id = videoz.id AND uf.user_id = '{uid_escaped}')"
+                )));
+            }
+        }
+        if let Some(min_rating) = params.min_rating {
+            if let Some(uid) = params.user_id.as_deref().filter(|s| !s.is_empty()) {
+                let uid_escaped = uid.replace('\'', "''");
+                q.and_where(Expr::cust(format!(
+                    "EXISTS (SELECT 1 FROM user_ratingz ur WHERE ur.target_type = 'video' \
+                     AND ur.target_id = videoz.id AND ur.user_id = '{uid_escaped}' \
+                     AND ur.rating >= {min_rating})"
+                )));
+            }
+        }
+    };
+
+    let mut count_q = Query::select();
+    count_q.expr(Expr::cust("COUNT(*)")).from(VideozCol::Table);
+    apply_filters(&mut count_q);
+    let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
+    let total_count = bind_values(sqlx::query_as::<_, (i64,)>(&count_sql), count_values)
+        .fetch_one(&pool)
+        .await
+        .map(|(n,)| n)
+        .unwrap_or(0);
+
+    let mut query = Query::select();
+    query.column(sea_query::Asterisk).from(VideozCol::Table);
+    apply_filters(&mut query);
+
+    let sort_direction = match params.sort_direction.as_deref() {
+        Some("desc") => Order::Desc,
+        _ => Order::Asc,
+    };
+    match params.sort_by.as_deref() {
+        Some("title") => {
+            query.order_by(VideozCol::Title, sort_direction);
+        }
+        Some("release_date") => {
+            query.order_by(VideozCol::ReleaseDate, sort_direction);
+        }
+        Some("episode_number") => {
+            query.order_by(VideozCol::EpisodeNumber, sort_direction);
+        }
+        Some("duration") => {
+            query.order_by(VideozCol::DurationSeconds, sort_direction);
+        }
+        _ => {
+            let dir = match params.sort_direction.as_deref() {
+                Some("asc") => Order::Asc,
+                _ => Order::Desc,
+            };
+            query.order_by(VideozCol::CreatedAt, dir);
+        }
+    }
+    query.limit(limit as u64).offset(offset as u64);
+
+    let (sql, values) = query.build(SqliteQueryBuilder);
+    let items = match bind_values(sqlx::query_as::<_, Video>(&sql), values)
+        .fetch_all(&pool)
+        .await
+    {
+        Ok(items) => items,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to query videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success(
+        format!("Found {} video(s)", total_count),
+        VideosQueryResult {
+            has_more: items.len() == limit as usize,
+            items,
+            total_count,
+            limit: limit as i64,
+            offset: offset as i64,
+            query_time_ms: Some(start_time.elapsed().as_millis() as u64),
+        },
+    )
+}
+

@@ -6,13 +6,15 @@ use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
+use crate::music::crud::QueryParams;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
-    create_video, delete_video as grimoire_delete_video, get_video, list_videos_by_season,
-    list_videos_by_series, list_videos_unattached, update_video as grimoire_update_video,
-    CreateVideoRequest, UpdateVideoRequest,
+    bulk_delete_videos as grimoire_bulk_delete_videos, create_video,
+    delete_video as grimoire_delete_video, get_video, list_videos_by_season, list_videos_by_series,
+    list_videos_unattached, query_videos as grimoire_query_videos,
+    update_videos as grimoire_update_videos, CreateVideoRequest, UpdateVideosRequest,
 };
 
 /// request for getting a video by id
@@ -47,8 +49,35 @@ pub struct DeleteVideoRequest {
     pub id: String,
 }
 
+/// request for bulk-deleting videos
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct BulkDeleteVideosRequest {
+    pub video_ids: Vec<String>,
+}
+
+/// request for querying videos, optionally scoped to a series/season or to
+/// standalone (unattached) videos
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct QueryVideosRequest {
+    #[serde(flatten)]
+    pub params: QueryParams,
+    pub series_id: Option<String>,
+    pub season_id: Option<String>,
+    #[serde(default)]
+    pub unassigned: bool,
+}
+
 /// route metadata for videos
 pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "query_videos",
+        path: "/api/video/videos/query",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "QueryVideosRequest",
+        response_type: "VideosQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
     RouteInfo {
         name: "create_video",
         path: "/api/video/videos",
@@ -95,12 +124,12 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
-        name: "update_video",
+        name: "update_videos",
         path: "/api/video/videos/update",
         method: Method::POST,
         domain: Domain::Video,
-        request_type: "UpdateVideoRequest",
-        response_type: "Video",
+        request_type: "UpdateVideosRequest",
+        response_type: "UpdateVideosResult",
         auth: RouteAuth::Role(UserRole::Admin),
     },
     RouteInfo {
@@ -110,6 +139,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Video,
         request_type: "DeleteVideoRequest",
         response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "bulk_delete_videos",
+        path: "/api/video/videos/bulk-delete",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "BulkDeleteVideosRequest",
+        response_type: "BulkDeleteVideosResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
@@ -229,7 +267,31 @@ pub async fn list_unattached(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// update a video
+/// query videos
+///
+/// path: POST /api/video/videos/query
+pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: QueryVideosRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response =
+        grimoire_query_videos(req.params, req.series_id, req.season_id, req.unassigned).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// bulk-update videos (always id-list based, even for a single video -
+/// mirrors music's `update_songs`)
 ///
 /// path: POST /api/video/videos/update
 pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -237,7 +299,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         return resp;
     }
 
-    let mut req: UpdateVideoRequest = match serde_json::from_value(body) {
+    let mut req: UpdateVideosRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
             return GrimoireResponse::failure(
@@ -252,7 +314,7 @@ pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     };
     req.updated_by = Some(caller.user_id.clone());
 
-    let response = grimoire_update_video(req).await;
+    let response = grimoire_update_videos(req).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
@@ -281,4 +343,32 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 
     let response = grimoire_delete_video(&req.id, Some(caller.user_id.clone())).await;
     response.map(|_| JsonValue::Null)
+}
+
+/// bulk-delete videos, cleaning up entity_taxonz/playlist_itemz/
+/// playback_progressz rows for each
+///
+/// path: POST /api/video/videos/bulk-delete
+pub async fn bulk_delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "bulk_delete_videos").await {
+        return resp;
+    }
+
+    let req: BulkDeleteVideosRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_bulk_delete_videos(req.video_ids, Some(caller.user_id.clone())).await;
+    let message = response.message.clone();
+    GrimoireResponse::success(&message, serde_json::to_value(response).unwrap())
 }

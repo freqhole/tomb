@@ -6,13 +6,15 @@ use zod_gen_derive::ZodSchema;
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
+use crate::music::crud::QueryParams;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
     create_video_series, delete_video_series as grimoire_delete_video_series, get_series_detail,
-    get_video_series, list_video_seriez, update_video_series as grimoire_update_video_series,
-    CreateVideoSeriesRequest, UpdateVideoSeriesRequest,
+    get_video_series, list_video_seriez, query_video_seriez,
+    update_video_series as grimoire_update_video_series, CreateVideoSeriesRequest,
+    UpdateVideoSeriesRequest,
 };
 
 /// request for getting or deleting a video series by id
@@ -36,6 +38,15 @@ pub struct DeleteVideoSeriesRequest {
 
 /// route metadata for video series
 pub const ROUTES: &[RouteInfo] = &[
+    RouteInfo {
+        name: "query_video_series",
+        path: "/api/video/series/query",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "QueryParams",
+        response_type: "SeriesQueryResult",
+        auth: RouteAuth::Authenticated,
+    },
     RouteInfo {
         name: "create_video_series",
         path: "/api/video/series",
@@ -91,6 +102,28 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
+
+/// query video series
+///
+/// path: POST /api/video/series/query
+pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let params: QueryParams = match serde_json::from_value(body) {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = query_video_seriez(params).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
 
 /// create a video series
 ///

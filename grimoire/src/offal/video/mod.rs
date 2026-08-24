@@ -31,6 +31,7 @@ pub async fn dispatch(
 ) -> Option<GrimoireResponse<JsonValue>> {
     match path {
         // series
+        "/api/video/series/query" => Some(series::query(caller, body.clone()).await),
         "/api/video/series" => Some(series::create(caller, body.clone()).await),
         "/api/video/series/list" => Some(series::list(caller, body.clone()).await),
         "/api/video/series/get" => Some(series::get(caller, body.clone()).await),
@@ -46,6 +47,7 @@ pub async fn dispatch(
         "/api/video/seasons/delete" => Some(seasons::delete(caller, body.clone()).await),
 
         // videos
+        "/api/video/videos/query" => Some(videos::query(caller, body.clone()).await),
         "/api/video/videos" => Some(videos::create(caller, body.clone()).await),
         "/api/video/videos/get" => Some(videos::get(caller, body.clone()).await),
         "/api/video/videos/list-by-series" => {
@@ -59,6 +61,7 @@ pub async fn dispatch(
         }
         "/api/video/videos/update" => Some(videos::update(caller, body.clone()).await),
         "/api/video/videos/delete" => Some(videos::delete(caller, body.clone()).await),
+        "/api/video/videos/bulk-delete" => Some(videos::bulk_delete(caller, body.clone()).await),
 
         _ => None,
     }

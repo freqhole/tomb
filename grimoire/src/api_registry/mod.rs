@@ -342,9 +342,11 @@ pub mod type_registry {
 
     // video domain types (phase 1)
     use crate::video::{
-        CreateVideoRequest, CreateVideoSeasonRequest, CreateVideoSeriesRequest, EntityTaxonLink,
-        PlaybackProgress, PlaylistItem, SeasonWithVideos, SeriesDetail, UpdateVideoRequest,
-        UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, Video, VideoSeason, VideoSeries,
+        BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
+        CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
+        SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
+        UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
+        UpdateVideosResult, Video, VideoSeason, VideoSeries, VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -361,8 +363,8 @@ pub mod type_registry {
         DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
     };
     use crate::offal::video::videos::{
-        DeleteVideoRequest, GetVideoRequest, ListVideosBySeasonRequest, ListVideosBySeriesRequest,
-        ListVideosUnattachedRequest,
+        BulkDeleteVideosRequest, DeleteVideoRequest, GetVideoRequest, ListVideosBySeasonRequest,
+        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -809,6 +811,16 @@ pub mod type_registry {
         registered.insert("CreateVideoRequest".to_string());
         gen.add_schema::<UpdateVideoRequest>("UpdateVideoRequest");
         registered.insert("UpdateVideoRequest".to_string());
+        gen.add_schema::<UpdateVideosRequest>("UpdateVideosRequest");
+        registered.insert("UpdateVideosRequest".to_string());
+        gen.add_schema::<UpdateVideosResult>("UpdateVideosResult");
+        registered.insert("UpdateVideosResult".to_string());
+        gen.add_schema::<BulkDeleteVideosResponse>("BulkDeleteVideosResponse");
+        registered.insert("BulkDeleteVideosResponse".to_string());
+        gen.add_schema::<SeriesQueryResult>("SeriesQueryResult");
+        registered.insert("SeriesQueryResult".to_string());
+        gen.add_schema::<VideosQueryResult>("VideosQueryResult");
+        registered.insert("VideosQueryResult".to_string());
 
         gen.add_schema::<SeasonWithVideos>("SeasonWithVideos");
         registered.insert("SeasonWithVideos".to_string());
@@ -847,6 +859,10 @@ pub mod type_registry {
         registered.insert("ListVideosUnattachedRequest".to_string());
         gen.add_schema::<DeleteVideoRequest>("DeleteVideoRequest");
         registered.insert("DeleteVideoRequest".to_string());
+        gen.add_schema::<BulkDeleteVideosRequest>("BulkDeleteVideosRequest");
+        registered.insert("BulkDeleteVideosRequest".to_string());
+        gen.add_schema::<QueryVideosRequest>("QueryVideosRequest");
+        registered.insert("QueryVideosRequest".to_string());
 
         gen.add_schema::<GetEntityTaxonsRequest>("GetEntityTaxonsRequest");
         registered.insert("GetEntityTaxonsRequest".to_string());
