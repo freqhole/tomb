@@ -191,6 +191,12 @@ pub struct MediaConfig {
 pub struct VideoRenditionConfig {
     pub label: String,
     pub args: String,
+    /// output file extension (no leading dot) - must match whatever
+    /// container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4",
+    /// `-f webm` -> "webm"), since it's used both for the output filename
+    /// ffmpeg writes to and the blob's stored filename/mime.
+    #[serde(default = "default_rendition_extension")]
+    pub extension: String,
 }
 
 fn default_max_connections() -> u32 {
@@ -276,12 +282,17 @@ fn default_extract_video_poster_args() -> String {
     "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}".to_string()
 }
 
+fn default_rendition_extension() -> String {
+    "mp4".to_string()
+}
+
 fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
     // single widely-compatible profile: h264 + aac, no forced resolution
     // or bitrate (keeps the source's own size/bitrate, just swaps codecs).
     vec![VideoRenditionConfig {
         label: "compatible".to_string(),
         args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
+        extension: default_rendition_extension(),
     }]
 }
 
@@ -908,6 +919,13 @@ impl GrimoireConfig {
     /// Get path to temp directory
     pub fn temp_dir(&self) -> PathBuf {
         self.data_dir.join("tmp")
+    }
+
+    /// Get path to the (permanent) video renditions directory - unlike
+    /// `temp_dir()`, files here are referenced by a `media_blobz.local_path`
+    /// and must not be cleaned up as scratch space.
+    pub fn renditions_dir(&self) -> PathBuf {
+        self.data_dir.join("renditions")
     }
 
     /// Get path to freqhole-blobz directory (iroh-blobs FsStore)

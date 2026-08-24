@@ -160,6 +160,12 @@ transcode_video_enabled = true
 [[media.video_transcode_renditions]]
 label = "compatible"
 args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
+# OPTIONAL: output file extension (no leading dot) - must match whatever
+# container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4", `-f
+# webm` -> "webm"). used for the rendition's stored filename/mime, and
+# for the temp filename ffmpeg writes to.
+# (default: "mp4")
+extension = "mp4"
 
 # OPTIONAL: add more profiles for fixed-resolution renditions (e.g. lower
 # bandwidth streaming targets) by appending more [[media.video_transcode_renditions]]
@@ -168,10 +174,13 @@ args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 
 # [[media.video_transcode_renditions]]
 # label = "480p"
 # args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:480 -b:v 1000k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
 #
 # [[media.video_transcode_renditions]]
 # label = "720p"
 # args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:720 -b:v 2500k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
+
 
 # ============================================================================
 # MusicBrainz integration for metadata enrichment

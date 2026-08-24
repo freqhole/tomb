@@ -4,13 +4,15 @@
 //! `parent_blob_id` = the original video blob) for a video, one ffmpeg
 //! invocation per configured rendition in `config.media.video_transcode_renditions`.
 
+use crate::blob_data::stream_sha256_hash;
+use crate::blobz::compute_blake3_hash;
 use crate::config::get_config;
 use crate::jobs::job_events;
 use crate::jobs::models::{TranscodeVideoParams, TranscodeVideoResult};
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::ffmpeg_runner::run_ffmpeg;
 use crate::media_blobz::{create_media_blob, get_media_blob, BlobType, CreateMediaBlobRequest};
-use sha2::{Digest, Sha256};
+use std::path::Path;
 use tracing::{info, warn};
 
 pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json::Value>, JobError> {
@@ -80,15 +82,20 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             )),
         );
 
-        let temp_dir = config.temp_dir();
-        if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
-            warn!("failed to create temp dir {}: {}", temp_dir.display(), e);
+        let renditions_dir = config.renditions_dir();
+        if let Err(e) = tokio::fs::create_dir_all(&renditions_dir).await {
+            warn!(
+                "failed to create renditions dir {}: {}",
+                renditions_dir.display(),
+                e
+            );
         }
-        let output_path = temp_dir
+        let output_path = renditions_dir
             .join(format!(
-                "video_rendition_{}_{}.mp4",
+                "video_rendition_{}_{}.{}",
                 rendition.label,
-                uuid::Uuid::new_v4()
+                uuid::Uuid::new_v4(),
+                rendition.extension
             ))
             .to_string_lossy()
             .to_string();
@@ -107,52 +114,81 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 "transcode failed for video {} rendition {}: {}",
                 params.video_id, rendition.label, e
             );
+            let _ = tokio::fs::remove_file(&output_path).await;
             continue;
         }
 
-        let output_bytes = match tokio::fs::read(&output_path).await {
-            Ok(b) => b,
+        // stream size/hashes from disk instead of reading the whole
+        // (potentially multi-GB) rendition into memory - the file stays at
+        // `output_path` permanently and is referenced via `local_path`
+        // rather than copied into blob storage.
+        let size = match tokio::fs::metadata(&output_path).await {
+            Ok(m) => m.len(),
             Err(e) => {
                 warn!(
-                    "failed to read transcode output for video {} rendition {}: {}",
+                    "failed to stat transcode output for video {} rendition {}: {}",
                     params.video_id, rendition.label, e
                 );
                 continue;
             }
         };
-        let _ = tokio::fs::remove_file(&output_path).await;
 
-        if output_bytes.is_empty() {
+        if size == 0 {
             warn!(
                 "transcode output empty for video {} rendition {}",
                 params.video_id, rendition.label
             );
+            let _ = tokio::fs::remove_file(&output_path).await;
             continue;
         }
 
-        let blake3 = reliquary::hash_bytes(&output_bytes);
-        let mut hasher = Sha256::new();
-        hasher.update(&output_bytes);
-        let sha256 = format!("{:x}", hasher.finalize());
-        let size = output_bytes.len() as i64;
+        let sha256 = match stream_sha256_hash(&output_path).await {
+            Ok(hash) => hash,
+            Err(e) => {
+                warn!(
+                    "failed to hash transcode output for video {} rendition {}: {}",
+                    params.video_id, rendition.label, e
+                );
+                continue;
+            }
+        };
+
+        // non-fatal if this fails - matches create_media_blob_from_file's
+        // handling; the blob just won't get mirrored into reliquary until
+        // a blake3 is backfilled later.
+        let blake3 = match compute_blake3_hash(Path::new(&output_path)).await {
+            Ok(hash) => Some(hash),
+            Err(e) => {
+                warn!(
+                    "failed to compute blake3 for transcode output {}: {}",
+                    output_path, e
+                );
+                None
+            }
+        };
+
+        let mime = mime_guess::from_path(&output_path)
+            .first()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
 
         match create_media_blob(CreateMediaBlobRequest {
             sha256,
-            size: Some(size),
-            mime: Some("video/mp4".to_string()),
+            size: Some(size as i64),
+            mime: Some(mime),
             source_client_id: None,
-            local_path: None,
-            filename: Some(format!("{}.mp4", rendition.label)),
+            local_path: Some(output_path.clone()),
+            filename: Some(format!("{}.{}", rendition.label, rendition.extension)),
             parent_blob_id: Some(params.media_blob_id.clone()),
             blob_type: Some(BlobType::Rendition),
             metadata: serde_json::json!({
                 "rendition": rendition.label,
             }),
             created_by: job.created_by.clone(),
-            data: Some(crate::Bytes::from(output_bytes)),
+            data: None,
             width: None,
             height: None,
-            blake3: Some(blake3),
+            blake3,
         })
         .await
         {

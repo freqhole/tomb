@@ -1,6 +1,8 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Song } from "../../music/data/types";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
+import { VideoQueueRow } from "./VideoQueueRow";
 import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
@@ -72,6 +74,17 @@ export interface QueueSidebarProps {
   songs: Song[];
   /** currently playing song index */
   currentIndex: number;
+  /** video entries in the queue - rendered as a simple, non-virtualized
+   * block (see `VideoQueueRow`) rather than interleaved into the
+   * virtualized song list; `fullIndex` is the item's index in the real
+   * mixed-media queue, for use with `onVideoClick`/`onRemoveVideo`. */
+  videos?: { video: QueuedVideo; fullIndex: number }[];
+  /** id (`Video.id`) of the currently-playing video, if any */
+  currentVideoId?: string | null;
+  /** callback when a video row is played */
+  onVideoClick?: (fullIndex: number) => void;
+  /** callback when a video row's remove button is clicked */
+  onRemoveVideo?: (fullIndex: number) => void;
   /** whether sidebar is open */
   isOpen: boolean;
   /** callback when close button clicked */
@@ -140,7 +153,9 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
   const hasRadioQueueEntry = () => !!props.currentRadioStation;
-  const queueEntryCount = () => props.songs.length + (hasRadioQueueEntry() ? 1 : 0);
+  const hasVideoQueueEntries = () => (props.videos?.length ?? 0) > 0;
+  const queueEntryCount = () =>
+    props.songs.length + (props.videos?.length ?? 0) + (hasRadioQueueEntry() ? 1 : 0);
 
   // auto-download toggle state
   const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
@@ -443,7 +458,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
             <Show
               when={
-                (activeTab() === "queue" && (props.songs.length > 0 || hasRadioQueueEntry())) ||
+                (activeTab() === "queue" &&
+                  (props.songs.length > 0 || hasRadioQueueEntry() || hasVideoQueueEntries())) ||
                 (activeTab() === "history" && props.historyEntries.length > 0)
               }
             >
@@ -563,34 +579,45 @@ export function QueueSidebar(props: QueueSidebarProps) {
             display: activeTab() === "queue" ? undefined : "none",
           }}
         >
-          <Show
-            when={props.songs.length > 0}
-            fallback={
-              <Show
-                when={!hasRadioQueueEntry()}
-                fallback={
-                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
-                      no songs queued
-                    </p>
-                    <p class="text-[var(--color-text-muted)] text-xs m-0">
-                      radio is saved above as a queue entry
-                    </p>
-                  </div>
-                }
-              >
+          {/* video rows - simple, non-virtualized (see VideoQueueRow) */}
+          <Show when={hasVideoQueueEntries()}>
+            <div class="flex flex-col gap-0.5 px-2 pt-2">
+              <For each={props.videos}>
+                {(entry) => (
+                  <VideoQueueRow
+                    video={entry.video}
+                    isCurrentlyPlaying={entry.video.id === props.currentVideoId}
+                    onPlay={() => props.onVideoClick?.(entry.fullIndex)}
+                    onRemove={() => props.onRemoveVideo?.(entry.fullIndex)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <Show when={props.songs.length === 0 && !hasVideoQueueEntries()}>
+            <Show
+              when={!hasRadioQueueEntry()}
+              fallback={
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                  <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
-                    <Icon name="queue" size={32} color="var(--color-accent-500)" />
-                  </div>
-                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
+                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">no songs queued</p>
                   <p class="text-[var(--color-text-muted)] text-xs m-0">
-                    add songs to see them here
+                    radio is saved above as a queue entry
                   </p>
                 </div>
-              </Show>
-            }
-          >
+              }
+            >
+              <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                  <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                </div>
+                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
+                <p class="text-[var(--color-text-muted)] text-xs m-0">add songs to see them here</p>
+              </div>
+            </Show>
+          </Show>
+
+          <Show when={props.songs.length > 0}>
             <div
               class="relative p-2"
               style={{

@@ -22,8 +22,9 @@ import {
   getConnectionProgress,
   cancelConnection,
   connectToRemote,
-  recheckRemote,
 } from "./services/remotes/connectionProgress";
+import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitching";
+import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { TopNav } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
@@ -36,7 +37,7 @@ import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
 import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
+import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
@@ -60,14 +61,7 @@ import {
   setExternalMediaSession,
 } from "../music/services/audio/mediaSessionBridge";
 import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
-import {
-  getLoadingP2PSongIds,
-  preCacheRemoteTransport,
-  resolveBlobUrl,
-  usesBlobResolver,
-  withThumbSuffix,
-} from "../music/services/storage/blobResolver";
-import { resolveLocalBlobUrl } from "../music/utils/images";
+import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
@@ -92,8 +86,6 @@ import {
   getRemoteById,
   onRemoteStatusChange,
   onSwitchToLocal,
-  deleteRemote,
-  updateRemote,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
@@ -102,7 +94,6 @@ import {
   type Remote,
   type QueueHistoryEntry,
   type RadioStationRef,
-  STORE_QUEUE_HISTORY,
   isHttpRemote,
   isP2PRemote,
 } from "./services/storage/types";
@@ -111,24 +102,14 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import {
-  openAddMusic,
-  showShareModal,
-  formatImageCarouselTitle,
-  beginImageCarouselLoading,
-  endImageCarouselLoading,
-  openImageCarouselFromResolvers,
-  type ImageResolveResult,
-} from "../music/hooks/modals";
+import { openAddMusic, showShareModal } from "../music/hooks/modals";
 import { openAddVideo } from "../video/hooks/modals";
 import {
   appState,
   setQueueOpen,
   getLocalLibraryName,
   setLocalLibraryName,
-  initAppDB,
 } from "./services/storage/db";
-import { clearBlobCache } from "../music/services/cache/blobCache";
 import { getPageInfo } from "./services/pageInfo";
 import {
   queueHistory,
@@ -147,7 +128,6 @@ import {
   onExternalStorageMountedChanged,
   onExternalStorageSyncProgress,
   setWindowTitle,
-  updateServerInfo,
 } from "./services/charnel";
 import {
   externalStorageSyncingSignal,
@@ -512,155 +492,15 @@ export function AppLayout(props: AppLayoutProps) {
     })();
   });
 
-  // handle switching to local source
-  const handleSwitchToLocal = async () => {
-    try {
-      debug("AppLayout", "switching to local source...");
-      // switch data source first
-      await useLocalSource();
-      // navigate to local route
-      navigate(getDefaultRoute("local"));
-      // invalidate all queries to refetch from local source
-      queryClient.invalidateQueries();
-      debug("AppLayout", "switched to local source");
-    } catch (error) {
-      console.error("failed to switch to local:", error);
-    }
-  };
-
-  // handle switching to remote source (from TopNav)
-  const handleSwitchToRemote = async (remoteId: string) => {
-    try {
-      debug("AppLayout", `switching to remote: ${remoteId}...`);
-
-      // pre-cache transport type for blob resolution (avoids flicker on image load)
-      await preCacheRemoteTransport(remoteId);
-
-      // connect with progress modal support
-      const result = await connectToRemote(remoteId);
-
-      if (result.cancelled) {
-        debug("AppLayout", "connection cancelled by user");
-        return;
-      }
-
-      if (!result.success) {
-        debug("AppLayout", `remote ${remoteId} is offline, not switching`);
-        // refresh remotes list to show updated status
-        const allRemotes = await getAllRemotes();
-        setRemotes(allRemotes);
-        return;
-      }
-
-      // navigate to remote route
-      navigate(getDefaultRoute(remoteId));
-      // invalidate all queries to refetch from remote source
-      queryClient.invalidateQueries();
-
-      // refresh remotes list to show updated status
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-
-      debug("AppLayout", `switched to remote: ${remoteId}`);
-    } catch (error) {
-      console.error("failed to switch to remote:", error);
-    }
-  };
-
-  // handle rechecking a remote's status (with progress modal)
-  const handleRecheckRemote = async (remoteId: string): Promise<boolean> => {
-    try {
-      debug("AppLayout", `rechecking remote: ${remoteId}...`);
-
-      const isOnline = await recheckRemote(remoteId);
-
-      // refresh remotes list to update UI
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-
-      debug("AppLayout", `remote ${remoteId} recheck result: ${isOnline ? "online" : "offline"}`);
-      return isOnline;
-    } catch (error) {
-      console.error("failed to recheck remote:", error);
-      return false;
-    }
-  };
-
-  // handle deleting a remote (called from topnav context menu)
-  // topnav already handles user confirmation; here we just perform cleanup
-  const handleDeleteRemote = async (remoteId: string): Promise<void> => {
-    try {
-      debug("AppLayout", `deleting remote: ${remoteId}...`);
-
-      // clear queue history entries for this remote
-      try {
-        const db = await initAppDB();
-        const allEntries = await db.getAll(STORE_QUEUE_HISTORY);
-        const toDelete = (allEntries as QueueHistoryEntry[]).filter(
-          (e) => e.server_remote_id === remoteId
-        );
-        for (const entry of toDelete) {
-          await db.delete(STORE_QUEUE_HISTORY, entry.id);
-        }
-      } catch (e) {
-        debug("AppLayout", "failed to clear queue history:", e);
-      }
-
-      // clear cached blobs for this remote
-      try {
-        await clearBlobCache(remoteId);
-      } catch (e) {
-        debug("AppLayout", "failed to clear blob cache:", e);
-      }
-
-      // delete the remote record
-      await deleteRemote(remoteId);
-
-      // refresh remotes list
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-
-      toast.success("remote deleted");
-    } catch (error) {
-      console.error("failed to delete remote:", error);
-      toast.error("failed to delete remote");
-    }
-  };
-
-  // handle renaming a remote (called from topnav context menu).
-  // rename is only offered for "local library" remotes in topnav:
-  //   - web: synthetic row, routed through onRenameLocalLibrary (not here)
-  //   - charnel (android/desktop): the is_charnel_managed sqlite row;
-  //     its name lives in the freqhole config toml and gets re-seeded on
-  //     every startup by `upsertTauriRemote(config.server_name)`. so for
-  //     these we also update server.name in the config to make the
-  //     rename survive a restart.
-  const handleRenameRemote = async (remoteId: string, newName: string): Promise<void> => {
-    try {
-      await updateRemote(remoteId, { name: newName });
-      if (isCharnelMode()) {
-        const target = await getRemoteById(remoteId);
-        if (target?.is_charnel_managed) {
-          try {
-            await updateServerInfo({ name: newName });
-          } catch (err) {
-            console.error("failed to persist server.name to charnel config:", err);
-            // re-throw so the modal surfaces the failure; the IDB write
-            // above will be undone on next startup anyway when charnel
-            // re-seeds from the (un-updated) toml.
-            throw err;
-          }
-        }
-      }
-      const allRemotes = await getAllRemotes();
-      setRemotes(allRemotes);
-      toast.success("remote renamed");
-    } catch (error) {
-      console.error("failed to rename remote:", error);
-      toast.error("failed to rename remote");
-      throw error;
-    }
-  };
+  // remote switch/recheck/delete/rename handlers (extracted - see
+  // app/services/remotes/remoteSwitching.ts)
+  const {
+    handleSwitchToLocal,
+    handleSwitchToRemote,
+    handleRecheckRemote,
+    handleDeleteRemote,
+    handleRenameRemote,
+  } = createRemoteSwitchingHandlers({ navigate, queryClient, setRemotes });
 
   const currentSourceName = createMemo(() => {
     const remote = getCurrentRemote();
@@ -845,160 +685,11 @@ export function AppLayout(props: AppLayoutProps) {
   };
 
   // handle player bar image click - show song + album images in carousel
+  // (see app/services/playerImageCarousel.ts)
   const handlePlayerImageClick = async () => {
     const song = currentSongData();
     if (!song) return;
-
-    // give immediate feedback on click — the hydration + url-resolution
-    // work below can take a while (network/p2p lookups), and without this
-    // the button just looks unresponsive until everything settles.
-    beginImageCarouselLoading();
-
-    type ImageItem = {
-      blobId?: string;
-      url?: string;
-      serverId?: string;
-      localBlobId?: string;
-    };
-    const seen = new Set<string>();
-    const imageItems: ImageItem[] = [];
-
-    const addImage = (img: {
-      remote_blob_id?: string;
-      local_blob_id?: string;
-      remote_url?: string;
-      remote_server_id?: string;
-      blob_type: string;
-    }) => {
-      // skip waveforms (audio viz) and the size-derivative variants
-      // (`thumbnail`, `preview`) — those are different blob ids that
-      // visually render as the same logical image, so including them
-      // produces a carousel full of duplicate-looking slides. only
-      // keep `original` (full-res) records for the carousel.
-      if (img.blob_type !== "original") return;
-      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      imageItems.push({
-        // remote blob id only — local blob ids aren't fetchable via
-        // the blobResolver path (they're resolved through OPFS via
-        // resolveLocalBlobUrl instead).
-        blobId: img.remote_blob_id,
-        url: img.remote_url,
-        serverId: img.remote_server_id,
-        localBlobId: img.local_blob_id,
-      });
-    };
-
-    // add song images (except waveforms), deduplicate by blob_id
-    if (song.images?.length) {
-      for (const img of song.images) addImage(img);
-    }
-
-    // add album images (except waveforms), deduplicate by blob_id
-    if (song.album_images?.length) {
-      for (const img of song.album_images) addImage(img);
-    }
-
-    // add artist images too — gives the player-bar carousel full
-    // context (song → album → artist art) with the same `seen` set
-    // dedup'ing across all three sources.
-    if (song.artist_images?.length) {
-      for (const img of song.artist_images) addImage(img);
-    }
-
-    // hydrate from the canonical album + artist records. song entries
-    // (especially local OPFS songs, and pre-album_images queue rows)
-    // often carry only the song's own image — the album / artist may
-    // have additional artwork that isn't denormalized onto the song.
-    // fetching here makes the carousel reflect the full set even
-    // when the song row is sparse. errors are swallowed so a failed
-    // lookup doesn't kill the click.
-    try {
-      const ds = getDataSource();
-      const tasks: Promise<void>[] = [];
-      if (song.album_id && ds.getAlbums) {
-        tasks.push(
-          ds
-            .getAlbums({ album_id: song.album_id, limit: 1 })
-            .then((res) => {
-              for (const img of res.items[0]?.images ?? []) addImage(img);
-            })
-            .catch(() => {})
-        );
-      }
-      if (song.artist_id && ds.getArtists) {
-        tasks.push(
-          ds
-            .getArtists({ artist_id: song.artist_id, limit: 1 })
-            .then((res) => {
-              for (const img of res.items[0]?.images ?? []) addImage(img);
-            })
-            .catch(() => {})
-        );
-      }
-      if (tasks.length) await Promise.all(tasks);
-    } catch {
-      // best-effort hydration — proceed with whatever we already have
-    }
-
-    if (imageItems.length === 0) {
-      // no images found at all — a normal state (many songs simply
-      // have no artwork), not a failure, so clear the spinner silently.
-      endImageCarouselLoading();
-      return;
-    }
-
-    // check if we need blob resolution (P2P or tauri-managed)
-    const firstWithServerId = imageItems.find((item) => item.serverId);
-    const needsResolution = firstWithServerId
-      ? await usesBlobResolver(firstWithServerId.serverId!)
-      : false;
-
-    // resolve each item's url independently so the carousel can open as
-    // soon as the first one lands, instead of waiting on every image.
-    const resolveOne = async (item: ImageItem): Promise<ImageResolveResult> => {
-      if (needsResolution) {
-        if (item.blobId && item.serverId) {
-          try {
-            const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
-            return { url };
-          } catch {
-            // fall through to other paths below
-          }
-        }
-        if (item.localBlobId) {
-          try {
-            const url = await resolveLocalBlobUrl(item.localBlobId);
-            return url ? { url } : null;
-          } catch {
-            /* ignore */
-          }
-        }
-        return item.url ? { url: item.url } : null;
-      }
-      // mixed http remote + local: prefer remote_url (a small server-
-      // generated thumbnail variant is cheap here since it's a plain
-      // http remote), fall back to an OPFS-resolved object url for
-      // local-only images.
-      if (item.url) {
-        return { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) };
-      }
-      if (item.localBlobId) {
-        try {
-          const url = await resolveLocalBlobUrl(item.localBlobId);
-          return url ? { url } : null;
-        } catch {
-          /* ignore */
-        }
-      }
-      return null;
-    };
-
-    await openImageCarouselFromResolvers(
-      imageItems.map((item) => () => resolveOne(item)),
-      { title: formatImageCarouselTitle(song.title), entityLabel: song.title }
-    );
+    await openPlayerImageCarousel(song);
   };
 
   const handleQueueToggle = async () => {
@@ -1394,12 +1085,12 @@ export function AppLayout(props: AppLayoutProps) {
         <div class="flex-1 overflow-hidden">{props.children}</div>
 
         {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
-            NOTE (phase 9 MVP scope): the sidebar currently only renders
-            song rows — video row rendering is deferred as a fast-follow
-            (see docs/video-domain-plan.md). the sidebar's indices are
-            local to the song-only subset, so every handler below maps
-            back to the real index in the mixed MediaItem queue via
-            `songIndexMap` before calling queue-mutation functions. */}
+            the virtualized song list's indices are local to the song-only
+            subset, so its handlers map back to the real index in the mixed
+            MediaItem queue via `songIndexMap`. video rows are rendered
+            separately (see `VideoQueueRow`/`videoIndexMap`) since they're a
+            simple, non-virtualized block rather than interleaved into the
+            song virtualizer - see docs/video-domain-plan.md. */}
         {(() => {
           const songIndexMap = () => {
             const fullQueue = appState()?.queue || [];
@@ -1412,11 +1103,27 @@ export function AppLayout(props: AppLayoutProps) {
           const toFullIndex = (songOnlyIndex: number) =>
             songIndexMap()[songOnlyIndex]?.fullIndex ?? -1;
 
+          const videoIndexMap = () => {
+            const fullQueue = appState()?.queue || [];
+            const pairs: { video: QueuedVideo; fullIndex: number }[] = [];
+            fullQueue.forEach((item, fullIndex) => {
+              if (item.kind === "video") pairs.push({ video: item.video, fullIndex });
+            });
+            return pairs;
+          };
+
           return (
             <QueueSidebar
               isOpen={queueOpen()}
               variant={isNarrow() ? "overlay" : "inline"}
               songs={songIndexMap().map((p) => p.song)}
+              videos={videoIndexMap()}
+              currentVideoId={appState()?.current_sha256 ?? null}
+              onVideoClick={(fullIndex) => {
+                const item = appState()?.queue[fullIndex];
+                if (item) void playMediaItem(item, { userInitiated: true });
+              }}
+              onRemoveVideo={(fullIndex) => void removeFromQueue(fullIndex)}
               currentIndex={
                 appState()?.current_sha256
                   ? songIndexMap().findIndex((p) => p.song.sha256 === appState()!.current_sha256)

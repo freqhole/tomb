@@ -103,11 +103,10 @@ export function VideosView(props: VideosViewProps) {
     });
   });
 
-  // play the clicked video, queueing the rest of the currently-loaded list after it
+  // play the clicked video immediately (mirrors SongsView's handlePlayClick,
+  // which also only queues the single clicked item, not the whole loaded list)
   const handleVideoPlay = (video: VideoSummary) => {
-    const list = videos();
-    const idx = list.findIndex((v) => v.id === video.id);
-    void playVideoQueue(list, Math.max(0, idx));
+    void playVideoQueue([video], 0);
   };
 
   const handleVideoClick = (video: VideoSummary) => {
