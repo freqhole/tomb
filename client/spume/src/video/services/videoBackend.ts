@@ -20,6 +20,7 @@ import {
 import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { setCurrentSong } from "../../app/services/storage/db";
 import { getVideoURL } from "./videoBlobAccess";
+import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { error as errorLog } from "../../utils/logger";
 
 export class VideoBackend implements PlayerBackend {
@@ -152,6 +153,12 @@ export class VideoBackend implements PlayerBackend {
 
     this.currentVideoId = video.id;
     el.src = url;
+
+    // fire-and-forget: sync this video into the local library if "sync
+    // queue to local" is on and it's a remote video. never blocks/breaks
+    // playback — the sync itself is fully self-contained and swallows
+    // its own errors.
+    void syncVideoToLocal(video);
 
     // update app state — AppLayout/PlayerBar watch `current_sha256` to
     // decide whether the mini video player + video-aware bar UI show up;

@@ -2896,6 +2896,11 @@ export const GetTaxonRequestSchema = z.object({
 });
 export type GetTaxonRequest = z.infer<typeof GetTaxonRequestSchema>;
 
+export const GetVideoRenditionsRequestSchema = z.object({
+  media_blob_id: z.string()
+});
+export type GetVideoRenditionsRequest = z.infer<typeof GetVideoRenditionsRequestSchema>;
+
 export const GetVideoRequestSchema = z.object({
   id: z.string()
 });
@@ -7118,6 +7123,14 @@ export const VideoMetadataHintsSchema = z.object({
   title: z.string().nullish()
 });
 export type VideoMetadataHints = z.infer<typeof VideoMetadataHintsSchema>;
+
+export const VideoRenditionSchema = z.object({
+  blob_id: z.string(),
+  label: z.string(),
+  extension: z.string(),
+  mime: z.string().nullish()
+});
+export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
 
 export const VideoSeasonSchema = z.object({
   id: z.string(),

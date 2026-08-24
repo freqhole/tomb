@@ -10,6 +10,16 @@ import MediaImage from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { MarqueeText } from "../text/MarqueeText";
 import { VolumeControl } from "./VolumeControl";
+import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
+
+/** poster fields the bar's thumbnail slot needs - a subset of `QueuedVideo`. */
+export interface PlayerBarVideo {
+  title: string;
+  source_type?: "local" | "remote";
+  poster_blob_id?: string | null;
+  poster_opfs_path?: string | null;
+  remote_server_id?: string;
+}
 
 export interface PlayerBarSong {
   /** song id */
@@ -104,6 +114,9 @@ export interface PlayerBarProps {
    * into the bar's thumbnail slot via DOM append (not recreated), same
    * pattern as `RadioAudioSink`'s owned `<audio>` element. */
   videoElement?: HTMLVideoElement | null;
+  /** currently playing video (poster shown in the thumbnail slot, icon
+   * fallback when no poster exists). */
+  video?: PlayerBarVideo | null;
   /** additional classes */
   class?: string;
 }
@@ -114,13 +127,43 @@ const COMPACT_MAX_WIDTH = 1200;
 /** small static placeholder shown in the bar's thumbnail slot while a video
  * is active — the actual `<video>` element lives in the floating
  * `VideoMiniPlayer` above the bar (see `AppLayout.tsx`), not here, so only
- * one place ever calls `appendChild` on the shared singleton element. */
-function VideoThumbSlot(props: { sizeClass: string }) {
+ * one place ever calls `appendChild` on the shared singleton element.
+ * shows the video's poster when one exists, icon otherwise. */
+function VideoThumbSlot(props: { sizeClass: string; video?: PlayerBarVideo | null }) {
+  const localPosterUrl = useLocalVideoPosterUrl(() =>
+    props.video?.source_type === "local" ? (props.video.poster_opfs_path ?? null) : null
+  );
+  const hasPoster = () =>
+    props.video?.source_type === "remote" ? !!props.video.poster_blob_id : !!localPosterUrl();
+
   return (
     <div
       class={`relative ${props.sizeClass} flex-shrink-0 bg-black rounded overflow-hidden flex items-center justify-center`}
     >
-      <Icon name={IconNames.video} size={18} className="text-white/70" />
+      <Show
+        when={hasPoster()}
+        fallback={<Icon name={IconNames.video} size={18} className="text-white/70" />}
+      >
+        <Show
+          when={props.video?.source_type === "remote"}
+          fallback={
+            <img
+              src={localPosterUrl()!}
+              alt={props.video?.title}
+              class="absolute inset-0 w-full h-full object-cover"
+            />
+          }
+        >
+          <MediaImage
+            remoteBlobId={props.video?.poster_blob_id}
+            remoteServerId={props.video?.remote_server_id}
+            alt={props.video?.title ?? "video"}
+            showFallback={false}
+            thumbnailSize={50}
+            class="absolute inset-0 w-full h-full object-cover"
+          />
+        </Show>
+      </Show>
     </div>
   );
 }
@@ -442,7 +485,7 @@ export function PlayerBar(props: PlayerBarProps) {
               </div>
             }
           >
-            <VideoThumbSlot sizeClass="w-10 h-10" />
+            <VideoThumbSlot sizeClass="w-10 h-10" video={props.video} />
           </Show>
 
           {/* favorite button */}
@@ -660,7 +703,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 </div>
               }
             >
-              <VideoThumbSlot sizeClass="w-12 h-12" />
+              <VideoThumbSlot sizeClass="w-12 h-12" video={props.video} />
             </Show>
 
             {/* favorite button */}

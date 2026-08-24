@@ -62,6 +62,7 @@ pub async fn dispatch(
         "/api/video/videos/update" => Some(videos::update(caller, body.clone()).await),
         "/api/video/videos/delete" => Some(videos::delete(caller, body.clone()).await),
         "/api/video/videos/bulk-delete" => Some(videos::bulk_delete(caller, body.clone()).await),
+        "/api/video/videos/renditions" => Some(videos::get_renditions(caller, body.clone()).await),
 
         _ => None,
     }

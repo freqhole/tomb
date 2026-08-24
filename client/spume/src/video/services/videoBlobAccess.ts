@@ -8,8 +8,33 @@
 
 import type { BlobProgressCallback } from "@freqhole/api-client";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
+import { getClientForRemote } from "../../app/api/client";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { readVideoFromOPFS } from "./opfs/helpers";
+import { warn } from "../../utils/logger";
+
+/** resolve the media_blob_id to actually play for a remote video: the
+ * first available transcoded rendition, if the server has produced one,
+ * else the original blob. failures fall back to the original silently
+ * (rendition playback is a nice-to-have, never a hard requirement).
+ * exported so `syncVideoToLocal` can sync whichever blob is actually
+ * played, without re-deriving this selection logic. */
+export async function resolvePlaybackBlobId(video: QueuedVideo, remoteId: string): Promise<string> {
+  const mediaBlobId = video.media_blob_id!;
+  try {
+    const remote = await getRemoteById(remoteId);
+    if (!remote) return mediaBlobId;
+    const client = await getClientForRemote(remote);
+    const result = await client.video.getVideoRenditions({ media_blob_id: mediaBlobId });
+    if (result.success && result.data.length > 0) {
+      return result.data[0].blob_id;
+    }
+  } catch (err) {
+    warn("videoBlobAccess", `failed to resolve renditions for ${mediaBlobId}:`, err);
+  }
+  return mediaBlobId;
+}
 
 export async function getVideoURL(
   video: QueuedVideo,
@@ -28,5 +53,6 @@ export async function getVideoURL(
   if (!video.remote_server_id) {
     throw new Error(`remote video has no remote_server_id (id=${video.id})`);
   }
-  return resolveBlobUrl(video.media_blob_id, video.remote_server_id, "video", onProgress);
+  const blobId = await resolvePlaybackBlobId(video, video.remote_server_id);
+  return resolveBlobUrl(blobId, video.remote_server_id, "video", onProgress);
 }

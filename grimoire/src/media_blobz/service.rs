@@ -440,6 +440,56 @@ pub async fn get_media_blob_by_sha256(sha256: &str) -> GrimoireResult<MediaBlob>
     Ok(blob_with_metadata)
 }
 
+/// list transcoded renditions for an original video blob, ordered by
+/// creation time. only rows with `blob_type = 'rendition'` and
+/// `parent_blob_id = id` are returned; deleted rows are excluded.
+pub async fn list_renditions(parent_blob_id: &str) -> GrimoireResult<Vec<MediaBlob>> {
+    let pool = database::connect().await?;
+
+    let blobs = sqlx::query_as!(
+        MediaBlob,
+        "SELECT
+            id as \"id!\",
+            sha256 as \"sha256!\",
+            size,
+            mime,
+            source_client_id,
+            local_path,
+            filename,
+            parent_blob_id,
+            blob_type as \"blob_type!\",
+            metadata,
+            created_at as \"created_at!\",
+            updated_at as \"updated_at!\",
+            deleted_at,
+            deleted_by,
+            created_by,
+            updated_by,
+            width,
+            height,
+            blake3
+         FROM media_blobz
+         WHERE parent_blob_id = ?
+           AND blob_type = 'rendition'
+           AND deleted_at IS NULL
+         ORDER BY created_at ASC",
+        parent_blob_id
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let blobs = blobs
+        .into_iter()
+        .map(|mut blob| {
+            blob.metadata =
+                serde_json::from_str(blob.metadata.as_str().unwrap_or("{}")).unwrap_or_default();
+            blob
+        })
+        .collect();
+
+    Ok(blobs)
+}
+
 /// get media blob with binary data for streaming
 ///
 /// returns (MediaBlob, Option<Vec<u8>>)

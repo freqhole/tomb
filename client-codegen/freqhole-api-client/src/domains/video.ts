@@ -131,6 +131,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    getVideoRenditions: (params: s.GetVideoRenditionsRequest) => {
+      return call(
+        "video",
+        "get_video_renditions",
+        routes.video.get_video_renditions.resp,
+        routes.video.get_video_renditions.req,
+        routes.video.get_video_renditions.method,
+        routes.video.get_video_renditions.path,
+        params,
+      );
+    },
+
     // video series
     queryVideoSeries: (params: s.QueryParams) => {
       return call(

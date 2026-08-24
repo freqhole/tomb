@@ -55,6 +55,21 @@ pub struct BulkDeleteVideosRequest {
     pub video_ids: Vec<String>,
 }
 
+/// request for getting a video's transcoded renditions
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct GetVideoRenditionsRequest {
+    pub media_blob_id: String,
+}
+
+/// a single transcoded rendition of a video's original media blob.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoRendition {
+    pub blob_id: String,
+    pub label: String,
+    pub extension: String,
+    pub mime: Option<String>,
+}
+
 /// request for querying videos, optionally scoped to a series/season or to
 /// standalone (unattached) videos
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -149,6 +164,15 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "BulkDeleteVideosRequest",
         response_type: "BulkDeleteVideosResponse",
         auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "get_video_renditions",
+        path: "/api/video/videos/renditions",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "GetVideoRenditionsRequest",
+        response_type: "Vec<VideoRendition>",
+        auth: RouteAuth::Authenticated,
     },
 ];
 
@@ -371,4 +395,62 @@ pub async fn bulk_delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
     let response = grimoire_bulk_delete_videos(req.video_ids, Some(caller.user_id.clone())).await;
     let message = response.message.clone();
     GrimoireResponse::success(&message, serde_json::to_value(response).unwrap())
+}
+
+/// get transcoded renditions for a video's original media blob
+///
+/// path: POST /api/video/videos/renditions
+pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetVideoRenditionsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let blobs = match crate::media_blobz::list_renditions(&req.media_blob_id).await {
+        Ok(b) => b,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to list video renditions",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let renditions: Vec<VideoRendition> = blobs
+        .into_iter()
+        .map(|blob| {
+            let label = blob
+                .metadata
+                .get("rendition")
+                .and_then(|v| v.as_str())
+                .unwrap_or("rendition")
+                .to_string();
+            let extension = blob
+                .filename
+                .as_deref()
+                .and_then(|f| f.rsplit('.').next())
+                .unwrap_or("mp4")
+                .to_string();
+            VideoRendition {
+                blob_id: blob.id,
+                label,
+                extension,
+                mime: blob.mime,
+            }
+        })
+        .collect();
+
+    GrimoireResponse::success(
+        "video renditions",
+        serde_json::to_value(renditions).unwrap(),
+    )
 }

@@ -1612,6 +1612,7 @@ export function AppLayout(props: AppLayoutProps) {
                 onExternalStorageIconClick={() => navigate("/storage-overview")}
                 isVideoActive={!isRadio() && !!currentVideoData()}
                 videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
+                video={!isRadio() ? currentVideoData() : null}
               />
             </>
           );

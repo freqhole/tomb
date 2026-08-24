@@ -227,6 +227,7 @@ export const routes = {
     delete_video_season: { method: 'POST', path: '/api/video/seasons/delete', req: s.DeleteVideoSeasonRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_video_series: { method: 'POST', path: '/api/video/series/delete', req: s.DeleteVideoSeriesRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     get_video: { method: 'POST', path: '/api/video/videos/get', req: s.GetVideoRequestSchema, resp: s.VideoSchema, auth: { type: 'authenticated' } as const },
+    get_video_renditions: { method: 'POST', path: '/api/video/videos/renditions', req: s.GetVideoRenditionsRequestSchema, resp: s.VideoRenditionSchema.array(), auth: { type: 'authenticated' } as const },
     get_video_season: { method: 'POST', path: '/api/video/seasons/get', req: s.GetVideoSeasonRequestSchema, resp: s.VideoSeasonSchema, auth: { type: 'authenticated' } as const },
     get_video_series: { method: 'POST', path: '/api/video/series/get', req: s.GetVideoSeriesRequestSchema, resp: s.VideoSeriesSchema, auth: { type: 'authenticated' } as const },
     get_video_series_detail: { method: 'POST', path: '/api/video/series/detail', req: s.GetVideoSeriesRequestSchema, resp: s.SeriesDetailSchema, auth: { type: 'authenticated' } as const },
