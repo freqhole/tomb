@@ -16,7 +16,7 @@ export { progressMap };
 export function updateQueueItemProgress(queueEntryId: string, progress: number): void {
   const currentMap = progressMap();
   const currentMax = currentMap.get(queueEntryId) ?? 0;
-  
+
   // only update if new progress is higher
   if (progress > currentMax) {
     const newMap = new Map(currentMap);
@@ -45,39 +45,49 @@ export function clearAllQueueProgress(): void {
   setProgressMap(new Map());
 }
 
-// save progress to IDB by syncing to songs and persisting the queue
+// save progress to IDB by syncing to songs and persisting the queue.
+// video items are scoped out of progress tracking for now (see phase 9
+// MVP scope note) — they pass through unmodified.
 export async function saveProgressToIDB(): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
-  
+
   try {
     const map = progressMap();
-    // sync progress map to songs
-    const updatedQueue = state.queue.map(song => {
+    // sync progress map to song items only
+    const updatedQueue = state.queue.map((item) => {
+      if (item.kind !== "song") return item;
+      const song = item.song;
       if (song.queue_entry_id && map.has(song.queue_entry_id)) {
-        return { ...song, queue_max_progress: map.get(song.queue_entry_id) };
+        return {
+          kind: "song" as const,
+          song: { ...song, queue_max_progress: map.get(song.queue_entry_id) },
+        };
       }
-      return song;
+      return item;
     });
-    
+
     await setQueue(updatedQueue);
   } catch (err) {
     errorLog("queue.progress", "save failed:", err);
   }
 }
 
-// load progress from IDB - populate signal from songs' queue_max_progress
+// load progress from IDB - populate signal from song items' queue_max_progress.
+// video items don't participate in progress tracking yet.
 export function loadProgressFromStorage(): void {
   const state = appState();
   if (!state?.queue) return;
-  
+
   const map = new Map<string, number>();
-  for (const song of state.queue) {
+  for (const item of state.queue) {
+    if (item.kind !== "song") continue;
+    const song = item.song;
     if (song.queue_entry_id && song.queue_max_progress !== undefined) {
       map.set(song.queue_entry_id, song.queue_max_progress);
     }
   }
-  
+
   if (map.size > 0) {
     setProgressMap(map);
   }

@@ -4,11 +4,7 @@
 // before the real one is wired up. mirrors grimoire's
 // `NoopPlayerController` rust impl.
 
-import type {
-  PlayerCommand,
-  PlayerEvent,
-  PlayerSnapshot,
-} from "@freqhole/api-client";
+import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import {
   emptySnapshot,
   type BackendKind,
@@ -17,7 +13,7 @@ import {
   type PlayerEventListener,
   type Unsubscribe,
 } from "../backend";
-import type { Song } from "../../storage/types";
+import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 
 export class DummyBackend implements PlayerBackend {
   readonly kind: BackendKind = "dummy";
@@ -42,7 +38,7 @@ export class DummyBackend implements PlayerBackend {
     /* no-op */
   }
 
-  async loadAndPlay(_song: Song, _options?: LoadAndPlayOptions): Promise<void> {
+  async loadAndPlay(_item: MediaItem, _options?: LoadAndPlayOptions): Promise<void> {
     /* no-op */
   }
 

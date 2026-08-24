@@ -20,6 +20,7 @@
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
+import { songsOnly } from "../../../app/services/storage/mediaItem";
 import { preCacheNextSongs } from "../cache/blobCache";
 import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import { currentTime, duration } from "../audio/playerState";
@@ -78,16 +79,12 @@ export function installPreCacheScheduler(): void {
       if (progress < PRE_CACHE_TRIGGER_FRACTION) return;
 
       lastPreCachedFor = current_sha256;
-      debug(
-        "player",
-        `pre-caching next songs (~${PRE_CACHE_MINUTES_AHEAD} min)`,
-      );
-      void preCacheNextSongs(current_sha256, queue, PRE_CACHE_MINUTES_AHEAD);
-      void preCacheNextP2PSongs(
-        current_sha256,
-        queue,
-        PRE_CACHE_MINUTES_AHEAD,
-      );
+      debug("player", `pre-caching next songs (~${PRE_CACHE_MINUTES_AHEAD} min)`);
+      // video items don't participate in P2P/blob pre-caching yet
+      // (phase 9 MVP scope note) — operate on the song-only subset.
+      const queueSongs = songsOnly(queue);
+      void preCacheNextSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD);
+      void preCacheNextP2PSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD);
     });
   });
 }

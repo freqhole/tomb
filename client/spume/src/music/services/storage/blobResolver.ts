@@ -190,7 +190,7 @@ export function withThumbSuffix(url: string, size?: ThumbnailSize): string {
 export async function resolveBlobUrl(
   blobId: string,
   remoteId: string,
-  type: "audio" | "image" = "image",
+  type: "audio" | "image" | "video" = "image",
   onProgress?: BlobProgressCallback,
   thumbnailSize?: ThumbnailSize,
   blake3?: string,
@@ -282,7 +282,7 @@ async function resolveP2PBlob(
   blobId: string,
   remote: BlobRemote,
   cacheKey: string,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
   onProgress?: BlobProgressCallback,
   blake3?: string,
   signal?: AbortSignal,
@@ -585,7 +585,7 @@ export async function preCacheP2PBlob(
   blobId: string,
   remoteId: string,
   sha256?: string,
-  type: "audio" | "image" = "audio",
+  type: "audio" | "image" | "video" = "audio",
   blake3?: string,
   totalBytes?: number
 ): Promise<void> {

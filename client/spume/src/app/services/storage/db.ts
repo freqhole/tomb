@@ -4,6 +4,7 @@ import { createSignal } from "solid-js";
 import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/haruspex/identity";
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
+import { withQueueEntryId, type MediaItem } from "./mediaItem";
 import {
   APP_DB_NAME,
   APP_DB_VERSION,
@@ -125,16 +126,14 @@ async function loadAppState(): Promise<AppState> {
   }
 
   console.info(
-    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`,
+    `[appState] loadAppState: queue.len=${state.queue?.length ?? 0} current=${state.current_sha256?.slice(0, 8) ?? "null"} last_updated=${new Date(state.last_updated).toISOString()}`
   );
   setAppState(state);
   return state;
 }
 
 // update app state
-async function updateAppState(
-  updates: Partial<Omit<AppState, "id">>,
-): Promise<AppState> {
+async function updateAppState(updates: Partial<Omit<AppState, "id">>): Promise<AppState> {
   const db = await initAppDB();
   const current = appState() || (await loadAppState());
 
@@ -157,52 +156,52 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 }
 
 // update queue
-async function setQueue(songs: Song[]): Promise<void> {
+async function setQueue(items: MediaItem[]): Promise<void> {
   console.info(
-    `[appState] setQueue: writing len=${songs.length}`,
-    new Error("setQueue stack").stack?.split("\n").slice(2, 6).join(" | "),
+    `[appState] setQueue: writing len=${items.length}`,
+    new Error("setQueue stack").stack?.split("\n").slice(2, 6).join(" | ")
   );
-  // unwrap proxy arrays before storing in IndexedDB
-  // assign queue_entry_id to songs that don't have one
-  const plainSongs = songs.map((song) => {
-    const plain: Song = { ...song };
-    if (!plain.queue_entry_id) {
-      plain.queue_entry_id = generateUUID();
+  // unwrap proxy objects before storing in IndexedDB; assign a
+  // queue_entry_id to items that don't have one yet (progress tracking).
+  const plainItems = items.map((item) => {
+    const withId = withQueueEntryId(item, generateUUID());
+    if (withId.kind === "song") {
+      const song = withId.song;
+      const plain: Song = { ...song };
+      if (song.album_tags) plain.album_tags = [...song.album_tags];
+      if (song.album_taxons) plain.album_taxons = song.album_taxons.map((t) => ({ ...t }));
+      if (song.album_images) plain.album_images = song.album_images.map((img) => ({ ...img }));
+      if (song.artist_images) plain.artist_images = song.artist_images.map((img) => ({ ...img }));
+      if (song.images) plain.images = song.images.map((img) => ({ ...img }));
+      if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
+      return { kind: "song" as const, song: plain };
     }
-    if (song.album_tags) plain.album_tags = [...song.album_tags];
-    if (song.album_taxons) plain.album_taxons = song.album_taxons.map(t => ({ ...t }));
-    if (song.album_images) plain.album_images = song.album_images.map(img => ({ ...img }));
-    if (song.artist_images) plain.artist_images = song.artist_images.map(img => ({ ...img }));
-    if (song.images) plain.images = song.images.map(img => ({ ...img }));
-    if (song.urls) plain.urls = song.urls.map(url => ({ ...url }));
-
-    return plain;
+    return { kind: "video" as const, video: { ...withId.video } };
   });
-  
-  await updateAppState({ queue: plainSongs });
+
+  await updateAppState({ queue: plainItems });
   clearInProgressTracking();
 }
 
 // update a specific song in the queue (for metadata changes like favorites, ratings)
+// no-ops for video queue items (identified by songId/sha256 not matching).
 async function updateSongInQueue(
   songId: string,
   sha256: string,
-  updates: Partial<Song>,
+  updates: Partial<Song>
 ): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
 
   // find and update the song in the queue
-  const updatedQueue = state.queue.map((song) =>
-    song.id === songId || song.sha256 === sha256
-      ? { ...song, ...updates }
-      : song,
+  const updatedQueue = state.queue.map((item) =>
+    item.kind === "song" && (item.song.id === songId || item.song.sha256 === sha256)
+      ? { kind: "song" as const, song: { ...item.song, ...updates } }
+      : item
   );
 
   // only update if something changed
-  const hasChanges = updatedQueue.some(
-    (song, index) => song !== state.queue[index],
-  );
+  const hasChanges = updatedQueue.some((item, index) => item !== state.queue[index]);
 
   if (hasChanges) {
     await setQueue(updatedQueue);

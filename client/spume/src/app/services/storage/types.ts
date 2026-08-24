@@ -1,10 +1,11 @@
 // application-level storage types (domain-agnostic)
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
+import type { MediaItem } from "./mediaItem";
 
 export interface AppState {
   id: "app_state";
-  current_sha256: string | null; // currently playing song
-  queue: Song[]; // array of songs in play order
+  current_sha256: string | null; // currently playing song/video identity key
+  queue: MediaItem[]; // array of songs/videos in play order
   queue_open: boolean; // whether queue sidebar is open
   active_remote_id: string | null; // currently active remote source id
   last_updated: number;
@@ -33,21 +34,15 @@ export interface GraphPrefs {
 
 // queue history entry — represents one "add to queue" action
 export type QueueHistorySourceType =
-  | "song"
-  | "album"
-  | "artist"
-  | "genre"
-  | "playlist"
-  | "shuffle"
-  | "radio_station";
+  "song" | "album" | "artist" | "genre" | "playlist" | "shuffle" | "radio_station";
 
 // reference to a radio station stored in queue history
 export interface RadioStationRef {
-  peer_addr: string;        // peer addr used with tuneIntoRadio
-  station_id?: string;      // optional station id
-  station_name: string;     // display label
-  is_local?: boolean;       // true if this is an in-process (self) station
-  art_thumb_b64?: string;   // base64 thumbnail for display
+  peer_addr: string; // peer addr used with tuneIntoRadio
+  station_id?: string; // optional station id
+  station_name: string; // display label
+  is_local?: boolean; // true if this is an in-process (self) station
+  art_thumb_b64?: string; // base64 thumbnail for display
   art_thumb_mime?: string;
 }
 
@@ -75,17 +70,9 @@ export interface QueueHistoryEntry {
 }
 
 // analytics event — queued locally for offline-first sync to server
-export type AnalyticsEventType =
-  | "play_complete"
-  | "favorite"
-  | "unfavorite"
-  | "rate";
+export type AnalyticsEventType = "play_complete" | "favorite" | "unfavorite" | "rate";
 
-export type AnalyticsEventStatus =
-  | "pending"
-  | "sending"
-  | "failed"
-  | "sent";
+export type AnalyticsEventStatus = "pending" | "sending" | "failed" | "sent";
 
 export interface AnalyticsEvent {
   id: string; // uuid
@@ -148,12 +135,7 @@ export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
 
-export type SharedItemKind =
-  | "album"
-  | "playlist"
-  | "song"
-  | "artist"
-  | "radio_station";
+export type SharedItemKind = "album" | "playlist" | "song" | "artist" | "radio_station";
 
 export interface SharedItemEntry {
   // deterministic dedupe key from (kind, id, parent, source)
@@ -174,28 +156,28 @@ export interface SharedItemEntry {
 // radio history entry — one per (station, song_id) transition observed by
 // the listener. capped at MAX_RADIO_HISTORY rows by radioHistory module.
 export interface RadioHistoryEntry {
-  id: string;                       // uuid
-  played_at: number;                // ms epoch (sort key)
+  id: string; // uuid
+  played_at: number; // ms epoch (sort key)
   station_id: string | null;
   station_name: string | null;
-  peer_addr: string;                // remote that served the stream
+  peer_addr: string; // remote that served the stream
   song_id: string | null;
   title: string;
   artist: string | null;
   album: string | null;
   duration_ms: number | null;
   art_blob_id: string | null;
-  art_thumb_b64: string | null;     // optional inline thumb (option A)
+  art_thumb_b64: string | null; // optional inline thumb (option A)
   art_thumb_mime: string | null;
 }
 
 // pending remote stage - tracks progress of adding a new remote
 export type PendingRemoteStage =
-  | "testing"         // connection test in progress
-  | "connected"       // test connection succeeded, have server info
-  | "failed"          // connection failed (timeout, unreachable, etc.)
-  | "knock_pending"   // knock request was sent, awaiting response
-  | "knock_accepted"  // knock was accepted, can complete setup
+  | "testing" // connection test in progress
+  | "connected" // test connection succeeded, have server info
+  | "failed" // connection failed (timeout, unreachable, etc.)
+  | "knock_pending" // knock request was sent, awaiting response
+  | "knock_accepted" // knock was accepted, can complete setup
   | "knock_rejected"; // knock was rejected
 
 // pending remote — tracks in-progress remote additions

@@ -162,17 +162,14 @@ async function resolveJobEntities(
   client: FreqholeClient,
   jobId: string,
   allowSessionFallback = false
-): Promise<
-  | {
-      albumId?: string;
-      artistId?: string;
-      songId?: string;
-      sessionId?: string;
-      isDuplicate?: boolean;
-      resultSummary?: string;
-    }
-  | null
-> {
+): Promise<{
+  albumId?: string;
+  artistId?: string;
+  songId?: string;
+  sessionId?: string;
+  isDuplicate?: boolean;
+  resultSummary?: string;
+} | null> {
   try {
     const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
     if (!statusResp.success || !statusResp.data) return null;
@@ -180,7 +177,12 @@ async function resolveJobEntities(
     if (!row) return null;
     const fromResult = parseJobResult(row.result ?? null);
     const sessionId = row.session_id ?? undefined;
-    if (fromResult.albumId || fromResult.songId || fromResult.artistId || fromResult.resultSummary) {
+    if (
+      fromResult.albumId ||
+      fromResult.songId ||
+      fromResult.artistId ||
+      fromResult.resultSummary
+    ) {
       return { ...fromResult, sessionId };
     }
     // FetchMedia parent path: walk children via session_id
@@ -218,8 +220,7 @@ function parseJobResult(raw: string | null | undefined): {
   if (!raw) return {};
   try {
     const v = JSON.parse(raw) as Record<string, unknown>;
-    const get = (k: string) =>
-      typeof v[k] === "string" ? (v[k] as string) : undefined;
+    const get = (k: string) => (typeof v[k] === "string" ? (v[k] as string) : undefined);
     const getNum = (k: string) => (typeof v[k] === "number" ? (v[k] as number) : undefined);
 
     // ProcessDirectoryResult carries per-file counts instead of a single
@@ -241,7 +242,8 @@ function parseJobResult(raw: string | null | undefined): {
       albumId: get("album_id"),
       artistId: get("artist_id"),
       songId: get("song_id"),
-      isDuplicate: typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
+      isDuplicate:
+        typeof v["is_duplicate"] === "boolean" ? (v["is_duplicate"] as boolean) : undefined,
       resultSummary,
     };
   } catch {
@@ -291,8 +293,7 @@ function humanizeJobError(
     return { short: "network error", full };
   if (m.includes("permission denied") || m.includes("forbidden"))
     return { short: "permission denied", full };
-  if (m.includes("timeout") || m.includes("timed out"))
-    return { short: "timed out", full };
+  if (m.includes("timeout") || m.includes("timed out")) return { short: "timed out", full };
   if (m.includes("unsupported format") || m.includes("unknown format"))
     return { short: "unsupported audio format", full };
   // short message: keep as-is. long message: truncate.
@@ -523,7 +524,7 @@ export async function importPathsToLocal(
 
     try {
       const listResp = await client.music.listJobs({ session_id: sessionId });
-      const childJobs = (listResp.success && listResp.data) ? listResp.data : [];
+      const childJobs = listResp.success && listResp.data ? listResp.data : [];
 
       if (childJobs.length === 0) {
         // no child jobs found - mark all as completed and open review
@@ -563,7 +564,10 @@ export async function importPathsToLocal(
       }
       const leftoverTrackIds = trackIds.filter((id) => !usedTrackIds.has(id));
       unmatchedJobs.forEach((job, i) => {
-        const trackId = leftoverTrackIds[i] ?? leftoverTrackIds[leftoverTrackIds.length - 1] ?? trackIds[trackIds.length - 1];
+        const trackId =
+          leftoverTrackIds[i] ??
+          leftoverTrackIds[leftoverTrackIds.length - 1] ??
+          trackIds[trackIds.length - 1];
         jobToTrackId.set(job.id, trackId);
       });
 
@@ -585,11 +589,19 @@ export async function importPathsToLocal(
               updateJobStatus(trackId, "completed");
               onJobComplete?.();
             } else if (pollResult.status === "timeout") {
-              updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+              updateJobStatus(trackId, "timeout", {
+                error: "taking a long time, check back later",
+              });
               onJobComplete?.();
             } else {
-              const friendly = humanizeJobError(pollResult.errorMessage, pollResult.errors?.[0]?.error_type);
-              updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+              const friendly = humanizeJobError(
+                pollResult.errorMessage,
+                pollResult.errors?.[0]?.error_type
+              );
+              updateJobStatus(trackId, "failed", {
+                error: friendly.short,
+                errorFull: friendly.full,
+              });
               onJobComplete?.();
             }
           } catch (err) {
@@ -666,6 +678,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         const result = await client.music.createFetchJob({
           url,
           user_id: userId ?? null,
+          domain: "Music",
         });
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";

@@ -26,11 +26,7 @@ import { createEffect, createRoot, on } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { currentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { debug } from "../../../utils/logger";
-import {
-  currentTime,
-  duration,
-  isPlaying,
-} from "../audio/playerState";
+import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
 
 export interface ExternalMediaSessionOptions {
@@ -106,9 +102,7 @@ export interface MediaActions {
 
 let mediaActions: MediaActions | null = null;
 let resolveSongById: ((id: string) => Promise<Song | null>) | null = null;
-let resolveArtworkForSong:
-  | ((song: Song) => Promise<MediaImage[]>)
-  | null = null;
+let resolveArtworkForSong: ((song: Song) => Promise<MediaImage[]>) | null = null;
 
 /**
  * register player-facade callbacks + a song-lookup function + an
@@ -119,7 +113,7 @@ let resolveArtworkForSong:
 export function registerMediaActions(
   actions: MediaActions,
   resolveSong: (id: string) => Promise<Song | null>,
-  resolveArtwork: (song: Song) => Promise<MediaImage[]>,
+  resolveArtwork: (song: Song) => Promise<MediaImage[]>
 ): () => void {
   mediaActions = actions;
   resolveSongById = resolveSong;
@@ -149,8 +143,8 @@ export function installMediaSessionBridge(): void {
     createEffect(
       on(
         () => appState()?.current_sha256 ?? null,
-        () => void refreshMetadata(),
-      ),
+        () => void refreshMetadata()
+      )
     );
 
     // playback state — flip `playbackState` between "playing" /
@@ -162,7 +156,7 @@ export function installMediaSessionBridge(): void {
         if (!("mediaSession" in navigator)) return;
         if (!appState()?.current_sha256) return;
         navigator.mediaSession.playbackState = playing ? "playing" : "paused";
-      }),
+      })
     );
 
     // favorite state — reflects live in-app favorite toggles (e.g. the
@@ -176,17 +170,18 @@ export function installMediaSessionBridge(): void {
         () => {
           const state = appState();
           if (!state?.current_sha256) return null;
-          const song = state.queue.find(
-            (s) => s.sha256 === state.current_sha256,
+          const item = state.queue.find(
+            (i) => i.kind === "song" && i.song.sha256 === state.current_sha256
           );
-          return song?.is_favorite ?? false;
+          if (!item || item.kind !== "song") return false;
+          return item.song.is_favorite ?? false;
         },
         (isFavorite) => {
           if (externalActive) return;
           if (isFavorite === null) return;
           pushFavoriteState(isFavorite);
-        },
-      ),
+        }
+      )
     );
 
     // position state — feeds the lock-screen scrubber. update lazily;
@@ -207,7 +202,7 @@ export function installMediaSessionBridge(): void {
         } catch {
           // some browsers reject the call when metadata isn't yet set.
         }
-      }),
+      })
     );
   });
 }
@@ -237,9 +232,7 @@ function pushFavoriteState(isFavorite: boolean): void {
  * when `isLive` is true we explicitly clear position state and seek
  * handlers so platforms render non-seekable controls.
  */
-export function setExternalMediaSession(
-  options: ExternalMediaSessionOptions,
-): void {
+export function setExternalMediaSession(options: ExternalMediaSessionOptions): void {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
@@ -252,7 +245,7 @@ export function setExternalMediaSession(
     "artist:",
     options.artist,
     "isPlaying:",
-    options.isPlaying,
+    options.isPlaying
   );
 
   const artwork = options.artworkUrl
@@ -275,24 +268,16 @@ export function setExternalMediaSession(
     artwork,
   });
 
-  navigator.mediaSession.playbackState = options.isPlaying
-    ? "playing"
-    : "paused";
+  navigator.mediaSession.playbackState = options.isPlaying ? "playing" : "paused";
 
   navigator.mediaSession.setActionHandler("play", options.onPlay ?? null);
   navigator.mediaSession.setActionHandler("pause", options.onPause ?? null);
-  navigator.mediaSession.setActionHandler(
-    "nexttrack",
-    options.onNextTrack ?? null,
-  );
-  navigator.mediaSession.setActionHandler(
-    "previoustrack",
-    options.onPreviousTrack ?? null,
-  );
+  navigator.mediaSession.setActionHandler("nexttrack", options.onNextTrack ?? null);
+  navigator.mediaSession.setActionHandler("previoustrack", options.onPreviousTrack ?? null);
   try {
     navigator.mediaSession.setActionHandler(
       "favorite" as MediaSessionAction,
-      options.onFavoriteToggle ?? null,
+      options.onFavoriteToggle ?? null
     );
   } catch {
     // some browsers reject unknown action names; safe to ignore.
@@ -391,16 +376,17 @@ async function refreshMetadata(): Promise<void> {
     return;
   }
 
-  // check queue first to avoid fetching from wrong remote
-  let song: Song | undefined = queue.find((s) => s.sha256 === current_sha256);
+  // check queue first to avoid fetching from wrong remote (video items
+  // don't have media-session metadata support yet — fall through to
+  // resolveSongById, which will also miss and return early).
+  const queuedItem = queue.find((i) => i.kind === "song" && i.song.sha256 === current_sha256);
+  let song: Song | undefined = queuedItem?.kind === "song" ? queuedItem.song : undefined;
   if (!song && resolveSongById) {
     song = (await resolveSongById(current_sha256)) ?? undefined;
   }
   if (!song) return;
 
-  const artwork = resolveArtworkForSong
-    ? await resolveArtworkForSong(song)
-    : [];
+  const artwork = resolveArtworkForSong ? await resolveArtworkForSong(song) : [];
 
   // clear metadata first, then set it (iOS Safari workaround). don't
   // prefix with "loading..." — iOS treats title changes as different
@@ -441,7 +427,7 @@ async function refreshMetadata(): Promise<void> {
     try {
       navigator.mediaSession.setActionHandler(
         "favorite" as MediaSessionAction,
-        () => void actions.toggleFavorite(),
+        () => void actions.toggleFavorite()
       );
     } catch {
       // some browsers reject unknown action names; safe to ignore.
@@ -459,15 +445,12 @@ async function refreshMetadata(): Promise<void> {
   // the handler is installed unconditionally and dispatches to the
   // currently-registered callback (set via `registerWatchdog`).
   try {
-    navigator.mediaSession.setActionHandler(
-      "expectedend" as MediaSessionAction,
-      () => {
-        if (intentionalReloadActive) return;
-        if (!expectedEndCallback) return;
-        debug("player", "expectedend watchdog firing — invoking callback");
-        expectedEndCallback();
-      },
-    );
+    navigator.mediaSession.setActionHandler("expectedend" as MediaSessionAction, () => {
+      if (intentionalReloadActive) return;
+      if (!expectedEndCallback) return;
+      debug("player", "expectedend watchdog firing — invoking callback");
+      expectedEndCallback();
+    });
   } catch {
     // some browsers reject unknown action names; safe to ignore.
   }

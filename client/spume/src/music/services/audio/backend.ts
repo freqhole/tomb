@@ -22,12 +22,8 @@
 // state is observed via dom events. the supervisor is responsible
 // for translating "command accepted" into observable events.
 
-import type {
-  PlayerCommand,
-  PlayerEvent,
-  PlayerSnapshot,
-} from "@freqhole/api-client";
-import type { Song } from "../storage/types";
+import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
+import type { MediaItem } from "../../../app/services/storage/mediaItem";
 
 /// listener registered via `PlayerBackend.subscribe`.
 /// receives every event the backend emits, in order.
@@ -67,15 +63,18 @@ export interface PlayerBackend {
   /// one of: "html_audio" | "rodio" | "sibyl" | "dummy".
   readonly kind: BackendKind;
 
-  /// load a song and start playing it. spume's higher-level entry
-  /// point — the html backend resolves a blob/http url and feeds
-  /// the `<audio>` element; the rodio backend resolves a local
-  /// filesystem path and sends `Load` + `Play` to the supervisor.
+  /// load a media item (song or video) and start playing it. spume's
+  /// higher-level entry point — the html backend resolves a blob/http
+  /// url and feeds the `<audio>` element for `kind: "song"` items; the
+  /// video backend does the same for `kind: "video"` items via a
+  /// `<video>` element. a backend that can't handle the given item's
+  /// kind throws `BackendPlaybackError` with `error_type:
+  /// "unsupported_media_kind"`.
   ///
   /// throws a `BackendPlaybackError` (with `error_type` set to e.g.
-  /// `"no_local_path"`) when the backend can't play a given song;
+  /// `"no_local_path"`) when the backend can't play a given item;
   /// callers can introspect to choose a fallback or surface a toast.
-  loadAndPlay(song: Song, options?: LoadAndPlayOptions): Promise<void>;
+  loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void>;
 
   /// dispatch a command. returns once the backend has accepted
   /// the command into its queue; observable effects arrive via
@@ -112,7 +111,7 @@ export class BackendPlaybackError extends Error {
   }
 }
 
-export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy";
+export type BackendKind = "html_audio" | "rodio" | "sibyl" | "dummy" | "video";
 
 /// initial snapshot for a freshly-constructed backend that hasn't
 /// observed any events yet.

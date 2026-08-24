@@ -10,11 +10,7 @@
 // backend should be selected when `isCharnelMode()` is false. see
 // `audio/select.ts`.
 
-import type {
-  PlayerCommand,
-  PlayerEvent,
-  PlayerSnapshot,
-} from "@freqhole/api-client";
+import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import {
   BackendPlaybackError,
   emptySnapshot,
@@ -24,24 +20,15 @@ import {
   type PlayerEventListener,
   type Unsubscribe,
 } from "../backend";
-import {
-  getSyncQueueToLocal,
-  setCurrentSong,
-} from "../../../../app/services/storage/db";
+import { getSyncQueueToLocal, setCurrentSong } from "../../../../app/services/storage/db";
 import { syncSongToLocal } from "../../sync/syncSongToLocal";
-import {
-  addToLoadingSet,
-  removeFromLoadingSet,
-  isSongOnDiskEphemeral,
-} from "../../download";
-import {
-  fetchEphemeralForSong,
-  reconcileEphemeralWithQueue,
-} from "../ephemeralFetch";
+import { addToLoadingSet, removeFromLoadingSet, isSongOnDiskEphemeral } from "../../download";
+import { fetchEphemeralForSong, reconcileEphemeralWithQueue } from "../ephemeralFetch";
 import { clearExternalMediaSession as bridgeClearExternal } from "../mediaSessionBridge";
 import { appState } from "../../../../app/services/storage/db";
 import { createEffect, createRoot } from "solid-js";
 import type { Song } from "../../storage/types";
+import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 import { debug, error as errorLog } from "../../../../utils/logger";
 
 // matches `PLAYER_EVENT` in client/charnel/src-tauri/src/player_commands.rs.
@@ -93,7 +80,8 @@ export class RodioBackend implements PlayerBackend {
       createEffect(() => {
         const queue = appState()?.queue ?? [];
         const blake3s = queue
-          .map((s) => s.blake3)
+          .filter((i) => i.kind === "song")
+          .map((i) => i.song.blake3)
           .filter((b): b is string => !!b);
         void reconcileEphemeralWithQueue(blake3s);
       });
@@ -130,13 +118,18 @@ export class RodioBackend implements PlayerBackend {
   ///      via the `fetch_ephemeral_blob` tauri command (no DB
   ///      writes), plays it directly from there, and tracks the
   ///      file for cleanup on the next track / stop / dispose.
-  async loadAndPlay(
-    song: Song,
-    options?: LoadAndPlayOptions,
-  ): Promise<void> {
+  async loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void> {
     if (this.disposed) {
       throw new Error("rodio backend: loadAndPlay called after dispose");
     }
+    if (item.kind !== "song") {
+      throw new BackendPlaybackError(
+        this.kind,
+        "unsupported_media_kind",
+        "the rodio backend can't play video items"
+      );
+    }
+    const song: Song = item.song;
 
     // emit a synthetic loading state so the UI shows a spinner
     // before the rust supervisor has a chance to emit its own state
@@ -184,7 +177,7 @@ export class RodioBackend implements PlayerBackend {
         throw new BackendPlaybackError(
           this.kind,
           "local_blob_missing",
-          `local song "${song.title}" has no resolvable blob (sha256=${song.sha256.slice(0, 8)})`,
+          `local song "${song.title}" has no resolvable blob (sha256=${song.sha256.slice(0, 8)})`
         );
       }
 
@@ -210,10 +203,7 @@ export class RodioBackend implements PlayerBackend {
         const alreadyOnDisk = isSongOnDiskEphemeral(song.blake3);
 
         if (!alreadyOnDisk) {
-          debug(
-            "player.rodio",
-            `"${song.title}" not on disk — fetching ephemerally`,
-          );
+          debug("player.rodio", `"${song.title}" not on disk — fetching ephemerally`);
           // light up the queue/playerbar spinner for this song while
           // we fetch. mirrors what other audio fetch paths do (see
           // blobResolver / audioAccess / autoDownload).
@@ -227,7 +217,7 @@ export class RodioBackend implements PlayerBackend {
           throw new BackendPlaybackError(
             this.kind,
             "ephemeral_fetch_failed",
-            `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`,
+            `failed to fetch "${song.title}" ephemerally: ${err instanceof Error ? err.message : String(err)}`
           );
         }
         if (!alreadyOnDisk) removeFromLoadingSet(song.sha256);
@@ -241,7 +231,7 @@ export class RodioBackend implements PlayerBackend {
         await setCurrentSong(song.sha256);
         debug(
           "player.rodio",
-          `ephemeral load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`,
+          `ephemeral load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`
         );
         await this.send({ kind: "load", paths: [path] });
         await this.send({ kind: "play" });
@@ -249,10 +239,7 @@ export class RodioBackend implements PlayerBackend {
         return;
       }
 
-      debug(
-        "player.rodio",
-        `"${song.title}" not on disk — syncing before play`,
-      );
+      debug("player.rodio", `"${song.title}" not on disk — syncing before play`);
       // light up the queue/playerbar spinner. paired with
       // `removeFromLoadingSet` after the sync resolves (success or
       // failure) so the UI never gets stuck.
@@ -294,7 +281,7 @@ export class RodioBackend implements PlayerBackend {
         throw new BackendPlaybackError(
           this.kind,
           "sync_failed",
-          `failed to sync "${song.title}" before rodio playback: ${sync.error ?? "unknown error"}`,
+          `failed to sync "${song.title}" before rodio playback: ${sync.error ?? "unknown error"}`
         );
       }
       // prefer the local path the sync returned directly — it's the
@@ -326,10 +313,7 @@ export class RodioBackend implements PlayerBackend {
     bridgeClearExternal();
     await setCurrentSong(song.sha256);
 
-    debug(
-      "player.rodio",
-      `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`,
-    );
+    debug("player.rodio", `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`);
 
     await this.send({ kind: "load", paths: [path] });
     await this.send({ kind: "play" });
@@ -340,9 +324,7 @@ export class RodioBackend implements PlayerBackend {
   /// supervisor there. used to resume a paused session on page
   /// reload — the rust side starts every load at 0, so without
   /// this seek the persisted position is lost.
-  private async applyInitialPosition(
-    options?: LoadAndPlayOptions,
-  ): Promise<void> {
+  private async applyInitialPosition(options?: LoadAndPlayOptions): Promise<void> {
     const pos = options?.initialPosition ?? 0;
     if (pos <= 0) return;
     await this.send({ kind: "seek", ms: Math.round(pos * 1000) });
@@ -358,7 +340,7 @@ export class RodioBackend implements PlayerBackend {
     try {
       const result = await invoke<{ id: string; path: string; mime?: string }>(
         "resolve_blob_path",
-        { blobId },
+        { blobId }
       );
       return result.path;
     } catch (e) {
@@ -480,8 +462,7 @@ export class RodioBackend implements PlayerBackend {
     const sha = this.currentLoadingSha256;
     if (sha) {
       const playable =
-        (event.kind === "state" &&
-          (event.state === "playing" || event.state === "paused")) ||
+        (event.kind === "state" && (event.state === "playing" || event.state === "paused")) ||
         event.kind === "progress";
       if (playable) {
         removeFromLoadingSet(sha);

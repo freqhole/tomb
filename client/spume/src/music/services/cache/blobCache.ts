@@ -177,7 +177,7 @@ export async function initCachedAudioURLs(): Promise<void> {
 // pending cache queue - tracks blobs waiting to be cached
 interface PendingCacheItem {
   url: string;
-  type: "audio" | "image";
+  type: "audio" | "image" | "video";
   remoteId: string;
   blobId: string;
   retries: number;
@@ -216,7 +216,7 @@ interface CacheMetadata {
   cachedAt: number;
   lastAccessedAt: number;
   size: number;
-  type: "audio" | "image";
+  type: "audio" | "image" | "video";
   // v4 fields: status tracking for validation
   status?: CacheStatus; // undefined treated as "complete" for backwards compat
   expectedSize?: number; // expected size from Content-Length, for validation
@@ -339,7 +339,7 @@ async function deleteMetadata(url: string): Promise<void> {
 export async function createPendingCacheEntry(
   remoteId: string,
   blobId: string,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
   expectedSize?: number,
 ): Promise<void> {
   try {
@@ -450,7 +450,7 @@ async function getStorageInfo(): Promise<{
 export async function cacheBlob(
   _url: string, // original fetch URL (kept for future debugging/metadata)
   response: Response,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
   remoteId: string,
   blobId: string,
   expectedSize?: number, // expected size from Content-Length for validation
@@ -531,7 +531,7 @@ export async function cacheBlob(
 export async function saveP2PBlobMetadata(
   remoteId: string,
   blobId: string,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
 ): Promise<void> {
   try {
     // skip for localhost/tauri remotes
@@ -743,7 +743,7 @@ async function evictIfNeeded(remoteId?: string): Promise<void> {
 // sha256 is optional - when provided for audio, tracks in loadingSha256s for UI feedback
 export async function preCacheBlob(
   url: string,
-  type: "audio" | "image",
+  type: "audio" | "image" | "video",
   remoteId: string,
   blobId: string,
   maxRetries: number = 3,
@@ -1106,7 +1106,7 @@ export async function getAllRemoteCacheStats(): Promise<RemoteCacheStats[]> {
 }
 
 // add item to pending cache queue (for retry when online)
-function addToPendingQueue(url: string, type: "audio" | "image", remoteId: string, blobId: string): void {
+function addToPendingQueue(url: string, type: "audio" | "image" | "video", remoteId: string, blobId: string): void {
   // check if already in queue
   const queueKey = `${remoteId}/${blobId}`;
   if (pendingCacheQueue.some((item) => `${item.remoteId}/${item.blobId}` === queueKey)) {

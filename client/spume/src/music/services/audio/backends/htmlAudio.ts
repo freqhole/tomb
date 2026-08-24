@@ -26,12 +26,9 @@
 // public PlayerBackend method on this class) for the html backend;
 // `send({ kind: "load", ... })` emits a structured error event.
 
-import type {
-  PlayerCommand,
-  PlayerEvent,
-  PlayerSnapshot,
-} from "@freqhole/api-client";
+import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import {
+  BackendPlaybackError,
   emptySnapshot,
   type BackendKind,
   type LoadAndPlayOptions,
@@ -39,10 +36,7 @@ import {
   type PlayerEventListener,
   type Unsubscribe,
 } from "../backend";
-import {
-  appState,
-  setCurrentSong,
-} from "../../../../app/services/storage/db";
+import { appState, setCurrentSong } from "../../../../app/services/storage/db";
 import { resetPlaybackEnded } from "../../queue/queueState";
 import {
   cleanupAudioURL,
@@ -52,6 +46,7 @@ import {
   trySwapToCachedURL,
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
+import type { MediaItem } from "../../../../app/services/storage/mediaItem";
 import { debug, warn, error as errorLog } from "../../../../utils/logger";
 import { mirrorVolumeToRadio } from "../../../../app/services/playbackCoordinator";
 import { registerWatchdog } from "../mediaSessionBridge";
@@ -99,9 +94,7 @@ export class HtmlAudioBackend implements PlayerBackend {
   private unregisterWatchdog: (() => void) | null = null;
 
   constructor() {
-    this.unregisterWatchdog = registerWatchdog(() =>
-      this.expectedEndWatchdog(),
-    );
+    this.unregisterWatchdog = registerWatchdog(() => this.expectedEndWatchdog());
   }
 
   // PlayerBackend interface ================================================
@@ -246,10 +239,15 @@ export class HtmlAudioBackend implements PlayerBackend {
   // facade has already cleared its pause gate + silenced radio). the
   // backend itself reads `options.autoPlay` to decide whether to call
   // audio.play() after loading.
-  async loadAndPlay(
-    song: Song,
-    options?: LoadAndPlayOptions,
-  ): Promise<void> {
+  async loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void> {
+    if (item.kind !== "song") {
+      throw new BackendPlaybackError(
+        this.kind,
+        "unsupported_media_kind",
+        "the html audio backend can't play video items"
+      );
+    }
+    const song: Song = item.song;
     const audio = this.initAudio();
 
     // tracks whether we've already logged a contextual error for
@@ -262,10 +260,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       // mark this song as pending "up next" — UI shows spinner but keeps
       // current song info.
       setPendingUpNextSha256(song.sha256);
-      debug(
-        "player",
-        `pending up next: "${song.title}" (${song.sha256.slice(0, 8)}...)`,
-      );
+      debug("player", `pending up next: "${song.title}" (${song.sha256.slice(0, 8)}...)`);
 
       // NOTE: we intentionally don't pre-cache here when user clicks a song.
       // pre-caching is handled by:
@@ -280,7 +275,7 @@ export class HtmlAudioBackend implements PlayerBackend {
         errorLog(
           "player.html",
           `getAudioURL failed for "${song.title}" (${song.sha256.slice(0, 8)}):`,
-          urlError instanceof Error ? urlError.message : urlError,
+          urlError instanceof Error ? urlError.message : urlError
         );
         alreadyLogged = true;
         if (pendingUpNextSha256() === song.sha256) {
@@ -292,10 +287,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       // verify this song is still the pending one — user may have
       // selected a different song while we were downloading.
       if (pendingUpNextSha256() !== song.sha256) {
-        debug(
-          "player",
-          "aborting playSong - user switched to different song during download",
-        );
+        debug("player", "aborting playSong - user switched to different song during download");
         return;
       }
 
@@ -381,7 +373,7 @@ export class HtmlAudioBackend implements PlayerBackend {
           errorLog(
             "player.html",
             `audio.play() rejected for "${song.title}" (${song.sha256.slice(0, 8)}) url=${audioURL.startsWith("blob:") ? "blob" : audioURL.startsWith("http") ? "http" : "other"}:`,
-            playError instanceof Error ? playError.message : playError,
+            playError instanceof Error ? playError.message : playError
           );
           alreadyLogged = true;
           // play failed — emit a state derived from the audio element
@@ -389,11 +381,7 @@ export class HtmlAudioBackend implements PlayerBackend {
           // playback.
           this.emit({
             kind: "state",
-            state: audio.paused
-              ? audio.currentTime > 0
-                ? "paused"
-                : "stopped"
-              : "playing",
+            state: audio.paused ? (audio.currentTime > 0 ? "paused" : "stopped") : "playing",
           });
           throw playError;
         }
@@ -408,7 +396,7 @@ export class HtmlAudioBackend implements PlayerBackend {
         errorLog(
           "player.html",
           `loadAndPlay unexpected error for "${song.title}" (${song.sha256.slice(0, 8)}):`,
-          error,
+          error
         );
       }
       // make sure the UI doesn't get stuck in the loading state on
@@ -453,9 +441,11 @@ export class HtmlAudioBackend implements PlayerBackend {
       const state = appState();
       const current_sha256 = state?.current_sha256;
       if (!current_sha256) throw playError;
-      const songInQueue = state?.queue.find((s) => s.sha256 === current_sha256);
-      if (!songInQueue) throw playError;
-      const freshURL = await refreshBlobURL(songInQueue);
+      const songInQueue = state?.queue.find(
+        (i) => i.kind === "song" && i.song.sha256 === current_sha256
+      );
+      if (!songInQueue || songInQueue.kind !== "song") throw playError;
+      const freshURL = await refreshBlobURL(songInQueue.song);
       if (!freshURL) throw playError;
       const savedPosition = audio.currentTime;
       audio.src = freshURL;
@@ -543,7 +533,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     if (Number.isFinite(dur) && dur > 0 && a.currentTime < dur - 2) {
       debug(
         "player",
-        `expectedend ignored — currentTime=${a.currentTime.toFixed(2)} duration=${dur.toFixed(2)}`,
+        `expectedend ignored — currentTime=${a.currentTime.toFixed(2)} duration=${dur.toFixed(2)}`
       );
       return;
     }
@@ -600,9 +590,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       this.emit({
         kind: "progress",
         ms: Math.round(audio.currentTime * 1000),
-        total_ms: Number.isFinite(audio.duration)
-          ? Math.round(audio.duration * 1000)
-          : 0,
+        total_ms: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : 0,
       });
     });
 
@@ -642,7 +630,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     audio.addEventListener("ended", () => {
       debug(
         "player.html",
-        `ended: songId=${this.currentSongId?.slice(0, 8)} src=${audio.src?.slice(0, 60) ?? null}`,
+        `ended: songId=${this.currentSongId?.slice(0, 8)} src=${audio.src?.slice(0, 60) ?? null}`
       );
       // facade's `bindAutoAdvance` reacts to this and runs queue
       // traversal for both backends.
@@ -656,7 +644,7 @@ export class HtmlAudioBackend implements PlayerBackend {
       const msg = error?.message ?? "unknown error";
       warn(
         "player.html",
-        `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`,
+        `audio element error code=${code} src=${audio.src?.slice(0, 60) ?? null}: ${msg}`
       );
       // surface as a structured error event — facade's auto-advance
       // bridge treats this the same way it treats `ended` (advance
@@ -686,11 +674,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     audio.addEventListener("canplay", () => {
       this.emit({
         kind: "state",
-        state: audio.paused
-          ? audio.currentTime > 0
-            ? "paused"
-            : "stopped"
-          : "playing",
+        state: audio.paused ? (audio.currentTime > 0 ? "paused" : "stopped") : "playing",
       });
     });
 
@@ -711,9 +695,7 @@ export class HtmlAudioBackend implements PlayerBackend {
   // any audio interruption. when forceWhilePlaying is true (e.g. seek),
   // we pause briefly, swap, and resume. triggered by: pause, waiting
   // (network stall), seeked, visibilitychange (becoming visible).
-  private async trySwapCurrentSongToCached(
-    forceWhilePlaying = false,
-  ): Promise<void> {
+  private async trySwapCurrentSongToCached(forceWhilePlaying = false): Promise<void> {
     if (!this.audioElement) return;
     const audio = this.audioElement;
 
@@ -776,10 +758,7 @@ export class HtmlAudioBackend implements PlayerBackend {
     this.pendingSwapCleanup = cleanup;
     audio.addEventListener("loadedmetadata", restorePosition);
 
-    debug(
-      "player",
-      `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`,
-    );
+    debug("player", `swapped to cached URL at ${savedTime.toFixed(1)}s (player stopped)`);
   }
 
   // PlayerEvent emit — updates the cached snapshot then notifies

@@ -22,7 +22,7 @@ const AUTOCOMPLETE_STALE_TIME = 2 * 60 * 1000; // 2 minutes
 // artist autocomplete query hook
 export function useArtistAutocompleteQuery(
   searchTerm: Accessor<string | undefined>,
-  remote?: Accessor<Remote | undefined>,
+  remote?: Accessor<Remote | undefined>
 ) {
   return createQuery(() => ({
     queryKey: [
@@ -54,7 +54,15 @@ export function useArtistAutocompleteQuery(
           return { items: [], total: 0, offset: 0, limit: 0, has_more: false };
         }
         const mapImg = (
-          arr: Array<{ blob_id: string; is_primary: number; blob_type: "original" | "thumbnail" | "waveform" | "preview" }> | null | undefined,
+          arr:
+            | Array<{
+                blob_id: string;
+                is_primary: number;
+                blob_type:
+                  "original" | "thumbnail" | "waveform" | "preview" | "rendition" | "subtitle";
+              }>
+            | null
+            | undefined
         ) =>
           arr
             ? arr.map((i) => ({
@@ -107,7 +115,7 @@ export function useArtistAutocompleteQuery(
 export function useAlbumAutocompleteQuery(
   searchTerm: Accessor<string | undefined>,
   artistId?: Accessor<string | undefined>,
-  remote?: Accessor<Remote | undefined>,
+  remote?: Accessor<Remote | undefined>
 ) {
   return createQuery(() => ({
     queryKey: [
@@ -142,7 +150,15 @@ export function useAlbumAutocompleteQuery(
           return { items: [], total: 0, offset: 0, limit: 0, has_more: false };
         }
         const mapImg = (
-          arr: Array<{ blob_id: string; is_primary: number; blob_type: "original" | "thumbnail" | "waveform" | "preview" }> | null | undefined,
+          arr:
+            | Array<{
+                blob_id: string;
+                is_primary: number;
+                blob_type:
+                  "original" | "thumbnail" | "waveform" | "preview" | "rendition" | "subtitle";
+              }>
+            | null
+            | undefined
         ) =>
           arr
             ? arr.map((i) => ({

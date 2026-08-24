@@ -45,9 +45,9 @@ import {
   isLoading,
   isPlaying,
   pendingUpNextSha256,
+  playMediaItem,
   playNext,
   playPrevious,
-  playSong,
   seek,
   setPlayerVolume,
   togglePlayback,
@@ -95,6 +95,7 @@ import {
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
+import { mediaItemKey, songsOnly, type QueuedVideo } from "./services/storage/mediaItem";
 import {
   type Remote,
   type QueueHistoryEntry,
@@ -193,6 +194,7 @@ export function AppLayout(props: AppLayoutProps) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
+  const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // background image config (reactive)
@@ -679,15 +681,21 @@ export function AppLayout(props: AppLayoutProps) {
 
   // handle favorite toggle for current song (deprecated - replaced by inline handler)
 
-  // watch for current song changes and load song data
+  // watch for current song/video changes and load the corresponding data
   createEffect(() => {
     const state = appState();
     if (state?.current_sha256) {
       const sha256 = state.current_sha256;
-      // first check if song is in queue (avoids fetching from wrong remote)
-      const songInQueue = state.queue.find((s) => s.sha256 === sha256);
-      if (songInQueue) {
-        setCurrentSongData(songInQueue);
+      // first check if the item is in queue (avoids fetching from wrong remote)
+      const itemInQueue = state.queue.find((i) => mediaItemKey(i) === sha256);
+      if (itemInQueue?.kind === "video") {
+        setCurrentVideoData(itemInQueue.video);
+        setCurrentSongData(null);
+        return;
+      }
+      if (itemInQueue?.kind === "song") {
+        setCurrentVideoData(null);
+        setCurrentSongData(itemInQueue.song);
       } else if (state.queue.length > 0) {
         // sha256 is set but not yet in the queue. this is a brief transitional
         // window while the queue is being rebuilt for a new track (setQueue
@@ -699,6 +707,7 @@ export function AppLayout(props: AppLayoutProps) {
       } else {
         // queue is empty - try fetching the song directly (page-reload case
         // where the queue hasn't been rehydrated yet).
+        setCurrentVideoData(null);
         const dataSource = getDataSource();
         void dataSource.getSongById(sha256).then((song) => {
           // guard against stale response: only apply if sha256 is still current
@@ -712,23 +721,27 @@ export function AppLayout(props: AppLayoutProps) {
       }
     } else {
       setCurrentSongData(null);
+      setCurrentVideoData(null);
     }
   });
 
-  // update auto-download queue when queue or current song changes
+  // update auto-download queue when queue or current song changes.
+  // video items are excluded from auto-download (song-only concern), so
+  // the index is computed against the song-only subset of the queue.
   createEffect(() => {
     const state = appState();
     if (!state) return;
 
+    const queueSongs = songsOnly(state.queue);
     const currentIndex = state.current_sha256
-      ? state.queue.findIndex((s) => s.sha256 === state.current_sha256)
+      ? queueSongs.findIndex((s) => s.sha256 === state.current_sha256)
       : 0;
-    const queueLength = state.queue.length;
+    const queueLength = queueSongs.length;
 
     // this effect will re-run when queue or current index changes
     // the function internally checks if auto-download is enabled
     if (queueLength > 0) {
-      void updateAutoDownloadQueue(currentIndex);
+      void updateAutoDownloadQueue(Math.max(0, currentIndex));
     }
   });
 
@@ -1375,140 +1388,167 @@ export function AppLayout(props: AppLayoutProps) {
       >
         <div class="flex-1 overflow-hidden">{props.children}</div>
 
-        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide */}
-        <QueueSidebar
-          isOpen={queueOpen()}
-          variant={isNarrow() ? "overlay" : "inline"}
-          songs={appState()?.queue || []}
-          currentIndex={
-            appState()?.current_sha256
-              ? appState()!.queue.findIndex((s) => s.sha256 === appState()!.current_sha256)
-              : -1
-          }
-          upNextIndex={
-            pendingUpNextSha256()
-              ? (appState()?.queue.findIndex((s) => s.sha256 === pendingUpNextSha256()) ??
-                undefined)
-              : undefined
-          }
-          currentTime={currentTime()}
-          duration={duration()}
-          progressMap={progressMap()}
-          loadingSongIds={loadingSongIds()}
-          onClose={() => void setQueueOpen(false)}
-          onSongClick={(index) => {
-            const state = appState();
-            if (state?.queue[index]) {
-              void playSong(state.queue[index], { userInitiated: true });
-            }
-          }}
-          onSongDoubleClick={(index) => {
-            const state = appState();
-            if (state?.queue[index]) {
-              void playSong(state.queue[index], { userInitiated: true });
-            }
-          }}
-          onRemoveSong={(index) => {
-            void removeFromQueue(index);
-          }}
-          onReorder={(fromIndex, toIndex) => {
-            void reorderQueue(fromIndex, toIndex);
-          }}
-          onClearAll={() => {
-            void clearQueue();
-          }}
-          onRadioQueueEntryClick={(station) => {
-            void tuneIntoRadio(station.peer_addr, {
-              stationId: station.station_id,
-              stationName: station.station_name,
-              isLocal: station.is_local,
+        {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
+            NOTE (phase 9 MVP scope): the sidebar currently only renders
+            song rows — video row rendering is deferred as a fast-follow
+            (see docs/video-domain-plan.md). the sidebar's indices are
+            local to the song-only subset, so every handler below maps
+            back to the real index in the mixed MediaItem queue via
+            `songIndexMap` before calling queue-mutation functions. */}
+        {(() => {
+          const songIndexMap = () => {
+            const fullQueue = appState()?.queue || [];
+            const pairs: { song: Song; fullIndex: number }[] = [];
+            fullQueue.forEach((item, fullIndex) => {
+              if (item.kind === "song") pairs.push({ song: item.song, fullIndex });
             });
-          }}
-          getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
-          onResumeDownloads={() => {
-            resumeAutoDownload();
-          }}
-          pendingDownloadCount={getPendingDownloadCount()}
-          getContextMenuActions={(index, _queueSong) => {
-            const state = appState();
-            if (!state?.queue[index]) return [];
+            return pairs;
+          };
+          const toFullIndex = (songOnlyIndex: number) =>
+            songIndexMap()[songOnlyIndex]?.fullIndex ?? -1;
 
-            const fullSong = state.queue[index];
-            const queueLength = state.queue.length;
-            const isSynced = isSongSyncedLocally(fullSong.sha256);
-            return useSongContextMenu(fullSong, {
-              showPlayActions: false,
-              isFavorite: fullSong.is_favorite || false,
-              showRemoveFromQueue: true,
-              queueIndex: index,
-              onRemoveFromQueue: () => void removeFromQueue(index),
-              showClearAbove: index > 0,
-              onClearAbove: () => void clearSongsAbove(index),
-              showClearBelow: index < queueLength - 1,
-              onClearBelow: () => void clearSongsBelow(index),
-              showDeleteFromLocal: isSynced,
-              onDeleteFromLocal: async () => {
-                const result = await deleteSongFromLocal(fullSong.id, {
-                  remoteServerId: fullSong.remote_server_id,
-                  sha256: fullSong.sha256,
+          return (
+            <QueueSidebar
+              isOpen={queueOpen()}
+              variant={isNarrow() ? "overlay" : "inline"}
+              songs={songIndexMap().map((p) => p.song)}
+              currentIndex={
+                appState()?.current_sha256
+                  ? songIndexMap().findIndex((p) => p.song.sha256 === appState()!.current_sha256)
+                  : -1
+              }
+              upNextIndex={
+                pendingUpNextSha256()
+                  ? (songIndexMap().findIndex((p) => p.song.sha256 === pendingUpNextSha256()) ??
+                    undefined)
+                  : undefined
+              }
+              currentTime={currentTime()}
+              duration={duration()}
+              progressMap={progressMap()}
+              loadingSongIds={loadingSongIds()}
+              onClose={() => void setQueueOpen(false)}
+              onSongClick={(index) => {
+                const state = appState();
+                const fullIndex = toFullIndex(index);
+                const item = fullIndex >= 0 ? state?.queue[fullIndex] : undefined;
+                if (item) void playMediaItem(item, { userInitiated: true });
+              }}
+              onSongDoubleClick={(index) => {
+                const state = appState();
+                const fullIndex = toFullIndex(index);
+                const item = fullIndex >= 0 ? state?.queue[fullIndex] : undefined;
+                if (item) void playMediaItem(item, { userInitiated: true });
+              }}
+              onRemoveSong={(index) => {
+                const fullIndex = toFullIndex(index);
+                if (fullIndex >= 0) void removeFromQueue(fullIndex);
+              }}
+              onReorder={(fromIndex, toIndex) => {
+                const fullFrom = toFullIndex(fromIndex);
+                const fullTo = toFullIndex(toIndex);
+                if (fullFrom >= 0 && fullTo >= 0) void reorderQueue(fullFrom, fullTo);
+              }}
+              onClearAll={() => {
+                void clearQueue();
+              }}
+              onRadioQueueEntryClick={(station) => {
+                void tuneIntoRadio(station.peer_addr, {
+                  stationId: station.station_id,
+                  stationName: station.station_name,
+                  isLocal: station.is_local,
                 });
-                if (result.success) {
-                  // also remove from queue after deletion
-                  await removeFromQueue(index);
-                  toast.success("removed from local library");
-                } else {
-                  toast.error(result.error || "failed to delete");
+              }}
+              getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
+              onResumeDownloads={() => {
+                resumeAutoDownload();
+              }}
+              pendingDownloadCount={getPendingDownloadCount()}
+              getContextMenuActions={(index, _queueSong) => {
+                const fullIndex = toFullIndex(index);
+                const state = appState();
+                if (fullIndex < 0 || !state?.queue[fullIndex]) return [];
+                const item = state.queue[fullIndex];
+                if (item.kind !== "song") return [];
+
+                const fullSong = item.song;
+                const queueLength = songIndexMap().length;
+                const isSynced = isSongSyncedLocally(fullSong.sha256);
+                return useSongContextMenu(fullSong, {
+                  showPlayActions: false,
+                  isFavorite: fullSong.is_favorite || false,
+                  showRemoveFromQueue: true,
+                  queueIndex: fullIndex,
+                  onRemoveFromQueue: () => void removeFromQueue(fullIndex),
+                  showClearAbove: index > 0,
+                  onClearAbove: () => void clearSongsAbove(fullIndex),
+                  showClearBelow: index < queueLength - 1,
+                  onClearBelow: () => void clearSongsBelow(fullIndex),
+                  showDeleteFromLocal: isSynced,
+                  onDeleteFromLocal: async () => {
+                    const result = await deleteSongFromLocal(fullSong.id, {
+                      remoteServerId: fullSong.remote_server_id,
+                      sha256: fullSong.sha256,
+                    });
+                    if (result.success) {
+                      // also remove from queue after deletion
+                      await removeFromQueue(fullIndex);
+                      toast.success("removed from local library");
+                    } else {
+                      toast.error(result.error || "failed to delete");
+                    }
+                  },
+                });
+              }}
+              historyEntries={queueHistory()}
+              onReplayHistoryEntry={(entry) => {
+                if (entry.type === "radio_station" && entry.radio_station_ref) {
+                  const ref = entry.radio_station_ref;
+                  void tuneIntoRadio(ref.peer_addr, {
+                    stationId: ref.station_id,
+                    stationName: ref.station_name,
+                    isLocal: ref.is_local,
+                  });
+                  return;
                 }
-              },
-            });
-          }}
-          historyEntries={queueHistory()}
-          onReplayHistoryEntry={(entry) => {
-            if (entry.type === "radio_station" && entry.radio_station_ref) {
-              const ref = entry.radio_station_ref;
-              void tuneIntoRadio(ref.peer_addr, {
-                stationId: ref.station_id,
-                stationName: ref.station_name,
-                isLocal: ref.is_local,
-              });
-              return;
-            }
-            const hasProgress = (entry.listened_seconds || 0) > 0;
-            if (hasProgress) {
-              // resume from where we left off
-              void resumeHistoryEntry(entry);
-            } else {
-              // play from the beginning
-              void addToQueue(entry.songs, {
-                startPlaying: true,
-                source: {
-                  type: entry.type,
-                  label: entry.label,
-                  entity_id: entry.entity_id,
-                  image: entry.image,
-                },
-              });
-            }
-          }}
-          onRemoveHistoryEntry={(id) => {
-            void removeHistoryEntry(id);
-          }}
-          onClearHistory={async () => {
-            const confirmed = await confirm({
-              title: "clear history",
-              message: "are you sure you want to clear all queue history?",
-              confirmText: "clear",
-              variant: "danger",
-            });
-            if (confirmed) {
-              void clearQueueHistory();
-            }
-          }}
-          getHistoryContextMenuActions={getHistoryContextMenuActions}
-          currentRadioStation={currentRadioStation()}
-          currentRadioRemoteName={currentRadioRemoteName()}
-          currentRadioRemoteImage={currentRadioRemoteImage()}
-        />
+                const hasProgress = (entry.listened_seconds || 0) > 0;
+                if (hasProgress) {
+                  // resume from where we left off
+                  void resumeHistoryEntry(entry);
+                } else {
+                  // play from the beginning
+                  void addToQueue(entry.songs, {
+                    startPlaying: true,
+                    source: {
+                      type: entry.type,
+                      label: entry.label,
+                      entity_id: entry.entity_id,
+                      image: entry.image,
+                    },
+                  });
+                }
+              }}
+              onRemoveHistoryEntry={(id) => {
+                void removeHistoryEntry(id);
+              }}
+              onClearHistory={async () => {
+                const confirmed = await confirm({
+                  title: "clear history",
+                  message: "are you sure you want to clear all queue history?",
+                  confirmText: "clear",
+                  variant: "danger",
+                });
+                if (confirmed) {
+                  void clearQueueHistory();
+                }
+              }}
+              getHistoryContextMenuActions={getHistoryContextMenuActions}
+              currentRadioStation={currentRadioStation()}
+              currentRadioRemoteName={currentRadioRemoteName()}
+              currentRadioRemoteImage={currentRadioRemoteImage()}
+            />
+          );
+        })()}
       </div>
 
       {/* unified player bar — handles both music (queue) and radio modes.
@@ -1590,14 +1630,44 @@ export function AppLayout(props: AppLayoutProps) {
                 isFavorite: cs.is_favorite || false,
               };
             }
+            const cv = currentVideoData();
+            if (cv) {
+              // video mode: player bar shows a minimal metadata surface
+              // (title only, no favorite/album-nav actions yet). the
+              // actual video element is mounted on the dedicated watch
+              // page via getVideoElement(), not embedded in the bar.
+              return {
+                id: cv.id,
+                sha256: cv.id,
+                title: cv.title,
+                artist: "video",
+                album: undefined,
+                images: undefined,
+                album_images: undefined,
+                isFavorite: false,
+              };
+            }
             // fall back to appState directly so the bar never flashes "no
             // song playing" during the brief window between appState loading
             // from IDB and the createEffect updating currentSongData.
             const state = appState();
             const sha256 = state?.current_sha256;
             if (!sha256) return undefined;
-            const queueSong = state?.queue.find((s) => s.sha256 === sha256);
-            if (!queueSong) return undefined;
+            const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
+            if (!queueItem) return undefined;
+            if (queueItem.kind === "video") {
+              return {
+                id: queueItem.video.id,
+                sha256: queueItem.video.id,
+                title: queueItem.video.title,
+                artist: "video",
+                album: undefined,
+                images: undefined,
+                album_images: undefined,
+                isFavorite: false,
+              };
+            }
+            const queueSong = queueItem.song;
             return {
               id: queueSong.id,
               sha256: queueSong.sha256,
