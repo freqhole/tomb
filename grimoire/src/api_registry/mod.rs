@@ -202,9 +202,9 @@ pub mod type_registry {
     use crate::music::entities::taxonomy::{
         AddAlbumTaxonRequest, AddTaxonParentRequest, AlbumTaxonLink, AlbumTaxonLinkInput,
         CreateTaxonKindRequest, CreateTaxonRequest, DeleteTaxonRequest, GetAlbumTaxonLinksRequest,
-        GetTaxonRequest, ListTaxonParentsForKindRequest, ListTaxonsByKindRequest,
-        QueryScalarRangeRequest, QueryTaxonsRequest, RemoveAlbumTaxonRequest,
-        RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
+        GetTaxonRequest, ListTaxonKindsRequest, ListTaxonParentsForKindRequest,
+        ListTaxonsByKindRequest, QueryScalarRangeRequest, QueryTaxonsRequest,
+        RemoveAlbumTaxonRequest, RemoveTaxonParentRequest, ScalarAttribute, SetAlbumTaxonsRequest,
         SetScalarAttributeRequest, SetTaxonColorRequest, SetTaxonKindColorRequest,
         SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind, TaxonParentEdge,
         TaxonRef, TaxonWithStats, TaxonsQueryResult,
@@ -342,7 +342,7 @@ pub mod type_registry {
     };
 
     // video domain types (phase 1)
-    use crate::music::crud::EntityUrl;
+    use crate::music::crud::{EntityUrl, ImageMetadata};
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
         CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
@@ -353,6 +353,7 @@ pub mod type_registry {
 
     // video domain offal request/response types (phase 2-3)
     use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
+    use crate::offal::entities::image_links::GetEntityImagesRequest;
     use crate::offal::entities::playlist_items::{
         AddPlaylistItemRequest, ListPlaylistItemsRequest, RemovePlaylistItemRequest,
     };
@@ -842,6 +843,8 @@ pub mod type_registry {
         registered.insert("EntityTaxonLink".to_string());
         gen.add_schema::<EntityUrl>("EntityUrl");
         registered.insert("EntityUrl".to_string());
+        gen.add_schema::<ImageMetadata>("ImageMetadata");
+        registered.insert("ImageMetadata".to_string());
         gen.add_schema::<PlaylistItem>("PlaylistItem");
         registered.insert("PlaylistItem".to_string());
         gen.add_schema::<PlaybackProgress>("PlaybackProgress");
@@ -902,6 +905,9 @@ pub mod type_registry {
         registered.insert("AddEntityUrlRequest".to_string());
         gen.add_schema::<RemoveEntityUrlRequest>("RemoveEntityUrlRequest");
         registered.insert("RemoveEntityUrlRequest".to_string());
+
+        gen.add_schema::<GetEntityImagesRequest>("GetEntityImagesRequest");
+        registered.insert("GetEntityImagesRequest".to_string());
 
         gen.add_schema::<ListPlaylistItemsRequest>("ListPlaylistItemsRequest");
         registered.insert("ListPlaylistItemsRequest".to_string());
@@ -1181,6 +1187,8 @@ pub mod type_registry {
         registered.insert("ScalarAttribute".to_string());
         gen.add_schema::<CreateTaxonKindRequest>("CreateTaxonKindRequest");
         registered.insert("CreateTaxonKindRequest".to_string());
+        gen.add_schema::<ListTaxonKindsRequest>("ListTaxonKindsRequest");
+        registered.insert("ListTaxonKindsRequest".to_string());
         gen.add_schema::<CreateTaxonRequest>("CreateTaxonRequest");
         registered.insert("CreateTaxonRequest".to_string());
         gen.add_schema::<GetTaxonRequest>("GetTaxonRequest");

@@ -1123,7 +1123,7 @@ export function createMusicMethods(call: CallFn) {
     // taxonomy (cross-kind labels: genre, label, mood, era, region, ...)
     // ----------------------------------------------------------------------
 
-    listTaxonKinds: () => {
+    listTaxonKinds: (params?: s.ListTaxonKindsRequest) => {
       return call(
         "music",
         "list_taxon_kinds",
@@ -1131,7 +1131,7 @@ export function createMusicMethods(call: CallFn) {
         routes.music.list_taxon_kinds.req,
         routes.music.list_taxon_kinds.method,
         routes.music.list_taxon_kinds.path,
-        undefined,
+        params,
       );
     },
 

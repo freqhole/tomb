@@ -8,6 +8,7 @@ import {
   STORE_ALBUM_TAXONS,
   STORE_ALBUMS,
   STORE_ARTISTS,
+  STORE_ENTITY_TAXONS,
   STORE_FAVORITES,
   STORE_GENRES,
   STORE_PLAYLIST_SONGS,
@@ -63,16 +64,8 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         songsStore.createIndex("by_year", "year");
         songsStore.createIndex("by_added_at", "added_at");
         songsStore.createIndex("by_source_type", "source_type");
-        songsStore.createIndex("by_file_identity", [
-          "file_name",
-          "file_size",
-          "last_modified",
-        ]);
-        songsStore.createIndex("by_album_disc_track", [
-          "album_id",
-          "disc_number",
-          "track_number",
-        ]);
+        songsStore.createIndex("by_file_identity", ["file_name", "file_size", "last_modified"]);
+        songsStore.createIndex("by_album_disc_track", ["album_id", "disc_number", "track_number"]);
         songsStore.createIndex("by_album_title_disc_track", [
           "album_title",
           "disc_number",
@@ -132,10 +125,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         });
         playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
         playlistSongsStore.createIndex("by_song_id", "song_id");
-        playlistSongsStore.createIndex("by_position", [
-          "playlist_id",
-          "position",
-        ]);
+        playlistSongsStore.createIndex("by_position", ["playlist_id", "position"]);
       }
 
       // favorites
@@ -186,11 +176,9 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         // (remote_id, kind_slug, slug) is the dedup key used by
         // upsertTaxon to avoid creating duplicate "jazz" rows for the
         // same library.
-        taxonsStore.createIndex(
-          "by_remote_kind_slug",
-          ["remote_id", "kind_slug", "slug"],
-          { unique: true },
-        );
+        taxonsStore.createIndex("by_remote_kind_slug", ["remote_id", "kind_slug", "slug"], {
+          unique: true,
+        });
         taxonsStore.createIndex("by_label", "label");
       }
 
@@ -207,6 +195,22 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         albumTaxonsStore.createIndex("by_created_at", "created_at");
       }
 
+      // entity_taxons junction - generic across any entity type (video
+      // today; album keeps its own dedicated store above). mirrors
+      // `STORE_FAVORITES`'s already-generic `[target_type, target_id]`
+      // keying pattern, extended with `taxon_id` since an entity can
+      // have many taxons.
+      if (!db.objectStoreNames.contains(STORE_ENTITY_TAXONS)) {
+        const entityTaxonsStore = db.createObjectStore(STORE_ENTITY_TAXONS, {
+          keyPath: ["entity_type", "entity_id", "taxon_id"],
+        });
+        entityTaxonsStore.createIndex("by_entity_type", "entity_type");
+        entityTaxonsStore.createIndex("by_entity_id", ["entity_type", "entity_id"]);
+        entityTaxonsStore.createIndex("by_taxon_id", ["entity_type", "taxon_id"]);
+        entityTaxonsStore.createIndex("by_remote_id", "remote_id");
+        entityTaxonsStore.createIndex("by_created_at", "created_at");
+      }
+
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to
       // `album_taxons` (TaxonRef[]). preserves any existing `album_taxons`,
       // backfilling only the genre kind from the legacy field. uses the
@@ -216,17 +220,13 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         let cursor = await songsStore.openCursor();
         while (cursor) {
           const song = cursor.value as Record<string, unknown>;
-          const legacyGenres = song.album_genres as
-            | Array<{ id: string; name: string }>
-            | undefined;
+          const legacyGenres = song.album_genres as Array<{ id: string; name: string }> | undefined;
           if (legacyGenres && legacyGenres.length > 0) {
-            const existingTaxons = (song.album_taxons as
-              | Array<{ id: string; kind_slug: string; label: string }>
-              | undefined) ?? [];
+            const existingTaxons =
+              (song.album_taxons as
+                Array<{ id: string; kind_slug: string; label: string }> | undefined) ?? [];
             const haveGenre = new Set(
-              existingTaxons
-                .filter((t) => t.kind_slug === "genre")
-                .map((t) => t.id),
+              existingTaxons.filter((t) => t.kind_slug === "genre").map((t) => t.id)
             );
             const fromLegacy = legacyGenres
               .filter((g) => !haveGenre.has(g.id))
@@ -254,7 +254,11 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         const albumTaxonsStore = tx.objectStore(STORE_ALBUM_TAXONS);
         const taxonsByDedup = taxonsStore.index("by_remote_kind_slug");
         const slugify = (s: string) =>
-          s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+          s
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "");
         const now = Date.now();
         // (album_id, taxon_id) we've already linked in this run; avoids
         // an extra .get() roundtrip per song.
@@ -264,8 +268,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           const song = cursor.value as Record<string, unknown>;
           const albumId = song.album_id as string | undefined;
           const refs = song.album_taxons as
-            | Array<{ id: string; kind_slug: string; label: string }>
-            | undefined;
+            Array<{ id: string; kind_slug: string; label: string }> | undefined;
           if (albumId && refs && refs.length > 0) {
             for (const ref of refs) {
               const kindSlug = ref.kind_slug || "genre";

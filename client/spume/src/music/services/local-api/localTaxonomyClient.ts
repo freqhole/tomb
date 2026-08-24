@@ -9,14 +9,18 @@
 // the active source is a peer remote or the local library.
 //
 // `createTaxonKind` is a no-op stub today — kinds are not persisted
-// in idb. listTaxonKinds synthesises a "well-known" list plus any
-// kind_slug values discovered in stored taxons so existing user data
-// always renders.
+// in idb. `listTaxonKinds` synthesises a "well-known" list (music
+// domain only) plus kind_slugs discovered in local storage, scoped by
+// the caller's `domain` — see `resolveKindSlugsForDomain` below.
 
 import {
   upsertTaxon,
   linkAlbumTaxon,
   unlinkAlbumTaxon,
+  linkEntityTaxon,
+  unlinkEntityTaxon,
+  getEntityTaxons,
+  getKindSlugsLinkedToEntityType,
   deleteTaxon as deleteLocalTaxon,
   queryTaxons as queryLocalTaxons,
   getAlbumTaxons,
@@ -87,6 +91,21 @@ interface ShimAlbumTaxonLink {
   created_by: string | null;
 }
 
+// generic entity-taxon link (mirrors ShimAlbumTaxonLink, but for any
+// non-album entity type, e.g. video). `entity_id` reuses the shape of
+// the real remote `EntityTaxonLink` codegen type.
+interface ShimEntityTaxonLink {
+  entity_type: string;
+  entity_id: string;
+  taxon_id: string;
+  kind_slug: string;
+  label: string;
+  origin: string;
+  confidence: number | null;
+  created_at: number;
+  created_by: string | null;
+}
+
 interface ShimTaxonsQueryResult {
   items: ShimTaxonWithStats[];
   total_count: number;
@@ -110,7 +129,7 @@ function synthesiseKind(
   slug: string,
   label: string,
   idx: number,
-  albumCount: number,
+  albumCount: number
 ): ShimTaxonKind {
   return {
     id: `local-kind-${slug}`,
@@ -127,47 +146,67 @@ function synthesiseKind(
   };
 }
 
+function unassignedHubKind(albumCount: number): ShimTaxonKind {
+  return {
+    id: "synth::unassigned",
+    slug: "unassigned",
+    label: "unassigned",
+    description: "synthesised hub: albums with no taxon assignments",
+    color: null,
+    value_type: "categorical",
+    unit: null,
+    display_order: 9002,
+    is_user_defined: false,
+    created_at: 0,
+    album_count: albumCount,
+  };
+}
+
+// which kind_slugs should even be considered for a `listTaxonKinds`
+// call. the local `taxons` store is flat/global (kind_slug values
+// synced down from a remote for autocomplete, not scoped by domain),
+// so unlike the server's `taxon_kindz.domain` column there's no
+// per-kind domain to filter on directly:
+//   - music (or unfiltered): every well-known default, plus anything
+//     else discovered in the local taxons store (matches this shim's
+//     original, pre-domain behavior).
+//   - any other domain (e.g. "video"): well-known defaults are
+//     music-only and must NOT appear. scope instead to kind_slugs
+//     actually linked to an entity of that type via `entity_taxons`
+//     (only true, reliable signal for "this kind applies here"
+//     available locally).
+async function resolveKindSlugsForDomain(domain: string | null): Promise<string[]> {
+  if (domain === null || domain === "music") {
+    const rows = await queryLocalTaxons({ remote_id: LOCAL_TAXON_REMOTE_ID });
+    const discovered = new Set(rows.map((r) => r.kind_slug));
+    const wellKnownSlugs = WELL_KNOWN_KINDS.map((k) => k.slug);
+    for (const slug of wellKnownSlugs) discovered.delete(slug);
+    return [...wellKnownSlugs, ...discovered];
+  }
+  return [...(await getKindSlugsLinkedToEntityType(domain))];
+}
+
 export const localTaxonomyClient = {
   music: {
-    async listTaxonKinds(): Promise<ShimResult<ShimTaxonKind[]>> {
-      // merge well-known kinds with any custom kind_slug present in
-      // the local taxons store. preserves well-known ordering. real
-      // album_counts come from a single junction scan so empty hubs
-      // are skipped by the graph loader the same way peers' empty
-      // kinds are.
-      const rows = await queryLocalTaxons({ remote_id: LOCAL_TAXON_REMOTE_ID });
-      const discovered = new Set<string>();
-      for (const r of rows) discovered.add(r.kind_slug);
-      const counts = await countAlbumsByKindForRemote(LOCAL_TAXON_REMOTE_ID);
-      const out: ShimTaxonKind[] = [];
-      const wellKnown = new Set(WELL_KNOWN_KINDS.map((k) => k.slug));
-      WELL_KNOWN_KINDS.forEach((k, i) => {
-        out.push(synthesiseKind(k.slug, k.label, i, counts.byKind.get(k.slug) ?? 0));
-        discovered.delete(k.slug);
-      });
-      let idx = WELL_KNOWN_KINDS.length;
-      for (const slug of discovered) {
-        if (wellKnown.has(slug)) continue;
-        out.push(synthesiseKind(slug, slug, idx++, counts.byKind.get(slug) ?? 0));
-      }
-      // synthesised "unassigned" hub: albums with no taxon junction
-      // rows. mirrors the server's `synth::unassigned` so the graph
-      // viz renders the same affordance for local libraries. only
-      // emitted when there is at least one orphan album.
-      if (counts.unassigned > 0) {
-        out.push({
-          id: "synth::unassigned",
-          slug: "unassigned",
-          label: "unassigned",
-          description: "synthesised hub: albums with no taxon assignments",
-          color: null,
-          value_type: "categorical",
-          unit: null,
-          display_order: 9002,
-          is_user_defined: false,
-          created_at: 0,
-          album_count: counts.unassigned,
-        });
+    async listTaxonKinds(req?: { domain?: string | null }): Promise<ShimResult<ShimTaxonKind[]>> {
+      const domain = req?.domain ?? null;
+      const isMusicScope = domain === null || domain === "music";
+      const wellKnownLabels = new Map(WELL_KNOWN_KINDS.map((k) => [k.slug, k.label]));
+
+      const [kindSlugs, counts] = await Promise.all([
+        resolveKindSlugsForDomain(domain),
+        countAlbumsByKindForRemote(LOCAL_TAXON_REMOTE_ID),
+      ]);
+
+      const out = kindSlugs.map((slug, idx) =>
+        synthesiseKind(slug, wellKnownLabels.get(slug) ?? slug, idx, counts.byKind.get(slug) ?? 0)
+      );
+
+      // "unassigned" hub (albums with no taxon links) is an album-only
+      // concept, like the server-side synth hub it mirrors — only ever
+      // shown for the music scope.
+      if (isMusicScope && counts.unassigned > 0) {
+        out.push(unassignedHubKind(counts.unassigned));
       }
       return ok(out);
     },
@@ -192,9 +231,9 @@ export const localTaxonomyClient = {
       return ok(items);
     },
 
-    async listTaxonParentsForKind(
-      _req: { kind_slug: string },
-    ): Promise<ShimResult<{ child_id: string; parent_id: string }[]>> {
+    async listTaxonParentsForKind(_req: {
+      kind_slug: string;
+    }): Promise<ShimResult<{ child_id: string; parent_id: string }[]>> {
       // local taxons have no hierarchy today.
       return ok([]);
     },
@@ -296,12 +335,52 @@ export const localTaxonomyClient = {
       return ok({ success: true as const });
     },
 
-    async getAlbumTaxonLinks(
-      req: { album_id: string },
-    ): Promise<ShimResult<ShimAlbumTaxonLink[]>> {
+    async getAlbumTaxonLinks(req: { album_id: string }): Promise<ShimResult<ShimAlbumTaxonLink[]>> {
       const taxons = await getAlbumTaxons(req.album_id);
       const links: ShimAlbumTaxonLink[] = taxons.map((t) => ({
         album_id: req.album_id,
+        taxon_id: t.taxon_id,
+        kind_slug: t.kind_slug,
+        label: t.label,
+        origin: "user",
+        confidence: null,
+        created_at: t.created_at,
+        created_by: null,
+      }));
+      return ok(links);
+    },
+
+    // ---- generic entity taxon links (non-album entities, e.g. video) ----
+
+    async addEntityTaxon(req: {
+      entity_type: string;
+      entity_id: string;
+      taxon_id: string;
+      origin: string;
+      confidence?: number | null;
+    }): Promise<ShimResult<{ success: true }>> {
+      await linkEntityTaxon(req.entity_type, req.entity_id, req.taxon_id);
+      return ok({ success: true as const });
+    },
+
+    async removeEntityTaxon(req: {
+      entity_type: string;
+      entity_id: string;
+      taxon_id: string;
+      origin?: string | null;
+    }): Promise<ShimResult<{ success: true }>> {
+      await unlinkEntityTaxon(req.entity_type, req.entity_id, req.taxon_id);
+      return ok({ success: true as const });
+    },
+
+    async getEntityTaxonLinks(req: {
+      entity_type: string;
+      entity_id: string;
+    }): Promise<ShimResult<ShimEntityTaxonLink[]>> {
+      const taxons = await getEntityTaxons(req.entity_type, req.entity_id);
+      const links: ShimEntityTaxonLink[] = taxons.map((t) => ({
+        entity_type: req.entity_type,
+        entity_id: req.entity_id,
         taxon_id: t.taxon_id,
         kind_slug: t.kind_slug,
         label: t.label,

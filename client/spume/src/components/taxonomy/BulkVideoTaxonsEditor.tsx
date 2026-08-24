@@ -8,13 +8,30 @@
 // route, not on the generic entity_taxonz table), so labels/kinds are
 // resolved separately via `music.getTaxon`, cached for this editor's
 // lifetime to avoid re-resolving the same taxon on every video.
+//
+// falls back to the local `entity_taxons` indexeddb store (via
+// `localTaxonomyClient`) when no remote is active - the local shim's
+// `getEntityTaxonLinks` already returns kind_slug/label resolved, so
+// the local path skips the taxonMetaCache resolution step entirely.
 
 import { createMemo, createResource, createSignal, Show } from "solid-js";
 import type { EntityTaxonLink } from "@freqhole/api-client";
 import { getClientForRemote, type ApiClient } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data/currentState";
+import { localTaxonomyClient } from "../../music/services/local-api/localTaxonomyClient";
+import type { TaxonomyClient } from "../../music/data";
 import { toast } from "../feedback/Toast";
 import { TaxonChipsGrid, type TaxonChipData, type TaxonKindOption } from "./TaxonChipsGrid";
+
+// fully-resolved taxon link, common shape both the remote path (after
+// resolving raw `EntityTaxonLink`s against `music.getTaxon`) and the
+// local path (already resolved by the shim) produce.
+interface ResolvedLink {
+  taxon_id: string;
+  kind_slug: string;
+  label: string;
+  origin: string;
+}
 
 export interface BulkVideoTaxonsEditorProps {
   /** video ids to apply changes to. */
@@ -31,18 +48,26 @@ export interface BulkVideoTaxonsEditorProps {
 
 export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
   const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
+  const isLocalMode = createMemo(() => !getCurrentRemote());
 
   const [clientResource] = createResource(
     () => getCurrentRemote(),
     async (remote) => (remote ? await getClientForRemote(remote) : null)
   );
 
+  // taxonomy client for shared calls (`music.listTaxonKinds`/`createTaxon`)
+  // that are shape-compatible whether the active source is a remote or
+  // the local shim.
+  const taxonomyClient = createMemo<TaxonomyClient | null>(
+    () => clientResource() ?? (isLocalMode() ? localTaxonomyClient : null)
+  );
+
   const [kindsResource] = createResource(
-    () => ({ override: props.kinds, client: clientResource() }),
+    () => ({ override: props.kinds, client: taxonomyClient() }),
     async ({ override, client }) => {
       if (override) return override.filter((k) => !excludeKinds().has(k.slug));
       if (!client) return [] as TaxonKindOption[];
-      const resp = await client.music.listTaxonKinds();
+      const resp = await client.music.listTaxonKinds({ domain: "video" });
       if (!resp.success) return [] as TaxonKindOption[];
       return (resp.data || [])
         .filter((k) => !excludeKinds().has(k.slug))
@@ -51,6 +76,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
   );
 
   // taxon_id -> resolved label/kind, persists for this editor's lifetime.
+  // only needed for the remote path (local links already come resolved).
   const taxonMetaCache = new Map<string, { kind_slug: string; label: string }>();
 
   const [linksVersion, setLinksVersion] = createSignal(0);
@@ -59,10 +85,37 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
       ids: props.videoIds.slice().sort().join(","),
       v: linksVersion(),
       client: clientResource(),
+      local: isLocalMode(),
     }),
-    async ({ client }) => {
-      const out = new Map<string, EntityTaxonLink[]>();
+    async ({ client, local }) => {
+      const out = new Map<string, ResolvedLink[]>();
+
+      if (local) {
+        const results = await Promise.allSettled(
+          props.videoIds.map(async (video_id) => {
+            const resp = await localTaxonomyClient.music.getEntityTaxonLinks({
+              entity_type: "video",
+              entity_id: video_id,
+            });
+            const links: ResolvedLink[] = resp.success
+              ? resp.data.map((l) => ({
+                  taxon_id: l.taxon_id,
+                  kind_slug: l.kind_slug,
+                  label: l.label,
+                  origin: l.origin,
+                }))
+              : [];
+            return { video_id, links };
+          })
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") out.set(r.value.video_id, r.value.links);
+        }
+        return out;
+      }
+
       if (!client) return out;
+      const raw = new Map<string, EntityTaxonLink[]>();
       const results = await Promise.allSettled(
         props.videoIds.map(async (video_id) => {
           const resp = await client.entities.getEntityTaxons({
@@ -73,11 +126,11 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         })
       );
       for (const r of results) {
-        if (r.status === "fulfilled") out.set(r.value.video_id, r.value.links);
+        if (r.status === "fulfilled") raw.set(r.value.video_id, r.value.links);
       }
 
       const unresolved = new Set<string>();
-      for (const links of out.values()) {
+      for (const links of raw.values()) {
         for (const link of links) {
           if (!taxonMetaCache.has(link.taxon_id)) unresolved.add(link.taxon_id);
         }
@@ -95,6 +148,20 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
           })
         );
       }
+      for (const [video_id, links] of raw) {
+        const resolved: ResolvedLink[] = [];
+        for (const link of links) {
+          const meta = taxonMetaCache.get(link.taxon_id);
+          if (!meta) continue;
+          resolved.push({
+            taxon_id: link.taxon_id,
+            kind_slug: meta.kind_slug,
+            label: meta.label,
+            origin: link.origin,
+          });
+        }
+        out.set(video_id, resolved);
+      }
       return out;
     }
   );
@@ -103,24 +170,22 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
   // with a partial count when not every video has it.
   const chipsByKind = createMemo<Map<string, TaxonChipData[]>>(() => {
     const total = props.videoIds.length;
-    const linksByVideo = linksResource() ?? new Map<string, EntityTaxonLink[]>();
+    const linksByVideo = linksResource() ?? new Map<string, ResolvedLink[]>();
     type Agg = { label: string; kind_slug: string; origin: string; count: number };
     const agg = new Map<string, Agg>();
     for (const videoId of props.videoIds) {
       const seen = new Set<string>();
       for (const link of linksByVideo.get(videoId) ?? []) {
-        const meta = taxonMetaCache.get(link.taxon_id);
-        if (!meta) continue;
-        if (excludeKinds().has(meta.kind_slug)) continue;
-        const key = `${meta.kind_slug}::${link.taxon_id}`;
+        if (excludeKinds().has(link.kind_slug)) continue;
+        const key = `${link.kind_slug}::${link.taxon_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
         const cur = agg.get(key);
         if (cur) cur.count += 1;
         else
           agg.set(key, {
-            label: meta.label,
-            kind_slug: meta.kind_slug,
+            label: link.label,
+            kind_slug: link.kind_slug,
             origin: link.origin,
             count: 1,
           });
@@ -153,18 +218,23 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
 
   const fanOut = async (
     label: string,
-    op: (client: ApiClient, videoId: string) => Promise<unknown>
+    remoteOp: (client: ApiClient, videoId: string) => Promise<unknown>,
+    localOp: (videoId: string) => Promise<unknown>
   ) => {
     if (busy()) return;
+    if (props.videoIds.length === 0) return;
+    const local = isLocalMode();
     const client = clientResource();
-    if (!client) {
+    if (!local && !client) {
       toast.error("not connected to a remote");
       return;
     }
-    if (props.videoIds.length === 0) return;
     setBusy(true);
     try {
-      const results = await Promise.allSettled(props.videoIds.map((id) => op(client, id)));
+      const op = local
+        ? (id: string) => localOp(id)
+        : (id: string) => remoteOp(client as ApiClient, id);
+      const results = await Promise.allSettled(props.videoIds.map((id) => op(id)));
       const failed = results.filter((r) => r.status === "rejected").length;
       if (failed > 0) {
         toast.warning(`${label}: ${results.length - failed}/${results.length} ok`);
@@ -177,45 +247,71 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
 
   const handleAdd = async (kindSlug: string, taxon: { id: string; label: string }) => {
     void kindSlug;
-    await fanOut(`add ${taxon.label}`, (client, video_id) =>
-      client.entities.addEntityTaxon({
-        entity_type: "video",
-        entity_id: video_id,
-        taxon_id: taxon.id,
-        origin: "user",
-        confidence: null,
-      })
+    await fanOut(
+      `add ${taxon.label}`,
+      (client, video_id) =>
+        client.entities.addEntityTaxon({
+          entity_type: "video",
+          entity_id: video_id,
+          taxon_id: taxon.id,
+          origin: "user",
+          confidence: null,
+        }),
+      (video_id) =>
+        localTaxonomyClient.music.addEntityTaxon({
+          entity_type: "video",
+          entity_id: video_id,
+          taxon_id: taxon.id,
+          origin: "user",
+          confidence: null,
+        })
     );
   };
 
   const handleCreate = async (kindSlug: string, label: string) => {
+    const local = isLocalMode();
     const client = clientResource();
-    if (!client) {
+    if (!local && !client) {
       toast.error("not connected to a remote");
       return;
     }
     setBusy(true);
     try {
-      const resp = await client.music.createTaxon({
-        kind_slug: kindSlug,
-        label,
-        description: null,
-        parent_ids: null,
-      });
-      if (!resp.success) {
+      const createResp = local
+        ? await localTaxonomyClient.music.createTaxon({
+            kind_slug: kindSlug,
+            label,
+            description: null,
+            parent_ids: null,
+          })
+        : await (client as ApiClient).music.createTaxon({
+            kind_slug: kindSlug,
+            label,
+            description: null,
+            parent_ids: null,
+          });
+      if (!createResp.success) {
         toast.error(`failed to create ${kindSlug} "${label}"`);
         return;
       }
-      const taxonId = resp.data.id;
+      const taxonId = createResp.data.id;
       const results = await Promise.allSettled(
         props.videoIds.map((video_id) =>
-          client.entities.addEntityTaxon({
-            entity_type: "video",
-            entity_id: video_id,
-            taxon_id: taxonId,
-            origin: "user",
-            confidence: null,
-          })
+          local
+            ? localTaxonomyClient.music.addEntityTaxon({
+                entity_type: "video",
+                entity_id: video_id,
+                taxon_id: taxonId,
+                origin: "user",
+                confidence: null,
+              })
+            : (client as ApiClient).entities.addEntityTaxon({
+                entity_type: "video",
+                entity_id: video_id,
+                taxon_id: taxonId,
+                origin: "user",
+                confidence: null,
+              })
         )
       );
       const failed = results.filter((r) => r.status === "rejected").length;
@@ -232,13 +328,22 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
   };
 
   const handleRemove = async (chip: TaxonChipData) => {
-    await fanOut(`remove ${chip.label}`, (client, video_id) =>
-      client.entities.removeEntityTaxon({
-        entity_type: "video",
-        entity_id: video_id,
-        taxon_id: chip.taxon_id,
-        origin: chip.origin,
-      })
+    await fanOut(
+      `remove ${chip.label}`,
+      (client, video_id) =>
+        client.entities.removeEntityTaxon({
+          entity_type: "video",
+          entity_id: video_id,
+          taxon_id: chip.taxon_id,
+          origin: chip.origin,
+        }),
+      (video_id) =>
+        localTaxonomyClient.music.removeEntityTaxon({
+          entity_type: "video",
+          entity_id: video_id,
+          taxon_id: chip.taxon_id,
+          origin: chip.origin,
+        })
     );
   };
 
@@ -253,7 +358,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         </Show>
       </div>
       <Show
-        when={clientResource()}
+        when={isLocalMode() || clientResource()}
         fallback={
           <p class="text-xs text-[var(--color-text-tertiary)]">
             connect to a remote to edit taxons.
@@ -263,7 +368,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         <TaxonChipsGrid
           kinds={kindsResource() ?? []}
           chipsByKind={chipsByKind()}
-          apiClient={clientResource() ?? null}
+          apiClient={taxonomyClient()}
           onAdd={(slug, t) => void handleAdd(slug, t)}
           onCreate={(slug, label) => void handleCreate(slug, label)}
           onRemoveChip={(chip) => void handleRemove(chip)}

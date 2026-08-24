@@ -376,6 +376,22 @@ pub async fn delete_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         "album" => remove_album_image(&req.entity_id, &req.blob_id).await,
         "artist" => remove_artist_image(&req.entity_id, &req.blob_id).await,
         "playlist" => remove_playlist_image(&req.entity_id, &req.blob_id).await,
+        "video" => {
+            crate::video::remove_entity_image(
+                crate::video::VideoEntityType::Video,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
+        "video_series" => {
+            crate::video::remove_entity_image(
+                crate::video::VideoEntityType::VideoSeries,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
         _ => {
             return GrimoireResponse::failure(
                 "bad request",
@@ -418,6 +434,22 @@ pub async fn set_primary_image(caller: &Caller, body: JsonValue) -> GrimoireResp
         "album" => set_primary_album_image(&req.entity_id, &req.blob_id).await,
         "artist" => set_primary_artist_image(&req.entity_id, &req.blob_id).await,
         "playlist" => set_primary_playlist_image(&req.entity_id, &req.blob_id).await,
+        "video" => {
+            crate::video::set_primary_entity_image(
+                crate::video::VideoEntityType::Video,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
+        "video_series" => {
+            crate::video::set_primary_entity_image(
+                crate::video::VideoEntityType::VideoSeries,
+                &req.entity_id,
+                &req.blob_id,
+            )
+            .await
+        }
         _ => {
             return GrimoireResponse::failure(
                 "bad request",

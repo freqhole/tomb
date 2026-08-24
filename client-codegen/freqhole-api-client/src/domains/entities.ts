@@ -84,6 +84,19 @@ export function createEntitiesMethods(call: CallFn) {
       );
     },
 
+    // entity images
+    getEntityImages: (params: s.GetEntityImagesRequest) => {
+      return call(
+        "entities",
+        "get_entity_images",
+        routes.entities.get_entity_images.resp,
+        routes.entities.get_entity_images.req,
+        routes.entities.get_entity_images.method,
+        routes.entities.get_entity_images.path,
+        params,
+      );
+    },
+
     // playlist items
     listPlaylistItems: (params: s.ListPlaylistItemsRequest) => {
       return call(

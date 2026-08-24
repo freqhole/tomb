@@ -9,11 +9,14 @@ import {
   type SafeParseResult,
 } from "../../../app/api/client";
 import { RemoteOfflineError } from "../../../music/data/remote/remoteSource";
+import { getRemoteMediaUrl } from "../../../utils/urls";
+import type { ImageMetadata } from "../../../music/services/storage/types";
 import type {
   PaginatedVideoSeries,
   PaginatedVideos,
   Video,
   VideoDataSource,
+  VideoImageEntityType,
   VideoQueryParams,
   VideoSeason,
   VideoSeries,
@@ -38,6 +41,18 @@ export class RemoteVideoDataSource implements VideoDataSource {
       this.client = await getClientForRemote(this.remote);
     }
     return this.client;
+  }
+
+  private get baseUrl(): string {
+    return this.remote.base_url ?? "";
+  }
+
+  // Tauri-managed remotes don't run an HTTP server — blob access goes through IPC
+  private getBlobHttpUrl(blobId: string): string | undefined {
+    if (this.remote.is_charnel_managed) {
+      return undefined;
+    }
+    return getRemoteMediaUrl(this.baseUrl, blobId);
   }
 
   // throws RemoteOfflineError on a network error, or a generic error
@@ -220,6 +235,91 @@ export class RemoteVideoDataSource implements VideoDataSource {
   async deleteVideoSeries(seriesId: string): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.deleteVideoSeries({ id: seriesId });
+    if (!result.success) this.failRequest(result);
+  }
+
+  // image operations — same generic entity_imagez routes albums use,
+  // scoped to entity_type "video"/"video_series" (mirrors
+  // music/data/remote/remoteSource.ts's image methods)
+  async uploadImage(params: {
+    file?: File;
+    filePath?: string;
+    entityType: VideoImageEntityType;
+    entityId: string;
+    isPrimary?: boolean;
+  }): Promise<{ blob_id: string; job_id: string }> {
+    const client = await this.getClient();
+    const associateOpts = {
+      associate: {
+        entity_type: params.entityType,
+        entity_id: params.entityId,
+        is_primary: params.isPrimary ?? false,
+      },
+    };
+
+    // path-based upload only works when the remote is charnel-managed
+    // (same-machine IPC) — see music/data/remote/remoteSource.ts's
+    // uploadImage for the full explanation of why a plain http/p2p
+    // remote can't use filePath.
+    const canUploadByPath = !!params.filePath && !!this.remote.is_charnel_managed;
+
+    let result;
+    if (canUploadByPath) {
+      result = await client.upload.imageByPath(params.filePath!, associateOpts);
+    } else if (params.file) {
+      result = await client.upload.image(params.file, associateOpts);
+    } else {
+      throw new Error("either file or filePath must be provided");
+    }
+
+    if (!result.success) this.failRequest(result);
+    return { blob_id: result.data.blob_id, job_id: result.data.job_id };
+  }
+
+  async getEntityImages(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+  }): Promise<ImageMetadata[]> {
+    const client = await this.getClient();
+    const result = await client.entities.getEntityImages({
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+    });
+    if (!result.success) this.failRequest(result);
+    return result.data.map((img) => ({
+      remote_blob_id: img.blob_id,
+      remote_url: this.getBlobHttpUrl(img.blob_id),
+      remote_server_id: this.remoteId,
+      is_primary: !!img.is_primary,
+      blob_type: img.blob_type,
+    }));
+  }
+
+  async removeImage(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.music.deleteImage({
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      blob_id: params.blobId,
+    });
+    if (!result.success) this.failRequest(result);
+  }
+
+  async setPrimaryImage(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+    blobId: string;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.music.setPrimaryImage({
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      blob_id: params.blobId,
+    });
     if (!result.success) this.failRequest(result);
   }
 }

@@ -5,14 +5,17 @@
 // unlike `AlbumTaxonsEditor`, video taxon links go through the generic
 // `entities.getEntityTaxons`/`addEntityTaxon`/`removeEntityTaxon` routes
 // (entity_taxonz table, entity_type-agnostic) instead of album-specific
-// routes, and are only available when a remote is active: there is no
-// local (indexeddb) writer for video taxon links yet, mirroring how
-// video series create/update/delete also require a remote.
+// routes when a remote is active; when no remote is active, this falls
+// back to the local `entity_taxons` indexeddb store via
+// `localTaxonomyClient.music.{getEntityTaxonLinks,addEntityTaxon,
+// removeEntityTaxon}` (mirrors how `AlbumTaxonsEditor` already works
+// uniformly across local/remote).
 //
 // link add/remove is buffered into `pendingAdds`/`pendingRemoves` until
 // the parent calls `apply()` from its save handler, so the modal's save
 // button stays enabled and reset drops pending edits without touching
-// the server. every taxon kind is shown (no kind exclusions).
+// the server. supports excluding kinds via `excludeKinds`, mirroring
+// `AlbumTaxonsEditor`'s prop of the same name/shape.
 import {
   createEffect,
   createMemo,
@@ -23,7 +26,8 @@ import {
   Show,
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import { getCurrentRemote, getRemoteClient, getTaxonomyClient } from "../../music/data";
+import { getRemoteClient, getTaxonomyClient } from "../../music/data";
+import { localTaxonomyClient } from "../../music/services/local-api/localTaxonomyClient";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
 import {
   TaxonChipsGrid,
@@ -49,6 +53,9 @@ export interface VideoTaxonsEditorHandle {
 
 export interface VideoTaxonsEditorProps {
   videoId: string;
+  /** kind slugs to never render/edit (e.g. music-only kinds like
+   *  "genre"/"mood"/"style"/"era"/"label"). defaults to none. */
+  excludeKinds?: string[];
   /** called once on mount with the imperative handle the parent can
    *  use to flush / reset pending edits and inspect dirty state. */
   ref?: (handle: VideoTaxonsEditorHandle) => void;
@@ -60,6 +67,7 @@ export interface VideoTaxonsEditorProps {
 
 export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
   const queryClient = useQueryClient();
+  const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
 
   // 1. taxon kinds — same source as the album editor (kind definitions
   //    aren't entity-scoped), works whether the active source is a
@@ -67,20 +75,34 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
   const [kindsVersion, setKindsVersion] = createSignal(0);
   const [kindsResource] = createResource(kindsVersion, async () => {
     const client = await getTaxonomyClient();
-    const resp = await client.music.listTaxonKinds();
+    const resp = await client.music.listTaxonKinds({ domain: "video" });
     if (!resp.success) return [];
-    return (resp.data || []).map<TaxonKindOption>((k) => ({ slug: k.slug, label: k.label }));
+    return (resp.data || [])
+      .filter((k) => !excludeKinds().has(k.slug))
+      .map<TaxonKindOption>((k) => ({ slug: k.slug, label: k.label }));
   });
 
   // 2. current links for this video, resolved to kind_slug/label since
-  //    `getEntityTaxons` only returns raw (taxon_id, origin) rows. no
-  //    remote means no taxon data yet for video.
+  //    `getEntityTaxons` only returns raw (taxon_id, origin) rows. falls
+  //    back to the local `entity_taxons` store when no remote is active.
   const [linksVersion, setLinksVersion] = createSignal(0);
   const [linksResource] = createResource(
     () => ({ id: props.videoId, v: linksVersion() }),
     async ({ id }) => {
       const client = await getRemoteClient();
-      if (!client) return [] as VideoTaxonLink[];
+      if (!client) {
+        const localResult = await localTaxonomyClient.music.getEntityTaxonLinks({
+          entity_type: "video",
+          entity_id: id,
+        });
+        if (!localResult.success) return [] as VideoTaxonLink[];
+        return localResult.data.map((l) => ({
+          taxon_id: l.taxon_id,
+          kind_slug: l.kind_slug,
+          label: l.label,
+          origin: l.origin,
+        }));
+      }
       const linksResult = await client.entities.getEntityTaxons({
         entity_type: "video",
         entity_id: id,
@@ -128,6 +150,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
     const map = new Map<string, TaxonChipData[]>();
     const removeIds = pendingRemoves();
     for (const link of linksResource() || []) {
+      if (excludeKinds().has(link.kind_slug)) continue;
       if (removeIds.has(link.taxon_id)) continue;
       const arr = map.get(link.kind_slug) ?? [];
       arr.push({
@@ -140,6 +163,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
       map.set(link.kind_slug, arr);
     }
     for (const add of pendingAdds()) {
+      if (excludeKinds().has(add.kind_slug)) continue;
       const arr = map.get(add.kind_slug) ?? [];
       arr.push({
         taxon_id: add.id,
@@ -241,6 +265,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
         value_type: null,
         unit: null,
         display_order: null,
+        domain: "video",
       });
       if (!resp.success) {
         toast.error(`failed to create kind "${slug}"`);
@@ -260,12 +285,34 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
   const apply = async () => {
     if (!isDirty()) return;
     const client = await getRemoteClient();
-    if (!client) {
-      toast.error("connect to a remote to save taxon changes");
-      return;
-    }
     const removes = Array.from(pendingRemoves().values());
     const adds = pendingAdds();
+
+    if (!client) {
+      for (const link of removes) {
+        await localTaxonomyClient.music.removeEntityTaxon({
+          entity_type: "video",
+          entity_id: props.videoId,
+          taxon_id: link.taxon_id,
+          origin: link.origin,
+        });
+      }
+      for (const add of adds) {
+        await localTaxonomyClient.music.addEntityTaxon({
+          entity_type: "video",
+          entity_id: props.videoId,
+          taxon_id: add.id,
+          origin: "user",
+          confidence: null,
+        });
+      }
+      setPendingAdds([]);
+      setPendingRemoves(new Map());
+      setLinksVersion((v) => v + 1);
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.taxons(props.videoId) });
+      return;
+    }
+
     for (const link of removes) {
       await client.entities.removeEntityTaxon({
         entity_type: "video",
@@ -299,7 +346,10 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
     props.ref?.({ apply, reset, isDirty });
   });
 
-  const hasRemote = createMemo(() => !!getCurrentRemote());
+  // note: taxon editing is now available locally too (falls back to
+  // the local `entity_taxons` store), so `hasRemote` no longer gates
+  // the editor's `disabled` state - it's only used for the informational
+  // hint text below.
 
   return (
     <div class="space-y-3">
@@ -321,7 +371,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
         <TaxonChipsGrid
           kinds={kindsResource() ?? []}
           chipsByKind={chipsByKind()}
-          disabled={props.disabled || !hasRemote()}
+          disabled={props.disabled}
           onAdd={(kindSlug, t) => queueAdd(kindSlug, t)}
           onCreate={(kindSlug, label) => void handleCreate(kindSlug, label)}
           onRemoveChip={(chip) => queueRemove(chip)}
@@ -391,12 +441,6 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
             </div>
           </div>
         </Show>
-      </Show>
-
-      <Show when={!hasRemote()}>
-        <p class="text-xs text-[var(--color-text-tertiary)]">
-          connect to a remote to view and edit taxons for this video.
-        </p>
       </Show>
     </div>
   );

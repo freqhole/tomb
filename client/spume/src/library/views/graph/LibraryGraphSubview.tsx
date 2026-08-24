@@ -656,7 +656,7 @@ function Inner(props: {
   const loadTaxonKindsForRemote = async (remote: Remote): Promise<void> => {
     try {
       const client = await getClientForRemote(remote);
-      const result = await client.music.listTaxonKinds();
+      const result = await client.music.listTaxonKinds({ domain: "music" });
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
       // stash the full kind list (categorical + scalar, empties

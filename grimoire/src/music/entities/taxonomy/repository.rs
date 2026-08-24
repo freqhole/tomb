@@ -13,6 +13,10 @@ use super::models::{
     SetTaxonKindColorRequest, SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind,
     TaxonParentEdge, TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
+
+/// domain used to backfill/tag every kind that predates domain scoping
+/// (see migration 067) and every synthesized album-only hub kind below.
+const MUSIC_DOMAIN: &str = "music";
 use crate::database;
 use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
@@ -47,8 +51,13 @@ pub fn slugify_taxon_label(label: &str) -> String {
 
 // ---- kinds ----
 
-/// list all (non-deleted) taxon kinds, ordered by `display_order` then label.
-pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
+/// list (non-deleted) taxon kinds, ordered by `display_order` then label.
+///
+/// `domain` optionally scopes the result: when set, only kinds whose
+/// `domain` column matches it (or is `"universal"`) are returned. `None`
+/// returns every kind (back-compat for the album editor, which predates
+/// domain scoping and still wants the full unfiltered set).
+pub async fn list_taxon_kinds(domain: Option<&str>) -> GrimoireResponse<Vec<TaxonKind>> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -76,6 +85,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             k.display_order   as "display_order!",
             k.is_user_defined as "is_user_defined!: bool",
             k.created_at      as "created_at!",
+            k.domain          as "domain!",
             (
               SELECT COUNT(DISTINCT at.album_id)
               FROM album_taxonz at
@@ -87,7 +97,9 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             ) as "album_count!: i64"
            FROM taxon_kindz k
            WHERE k.deleted_at IS NULL
-           ORDER BY k.display_order ASC, k.label ASC"#
+             AND (?1 IS NULL OR k.domain = ?1 OR k.domain = 'universal')
+           ORDER BY k.display_order ASC, k.label ASC"#,
+        domain
     )
     .fetch_all(&pool)
     .await
@@ -115,8 +127,16 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             is_user_defined: r.is_user_defined,
             created_at: r.created_at,
             album_count: r.album_count,
+            domain: r.domain,
         })
         .collect();
+
+    // the synthesized hub kinds below are all album-only (era/recently
+    // added/unassigned are computed from albumz), so they only apply
+    // when the caller isn't scoping to a non-music domain.
+    if domain.is_some_and(|d| d != MUSIC_DOMAIN) {
+        return GrimoireResponse::success("taxon kinds retrieved", kinds);
+    }
 
     // synthesize two extra kinds that aren't backed by real taxon_kindz
     // rows: "era" (albums grouped by release decade) and "recently_added"
@@ -160,6 +180,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         is_user_defined: false,
         created_at: now,
         album_count: era_count,
+        domain: MUSIC_DOMAIN.to_string(),
     });
 
     // recently_added: albums created in the last 30 days
@@ -194,6 +215,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
         is_user_defined: false,
         created_at: now,
         album_count: recently_added_count,
+        domain: MUSIC_DOMAIN.to_string(),
     });
 
     // unassigned: albums with no album_taxonz rows at all (across any
@@ -236,6 +258,7 @@ pub async fn list_taxon_kinds() -> GrimoireResponse<Vec<TaxonKind>> {
             is_user_defined: false,
             created_at: now,
             album_count: unassigned_count,
+            domain: MUSIC_DOMAIN.to_string(),
         });
     }
 
@@ -282,7 +305,8 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
               unit,
               display_order   as "display_order!",
               is_user_defined as "is_user_defined!: bool",
-              created_at      as "created_at!"
+              created_at      as "created_at!",
+              domain          as "domain!"
            FROM taxon_kindz
            WHERE slug = ? AND deleted_at IS NULL"#,
         slug,
@@ -306,18 +330,21 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
                 // find-or-create doesn't recompute counts — callers
                 // that need it call list_taxon_kinds.
                 album_count: 0,
+                domain: row.domain,
             },
         );
     }
 
     // not found: insert with conservative defaults. categorical is the
-    // safest default since we don't know the value shape upfront.
+    // safest default since we don't know the value shape upfront. this
+    // path is only used by music enrichment (audiodb/lastfm), so the
+    // new kind is tagged domain='music'.
     let value_type = ScalarValueType::Categorical.as_str().to_string();
     let display_order: i64 = 500;
     let row = match sqlx::query!(
         r#"INSERT INTO taxon_kindz
-              (slug, label, value_type, display_order, is_user_defined)
-            VALUES (?, ?, ?, ?, 1)
+              (slug, label, value_type, display_order, is_user_defined, domain)
+            VALUES (?, ?, ?, ?, 1, ?)
             RETURNING
               id              as "id!",
               slug            as "slug!",
@@ -328,11 +355,13 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
               unit,
               display_order   as "display_order!",
               is_user_defined as "is_user_defined!: bool",
-              created_at      as "created_at!""#,
+              created_at      as "created_at!",
+              domain          as "domain!""#,
         slug,
         label_owned,
         value_type,
         display_order,
+        MUSIC_DOMAIN,
     )
     .fetch_one(&pool)
     .await
@@ -361,6 +390,7 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
             created_at: row.created_at,
             // fresh kind, no album links yet.
             album_count: 0,
+            domain: row.domain,
         },
     )
 }
@@ -386,6 +416,10 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
         );
     }
     let display_order = req.display_order.unwrap_or(100);
+    let domain = req
+        .domain
+        .clone()
+        .unwrap_or_else(|| "universal".to_string());
 
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -399,8 +433,8 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
 
     let row = match sqlx::query!(
         r#"INSERT INTO taxon_kindz
-              (slug, label, description, color, value_type, unit, display_order, is_user_defined)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+              (slug, label, description, color, value_type, unit, display_order, is_user_defined, domain)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
             RETURNING
               id              as "id!",
               slug            as "slug!",
@@ -411,7 +445,8 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
               unit,
               display_order   as "display_order!",
               is_user_defined as "is_user_defined!: bool",
-              created_at      as "created_at!""#,
+              created_at      as "created_at!",
+              domain          as "domain!""#,
         slug,
         label,
         req.description,
@@ -419,6 +454,7 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
         value_type,
         req.unit,
         display_order,
+        domain,
     )
     .fetch_one(&pool)
     .await
@@ -447,6 +483,7 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
             created_at: row.created_at,
             // fresh kind, no album links yet.
             album_count: 0,
+            domain: row.domain,
         },
     )
 }
@@ -1545,7 +1582,7 @@ pub async fn set_taxon_kind_color(req: SetTaxonKindColorRequest) -> GrimoireResp
 
     // re-read the kind via list + filter (cheaper than a dedicated getter and
     // matches the album_count enrichment shape returned by list_taxon_kinds).
-    let kinds = list_taxon_kinds().await;
+    let kinds = list_taxon_kinds(None).await;
     if !kinds.success {
         return GrimoireResponse::failure("color updated but failed to re-read kind", kinds.errors);
     }
@@ -1602,7 +1639,7 @@ pub async fn set_taxon_kind_label(req: SetTaxonKindLabelRequest) -> GrimoireResp
         return GrimoireResponse::failure("taxon kind not found", vec![]);
     }
 
-    let kinds = list_taxon_kinds().await;
+    let kinds = list_taxon_kinds(None).await;
     if !kinds.success {
         return GrimoireResponse::failure("label updated but failed to re-read kind", kinds.errors);
     }

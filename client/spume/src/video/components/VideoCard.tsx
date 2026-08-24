@@ -6,11 +6,17 @@ import { createEffect, createSignal, JSX, onCleanup, Show, type Accessor } from 
 import { PlayIcon } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
+import { TaxonChipList } from "../../components/badges/TaxonChips";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration } from "../../utils/formatDuration";
 import { appState } from "../../app/services/storage/db";
 import { readVideoPosterFromOPFS } from "../services/opfs/helpers";
+import { useVideoTaxonsQuery } from "../queries/taxons";
 import type { VideoSummary } from "../data/types";
+
+// video-only taxon kinds; music-only kinds (genre/mood/style/era/label)
+// don't apply to video and are excluded everywhere video renders taxons.
+const VIDEO_EXCLUDED_TAXON_KINDS = ["genre", "mood", "style", "era", "label"];
 
 /** resolves a local (opfs-backed) poster path to an object url, revoking
  * the previous url whenever the path changes or the component unmounts. */
@@ -61,6 +67,8 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
   const localPosterUrl = useLocalVideoPosterUrl(() =>
     props.video.source_type === "local" ? props.video.poster_opfs_path : null
   );
+
+  const taxonsQuery = useVideoTaxonsQuery(() => props.video.id);
 
   // grid/table thumbnails default to cropped-square (object-fit: cover);
   // user can switch to letterboxed/contain in settings.
@@ -166,7 +174,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
         </div>
       </div>
 
-      {/* title + duration */}
+      {/* title + duration + taxons */}
       <div class="space-y-0.5 min-w-0">
         <MarqueeText
           text={props.video.title}
@@ -176,6 +184,13 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
           <div class={`text-[var(--color-text-tertiary)]/65 ${metaClass}`}>
             {formatDuration(props.video.duration_seconds)}
           </div>
+        </Show>
+        <Show when={(taxonsQuery.data?.length ?? 0) > 0}>
+          <MarqueeText class={`${metaClass} text-[var(--color-text-tertiary)]`}>
+            <div class="flex flex-nowrap gap-1 w-max">
+              <TaxonChipList taxons={taxonsQuery.data} excludeKinds={VIDEO_EXCLUDED_TAXON_KINDS} />
+            </div>
+          </MarqueeText>
         </Show>
       </div>
     </div>

@@ -4,8 +4,13 @@
 import { Accessor, createEffect, createMemo, createSignal, JSX, onMount } from "solid-js";
 
 interface MarqueeTextProps {
-  /** text content to display */
-  text: string;
+  /** text content to display. omit when using `children` for non-text
+   *  content (e.g. a row of taxon chips) instead. */
+  text?: string;
+  /** arbitrary content to marquee instead of plain `text` (e.g. a row of
+   *  taxon chip badges). when provided, this is rendered instead of
+   *  `text`, but `text` (if given) is still used as the default tooltip. */
+  children?: JSX.Element;
   /** additional css classes */
   class?: string;
   /** padding class applied inside the overflow container (e.g. 'px-2') for virtualized lists */
@@ -74,9 +79,10 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
     requestAnimationFrame(checkOverflow);
   });
 
-  // recheck when text changes
+  // recheck when text or children change
   createEffect(() => {
     props.text;
+    props.children;
     requestAnimationFrame(checkOverflow);
   });
 
@@ -129,7 +135,7 @@ export function MarqueeText(props: MarqueeTextProps): JSX.Element {
           animation: animationStyle(),
         }}
       >
-        {props.text}
+        {props.children ?? props.text}
       </span>
     </div>
   );

@@ -269,7 +269,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 13;
+export const MUSIC_DB_VERSION = 14;
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -284,6 +284,7 @@ export const STORE_TAGS = "tags";
 export const STORE_ALBUM_TAGS = "album_tags";
 export const STORE_TAXONS = "taxons";
 export const STORE_ALBUM_TAXONS = "album_taxons";
+export const STORE_ENTITY_TAXONS = "entity_taxons";
 
 // sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
 // entries that belong to the local indexeddb library. matches
@@ -319,6 +320,20 @@ export interface TaxonRow {
 // taxon for cheap by-remote scans (clearing a peer's mirror, etc.).
 export interface AlbumTaxonRow {
   album_id: string;
+  taxon_id: string;
+  remote_id: string;
+  created_at: number;
+}
+
+// ===== ENTITY_TAXONS JUNCTION (generic) =====
+// entity <-> taxon many-to-many for any entity type (video today; album
+// keeps using its own dedicated `AlbumTaxonRow`/`STORE_ALBUM_TAXONS`
+// above rather than migrating onto this - this is purely additive so
+// album behavior is unaffected). mirrors `STORE_FAVORITES`'s already-
+// generic `[target_type, target_id]` keying pattern.
+export interface EntityTaxonRow {
+  entity_type: string;
+  entity_id: string;
   taxon_id: string;
   remote_id: string;
   created_at: number;

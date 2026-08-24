@@ -46,6 +46,9 @@ pub use crud::query::{
 };
 
 // generalized entity_taxonz / playlist_itemz / playback_progressz, as used by video
+pub use crud::entity_imagez::{
+    add_entity_image, list_entity_images, remove_entity_image, set_primary_entity_image,
+};
 pub use crud::entity_taxonz::{
     add_entity_taxon, list_entity_taxons, remove_entity_taxon, EntityTaxonLink, VideoEntityType,
 };

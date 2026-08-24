@@ -154,7 +154,11 @@ export function VideoDetailView() {
                   </Show>
                 </div>
 
-                <TaxonChips taxons={taxonsQuery.data} class="mt-2" />
+                <TaxonChips
+                  taxons={taxonsQuery.data}
+                  class="mt-2"
+                  excludeKinds={["genre", "mood", "style", "era", "label"]}
+                />
 
                 <Show when={video().description}>
                   <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">

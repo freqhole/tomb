@@ -116,7 +116,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
     async ({ override }) => {
       if (override) return override;
       const client = props.apiClient ?? (await getTaxonomyClient());
-      const resp = await client.music.listTaxonKinds();
+      const resp = await client.music.listTaxonKinds({ domain: "music" });
       if (!resp.success) return [];
       return (resp.data || [])
         .filter((k) => !excludeKinds().has(k.slug))
@@ -368,6 +368,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
         value_type: null,
         unit: null,
         display_order: null,
+        domain: "music",
       });
       if (!resp.success) {
         toast.error(`failed to create kind "${slug}"`);

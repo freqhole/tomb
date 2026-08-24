@@ -147,6 +147,21 @@ pub async fn import_video_file(
                         video.id, update_resp.message
                     );
                 }
+                let image_resp = crate::video::add_entity_image(
+                    crate::video::VideoEntityType::Video,
+                    &video.id,
+                    &blob_id,
+                    Some(true),
+                    BlobType::Thumbnail,
+                    created_by.as_deref(),
+                )
+                .await;
+                if !image_resp.success {
+                    warn!(
+                        "failed to link poster blob to entity_imagez for video {}: {}",
+                        video.id, image_resp.message
+                    );
+                }
                 Some(blob_id)
             }
             Err(e) => {

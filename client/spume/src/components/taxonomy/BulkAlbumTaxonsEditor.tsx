@@ -51,7 +51,7 @@ export function BulkAlbumTaxonsEditor(props: BulkAlbumTaxonsEditorProps) {
     async ({ override, client }) => {
       if (override) return override.filter((k) => !excludeKinds().has(k.slug));
       if (!client) return [] as TaxonKindOption[];
-      const resp = await client.music.listTaxonKinds();
+      const resp = await client.music.listTaxonKinds({ domain: "music" });
       if (!resp.success) return [] as TaxonKindOption[];
       return (resp.data || [])
         .filter((k) => !excludeKinds().has(k.slug))

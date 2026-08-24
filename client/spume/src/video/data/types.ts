@@ -3,6 +3,11 @@
 
 import type { Video, VideoSeries, VideoSeason } from "@freqhole/api-client";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
+import type { ImageMetadata } from "../../music/services/storage/types";
+
+// entity types the generic entity_imagez-backed image routes accept for
+// the video domain (mirrors grimoire's video::crud::entity_imagez::VideoEntityType)
+export type VideoImageEntityType = "video" | "video_series";
 
 export type { Video, VideoSeries, VideoSeason };
 
@@ -80,4 +85,31 @@ export interface VideoDataSource {
     poster_blob_id?: string | null;
   }): Promise<void>;
   deleteVideoSeries?(seriesId: string): Promise<void>;
+
+  // image operations — generic entity_imagez routes (mirrors
+  // music/data/types.ts's MusicDataSource image methods)
+  uploadImage?(params: {
+    file?: File;
+    filePath?: string;
+    entityType: VideoImageEntityType;
+    entityId: string;
+    isPrimary?: boolean;
+  }): Promise<{ blob_id: string; job_id: string }>;
+
+  getEntityImages?(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+  }): Promise<ImageMetadata[]>;
+
+  removeImage?(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+    blobId: string;
+  }): Promise<void>;
+
+  setPrimaryImage?(params: {
+    entityType: VideoImageEntityType;
+    entityId: string;
+    blobId: string;
+  }): Promise<void>;
 }

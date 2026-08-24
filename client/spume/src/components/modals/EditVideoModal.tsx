@@ -10,13 +10,17 @@ import { Select } from "../forms/Select";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { VideoTaxonsEditor, type VideoTaxonsEditorHandle } from "./VideoTaxonsEditor";
+import { EntityImages } from "../layout/EntityImages";
 import { toast } from "../feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
 import { canUpdateVideo } from "../../video/data/permissions";
 import { useUpdateVideoMutation, useVideoQuery } from "../../video/queries/videos";
 import { useCreateVideoSeriesMutation } from "../../video/queries/series";
+import { getVideoDataSource } from "../../video/data";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data";
+import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoRendition } from "@freqhole/api-client";
 import { Modal } from "./Modal";
 import { Icon, IconNames } from "../icons/registry";
@@ -71,6 +75,11 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const [renditions, setRenditions] = createSignal<VideoRendition[]>([]);
   const [renditionsLoading, setRenditionsLoading] = createSignal(false);
   const [deletingRendition, setDeletingRendition] = createSignal<string | null>(null);
+
+  // images — fetched/mutated immediately (not deferred to save), mirrors
+  // AlbumEditorModal.tsx's image handling
+  const [images, setImages] = createSignal<ImageMetadata[]>([]);
+  const [imageProcessing, setImageProcessing] = createSignal<string | null>(null);
 
   // seasons for the selected series
   const [availableSeasons, setAvailableSeasons] = createSignal<
@@ -142,6 +151,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
       toast.error("failed to delete rendition");
     } finally {
       setDeletingRendition(null);
+    }
+  };
+
+  const fetchImages = async (videoId: string) => {
+    const dataSource = getVideoDataSource();
+    if (!dataSource.getEntityImages) {
+      setImages([]);
+      return;
+    }
+    try {
+      const imgs = await dataSource.getEntityImages({ entityType: "video", entityId: videoId });
+      setImages(imgs);
+    } catch (err) {
+      console.error("failed to fetch video images:", err);
+      setImages([]);
     }
   };
 
@@ -217,6 +241,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       setLoadedVideoId(props.videoId);
       void fetchEntityUrls(props.videoId);
       void fetchSeriesTitle(video.series_id ?? null);
+      void fetchImages(props.videoId);
     }
   });
 
@@ -333,6 +358,98 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
   const handleFieldChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // shared image upload logic for both File and file path (mirrors
+  // AlbumEditorModal.tsx's handleImageUpload)
+  const handleImageUpload = async (params: { file?: File; filePath?: string }) => {
+    try {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.uploadImage) {
+        toast.error("image upload not supported");
+        return;
+      }
+
+      setImageProcessing("uploading image...");
+
+      const { job_id } = await dataSource.uploadImage({
+        ...params,
+        entityType: "video",
+        entityId: props.videoId,
+        isPrimary: images().length === 0,
+      });
+
+      const remote = getCurrentRemote();
+      if (remote && job_id) {
+        setImageProcessing("processing image...");
+        const pollResult = await pollJobUntilComplete(remote, job_id, 60_000, {
+          onStage: (_stage, message) => setImageProcessing(message ?? "processing image..."),
+        });
+        if (pollResult === "failed") {
+          toast.error("image processing failed");
+          setImageProcessing(null);
+          return;
+        }
+        if (pollResult === "timeout") {
+          toast.info("image processing taking a long time — check back later", {
+            title: "processing queued",
+          });
+          setImageProcessing(null);
+          return;
+        }
+      }
+
+      setImageProcessing(null);
+      await fetchImages(props.videoId);
+    } catch (err) {
+      console.error("failed to upload image:", err);
+      toast.error("failed to upload image");
+      setImageProcessing(null);
+    }
+  };
+
+  const handleImageSelectPath = async (filePath: string) => {
+    await handleImageUpload({ filePath });
+  };
+
+  const handleTogglePrimary = async (index: number) => {
+    const image = images()[index];
+    const blobId = image.remote_blob_id || image.local_blob_id;
+    if (!blobId) {
+      toast.error("no blob id found for this image");
+      return;
+    }
+
+    try {
+      const dataSource = getVideoDataSource();
+      await dataSource.setPrimaryImage?.({ entityType: "video", entityId: props.videoId, blobId });
+      await fetchImages(props.videoId);
+    } catch (err) {
+      console.error("failed to update primary image:", err);
+      toast.error("failed to update primary image");
+    }
+  };
+
+  const handleRemoveImage = async (index: number) => {
+    const image = images()[index];
+    const blobId = image.remote_blob_id || image.local_blob_id;
+    if (!blobId) {
+      toast.error("cannot delete image: missing blob id");
+      return;
+    }
+
+    try {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.removeImage) {
+        toast.error("image removal not supported");
+        return;
+      }
+      await dataSource.removeImage({ entityType: "video", entityId: props.videoId, blobId });
+      await fetchImages(props.videoId);
+    } catch (err) {
+      console.error("failed to remove image:", err);
+      toast.error("failed to remove image");
+    }
   };
 
   const handleSeriesSelect = (selection: { id?: string; name: string; isNew: boolean }) => {
@@ -469,6 +586,22 @@ export function EditVideoModal(props: EditVideoModalProps) {
             </div>
           </div>
 
+          {/* images */}
+          <div class="border-t border-[var(--color-border-default)] pt-4">
+            <EntityImages
+              images={images()}
+              onUpload={(file) => handleImageUpload({ file })}
+              onUploadPath={handleImageSelectPath}
+              onSetPrimary={handleTogglePrimary}
+              onDelete={handleRemoveImage}
+              uploading={imageProcessing() !== null}
+              disabled={!canUpdateVideo()}
+            />
+            <Show when={imageProcessing()}>
+              <p class="text-xs text-[var(--color-text-tertiary)] mt-1">{imageProcessing()}</p>
+            </Show>
+          </div>
+
           {/* series and season assignment */}
           <div class="space-y-4 border-t border-[var(--color-border-default)] pt-4">
             <h3 class="text-sm font-medium text-[var(--color-text-primary)]">series & season</h3>
@@ -524,6 +657,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
               ref={(h) => (taxonsHandle = h)}
               onDirtyChange={setTaxonsDirty}
               disabled={!canUpdateVideo()}
+              excludeKinds={["genre", "mood", "style", "era", "label"]}
             />
           </div>
 

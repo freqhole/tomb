@@ -13,6 +13,7 @@
 //! domain exposes its own generalized-table functions).
 
 pub mod favorites;
+pub mod image_links;
 pub mod playlist_items;
 pub mod ratings;
 pub mod taxon_links;
@@ -29,6 +30,7 @@ pub fn routes() -> Vec<RouteInfo> {
     let mut all = Vec::new();
     all.extend_from_slice(taxon_links::ROUTES);
     all.extend_from_slice(url_links::ROUTES);
+    all.extend_from_slice(image_links::ROUTES);
     all.extend_from_slice(playlist_items::ROUTES);
     all.extend_from_slice(favorites::ROUTES);
     all.extend_from_slice(ratings::ROUTES);
@@ -52,6 +54,8 @@ pub async fn dispatch(
         "/api/entities/urls/get" => Some(url_links::get(caller, body.clone()).await),
         "/api/entities/urls/add" => Some(url_links::add(caller, body.clone()).await),
         "/api/entities/urls/remove" => Some(url_links::remove(caller, body.clone()).await),
+
+        "/api/entities/images/get" => Some(image_links::get(caller, body.clone()).await),
 
         "/api/entities/playlists/items/list" => {
             Some(playlist_items::list(caller, body.clone()).await)

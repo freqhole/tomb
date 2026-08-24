@@ -224,7 +224,6 @@ export function VideosView(props: VideosViewProps) {
           fallback={
             <VideosTable
               videos={videos()}
-              onVideoClick={handleVideoClick}
               onVideoPlay={handleVideoPlay}
               getContextMenuActions={getContextMenuActions}
               favoriteVideoIds={favoriteVideoIds()}

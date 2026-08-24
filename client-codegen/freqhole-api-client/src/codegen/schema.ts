@@ -1499,7 +1499,8 @@ export const CreateTaxonKindRequestSchema = z.object({
   color: z.string().nullish(),
   value_type: z.string().nullish(),
   unit: z.string().nullish(),
-  display_order: z.number().nullish()
+  display_order: z.number().nullish(),
+  domain: z.string().nullish()
 });
 export type CreateTaxonKindRequest = z.infer<typeof CreateTaxonKindRequestSchema>;
 
@@ -2843,6 +2844,12 @@ export const GetEnrichmentProgressResponseSchema = z.object({
 });
 export type GetEnrichmentProgressResponse = z.infer<typeof GetEnrichmentProgressResponseSchema>;
 
+export const GetEntityImagesRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetEntityImagesRequest = z.infer<typeof GetEntityImagesRequestSchema>;
+
 export const GetEntityTaxonsRequestSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string()
@@ -2996,6 +3003,13 @@ export const ImageIngestTargetSchema = z.union([z.object({
   id: z.string()
 })]);
 export type ImageIngestTarget = z.infer<typeof ImageIngestTargetSchema>;
+
+export const ImageMetadataSchema = z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+});
+export type ImageMetadata = z.infer<typeof ImageMetadataSchema>;
 
 export const ImageUploadResponseSchema = z.object({
   blob_id: z.string(),
@@ -3689,6 +3703,11 @@ export const ListRelatedArtistsResponseSchema = z.object({
 }))
 });
 export type ListRelatedArtistsResponse = z.infer<typeof ListRelatedArtistsResponseSchema>;
+
+export const ListTaxonKindsRequestSchema = z.object({
+  domain: z.string().nullish()
+});
+export type ListTaxonKindsRequest = z.infer<typeof ListTaxonKindsRequestSchema>;
 
 export const ListTaxonParentsForKindRequestSchema = z.object({
   kind_slug: z.string()
@@ -6580,7 +6599,8 @@ export const TaxonKindSchema = z.object({
   display_order: z.number(),
   is_user_defined: z.boolean(),
   created_at: z.number(),
-  album_count: z.number()
+  album_count: z.number(),
+  domain: z.string()
 });
 export type TaxonKind = z.infer<typeof TaxonKindSchema>;
 

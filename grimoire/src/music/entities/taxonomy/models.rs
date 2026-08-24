@@ -57,6 +57,10 @@ pub struct TaxonKind {
     /// (`find_or_create_taxon_kind`, `create_taxon_kind`) set 0 since
     /// no album_taxonz rows exist yet.
     pub album_count: i64,
+    /// owning entity domain: `"music"` | `"video"` | `"universal"`.
+    /// `list_taxon_kinds`'s optional `domain` filter includes a kind when
+    /// its domain matches the request OR is `"universal"`.
+    pub domain: String,
 }
 
 /// a categorical taxon node (e.g. `(kind=genre, label="rock")`).
@@ -143,6 +147,17 @@ pub struct CreateTaxonKindRequest {
     pub value_type: Option<String>,
     pub unit: Option<String>,
     pub display_order: Option<i64>,
+    /// `"music"` | `"video"` | `"universal"`. defaults to `"universal"`
+    /// when omitted.
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ListTaxonKindsRequest {
+    /// when set, only kinds whose `domain` matches this value (or is
+    /// `"universal"`) are returned. omit to get every kind (back-compat
+    /// for the album editor, which predates domain scoping).
+    pub domain: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]

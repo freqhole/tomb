@@ -1,13 +1,14 @@
 // videos table — read-only list view for browsing videos, plus
 // row selection + bulk editing, mirroring AlbumsTable.tsx's table
-// markup (see library/components/AlbumsTable.tsx) but without the
-// remote-specific enrichment/admin machinery (not in scope for this
-// pass). data is owned by the parent view (VideosView), not fetched
-// here — selection and the taxon column's data are owned locally by
-// this table since nothing outside it needs them (unlike the album
-// table's selection, which is also read by a page-level bulk action
-// bar and global keyboard shortcuts).
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+// markup AND its click-to-select UX (see library/components/AlbumsTable.tsx
+// + library/hooks/albumSelection.ts): no checkboxes, plain click selects
+// only this row, ctrl/cmd-click toggles, shift-click selects a range, and
+// row click never navigates (view details is a context-menu action).
+// escape clears selection, ctrl/cmd-a selects all loaded rows. selection
+// and the taxon column's data are owned locally by this table since
+// nothing outside it needs them (unlike the album table's selection,
+// which is also read by a page-level bulk action bar).
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -24,7 +25,6 @@ import { BulkEditVideosModal } from "../../components/modals/BulkEditVideosModal
 
 export interface VideosTableProps {
   videos: VideoSummary[];
-  onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
   /** callback to get context menu actions for a video */
   getContextMenuActions?: (video: VideoSummary) => MenuAction[];
@@ -36,13 +36,13 @@ export interface VideosTableProps {
 
 function VideoRow(props: {
   video: VideoSummary;
-  onVideoClick?: (video: VideoSummary) => void;
+  index: number;
   onVideoPlay?: (video: VideoSummary) => void;
   getContextMenuActions?: (video: VideoSummary) => MenuAction[];
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   isSelected?: boolean;
-  onToggleSelected?: (videoId: string) => void;
+  onRowClick?: (videoId: string, index: number, event: MouseEvent) => void;
   taxonLabels?: string[];
 }) {
   const localPosterUrl = useLocalVideoPosterUrl(() =>
@@ -64,15 +64,6 @@ function VideoRow(props: {
 
   const rowContent = (
     <>
-      <Show when={props.onToggleSelected}>
-        <td class="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={props.isSelected ?? false}
-            onChange={() => props.onToggleSelected?.(props.video.id)}
-          />
-        </td>
-      </Show>
       <td class="px-2 py-1">
         <div class="w-8 h-8 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
           <Show
@@ -128,8 +119,12 @@ function VideoRow(props: {
        *  element, layout + click handlers stay intact. */}
       <KobalteContextMenu.Trigger
         as="tr"
-        class="border-b border-[var(--color-border-subtle)] cursor-pointer outline-none hover:bg-[var(--color-bg-hover)]"
-        onClick={() => props.onVideoClick?.(props.video)}
+        class="border-b border-[var(--color-border-subtle)] cursor-pointer outline-none"
+        classList={{
+          "bg-[var(--color-accent-500)]/10": props.isSelected ?? false,
+          "hover:bg-[var(--color-bg-hover)]": !(props.isSelected ?? false),
+        }}
+        onClick={(e) => props.onRowClick?.(props.video.id, props.index, e)}
         onDblClick={() => props.onVideoPlay?.(props.video)}
       >
         {rowContent}
@@ -175,8 +170,11 @@ function VideoRow(props: {
 export function VideosTable(props: VideosTableProps) {
   // selection state — owned locally since nothing outside this table
   // consumes it (unlike the album table, whose selection also drives a
-  // page-level bulk action bar and global keyboard shortcuts).
+  // page-level bulk action bar). click UX mirrors
+  // library/hooks/albumSelection.ts's handleAlbumClick exactly, just
+  // scoped to this component instead of module-level state.
   const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = createSignal<number | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = createSignal(false);
 
   // drop selected ids that scroll out of the loaded list (e.g. a sort
@@ -194,24 +192,68 @@ export function VideosTable(props: VideosTableProps) {
     });
   });
 
-  const allSelected = createMemo(
-    () => props.videos.length > 0 && props.videos.every((v) => selectedIds().has(v.id))
-  );
-
-  const toggleSelected = (videoId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(videoId)) next.delete(videoId);
-      else next.add(videoId);
-      return next;
-    });
+  const clearSelection = () => {
+    setSelectedIds(new Set<string>());
+    setLastSelectedIndex(null);
   };
 
-  const toggleSelectAll = () => {
-    setSelectedIds(allSelected() ? new Set<string>() : new Set(props.videos.map((v) => v.id)));
+  const selectAllLoaded = () => setSelectedIds(new Set(props.videos.map((v) => v.id)));
+
+  // click handler with modifier-key support — mirrors
+  // handleAlbumClick: none = select only this row, ctrl/cmd = toggle,
+  // shift = range from last-selected, shift+ctrl/cmd = add range.
+  const handleRowClick = (videoId: string, index: number, event: MouseEvent) => {
+    const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+    const isShift = event.shiftKey;
+
+    if (isShift && lastSelectedIndex() !== null) {
+      const ids = props.videos.map((v) => v.id);
+      const start = Math.min(lastSelectedIndex()!, index);
+      const end = Math.max(lastSelectedIndex()!, index);
+      const rangeIds = ids.slice(start, end + 1);
+      if (isCtrlOrCmd) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          rangeIds.forEach((id) => next.add(id));
+          return next;
+        });
+      } else {
+        setSelectedIds(new Set(rangeIds));
+      }
+    } else if (isCtrlOrCmd) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(videoId)) next.delete(videoId);
+        else next.add(videoId);
+        return next;
+      });
+      setLastSelectedIndex(index);
+    } else {
+      setSelectedIds(new Set([videoId]));
+      setLastSelectedIndex(index);
+    }
   };
 
-  const clearSelection = () => setSelectedIds(new Set<string>());
+  // escape clears selection; ctrl/cmd-a selects all loaded rows (when not
+  // focused in a text input). scoped to this component's lifetime.
+  onMount(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && selectedIds().size > 0) {
+        clearSelection();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        const target = event.target as HTMLElement | null;
+        const tag = target?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if (props.videos.length === 0) return;
+        event.preventDefault();
+        selectAllLoaded();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   // taxon labels per video, fetched incrementally as new rows come into
   // view. no generic "taxons for many entity ids" batch endpoint exists
@@ -296,9 +338,6 @@ export function VideosTable(props: VideosTableProps) {
           <table class="w-full text-xs border-collapse">
             <thead class="sticky top-0 bg-black z-10">
               <tr class="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-subtle)]">
-                <th class="px-2 py-2 w-8">
-                  <input type="checkbox" checked={allSelected()} onChange={toggleSelectAll} />
-                </th>
                 <th class="px-2 py-2 w-10"></th>
                 <th class="px-2 py-2 font-medium">title</th>
                 <th class="px-2 py-2 font-medium w-16">series</th>
@@ -312,16 +351,16 @@ export function VideosTable(props: VideosTableProps) {
             </thead>
             <tbody>
               <For each={props.videos}>
-                {(video) => (
+                {(video, index) => (
                   <VideoRow
                     video={video}
-                    onVideoClick={props.onVideoClick}
+                    index={index()}
                     onVideoPlay={props.onVideoPlay}
                     getContextMenuActions={props.getContextMenuActions}
                     favoriteVideoIds={props.favoriteVideoIds}
                     onVideoFavoriteToggle={props.onVideoFavoriteToggle}
                     isSelected={selectedIds().has(video.id)}
-                    onToggleSelected={toggleSelected}
+                    onRowClick={handleRowClick}
                     taxonLabels={videoTaxonLabels().get(video.id)}
                   />
                 )}

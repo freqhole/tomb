@@ -269,6 +269,22 @@ async fn associate_image_with_entity(
         "playlist" => add_playlist_image(entity_id, blob_id, is_primary, created_by).await,
         "song" => add_song_image(entity_id, blob_id, is_primary, created_by).await,
         "artist" => add_artist_image(entity_id, blob_id, is_primary, created_by).await,
+        "video" | "video_series" => {
+            let video_entity_type = if entity_type == "video" {
+                crate::video::VideoEntityType::Video
+            } else {
+                crate::video::VideoEntityType::VideoSeries
+            };
+            crate::video::add_entity_image(
+                video_entity_type,
+                entity_id,
+                blob_id,
+                Some(is_primary),
+                crate::media_blobz::BlobType::Thumbnail,
+                created_by.map(|(uid, _)| uid),
+            )
+            .await
+        }
         _ => {
             return Err(GrimoireError::ProcessingFailed {
                 message: format!("unknown entity type: {}", entity_type),
@@ -327,6 +343,13 @@ async fn count_entity_images(
             .fetch_one(pool)
             .await?
         }
+        "video" | "video_series" => sqlx::query_scalar!(
+            "SELECT COUNT(*) as count FROM entity_imagez WHERE entity_type = ? AND entity_id = ?",
+            entity_type,
+            entity_id
+        )
+        .fetch_one(pool)
+        .await?,
         _ => 0,
     };
 
