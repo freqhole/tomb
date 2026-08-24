@@ -15,6 +15,7 @@ import {
 import { useScrollRestore } from "../../utils/scrollRestore";
 import { VideoCard } from "../../video/components/VideoCard";
 import type { VideoSummary } from "../../video/data/types";
+import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 
 export interface VirtualVideoGridProps {
   /** array of videos to display */
@@ -25,8 +26,8 @@ export interface VirtualVideoGridProps {
   onVideoClick?: (video: VideoSummary) => void;
   /** callback when play button is clicked */
   onVideoPlay?: (video: VideoSummary) => void;
-  /** callback when a video card is right-clicked */
-  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  /** callback to get context menu actions for a video */
+  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
   /** ids of favorited videos (omit to hide favorite hearts entirely) */
   favoriteVideoIds?: Set<string>;
   /** callback when a video's favorite heart is toggled */
@@ -185,20 +186,30 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
 
                       return (
                         <div class={hasVideo() ? "" : "invisible"}>
-                          {hasVideo() && (
-                            <VideoCard
-                              video={video()!}
-                              onClick={props.onVideoClick}
-                              onPlay={props.onVideoPlay}
-                              onContextMenu={props.onVideoContextMenu}
-                              isFavorite={
-                                props.favoriteVideoIds
-                                  ? props.favoriteVideoIds.has(video()!.id)
-                                  : undefined
-                              }
-                              onFavoriteToggle={props.onVideoFavoriteToggle}
-                            />
-                          )}
+                          {hasVideo() &&
+                            (() => {
+                              const card = (
+                                <VideoCard
+                                  video={video()!}
+                                  onClick={props.onVideoClick}
+                                  onPlay={props.onVideoPlay}
+                                  isFavorite={
+                                    props.favoriteVideoIds
+                                      ? props.favoriteVideoIds.has(video()!.id)
+                                      : undefined
+                                  }
+                                  onFavoriteToggle={props.onVideoFavoriteToggle}
+                                />
+                              );
+
+                              return props.getContextMenuActions ? (
+                                <ContextMenu actions={props.getContextMenuActions(video()!)}>
+                                  {card}
+                                </ContextMenu>
+                              ) : (
+                                card
+                              );
+                            })()}
                         </div>
                       );
                     }}

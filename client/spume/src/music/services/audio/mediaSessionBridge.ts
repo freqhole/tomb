@@ -25,9 +25,12 @@
 import { createEffect, createRoot, on } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
 import { currentRadioStation } from "../../../app/services/storage/currentRadioStation";
+import { mediaItemKey, type QueuedVideo } from "../../../app/services/storage/mediaItem";
+import { getVideoDataSource } from "../../../video/data";
 import { debug } from "../../../utils/logger";
 import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
+import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
 
 export interface ExternalMediaSessionOptions {
   title: string;
@@ -376,26 +379,54 @@ async function refreshMetadata(): Promise<void> {
     return;
   }
 
-  // check queue first to avoid fetching from wrong remote (video items
-  // don't have media-session metadata support yet — fall through to
-  // resolveSongById, which will also miss and return early).
-  const queuedItem = queue.find((i) => i.kind === "song" && i.song.sha256 === current_sha256);
+  // check queue first to avoid fetching from the wrong remote.
+  const queuedItem = queue.find((i) => mediaItemKey(i) === current_sha256);
   let song: Song | undefined = queuedItem?.kind === "song" ? queuedItem.song : undefined;
-  if (!song && resolveSongById) {
-    song = (await resolveSongById(current_sha256)) ?? undefined;
-  }
-  if (!song) return;
+  let video: QueuedVideo | undefined = queuedItem?.kind === "video" ? queuedItem.video : undefined;
 
-  const artwork = resolveArtworkForSong ? await resolveArtworkForSong(song) : [];
+  if (!song && !video) {
+    if (resolveSongById) {
+      song = (await resolveSongById(current_sha256)) ?? undefined;
+    }
+    if (!song) {
+      video =
+        (await getVideoDataSource()
+          .getVideoById(current_sha256)
+          .catch(() => null)) ?? undefined;
+    }
+  }
+  if (!song && !video) return;
+
+  let artist: string | undefined;
+  let album: string | undefined;
+  let artwork: MediaImage[];
+
+  if (song) {
+    artist = song.artist_name;
+    album = song.album_title;
+    artwork = resolveArtworkForSong ? await resolveArtworkForSong(song) : [];
+  } else {
+    const v = video as QueuedVideo;
+    if (v.series_id) {
+      try {
+        const series = await getVideoDataSource().getVideoSeriesById(v.series_id);
+        artist = series?.title;
+      } catch {
+        // series lookup is best-effort — metadata still shows without it.
+      }
+    }
+    if (v.episode_number != null) album = `Episode ${v.episode_number}`;
+    artwork = await getMediaSessionArtworkForVideo(v);
+  }
 
   // clear metadata first, then set it (iOS Safari workaround). don't
   // prefix with "loading..." — iOS treats title changes as different
   // tracks.
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: song.title,
-    artist: song.artist_name,
-    album: song.album_title,
+    title: song ? song.title : (video as QueuedVideo).title,
+    artist,
+    album,
     artwork,
   });
 
@@ -435,8 +466,10 @@ async function refreshMetadata(): Promise<void> {
   }
 
   // android-only: reflect this song's favorite state on the lock-screen
-  // notification (no-op extension everywhere else).
-  pushFavoriteState(song.is_favorite ?? false);
+  // notification (no-op extension everywhere else). not wired for video
+  // yet — video favorite status has no cheap single-id lookup today (see
+  // `useVideoFavoriteStatuses.ts`), only a bulk query meant for list views.
+  if (song) pushFavoriteState(song.is_favorite ?? false);
 
   // android plugin "expectedend" watchdog. fires shortly after the
   // expected end of the current track when the webview has throttled

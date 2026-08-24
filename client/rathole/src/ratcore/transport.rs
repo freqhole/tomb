@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 
-use super::app::{DispatchResponse, SeriesRow, SongRow, VideoRow};
+use super::app::{DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow};
 
 #[async_trait(?Send)]
 pub trait Transport {
@@ -208,6 +208,23 @@ pub trait Transport {
     async fn list_video_series(&self, limit: u32) -> Result<Vec<SeriesRow>, String> {
         let _ = limit;
         Err("transport does not support list_video_series".to_string())
+    }
+
+    /// list transcoded renditions for a video's original media blob.
+    /// default Err so shells without a backend fail loudly.
+    async fn list_video_renditions(
+        &self,
+        media_blob_id: &str,
+    ) -> Result<Vec<RenditionRow>, String> {
+        let _ = media_blob_id;
+        Err("transport does not support list_video_renditions".to_string())
+    }
+
+    /// hard-delete a transcoded video rendition (row + bytes) by blob id.
+    /// default Err so shells without a backend fail loudly.
+    async fn delete_video_rendition(&self, blob_id: &str) -> Result<(), String> {
+        let _ = blob_id;
+        Err("transport does not support delete_video_rendition".to_string())
     }
 }
 

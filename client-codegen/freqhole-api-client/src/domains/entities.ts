@@ -146,6 +146,18 @@ export function createEntitiesMethods(call: CallFn) {
         params,
       );
     },
+
+    getRatingStatusBulk: (params: s.GetRatingStatusBulkRequest) => {
+      return call(
+        "entities",
+        "get_rating_status_bulk",
+        routes.entities.get_rating_status_bulk.resp,
+        routes.entities.get_rating_status_bulk.req,
+        routes.entities.get_rating_status_bulk.method,
+        routes.entities.get_rating_status_bulk.path,
+        params,
+      );
+    },
   };
 }
 

@@ -1143,6 +1143,72 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                 }
             }
         }
+        AppAction::ListVideoRenditions { media_blob_id } => {
+            let v = &mut app.state.ephemeral.video;
+            v.renditions_loading = true;
+            v.last_error = None;
+            let transport = app.transport.clone();
+            let mbid = media_blob_id.clone();
+            let tx_clone = action_tx.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.list_video_renditions(&mbid).await;
+                let _ = tx_clone.send(AppAction::VideoRenditionsResult {
+                    media_blob_id: mbid,
+                    result,
+                });
+            });
+        }
+        AppAction::VideoRenditionsResult {
+            media_blob_id,
+            result,
+        } => {
+            let v = &mut app.state.ephemeral.video;
+            v.renditions_loading = false;
+            // discard stale responses from a video the user has since left
+            let current_mbid = v.selected_video.as_ref().map(|s| s.media_blob_id.as_str());
+            if current_mbid == Some(media_blob_id.as_str()) {
+                match result {
+                    Ok(rows) => {
+                        v.renditions = rows;
+                        v.renditions_cursor = 0;
+                        v.last_error = None;
+                    }
+                    Err(e) => {
+                        v.last_error = Some(e);
+                        v.renditions.clear();
+                    }
+                }
+            }
+        }
+        AppAction::DeleteVideoRendition { blob_id } => {
+            let transport = app.transport.clone();
+            let tx_clone = action_tx.clone();
+            let blob_id_clone = blob_id.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.delete_video_rendition(&blob_id_clone).await;
+                let _ = tx_clone.send(AppAction::VideoRenditionDeleteResult {
+                    blob_id: blob_id_clone,
+                    result,
+                });
+            });
+        }
+        AppAction::VideoRenditionDeleteResult { blob_id, result } => {
+            let v = &mut app.state.ephemeral.video;
+            match result {
+                Ok(_) => {
+                    if let Some(idx) = v.renditions.iter().position(|r| r.blob_id == blob_id) {
+                        v.renditions.remove(idx);
+                        if v.renditions_cursor >= v.renditions.len() && !v.renditions.is_empty() {
+                            v.renditions_cursor = v.renditions.len() - 1;
+                        }
+                    }
+                    v.last_error = None;
+                }
+                Err(e) => {
+                    v.last_error = Some(format!("delete rendition failed: {}", e));
+                }
+            }
+        }
         AppAction::ToggleFavorite {
             target_type,
             target_id,
@@ -2694,6 +2760,14 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
                 app.state.ephemeral.video.cancel_edit();
                 app.state.ephemeral.video.last_error = None;
             }
+            VideoMode::Renditions => {
+                if app.state.ephemeral.video.pending_rendition_delete_confirm {
+                    app.state.ephemeral.video.pending_rendition_delete_confirm = false;
+                } else {
+                    app.state.ephemeral.video.mode = VideoMode::Detail;
+                    app.state.ephemeral.video.last_error = None;
+                }
+            }
         },
         // results mode: browse list
         (VideoMode::Results, KeyCode::Down) => {
@@ -2763,6 +2837,54 @@ fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
             if let Some(video) = &v.selected_video {
                 let id = video.id.clone();
                 let _ = tx.send(AppAction::DeleteVideo { id });
+            }
+        }
+        (VideoMode::Detail, KeyCode::Char('r')) => {
+            // browse (and hard-delete) transcoded renditions
+            let v = &mut app.state.ephemeral.video;
+            if let Some(video) = &v.selected_video {
+                let media_blob_id = video.media_blob_id.clone();
+                v.mode = VideoMode::Renditions;
+                v.last_error = None;
+                let _ = tx.send(AppAction::ListVideoRenditions { media_blob_id });
+            }
+        }
+        // renditions mode: browse + hard-delete transcoded renditions
+        (VideoMode::Renditions, KeyCode::Down) => {
+            let v = &mut app.state.ephemeral.video;
+            if !v.renditions.is_empty() {
+                v.renditions_cursor = (v.renditions_cursor + 1).min(v.renditions.len() - 1);
+            }
+        }
+        (VideoMode::Renditions, KeyCode::Up) => {
+            let v = &mut app.state.ephemeral.video;
+            v.renditions_cursor = v.renditions_cursor.saturating_sub(1);
+        }
+        (VideoMode::Renditions, KeyCode::Char('d')) => {
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_rendition_delete_confirm {
+                // user already pressed d once; this is the second press — abort
+                v.pending_rendition_delete_confirm = false;
+            } else if !v.renditions.is_empty() {
+                v.pending_rendition_delete_confirm = true;
+            }
+        }
+        (VideoMode::Renditions, KeyCode::Char('y')) => {
+            // confirm hard-delete
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_rendition_delete_confirm {
+                if let Some(row) = v.renditions.get(v.renditions_cursor) {
+                    let blob_id = row.blob_id.clone();
+                    let _ = tx.send(AppAction::DeleteVideoRendition { blob_id });
+                }
+                v.pending_rendition_delete_confirm = false;
+            }
+        }
+        (VideoMode::Renditions, KeyCode::Char('n')) => {
+            // cancel hard-delete
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_rendition_delete_confirm {
+                v.pending_rendition_delete_confirm = false;
             }
         }
         // edit mode: modify fields

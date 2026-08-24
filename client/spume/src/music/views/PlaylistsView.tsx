@@ -320,12 +320,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     return pages.flatMap((page) => page.items);
   });
 
-  // update page info for TopNav (mobile displays "playlists (N)")
-  createEffect(() => {
-    const count = playlists().length;
-    setPageInfo({ title: "playlists", count });
-  });
-
   // fetch songs for selected playlist
   const playlistSongsQuery = usePlaylistSongsQuery({
     playlistId: () => selectedPlaylistId() ?? undefined,
@@ -399,6 +393,13 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     // return the summary from cache (gets optimistically updated for instant UI feedback)
     // this works for both local and remote since the cache is the source of truth
     return summary as unknown as Playlist;
+  });
+
+  // update page info for TopNav (mobile displays "playlists (N)"). when a
+  // playlist is selected, use its actual title for the browser tab title.
+  createEffect(() => {
+    const count = playlists().length;
+    setPageInfo({ title: "playlists", count, documentTitle: selectedPlaylist()?.title });
   });
 
   // convert playlists to list items for VirtualItemList

@@ -10,12 +10,18 @@
 //! - Detail mode:
 //!   - e: enter edit mode
 //!   - d: delete video (with confirmation)
+//!   - r: browse transcoded renditions
 //!   - esc: back to results
 //! - Edit mode:
 //!   - tab: cycle through fields
 //!   - enter: save changes
 //!   - esc: cancel and return to detail
 //!   - standard text editing keys within fields
+//! - Renditions mode:
+//!   - up/down: move cursor
+//!   - d: hard-delete selected rendition (with confirmation)
+//!   - y/n: confirm/cancel a pending hard-delete
+//!   - esc: back to detail
 
 use ratatui::{
     layout::Rect,
@@ -34,6 +40,7 @@ pub fn draw(frame: &mut Frame, area: Rect, app: &mut App) {
         VideoMode::Results => draw_results(frame, area, app),
         VideoMode::Detail => draw_detail(frame, area, app),
         VideoMode::Edit => draw_edit(frame, area, app),
+        VideoMode::Renditions => draw_renditions(frame, area, app),
     }
 }
 
@@ -139,7 +146,7 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &mut App) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(
-        "press e to edit, d to delete, esc to return".dim(),
+        "press e to edit, d to delete, r for renditions, esc to return".dim(),
     ));
 
     if let Some(err) = &v.last_error {
@@ -209,7 +216,61 @@ fn draw_edit(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_widget(para, area);
 }
 
-fn format_row(v: &crate::ratcore::app::VideoRow) -> Line {
+fn draw_renditions(frame: &mut Frame, area: Rect, app: &mut App) {
+    let v = &app.state.ephemeral.video;
+    let items: Vec<ListItem> = if v.renditions_loading {
+        vec![ListItem::new(Line::from("(loading\u{2026})".dim()))]
+    } else if v.renditions.is_empty() {
+        vec![ListItem::new(Line::from(
+            "(no transcoded renditions yet)".dim(),
+        ))]
+    } else {
+        v.renditions
+            .iter()
+            .map(|r| ListItem::new(format_rendition_row(r)))
+            .collect()
+    };
+    let mut list_state = ListState::default();
+    if !v.renditions.is_empty() {
+        list_state.select(Some(v.renditions_cursor.min(v.renditions.len() - 1)));
+    }
+    let mut title = format!("renditions  ({})", v.renditions.len());
+    if v.pending_rendition_delete_confirm {
+        title.push_str("  \u{2014} press y to confirm hard-delete, n to cancel");
+    }
+    let list = List::new(items)
+        .block(Block::bordered().title(Span::styled(title, Style::new().fg(ACCENT).bold())))
+        .highlight_style(Style::new().fg(ACCENT).bold().reversed())
+        .highlight_symbol("> ");
+    frame.render_stateful_widget(list, area, &mut list_state);
+
+    if let Some(err) = &v.last_error {
+        let error_area = Rect {
+            y: area.y + area.height.saturating_sub(1),
+            height: 1.min(area.height),
+            ..area
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("Error: ", Style::new().bold().red()),
+                Span::raw(err.as_str()).red(),
+            ])),
+            error_area,
+        );
+    }
+}
+
+fn format_rendition_row(r: &crate::ratcore::app::RenditionRow) -> Line<'_> {
+    Line::from(vec![
+        Span::raw(format!("{:<10}", r.label)).bold(),
+        Span::raw(format!(".{:<5} ", r.extension)).dim(),
+        Span::raw(r.mime.as_deref().unwrap_or("").to_string()).dim(),
+        Span::raw("  "),
+        Span::raw(r.blob_id.clone()).dim(),
+    ])
+}
+
+fn format_row(v: &crate::ratcore::app::VideoRow) -> Line<'_> {
     let dur = v
         .duration_seconds
         .map(format_duration)

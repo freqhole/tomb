@@ -3,7 +3,7 @@
 // description, series/season/episode info if present, duration, release
 // date, and a play button.
 import { useNavigate, useParams } from "@solidjs/router";
-import { createSignal, createMemo, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
@@ -18,6 +18,7 @@ import { useLocalVideoPosterUrl } from "../components/VideoCard";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
+import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 
 export function VideoDetailView() {
   const params = useParams<{ videoId: string }>();
@@ -38,10 +39,15 @@ export function VideoDetailView() {
     return id ? (favoriteStatusesQuery.data?.has(id) ?? false) : false;
   });
 
-  // TODO: rating state - currently no backend support for fetching user's
-  // own rating for video (getRatingStats only returns average_rating and
-  // total_ratings). for now, start at 0 and let the mutation update it.
+  // rating status query for this video - hydrates the viewer's own
+  // existing rating (if any) instead of always starting unrated.
+  const ratingStatusesQuery = useVideoRatingStatuses(videoIds);
   const [userRating, setUserRating] = createSignal(0);
+  createEffect(() => {
+    const id = params.videoId;
+    const rating = id ? ratingStatusesQuery.data?.get(id) : undefined;
+    setUserRating(rating ?? 0);
+  });
 
   // mutations
   const toggleFavoriteMutation = useToggleFavoriteMutation();
@@ -89,14 +95,20 @@ export function VideoDetailView() {
     if (!video || playPending()) return;
     setPlayPending(true);
     try {
-      await playVideoQueue([video], 0);
+      // source is required so a history entry is created and watch-progress
+      // tracking starts (without it, position never resumes on reload).
+      await playVideoQueue([video], 0, { type: "video", label: video.title, entity_id: video.id });
     } finally {
       setPlayPending(false);
     }
   };
 
   return (
-    <DetailViewWrapper pageTitle="video" onBack={buildRoute("/video")}>
+    <DetailViewWrapper
+      pageTitle="video"
+      documentTitle={videoQuery.data?.title}
+      onBack={buildRoute("/video")}
+    >
       <div class="flex flex-col h-full">
         <Show when={videoQuery.data} fallback={<LoadingState class="flex-1" />}>
           {(video) => (

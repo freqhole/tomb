@@ -2901,6 +2901,12 @@ export const GetRatingStatsRequestSchema = z.object({
 });
 export type GetRatingStatsRequest = z.infer<typeof GetRatingStatsRequestSchema>;
 
+export const GetRatingStatusBulkRequestSchema = z.object({
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("video")]),
+  target_ids: z.array(z.string())
+});
+export type GetRatingStatusBulkRequest = z.infer<typeof GetRatingStatusBulkRequestSchema>;
+
 export const GetRecordingRequestSchema = z.object({
   mbid: z.string()
 });
@@ -5222,6 +5228,12 @@ export const RatingStatsSchema = z.object({
   total_ratings: z.number()
 });
 export type RatingStats = z.infer<typeof RatingStatsSchema>;
+
+export const RatingStatusItemSchema = z.object({
+  target_id: z.string(),
+  rating: z.number().nullish()
+});
+export type RatingStatusItem = z.infer<typeof RatingStatusItemSchema>;
 
 export const RecentSongsRequestSchema = z.object({
   limit: z.number().nullish()

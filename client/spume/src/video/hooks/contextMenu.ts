@@ -1,20 +1,28 @@
 // composable context menu actions for videos — mirrors
 // music/hooks/contextMenu.ts's useSongContextMenu shape, simplified for
 // the video MVP (no playlists/tags/share/artist-artist nav yet).
+import { useNavigate } from "@solidjs/router";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { createFavoriteMenuAction } from "../../music/hooks/contextMenu";
-import { showEditVideo } from "./modals";
+import { buildRoute } from "../../music/utils/routing";
+import { confirm } from "../../app/services/confirmState";
+import { toast } from "../../components/feedback/Toast";
+import { showEditVideo, showEditVideoSeries } from "./modals";
 import { canUpdateVideo } from "../data/permissions";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
-import { addVideoToQueue, playVideoNext } from "../services/videoQueueActions";
-import type { VideoSummary } from "../data/types";
+import { addVideoToQueue, addVideosToQueue, playVideoNext } from "../services/videoQueueActions";
+import { useDeleteVideoMutation } from "../queries/videos";
+import { useDeleteVideoSeriesMutation } from "../queries/series";
+import type { VideoSeries, VideoSummary } from "../data/types";
 
 export interface VideoContextMenuOptions {
   /** whether the video is currently favorited */
   isFavorite?: boolean;
   /** callback after a successful edit save */
   onSave?: () => void;
+  /** callback after a successful delete (e.g. remove from a local list) */
+  onDeleted?: () => void;
   /** whether to show play/queue actions (false in contexts like the
    *  queue sidebar where they don't make sense) */
   showPlayActions?: boolean;
@@ -26,6 +34,8 @@ export function useVideoContextMenu(
   video: VideoSummary,
   options: VideoContextMenuOptions = {}
 ): MenuAction[] {
+  const navigate = useNavigate();
+  const deleteMutation = useDeleteVideoMutation();
   const actions: MenuAction[] = [];
 
   if (options.showPlayActions !== false) {
@@ -33,7 +43,13 @@ export function useVideoContextMenu(
       label: "play now",
       icon: IconNames.play,
       onClick: async () => {
-        await playVideoQueue([video], 0);
+        // source is required so a history entry is created and watch-progress
+        // tracking starts (without it, position never resumes on reload).
+        await playVideoQueue([video], 0, {
+          type: "video",
+          label: video.title,
+          entity_id: video.id,
+        });
       },
     });
 
@@ -56,14 +72,133 @@ export function useVideoContextMenu(
     actions.push({ type: "separator" });
   }
 
+  actions.push({
+    label: "view details",
+    icon: IconNames.info,
+    onClick: () => {
+      navigate(buildRoute(`/video/${video.id}`));
+    },
+  });
+
   actions.push(createFavoriteMenuAction("video", video.id, options.isFavorite ?? false));
 
   if (canUpdateVideo()) {
+    actions.push({ type: "separator" });
+
     actions.push({
       label: "edit info...",
       icon: IconNames.edit,
       onClick: () => {
         showEditVideo({ videoId: video.id, onSave: options.onSave });
+      },
+    });
+
+    actions.push({
+      label: "delete",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: async () => {
+        const confirmed = await confirm({
+          title: "delete video",
+          message: `are you sure you want to delete "${video.title}"? this cannot be undone.`,
+          confirmText: "delete",
+          variant: "danger",
+        });
+        if (!confirmed) return;
+        try {
+          await deleteMutation.mutateAsync(video.id);
+          toast.success("video deleted");
+          options.onDeleted?.();
+        } catch (err) {
+          console.error("failed to delete video:", err);
+          toast.error("failed to delete video");
+        }
+      },
+    });
+  }
+
+  if (options.customActions?.length) {
+    actions.push({ type: "separator" });
+    actions.push(...options.customActions);
+  }
+
+  return actions;
+}
+
+export interface VideoSeriesContextMenuOptions {
+  /** callback after a successful edit save */
+  onSave?: () => void;
+  /** callback after a successful delete (e.g. navigate away) */
+  onDeleted?: () => void;
+  /** custom actions to append */
+  customActions?: MenuAction[];
+}
+
+// note: no favorite/rating action here — `FavoriteTarget`/`RatingTarget`
+// (grimoire/src/users/favoritez/models.rs) only support the "video"
+// target, not a series-level one, so series can't be favorited/rated
+// today.
+export function useVideoSeriesContextMenu(
+  series: VideoSeries,
+  allVideos: VideoSummary[],
+  options: VideoSeriesContextMenuOptions = {}
+): MenuAction[] {
+  const deleteMutation = useDeleteVideoSeriesMutation();
+  const actions: MenuAction[] = [];
+
+  if (allVideos.length > 0) {
+    actions.push({
+      label: "play all",
+      icon: IconNames.play,
+      onClick: async () => {
+        await playVideoQueue(allVideos, 0, {
+          type: "series",
+          label: series.title,
+          entity_id: series.id,
+        });
+      },
+    });
+
+    actions.push({
+      label: "add all to queue",
+      icon: IconNames.queue,
+      onClick: async () => {
+        await addVideosToQueue(allVideos);
+      },
+    });
+
+    actions.push({ type: "separator" });
+  }
+
+  if (canUpdateVideo()) {
+    actions.push({
+      label: "edit series...",
+      icon: IconNames.edit,
+      onClick: () => {
+        showEditVideoSeries({ seriesId: series.id, onSave: options.onSave });
+      },
+    });
+
+    actions.push({
+      label: "delete series",
+      icon: IconNames.delete,
+      destructive: true,
+      onClick: async () => {
+        const confirmed = await confirm({
+          title: "delete series",
+          message: `are you sure you want to delete "${series.title}"? this removes all its seasons and episodes and cannot be undone.`,
+          confirmText: "delete",
+          variant: "danger",
+        });
+        if (!confirmed) return;
+        try {
+          await deleteMutation.mutateAsync(series.id);
+          toast.success("series deleted");
+          options.onDeleted?.();
+        } catch (err) {
+          console.error("failed to delete video series:", err);
+          toast.error("failed to delete series");
+        }
       },
     });
   }

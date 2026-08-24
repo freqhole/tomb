@@ -6,8 +6,10 @@
 //! - `Transport::update_video(...)` for editing metadata
 //! - `Transport::delete_video(...)` for soft-deleting a video
 //! - `Transport::list_video_series(...)` for series context display
+//! - `Transport::list_video_renditions(...)` to fill in [`VideoState::renditions`]
+//! - `Transport::delete_video_rendition(...)` for hard-deleting a rendition
 //!
-//! the ui has three sub-modes (the `Focus` enum stays simple: just
+//! the ui has four sub-modes (the `Focus` enum stays simple: just
 //! `Focus::VideoView`, and [`VideoMode`] picks where keystrokes go).
 
 /// portable subset of `grimoire::video::entities::videos::Video`. only
@@ -36,6 +38,16 @@ pub struct SeriesRow {
     pub description: Option<String>,
 }
 
+/// portable subset of `grimoire::offal::video::videos::VideoRendition`.
+/// one transcoded rendition of a video's original media blob.
+#[derive(Debug, Clone)]
+pub struct RenditionRow {
+    pub blob_id: String,
+    pub label: String,
+    pub extension: String,
+    pub mime: Option<String>,
+}
+
 /// which sub-area of the video view has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VideoMode {
@@ -46,6 +58,8 @@ pub enum VideoMode {
     Detail,
     /// editing the selected video's metadata (title, description, episode_number).
     Edit,
+    /// browsing the selected video's transcoded renditions, with hard-delete.
+    Renditions,
 }
 
 /// in-memory state for the video view. lives on `EphemeralState`.
@@ -76,6 +90,12 @@ pub struct VideoState {
     pub pending_delete_confirm: bool,
     /// series context for the selected video (loaded when entering detail mode).
     pub series_context: Vec<SeriesRow>,
+    /// transcoded renditions of the selected video's media blob.
+    pub renditions: Vec<RenditionRow>,
+    pub renditions_cursor: usize,
+    pub renditions_loading: bool,
+    /// when true, the renditions list shows a confirmation overlay; y confirms hard-delete.
+    pub pending_rendition_delete_confirm: bool,
 }
 
 impl VideoState {
@@ -105,5 +125,10 @@ impl VideoState {
     /// return the currently-selected result row (read-only helper for detail view).
     pub fn current_result(&self) -> Option<&VideoRow> {
         self.results.get(self.results_cursor)
+    }
+
+    /// return the currently-selected rendition row (read-only helper for the renditions view).
+    pub fn current_rendition(&self) -> Option<&RenditionRow> {
+        self.renditions.get(self.renditions_cursor)
     }
 }

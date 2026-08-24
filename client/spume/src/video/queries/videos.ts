@@ -92,3 +92,20 @@ export function useUpdateVideoMutation() {
     },
   }));
 }
+
+export function useDeleteVideoMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (videoId: string) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.deleteVideo) {
+        throw new Error("current data source does not support deleting videos");
+      }
+      await dataSource.deleteVideo(videoId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+    },
+  }));
+}

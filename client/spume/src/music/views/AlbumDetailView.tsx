@@ -367,7 +367,12 @@ export function AlbumDetailView() {
   });
 
   return (
-    <DetailViewWrapper pageTitle="album" pageCount={songs().length} onBack={buildRoute("/albums")}>
+    <DetailViewWrapper
+      pageTitle="album"
+      pageCount={songs().length}
+      documentTitle={albumInfo()?.title}
+      onBack={buildRoute("/albums")}
+    >
       <div class="flex flex-col h-full">
         <Show when={albumInfo()} fallback={<LoadingState class="flex-1" />}>
           {(info) => (

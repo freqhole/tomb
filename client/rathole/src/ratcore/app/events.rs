@@ -636,6 +636,22 @@ pub enum AppAction {
         id: String,
         result: Result<(), String>,
     },
+    /// list transcoded renditions for the selected video's media blob.
+    ListVideoRenditions { media_blob_id: String },
+    /// rendition list results arrived. `media_blob_id` identifies which
+    /// video the results are for, so a stale reply doesn't clobber the
+    /// list after the user navigates to a different video.
+    VideoRenditionsResult {
+        media_blob_id: String,
+        result: Result<Vec<super::RenditionRow>, String>,
+    },
+    /// hard-delete a single transcoded rendition by blob id.
+    DeleteVideoRendition { blob_id: String },
+    /// rendition delete result arrived.
+    VideoRenditionDeleteResult {
+        blob_id: String,
+        result: Result<(), String>,
+    },
     /// grimoire emitted a `JobProgress` event for one of the in-flight
     /// job sessions. shells forward these into the ui loop so the
     /// top-bar `jobs_status` badge can update.

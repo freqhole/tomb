@@ -14,6 +14,8 @@ import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
 
 /** poster fields the bar's thumbnail slot needs - a subset of `QueuedVideo`. */
 export interface PlayerBarVideo {
+  /** video id, needed for the favorite toggle callback */
+  id: string;
   title: string;
   source_type?: "local" | "remote";
   poster_blob_id?: string | null;
@@ -69,6 +71,12 @@ export interface PlayerBarProps {
   onNext: () => void;
   /** callback when favorite toggled */
   onFavoriteToggle?: (songId: string) => void;
+  /** whether the currently-playing video is favorited (video has no
+   * denormalized `is_favorite` field on its own record, so this is passed
+   * separately rather than nested in `video`). */
+  isVideoFavorite?: boolean;
+  /** callback when the currently-playing video's favorite is toggled */
+  onVideoFavoriteToggle?: (videoId: string) => void;
   /** callback when seeking on progress bar */
   onSeek: (percentage: number) => void;
   /** callback when volume changes */
@@ -489,12 +497,24 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
 
           {/* favorite button */}
-          <Show when={props.song}>
+          <Show when={!props.isVideoActive && props.song}>
             {(song) => (
               <div class="flex-shrink-0">
                 <FavoriteHeart
                   isFavorite={song().isFavorite || false}
                   onToggle={() => props.onFavoriteToggle?.(song().id)}
+                  size="sm"
+                  class="opacity-80"
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={props.isVideoActive && props.video}>
+            {(video) => (
+              <div class="flex-shrink-0">
+                <FavoriteHeart
+                  isFavorite={props.isVideoFavorite || false}
+                  onToggle={() => props.onVideoFavoriteToggle?.(video().id)}
                   size="sm"
                   class="opacity-80"
                 />
@@ -707,12 +727,24 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             {/* favorite button */}
-            <Show when={props.song}>
+            <Show when={!props.isVideoActive && props.song}>
               {(song) => (
                 <div class="flex-shrink-0">
                   <FavoriteHeart
                     isFavorite={song().isFavorite || false}
                     onToggle={() => props.onFavoriteToggle?.(song().id)}
+                    size="md"
+                    class="opacity-80 hover:opacity-100"
+                  />
+                </div>
+              )}
+            </Show>
+            <Show when={props.isVideoActive && props.video}>
+              {(video) => (
+                <div class="flex-shrink-0">
+                  <FavoriteHeart
+                    isFavorite={props.isVideoFavorite || false}
+                    onToggle={() => props.onVideoFavoriteToggle?.(video().id)}
                     size="md"
                     class="opacity-80 hover:opacity-100"
                   />

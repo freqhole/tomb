@@ -40,6 +40,7 @@ import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
+import { useVideoFavoriteStatuses } from "../video/hooks/useVideoFavoriteStatuses";
 import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   currentTime,
@@ -111,6 +112,7 @@ import {
   setLocalLibraryName,
 } from "./services/storage/db";
 import { getPageInfo } from "./services/pageInfo";
+import { setAppDocumentTitle } from "./services/documentTitle";
 import {
   queueHistory,
   loadQueueHistory,
@@ -129,7 +131,6 @@ import {
   listMountedExternalStorageDevices,
   onExternalStorageMountedChanged,
   onExternalStorageSyncProgress,
-  setWindowTitle,
 } from "./services/charnel";
 import {
   externalStorageSyncingSignal,
@@ -181,6 +182,19 @@ export function AppLayout(props: AppLayoutProps) {
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // favorite status for the currently-playing video (video summary rows
+  // don't carry is_favorite, so it's hydrated separately, same as
+  // VideoDetailView/VideoCard do).
+  const currentVideoIds = createMemo(() => {
+    const id = currentVideoData()?.id;
+    return id ? [id] : [];
+  });
+  const currentVideoFavoriteQuery = useVideoFavoriteStatuses(currentVideoIds);
+  const isCurrentVideoFavorite = createMemo(() => {
+    const id = currentVideoData()?.id;
+    return id ? (currentVideoFavoriteQuery.data?.has(id) ?? false) : false;
+  });
 
   // background image config (reactive)
   const bgConfig = () => getBackgroundConfig();
@@ -315,23 +329,19 @@ export function AppLayout(props: AppLayoutProps) {
     });
   };
 
-  // update window/document title (freqhole ▸ remote ▸ route)
+  // update window/document title (freqhole ▸ remote ▸ page). prefers the
+  // current view's pageInfo (documentTitle override, e.g. a loaded album's
+  // actual name, else its bucket title like "songs"/"albums") - falls back
+  // to a route-key guess for the brief window before a view mounts and
+  // calls setPageInfo/DetailViewWrapper.
   createEffect(() => {
     const remote = getCurrentRemote();
     const remoteName = remote?.name ?? "local";
+    const info = getPageInfo();
     const pathname = location.pathname;
-    const routeKey = matchRoute(pathname);
-    const routeName = routeKey || "songs";
+    const pageName = info.documentTitle || info.title || matchRoute(pathname) || "songs";
 
-    const title = `freqhole ▸ ${remoteName} ▸ ${routeName}`;
-
-    // set browser document title
-    document.title = title;
-
-    // also set tauri window title if in tauri mode
-    if (isCharnelMode()) {
-      setWindowTitle(title);
-    }
+    setAppDocumentTitle([remoteName, pageName]);
   });
 
   // fetch recent playlists (contextual to current data source)
@@ -685,6 +695,15 @@ export function AppLayout(props: AppLayoutProps) {
       targetId: songId,
       sha256: song.sha256,
       isFavorite: !(song.is_favorite || false),
+    });
+  };
+
+  // handle video favorite toggle from player bar
+  const handleVideoFavoriteToggle = (videoId: string) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video",
+      targetId: videoId,
+      isFavorite: !isCurrentVideoFavorite(),
     });
   };
 
@@ -1617,6 +1636,8 @@ export function AppLayout(props: AppLayoutProps) {
                 isVideoActive={!isRadio() && !!currentVideoData()}
                 videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
                 video={!isRadio() ? currentVideoData() : null}
+                isVideoFavorite={isCurrentVideoFavorite()}
+                onVideoFavoriteToggle={handleVideoFavoriteToggle}
               />
             </>
           );

@@ -12,6 +12,7 @@ import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
 import { EditVideoModal } from "../components/modals/EditVideoModal";
+import { EditVideoSeriesModal } from "../components/modals/EditVideoSeriesModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { RemotePickerModal } from "../components/modals/RemotePickerModal";
@@ -56,9 +57,11 @@ import {
 import {
   closeAddVideo,
   hideEditVideo,
+  hideEditVideoSeries,
   openAddVideo,
   useAddVideoState,
   useEditVideoState,
+  useEditVideoSeriesState,
 } from "../video/hooks/modals";
 import { importVideoFiles } from "../video/import/localImport";
 import {
@@ -1237,6 +1240,19 @@ export function App() {
             onSave={() => {
               state().onSave?.();
               hideEditVideo();
+            }}
+          />
+        )}
+      </Show>
+
+      <Show when={useEditVideoSeriesState()()}>
+        {(state) => (
+          <EditVideoSeriesModal
+            seriesId={state().seriesId}
+            onClose={hideEditVideoSeries}
+            onSave={() => {
+              state().onSave?.();
+              hideEditVideoSeries();
             }}
           />
         )}

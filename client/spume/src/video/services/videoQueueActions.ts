@@ -14,6 +14,15 @@ export async function addVideoToQueue(video: VideoSummary): Promise<void> {
   await setQueue([...queue, item]);
 }
 
+// bulk version — appends a whole list (e.g. an entire series/season) to
+// the end of the current queue without interrupting playback.
+export async function addVideosToQueue(videos: VideoSummary[]): Promise<void> {
+  if (videos.length === 0) return;
+  const queue = appState()?.queue ?? [];
+  const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
+  await setQueue([...queue, ...items]);
+}
+
 export async function playVideoNext(video: VideoSummary): Promise<void> {
   const state = appState();
   const queue = state?.queue ?? [];

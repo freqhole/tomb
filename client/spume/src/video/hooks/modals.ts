@@ -37,3 +37,25 @@ export function hideEditVideo() {
 export function useEditVideoState() {
   return editVideoState;
 }
+
+// edit-video-series modal open/close state — mirrors the edit-video signal above.
+export interface EditVideoSeriesOptions {
+  seriesId: string;
+  onSave?: () => void;
+}
+
+const [editVideoSeriesState, setEditVideoSeriesState] = createSignal<EditVideoSeriesOptions | null>(
+  null
+);
+
+export function showEditVideoSeries(options: EditVideoSeriesOptions) {
+  setEditVideoSeriesState(options);
+}
+
+export function hideEditVideoSeries() {
+  setEditVideoSeriesState(null);
+}
+
+export function useEditVideoSeriesState() {
+  return editVideoSeriesState;
+}

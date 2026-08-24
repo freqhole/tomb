@@ -8,6 +8,12 @@ export interface DetailViewWrapperProps extends ParentProps {
   pageTitle: string;
   /** optional count for TopNav */
   pageCount?: number;
+  /**
+   * optional browser tab title override (e.g. the loaded entity's actual
+   * name, like an album or video title) - falls back to `pageTitle` when
+   * omitted or not yet loaded.
+   */
+  documentTitle?: string;
   /** back navigation - string path to navigate to, or function to call */
   onBack?: string | (() => void);
   /** force show/hide back button (auto-detected from isNarrow if not provided) */
@@ -52,6 +58,7 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
     setPageInfo({
       title: props.pageTitle,
       count: props.pageCount,
+      documentTitle: props.documentTitle || props.pageTitle,
     });
   });
 
@@ -70,6 +77,8 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
 export function useDetailViewSetup(options: {
   pageTitle: string;
   getCount?: () => number | undefined;
+  /** optional getter for a browser tab title override (e.g. loaded entity name) */
+  getDocumentTitle?: () => string | undefined;
 }) {
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
@@ -89,6 +98,7 @@ export function useDetailViewSetup(options: {
     setPageInfo({
       title: options.pageTitle,
       count: options.getCount?.(),
+      documentTitle: options.getDocumentTitle?.() || options.pageTitle,
     });
   });
 

@@ -8,6 +8,7 @@ import {
 } from "../../services/storage/db/videos";
 import { getLocalVideoSeriesList } from "../../services/storage/db/series";
 import { getLocalVideoSeasons } from "../../services/storage/db/seasons";
+import { purgeVideoFromOPFS } from "../../services/opfs/helpers";
 import type {
   PaginatedVideoSeries,
   PaginatedVideos,
@@ -63,6 +64,10 @@ export class LocalVideoDataSource implements VideoDataSource {
   }): Promise<void> {
     const { video_id, ...updates } = params;
     await updateLocalVideo(video_id, updates);
+  }
+
+  async deleteVideo(videoId: string): Promise<void> {
+    await purgeVideoFromOPFS(videoId);
   }
 }
 

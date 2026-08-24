@@ -4,9 +4,12 @@
 // enrichment/admin machinery (not in scope for this pass). data is owned
 // by the parent view (VideosView), not fetched here.
 import { For, Show } from "solid-js";
+import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
+import { Icon } from "../../components/icons/registry";
+import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { formatDuration } from "../../utils/formatDuration";
 import { appState } from "../../app/services/storage/db";
 import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
@@ -16,7 +19,8 @@ export interface VideosTableProps {
   videos: VideoSummary[];
   onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
-  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  /** callback to get context menu actions for a video */
+  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
   /** ids of favorited videos (omit to hide the favorite column) */
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
@@ -27,7 +31,7 @@ function VideoRow(props: {
   video: VideoSummary;
   onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
-  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  getContextMenuActions?: (video: VideoSummary) => MenuAction[];
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
 }) {
@@ -46,17 +50,10 @@ function VideoRow(props: {
     return new Date(ts * 1000).toLocaleDateString();
   };
 
-  return (
-    <tr
-      class="border-b border-[var(--color-border-subtle)] cursor-pointer hover:bg-[var(--color-bg-hover)]"
-      onClick={() => props.onVideoClick?.(props.video)}
-      onDblClick={() => props.onVideoPlay?.(props.video)}
-      onContextMenu={(e) => {
-        if (!props.onVideoContextMenu) return;
-        e.preventDefault();
-        props.onVideoContextMenu(e, props.video);
-      }}
-    >
+  const menuActions = () => props.getContextMenuActions?.(props.video) ?? [];
+
+  const rowContent = (
+    <>
       <td class="px-2 py-1">
         <div class="w-8 h-8 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
           <Show
@@ -100,7 +97,56 @@ function VideoRow(props: {
           />
         </td>
       </Show>
-    </tr>
+    </>
+  );
+
+  return (
+    <KobalteContextMenu>
+      {/* trigger IS the tr — kobalte forwards a11y attrs onto our
+       *  element, layout + click handlers stay intact. */}
+      <KobalteContextMenu.Trigger
+        as="tr"
+        class="border-b border-[var(--color-border-subtle)] cursor-pointer outline-none hover:bg-[var(--color-bg-hover)]"
+        onClick={() => props.onVideoClick?.(props.video)}
+        onDblClick={() => props.onVideoPlay?.(props.video)}
+      >
+        {rowContent}
+      </KobalteContextMenu.Trigger>
+      <KobalteContextMenu.Portal>
+        <KobalteContextMenu.Content class="min-w-48 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-hidden z-[1200] origin-top-left">
+          <div class="py-1">
+            <For each={menuActions()}>
+              {(action) => {
+                if (action.type === "separator") {
+                  return (
+                    <KobalteContextMenu.Separator class="my-1 h-px bg-[var(--color-border-subtle)]" />
+                  );
+                }
+                return (
+                  <KobalteContextMenu.Item
+                    class={`w-full px-4 py-2 text-left flex items-center gap-3 transition-colors body-small outline-none cursor-pointer ${
+                      action.disabled
+                        ? "text-[var(--color-text-disabled)] cursor-not-allowed opacity-50"
+                        : action.destructive
+                          ? "text-[var(--color-error)] data-[highlighted]:bg-[var(--color-error)] data-[highlighted]:text-white"
+                          : "text-[var(--color-text-primary)] data-[highlighted]:bg-[var(--color-bg-hover)]"
+                    }`}
+                    onSelect={() => !action.disabled && action.onClick()}
+                    disabled={action.disabled}
+                    closeOnSelect={true}
+                  >
+                    <Show when={action.icon}>
+                      <Icon name={action.icon!} size={16} color="currentColor" />
+                    </Show>
+                    <span>{action.label}</span>
+                  </KobalteContextMenu.Item>
+                );
+              }}
+            </For>
+          </div>
+        </KobalteContextMenu.Content>
+      </KobalteContextMenu.Portal>
+    </KobalteContextMenu>
   );
 }
 
@@ -136,7 +182,7 @@ export function VideosTable(props: VideosTableProps) {
                     video={video}
                     onVideoClick={props.onVideoClick}
                     onVideoPlay={props.onVideoPlay}
-                    onVideoContextMenu={props.onVideoContextMenu}
+                    getContextMenuActions={props.getContextMenuActions}
                     favoriteVideoIds={props.favoriteVideoIds}
                     onVideoFavoriteToggle={props.onVideoFavoriteToggle}
                   />

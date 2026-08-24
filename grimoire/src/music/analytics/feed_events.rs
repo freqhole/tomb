@@ -1209,6 +1209,91 @@ pub async fn delete_favorite_feed_event(
     }
 }
 
+/// create or update a video watch feed event
+///
+/// called once a video's playback progress crosses the "counts as watched"
+/// threshold. keyed on (video_id, created_by_user_id) via the
+/// `idx_feed_eventz_video_watch` unique index, so rewatching the same video
+/// just bumps `updated_at` (moves it back to the top of the feed) instead of
+/// creating duplicate rows.
+pub async fn create_video_watch_feed_event(
+    video_id: &str,
+    user_id: &str,
+    username: &str,
+) -> GrimoireResponse<FeedEventResult> {
+    if should_skip_feed_event(user_id).await {
+        return GrimoireResponse::success(
+            "skipped feed event for service account",
+            FeedEventResult::Skipped,
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            v.title,
+            v.description,
+            CASE
+                WHEN v.poster_blob_id IS NOT NULL THEN
+                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                ELSE '[]'
+            END as "images!: String"
+        FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+        "#,
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    let data = match row {
+        Ok(Some(d)) => d,
+        Ok(None) => return GrimoireResponse::failure("video not found", vec![]),
+        Err(e) => return GrimoireResponse::failure("failed to fetch video data", vec![e.into()]),
+    };
+
+    let feed_type = FeedEventType::VideoWatch.to_string();
+
+    let result = sqlx::query_scalar!(
+        r#"
+        INSERT INTO feed_eventz (
+            feed_type, video_id, created_by_user_id, created_by_username,
+            title, subtitle, images
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (video_id, created_by_user_id) WHERE feed_type = 'video_watch' AND video_id IS NOT NULL
+        DO UPDATE SET
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            images = excluded.images,
+            updated_at = unixepoch()
+        RETURNING id
+        "#,
+        feed_type,
+        video_id,
+        user_id,
+        username,
+        data.title,
+        data.description,
+        data.images
+    )
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(id) => GrimoireResponse::success(
+            "video watch feed event upserted",
+            FeedEventResult::Created(id.expect("insert should return id")),
+        ),
+        Err(e) => GrimoireResponse::failure("failed to upsert video watch feed event", vec![e.into()]),
+    }
+}
+
 /// create or update a rating feed event
 pub async fn upsert_rating_feed_event(
     target_type: &str,

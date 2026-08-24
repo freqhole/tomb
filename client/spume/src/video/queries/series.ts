@@ -1,6 +1,11 @@
 // tanstack query hooks for browsing video series / season detail —
 // mirrors music/queries/songs.ts's album query hooks shape.
-import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
+import {
+  createInfiniteQuery,
+  createMutation,
+  createQuery,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import { getVideoDataSource } from "../data";
 import type { VideoSeason, VideoSeries, VideoSummary } from "../data/types";
 import { videoQueryKeys } from "./queryKeys";
@@ -66,5 +71,50 @@ export function useVideoSeriesDetailQuery(seriesId: () => string | undefined) {
     enabled: !!seriesId(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+  }));
+}
+
+export interface UpdateVideoSeriesMutationParams {
+  series_id: string;
+  title?: string;
+  description?: string | null;
+  poster_blob_id?: string | null;
+}
+
+export function useUpdateVideoSeriesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: UpdateVideoSeriesMutationParams) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.updateVideoSeries) {
+        throw new Error("current data source does not support updating video series");
+      }
+      await dataSource.updateVideoSeries(params);
+    },
+    onSuccess: (_result, params) => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+      queryClient.invalidateQueries({
+        queryKey: videoQueryKeys.series.detail(params.series_id),
+      });
+    },
+  }));
+}
+
+export function useDeleteVideoSeriesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (seriesId: string) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.deleteVideoSeries) {
+        throw new Error("current data source does not support deleting video series");
+      }
+      await dataSource.deleteVideoSeries(seriesId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+    },
   }));
 }

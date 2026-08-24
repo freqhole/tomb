@@ -67,6 +67,7 @@ export const routes = {
     get_entity_taxons: { method: 'POST', path: '/api/entities/taxons/get', req: s.GetEntityTaxonsRequestSchema, resp: s.EntityTaxonLinkSchema.array(), auth: { type: 'authenticated' } as const },
     get_favorite_status_bulk: { method: 'POST', path: '/api/entities/favorites/status-bulk', req: s.GetFavoriteStatusBulkRequestSchema, resp: s.FavoriteStatusItemSchema.array(), auth: { type: 'authenticated' } as const },
     get_rating_stats: { method: 'POST', path: '/api/entities/ratings/stats', req: s.GetRatingStatsRequestSchema, resp: s.RatingStatsSchema, auth: { type: 'authenticated' } as const },
+    get_rating_status_bulk: { method: 'POST', path: '/api/entities/ratings/status-bulk', req: s.GetRatingStatusBulkRequestSchema, resp: s.RatingStatusItemSchema.array(), auth: { type: 'authenticated' } as const },
     list_playlist_items: { method: 'POST', path: '/api/entities/playlists/items/list', req: s.ListPlaylistItemsRequestSchema, resp: s.PlaylistItemSchema.array(), auth: { type: 'authenticated' } as const },
     remove_entity_taxon: { method: 'POST', path: '/api/entities/taxons/remove', req: s.RemoveEntityTaxonRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     remove_playlist_item: { method: 'POST', path: '/api/entities/playlists/items/remove', req: s.RemovePlaylistItemRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },

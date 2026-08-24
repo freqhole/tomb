@@ -355,6 +355,7 @@ pub mod type_registry {
     use crate::offal::entities::playlist_items::{
         AddPlaylistItemRequest, ListPlaylistItemsRequest, RemovePlaylistItemRequest,
     };
+    use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
     use crate::offal::entities::taxon_links::{
         AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
     };
@@ -1324,6 +1325,12 @@ pub mod type_registry {
 
         gen.add_schema::<RatingStats>("RatingStats");
         registered.insert("RatingStats".to_string());
+
+        gen.add_schema::<GetRatingStatusBulkRequest>("GetRatingStatusBulkRequest");
+        registered.insert("GetRatingStatusBulkRequest".to_string());
+
+        gen.add_schema::<RatingStatusItem>("RatingStatusItem");
+        registered.insert("RatingStatusItem".to_string());
 
         // upload types
         gen.add_schema::<ImageUploadResponse>("ImageUploadResponse");

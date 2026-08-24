@@ -11,7 +11,6 @@ import {
   subscribe,
 } from "../../app/services/logCapture";
 import { toast } from "../../components/feedback/Toast";
-import { setWindowTitle } from "../../app/services/charnel";
 
 const LEVELS: ReadonlyArray<LogLevel> = ["log", "info", "debug", "warn", "error"];
 
@@ -42,7 +41,6 @@ export function LogzSettingsView() {
   let scrollRef: HTMLDivElement | undefined;
 
   onMount(() => {
-    setWindowTitle("freqhole — logz");
     const unsubscribe = subscribe((next) => {
       setEntries(next);
       // defer to next frame so the dom has the new rows before we

@@ -65,6 +65,9 @@ pub async fn dispatch(
         "/api/entities/ratings/set" => Some(ratings::set(caller, body.clone()).await),
         "/api/entities/ratings/remove" => Some(ratings::remove(caller, body.clone()).await),
         "/api/entities/ratings/stats" => Some(ratings::stats(caller, body.clone()).await),
+        "/api/entities/ratings/status-bulk" => {
+            Some(ratings::get_status_bulk(caller, body.clone()).await)
+        }
 
         _ => None,
     }

@@ -238,12 +238,25 @@ export function ArtistsView(props: ArtistsViewProps) {
     return sorted;
   });
 
-  // update page info for TopNav (mobile displays "artists (N)")
+  // get selected artist data. prefer the dedicated single-artist query
+  // (resolves fast) and fall back to the list result so wide-viewport
+  // browsing still works seamlessly when the list arrives first.
+  const selectedArtist = createMemo(() => {
+    const id = selectedArtistId();
+    if (!id) return null;
+    const fromDetail = selectedArtistQuery.data;
+    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
+    return sortedArtists().find((a) => a.artist_id === id) ?? null;
+  });
+
+  // update page info for TopNav (mobile displays "artists (N)"). when an
+  // artist is selected, use its actual name for the browser tab title.
   createEffect(() => {
     const count = sortedArtists().length;
     setPageInfo({
       title: "artists",
       count,
+      documentTitle: selectedArtist()?.name,
       sortFields: artistSortFields,
       sortBy: sortBy(),
       sortDirection: sortDirection(),
@@ -254,17 +267,6 @@ export function ArtistsView(props: ArtistsViewProps) {
         setSortDirection(direction);
       },
     });
-  });
-
-  // get selected artist data. prefer the dedicated single-artist query
-  // (resolves fast) and fall back to the list result so wide-viewport
-  // browsing still works seamlessly when the list arrives first.
-  const selectedArtist = createMemo(() => {
-    const id = selectedArtistId();
-    if (!id) return null;
-    const fromDetail = selectedArtistQuery.data;
-    if (fromDetail && fromDetail.artist_id === id) return fromDetail;
-    return sortedArtists().find((a) => a.artist_id === id) ?? null;
   });
 
   // convert to list items

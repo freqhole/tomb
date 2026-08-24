@@ -183,9 +183,9 @@ export interface PlaylistSong {
 
 // ===== USER DATA TABLES =====
 
-// user favorites (songs, albums, artists, playlists)
+// user favorites (songs, albums, artists, playlists, videos)
 export interface Favorite {
-  target_type: "song" | "album" | "artist" | "playlist";
+  target_type: "song" | "album" | "artist" | "playlist" | "video";
   target_id: string;
   favorited_at: number;
 }

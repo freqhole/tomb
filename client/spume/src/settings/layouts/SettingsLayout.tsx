@@ -1,8 +1,9 @@
 // settings layout - wrapper for all settings pages with navigation
-import { JSX, For, onMount } from "solid-js";
+import { JSX, For, createEffect } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { routes } from "../../music/utils/routing";
-import { isCharnelMode, setWindowTitle } from "../../app/services/charnel";
+import { isCharnelMode } from "../../app/services/charnel";
+import { setAppDocumentTitle } from "../../app/services/documentTitle";
 
 interface SettingsNavItem {
   path: string;
@@ -34,14 +35,17 @@ export function SettingsLayout(props: { children: JSX.Element }) {
   const visibleNavItems = () =>
     navItems.filter((item) => !isCharnelMode() || !CHARNEL_HIDES_PATHS.has(item.path));
 
-  // set window/document title for settings
-  onMount(() => {
-    const title = "freqhole ▸ settings";
+  // set window/document title for settings, reactively per sub-route (e.g.
+  // "freqhole ▸ settings ▸ storage") - matches the longest nav item path
+  // prefix so nested routes like /settings/remotes/:id/admin still map to
+  // their section's label.
+  createEffect(() => {
+    const pathname = location.pathname;
+    const match = navItems
+      .filter((item) => pathname === item.path || pathname.startsWith(item.path + "/"))
+      .sort((a, b) => b.path.length - a.path.length)[0];
 
-    document.title = title;
-    if (isCharnelMode()) {
-      setWindowTitle(title);
-    }
+    setAppDocumentTitle(["settings", match?.label]);
   });
 
   return (

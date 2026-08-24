@@ -10,7 +10,7 @@ use grimoire::offal::Caller;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use crate::ratcore::app::{DispatchResponse, SeriesRow, SongRow, VideoRow};
+use crate::ratcore::app::{DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow};
 use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
@@ -377,6 +377,24 @@ impl Transport for LocalTransport {
             })
             .collect())
     }
+
+    async fn list_video_renditions(
+        &self,
+        media_blob_id: &str,
+    ) -> Result<Vec<RenditionRow>, String> {
+        use grimoire::media_blobz::list_renditions;
+        let blobs = list_renditions(media_blob_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(blobs.into_iter().map(rendition_blob_to_row).collect())
+    }
+
+    async fn delete_video_rendition(&self, blob_id: &str) -> Result<(), String> {
+        use grimoire::media_blobz::hard_delete_rendition_blob;
+        hard_delete_rendition_blob(blob_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// shared Video → VideoRow conversion.
@@ -393,6 +411,29 @@ fn video_to_row(v: grimoire::video::Video) -> VideoRow {
         media_blob_id: v.media_blob_id,
         poster_blob_id: v.poster_blob_id,
         release_date: v.release_date,
+    }
+}
+
+/// shared MediaBlob → RenditionRow conversion. mirrors the label/extension
+/// derivation in `grimoire::offal::video::videos::get_renditions`.
+fn rendition_blob_to_row(blob: grimoire::media_blobz::MediaBlob) -> RenditionRow {
+    let label = blob
+        .metadata
+        .get("rendition")
+        .and_then(|v| v.as_str())
+        .unwrap_or("rendition")
+        .to_string();
+    let extension = blob
+        .filename
+        .as_deref()
+        .and_then(|f| f.rsplit('.').next())
+        .unwrap_or("mp4")
+        .to_string();
+    RenditionRow {
+        blob_id: blob.id,
+        label,
+        extension,
+        mime: blob.mime,
     }
 }
 

@@ -149,7 +149,7 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
             {/* favorite toggle - top right corner */}
             <Show when={collection().isFavorite !== undefined && collection().isFavorite !== null}>
               <div
-                class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+                class="absolute top-2 right-2 z-50 transition-opacity duration-200"
                 classList={{
                   "opacity-100": collection().isFavorite === true,
                   "opacity-0 group-hover:opacity-100": collection().isFavorite !== true,
@@ -164,10 +164,12 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
               </div>
             </Show>
 
-            {/* hover overlay with play button */}
-            <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            {/* hover overlay with play button - pointer-events-none on the container
+                (with pointer-events-auto on the button) keeps its empty inset-0 area
+                from swallowing clicks meant for the heart above (z-50). */}
+            <div class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
               <button
-                class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors`}
+                class={`${sizeClasses().playButton} bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto`}
                 onClick={handlePlay}
                 title={`play ${collection().domainType}`}
               >

@@ -17,7 +17,7 @@ pub use state::{
     AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,
     RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
 };
-pub use video::{SeriesRow, VideoMode, VideoRow, VideoState};
+pub use video::{RenditionRow, SeriesRow, VideoMode, VideoRow, VideoState};
 
 use super::transport::{MusicPlayer, Transport};
 use std::rc::Rc;

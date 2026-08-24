@@ -28,6 +28,7 @@ import {
   startTracking,
   stopTracking,
 } from "./listenProgress";
+import { stopVideoTracking } from "../../../video/services/queue/videoListenProgress";
 import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import {
   createServerSession,
@@ -66,6 +67,12 @@ export { getQueueSizeLimit } from "./queueLimit";
 registerStopMusic(async () => {
   const state = appState();
   stopTracking(true);
+  // this handler wipes the shared queue/current_sha256 below, which
+  // video items ride on too (queue.ts's anti-hijack wipe predates video
+  // support) — flush + clear video tracking the same way so a stale
+  // `activeVideoHistoryEntryId` doesn't linger pointing at an entry the
+  // now-cleared queue can no longer resolve.
+  stopVideoTracking(true);
   clearAllQueueProgress();
   clearPendingUpNext();
   void stopServerSession("abandoned");

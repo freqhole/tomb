@@ -189,4 +189,27 @@ export class RemoteVideoDataSource implements VideoDataSource {
       throw new Error("failed to update video");
     }
   }
+
+  async deleteVideo(videoId: string): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.deleteVideo({ id: videoId });
+    if (!result.success) this.failRequest(result);
+  }
+
+  async updateVideoSeries(params: {
+    series_id: string;
+    title?: string;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.updateVideoSeries(params);
+    if (!result.success) this.failRequest(result);
+  }
+
+  async deleteVideoSeries(seriesId: string): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.deleteVideoSeries({ id: seriesId });
+    if (!result.success) this.failRequest(result);
+  }
 }

@@ -11,7 +11,13 @@ use zod_gen_derive::ZodSchema;
 use super::entity_taxonz::VideoEntityType;
 use crate::database;
 use crate::error::ErrorDetail;
+use crate::music::analytics::feed_events::create_video_watch_feed_event;
 use crate::response::GrimoireResponse;
+
+/// position_fraction at or above this counts as "watched" for feed purposes,
+/// mirroring the ~90% completion heuristic used elsewhere for plays.
+const WATCHED_THRESHOLD: f64 = 0.9;
+
 
 /// a single playback progress row
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
@@ -93,6 +99,24 @@ pub async fn upsert_playback_progress(
             )
         }
     };
+
+    if entity_type == VideoEntityType::Video && position_fraction >= WATCHED_THRESHOLD {
+        let user_id = user_id.to_string();
+        let video_id = entity_id.to_string();
+        tokio::spawn(async move {
+            let pool = match database::connect().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            if let Ok(Some(username)) =
+                sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
+                    .fetch_optional(&pool)
+                    .await
+            {
+                let _ = create_video_watch_feed_event(&video_id, &user_id, &username).await;
+            }
+        });
+    }
 
     GrimoireResponse::success("Playback progress saved successfully", progress)
 }

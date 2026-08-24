@@ -5,6 +5,7 @@
 import { createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getRemoteClient } from "../../music/data";
+import { getFavoritedTargetIds } from "../../music/services/storage/db/favorites";
 
 /** query key intentionally starts with "videos" so it's covered by
  * music/queries/favorites.ts's `getQueryKeysToInvalidate("video")`
@@ -15,8 +16,9 @@ export function videoFavoriteStatusQueryKey(ids: string[]) {
 
 /** returns a query whose `.data` is a `Set<string>` of favorited video
  * ids among `videoIds()`. local (no-remote) mode has no account-backed
- * favorites for video, so it resolves to an empty set rather than
- * erroring. */
+ * favorites, so it resolves against the local library's own favorites
+ * store instead (video has no denormalized `is_favorite` field on its own
+ * records, so this shared store is the only place local toggles land). */
 export function useVideoFavoriteStatuses(videoIds: Accessor<string[]>) {
   return createQuery(() => ({
     queryKey: videoFavoriteStatusQueryKey(videoIds()),
@@ -25,7 +27,10 @@ export function useVideoFavoriteStatuses(videoIds: Accessor<string[]>) {
       if (ids.length === 0) return new Set();
 
       const client = await getRemoteClient();
-      if (!client) return new Set();
+      if (!client) {
+        const localFavorites = await getFavoritedTargetIds("video");
+        return new Set(ids.filter((id) => localFavorites.has(id)));
+      }
 
       const result = await client.entities.getFavoriteStatusBulk({
         target_type: "video",

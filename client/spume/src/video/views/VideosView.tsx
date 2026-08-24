@@ -19,6 +19,7 @@ import { buildRoute } from "../../music/utils/routing";
 import { Icon } from "../../components/icons/registry";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
+import { useVideoContextMenu } from "../hooks/contextMenu";
 import type { VideoQueryParams, VideoSummary } from "../data/types";
 
 export interface VideosViewProps {
@@ -107,12 +108,14 @@ export function VideosView(props: VideosViewProps) {
     });
   };
 
-  // context menu handler - passed down to grid/table components which
-  // handle rendering the menu via their own ContextMenu wrappers
-  const handleVideoContextMenu = (e: MouseEvent, _video: VideoSummary) => {
-    e.preventDefault();
-    // the grid/table components are responsible for rendering the
-    // context menu - this is just a placeholder for now
+  // context menu actions for a video — mirrors AlbumsView's
+  // getContextMenuActions, passed down to the grid/table which render
+  // the actual menu via the shared ContextMenu component.
+  const getContextMenuActions = (video: VideoSummary) => {
+    return useVideoContextMenu(video, {
+      showPlayActions: true,
+      isFavorite: favoriteVideoIds().has(video.id),
+    });
   };
 
   // update page info for TopNav
@@ -133,9 +136,11 @@ export function VideosView(props: VideosViewProps) {
   });
 
   // play the clicked video immediately (mirrors SongsView's handlePlayClick,
-  // which also only queues the single clicked item, not the whole loaded list)
+  // which also only queues the single clicked item, not the whole loaded list).
+  // always pass a source so a history entry is created and watch-progress
+  // tracking starts (without it, position never resumes on reload).
   const handleVideoPlay = (video: VideoSummary) => {
-    void playVideoQueue([video], 0);
+    void playVideoQueue([video], 0, { type: "video", label: video.title, entity_id: video.id });
   };
 
   const handleVideoClick = (video: VideoSummary) => {
@@ -221,7 +226,7 @@ export function VideosView(props: VideosViewProps) {
               videos={videos()}
               onVideoClick={handleVideoClick}
               onVideoPlay={handleVideoPlay}
-              onVideoContextMenu={handleVideoContextMenu}
+              getContextMenuActions={getContextMenuActions}
               favoriteVideoIds={favoriteVideoIds()}
               onVideoFavoriteToggle={handleVideoFavoriteToggle}
             />
@@ -260,7 +265,7 @@ export function VideosView(props: VideosViewProps) {
                   videos={videos()}
                   onVideoClick={handleVideoClick}
                   onVideoPlay={handleVideoPlay}
-                  onVideoContextMenu={handleVideoContextMenu}
+                  getContextMenuActions={getContextMenuActions}
                   favoriteVideoIds={favoriteVideoIds()}
                   onVideoFavoriteToggle={handleVideoFavoriteToggle}
                   onNearEnd={loadMore}

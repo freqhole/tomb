@@ -21,8 +21,8 @@ export interface VideoMiniPlayerProps {
   videoElement: HTMLVideoElement;
 }
 
-/** floating mini video player — sits above the player bar, pinned to the
- * right (same width as the queue sidebar), above everything else in the
+/** floating mini video player — sits above the player bar, anchored to
+ * the right edge (clear of the scrollbar), above everything else in the
  * layout (modals, queue sidebar, context menus). mounts the shared,
  * singleton video element via `appendChild` (same technique as the old
  * in-bar `VideoThumbSlot`), so playback isn't interrupted by the move. */
@@ -103,7 +103,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     <div
       class="fixed z-[1500] bg-black overflow-hidden group"
       classList={{
-        "inset-x-0 wide:inset-x-auto wide:right-3 wide:w-72 lg:w-80 xl:w-96 aspect-video":
+        "inset-x-0 wide:inset-x-auto wide:right-[66px] wide:w-96 lg:w-[28rem] xl:w-[36rem] 2xl:w-[40rem] aspect-video":
           !expanded(),
         "inset-0": expanded(),
       }}
@@ -113,7 +113,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
           ? {}
           : {
               "box-shadow":
-                "0 20px 60px -15px rgba(0, 0, 0, 0.8), 0 0 32px 6px rgba(255, 26, 158, 0.55)",
+                "0 20px 60px -15px rgba(0, 0, 0, 0.9), 0 0 24px 4px rgba(255, 255, 255, 0.12)",
               // clip the shadow itself at the bottom edge (sits flush against
               // the player bar there) while letting it show on the other sides
               "clip-path": "inset(-40px -40px 0 -40px)",

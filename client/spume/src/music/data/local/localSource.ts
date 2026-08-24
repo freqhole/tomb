@@ -702,11 +702,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     const db = await initMusicDB();
 
     // use db helper to update favorites table
-    await dbSetFavorite(
-      params.targetType as "song" | "album" | "artist" | "playlist",
-      params.targetId,
-      params.isFavorite,
-    );
+    await dbSetFavorite(params.targetType, params.targetId, params.isFavorite);
 
     // also update denormalized is_favorite field in the main record
     if (params.targetType === "song") {

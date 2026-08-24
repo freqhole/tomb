@@ -133,7 +133,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
 
         <Show when={props.isFavorite !== undefined}>
           <div
-            class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+            class="absolute top-2 right-2 z-50 transition-opacity duration-200"
             classList={{
               "opacity-100": props.isFavorite === true,
               "opacity-0 group-hover:opacity-100": props.isFavorite !== true,
@@ -152,12 +152,12 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
         </Show>
 
         {/* hover overlay with play button - z-40 keeps it above MediaImage's
-            internal layers (fallback icon z-20 / loaded img z-30), which
-            otherwise intercept clicks meant for this button since they carry
-            explicit z-index while this overlay previously had none (auto) */}
-        <div class="absolute inset-0 z-40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            internal layers (fallback icon z-20 / loaded img z-30). pointer-events-none
+            on the container (with pointer-events-auto on the button itself) keeps its
+            empty inset-0 area from swallowing clicks meant for the heart above (z-50). */}
+        <div class="absolute inset-0 z-40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
           <button
-            class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
+            class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto"
             onClick={handlePlay}
             title="play video"
           >
