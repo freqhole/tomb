@@ -31,6 +31,7 @@ export const videoQueryKeys = {
       remoteId
         ? ([...videoQueryKeys.videos.all(), "remote", remoteId, id] as const)
         : ([...videoQueryKeys.videos.all(), id] as const),
+    taxons: (id: string) => [...videoQueryKeys.videos.all(), "taxons", id] as const,
   },
 
   series: {

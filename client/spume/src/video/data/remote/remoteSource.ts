@@ -196,6 +196,16 @@ export class RemoteVideoDataSource implements VideoDataSource {
     if (!result.success) this.failRequest(result);
   }
 
+  async createVideoSeries(params: {
+    title: string;
+    description?: string | null;
+  }): Promise<VideoSeries> {
+    const client = await this.getClient();
+    const result = await client.video.createVideoSeries(params);
+    if (!result.success) this.failRequest(result);
+    return result.data;
+  }
+
   async updateVideoSeries(params: {
     series_id: string;
     title?: string;

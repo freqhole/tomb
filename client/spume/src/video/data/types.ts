@@ -69,6 +69,10 @@ export interface VideoDataSource {
   deleteVideo?(videoId: string): Promise<void>;
   // series has no local writer yet (see services/storage/db/series.ts) —
   // only implemented by RemoteVideoDataSource.
+  createVideoSeries?(params: {
+    title: string;
+    description?: string | null;
+  }): Promise<VideoSeries>;
   updateVideoSeries?(params: {
     series_id: string;
     title?: string;

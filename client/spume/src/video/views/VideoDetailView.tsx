@@ -12,7 +12,9 @@ import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
+import { TaxonChips } from "../../components/badges/TaxonChips";
 import { useVideoQuery } from "../queries/videos";
+import { useVideoTaxonsQuery } from "../queries/taxons";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { useLocalVideoPosterUrl } from "../components/VideoCard";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
@@ -25,6 +27,7 @@ export function VideoDetailView() {
   const navigate = useNavigate();
 
   const videoQuery = useVideoQuery(() => params.videoId);
+  const taxonsQuery = useVideoTaxonsQuery(() => params.videoId);
 
   const [playPending, setPlayPending] = createSignal(false);
 
@@ -150,6 +153,8 @@ export function VideoDetailView() {
                     <span>{formatDuration(video().duration_seconds)}</span>
                   </Show>
                 </div>
+
+                <TaxonChips taxons={taxonsQuery.data} class="mt-2" />
 
                 <Show when={video().description}>
                   <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">

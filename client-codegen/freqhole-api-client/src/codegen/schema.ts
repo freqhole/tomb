@@ -49,6 +49,14 @@ export const AddEntityTaxonRequestSchema = z.object({
 });
 export type AddEntityTaxonRequest = z.infer<typeof AddEntityTaxonRequestSchema>;
 
+export const AddEntityUrlRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  name: z.string().nullish(),
+  url: z.string()
+});
+export type AddEntityUrlRequest = z.infer<typeof AddEntityUrlRequestSchema>;
+
 export const AddPlaylistItemRequestSchema = z.object({
   playlist_id: z.string(),
   entity_type: z.string(),
@@ -1746,6 +1754,13 @@ export const EntityTaxonsEntrySchema = z.object({
 });
 export type EntityTaxonsEntry = z.infer<typeof EntityTaxonsEntrySchema>;
 
+export const EntityUrlSchema = z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+});
+export type EntityUrl = z.infer<typeof EntityUrlSchema>;
+
 export const EraAlbumsRequestSchema = z.object({
   min_year: z.number(),
   max_year: z.number(),
@@ -2833,6 +2848,12 @@ export const GetEntityTaxonsRequestSchema = z.object({
   entity_id: z.string()
 });
 export type GetEntityTaxonsRequest = z.infer<typeof GetEntityTaxonsRequestSchema>;
+
+export const GetEntityUrlsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetEntityUrlsRequest = z.infer<typeof GetEntityUrlsRequestSchema>;
 
 export const GetFavoriteStatusBulkRequestSchema = z.object({
   target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")]),
@@ -5475,6 +5496,13 @@ export const RemoveEntityTaxonRequestSchema = z.object({
   origin: z.string()
 });
 export type RemoveEntityTaxonRequest = z.infer<typeof RemoveEntityTaxonRequestSchema>;
+
+export const RemoveEntityUrlRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  id: z.string()
+});
+export type RemoveEntityUrlRequest = z.infer<typeof RemoveEntityUrlRequestSchema>;
 
 export const RemovePlaylistItemRequestSchema = z.object({
   playlist_id: z.string(),

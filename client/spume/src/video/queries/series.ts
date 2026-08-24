@@ -74,6 +74,23 @@ export function useVideoSeriesDetailQuery(seriesId: () => string | undefined) {
   }));
 }
 
+export function useCreateVideoSeriesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: { title: string; description?: string | null }) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.createVideoSeries) {
+        throw new Error("current data source does not support creating video series");
+      }
+      return dataSource.createVideoSeries(params);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+    },
+  }));
+}
+
 export interface UpdateVideoSeriesMutationParams {
   series_id: string;
   title?: string;

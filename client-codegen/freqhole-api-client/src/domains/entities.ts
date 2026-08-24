@@ -47,6 +47,43 @@ export function createEntitiesMethods(call: CallFn) {
       );
     },
 
+    // entity urls
+    getEntityUrls: (params: s.GetEntityUrlsRequest) => {
+      return call(
+        "entities",
+        "get_entity_urls",
+        routes.entities.get_entity_urls.resp,
+        routes.entities.get_entity_urls.req,
+        routes.entities.get_entity_urls.method,
+        routes.entities.get_entity_urls.path,
+        params,
+      );
+    },
+
+    addEntityUrl: (params: s.AddEntityUrlRequest) => {
+      return call(
+        "entities",
+        "add_entity_url",
+        routes.entities.add_entity_url.resp,
+        routes.entities.add_entity_url.req,
+        routes.entities.add_entity_url.method,
+        routes.entities.add_entity_url.path,
+        params,
+      );
+    },
+
+    removeEntityUrl: (params: s.RemoveEntityUrlRequest) => {
+      return call(
+        "entities",
+        "remove_entity_url",
+        routes.entities.remove_entity_url.resp,
+        routes.entities.remove_entity_url.req,
+        routes.entities.remove_entity_url.method,
+        routes.entities.remove_entity_url.path,
+        params,
+      );
+    },
+
     // playlist items
     listPlaylistItems: (params: s.ListPlaylistItemsRequest) => {
       return call(

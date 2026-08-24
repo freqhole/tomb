@@ -1,16 +1,20 @@
 // edit video modal — single-video metadata editor, mirrors
-// SongEditorModal.tsx's shape but far simpler (no tabs/images/entity
-// urls): title, description, episode number, release date, plus series/
-// season assignment and renditions list with hard-delete.
+// SongEditorModal.tsx's shape: title, description, episode number,
+// release date, series/season assignment (with create-new-series
+// support), taxon links, entity url links, and renditions list with
+// hard-delete.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
 import { Select } from "../forms/Select";
+import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
+import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
+import { VideoTaxonsEditor, type VideoTaxonsEditorHandle } from "./VideoTaxonsEditor";
 import { toast } from "../feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
 import { canUpdateVideo } from "../../video/data/permissions";
 import { useUpdateVideoMutation, useVideoQuery } from "../../video/queries/videos";
-import { useVideoSeriesListQuery } from "../../video/queries/series";
+import { useCreateVideoSeriesMutation } from "../../video/queries/series";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data";
 import type { VideoRendition } from "@freqhole/api-client";
@@ -35,7 +39,7 @@ interface FormData {
 export function EditVideoModal(props: EditVideoModalProps) {
   const videoQuery = useVideoQuery(() => props.videoId);
   const updateMutation = useUpdateVideoMutation();
-  const seriesListQuery = useVideoSeriesListQuery();
+  const createSeriesMutation = useCreateVideoSeriesMutation();
 
   const [formData, setFormData] = createSignal<FormData>({
     title: "",
@@ -47,6 +51,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
   });
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedVideoId, setLoadedVideoId] = createSignal<string | null>(null);
+
+  // series autocomplete input text, and the typed name of a not-yet-
+  // created series (set when the user picks the "create new" row; the
+  // series is only actually created when the modal is saved).
+  const [seriesInputValue, setSeriesInputValue] = createSignal("");
+  const [pendingNewSeriesName, setPendingNewSeriesName] = createSignal<string | null>(null);
+
+  // entity url links (admin-managed links, eg. wikipedia/imdb)
+  const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
+  const [initialEntityUrls, setInitialEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
+
+  // taxon links — deferred add/remove buffered until save via the
+  // editor's imperative handle, same pattern as AlbumTaxonsEditor.
+  let taxonsHandle: VideoTaxonsEditorHandle | undefined;
+  const [taxonsDirty, setTaxonsDirty] = createSignal(false);
 
   // renditions list state
   const [renditions, setRenditions] = createSignal<VideoRendition[]>([]);
@@ -126,6 +145,31 @@ export function EditVideoModal(props: EditVideoModalProps) {
     }
   };
 
+  const fetchEntityUrls = async (videoId: string) => {
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) {
+        setEntityUrls([]);
+        setInitialEntityUrls([]);
+        return;
+      }
+      const client = await getClientForRemote(remote);
+      const result = await client.entities.getEntityUrls({
+        entity_type: "video",
+        entity_id: videoId,
+      });
+      const urls = result.success
+        ? result.data.map((u) => ({ id: u.id ?? undefined, name: u.name ?? "", url: u.url }))
+        : [];
+      setEntityUrls(urls);
+      setInitialEntityUrls(urls.map((u) => ({ ...u })));
+    } catch (err) {
+      console.error("failed to fetch entity urls:", err);
+      setEntityUrls([]);
+      setInitialEntityUrls([]);
+    }
+  };
+
   // fetch seasons when series changes
   createEffect(async () => {
     const seriesId = formData().series_id;
@@ -169,9 +213,106 @@ export function EditVideoModal(props: EditVideoModalProps) {
       };
       setFormData(data);
       setInitialData(data);
+      setPendingNewSeriesName(null);
       setLoadedVideoId(props.videoId);
+      void fetchEntityUrls(props.videoId);
+      void fetchSeriesTitle(video.series_id ?? null);
     }
   });
+
+  const fetchSeriesTitle = async (seriesId: string | null) => {
+    if (!seriesId) {
+      setSeriesInputValue("");
+      return;
+    }
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) {
+        setSeriesInputValue("");
+        return;
+      }
+      const client = await getClientForRemote(remote);
+      const result = await client.video.getVideoSeries({ id: seriesId });
+      setSeriesInputValue(result.success ? result.data.title : "");
+    } catch (err) {
+      console.error("failed to fetch series title:", err);
+      setSeriesInputValue("");
+    }
+  };
+
+  // helper to check if entity urls have changed (mirrors
+  // SongEditorModal.tsx's urlsChanged shape)
+  const urlsChanged = () => {
+    const current = entityUrls();
+    const initial = initialEntityUrls();
+
+    const hasNewUrls = current.some((u) => u.isNew && !u.isDeleted);
+    const hasDeletedUrls = current.some((u) => u.isDeleted && !u.isNew);
+    if (hasNewUrls || hasDeletedUrls) return true;
+
+    for (let i = 0; i < current.length; i++) {
+      const curr = current[i];
+      const init = initial[i];
+      if (!init) return true;
+      if (curr.name !== init.name || curr.url !== init.url) return true;
+    }
+
+    return current.length !== initial.length;
+  };
+
+  // there's no bulk "replace urls" route for videos (unlike songs/
+  // albums, whose update requests accept an `entity_urls` field), so
+  // changes are synced via the generic add/remove entity-url routes:
+  // deleted urls are removed, new urls are added, and edited existing
+  // urls are removed then re-added (the add route always assigns a
+  // fresh id).
+  const syncEntityUrls = async () => {
+    const remote = getCurrentRemote();
+    if (!remote) return;
+    const client = await getClientForRemote(remote);
+    const initialById = new Map(
+      initialEntityUrls()
+        .filter((u) => u.id)
+        .map((u) => [u.id!, u])
+    );
+
+    for (const u of entityUrls()) {
+      if (u.isNew && u.isDeleted) continue;
+      if (u.isDeleted) {
+        if (u.id) {
+          await client.entities.removeEntityUrl({
+            entity_type: "video",
+            entity_id: props.videoId,
+            id: u.id,
+          });
+        }
+        continue;
+      }
+      if (u.isNew) {
+        await client.entities.addEntityUrl({
+          entity_type: "video",
+          entity_id: props.videoId,
+          name: u.name || null,
+          url: u.url,
+        });
+        continue;
+      }
+      const init = u.id ? initialById.get(u.id) : undefined;
+      if (init && (init.name !== u.name || init.url !== u.url)) {
+        await client.entities.removeEntityUrl({
+          entity_type: "video",
+          entity_id: props.videoId,
+          id: u.id!,
+        });
+        await client.entities.addEntityUrl({
+          entity_type: "video",
+          entity_id: props.videoId,
+          name: u.name || null,
+          url: u.url,
+        });
+      }
+    }
+  };
 
   const hasChanges = createMemo(() => {
     const initial = initialData();
@@ -183,7 +324,10 @@ export function EditVideoModal(props: EditVideoModalProps) {
       current.episode_number !== initial.episode_number ||
       current.release_date !== initial.release_date ||
       current.series_id !== initial.series_id ||
-      current.season_id !== initial.season_id
+      current.season_id !== initial.season_id ||
+      pendingNewSeriesName() !== null ||
+      urlsChanged() ||
+      taxonsDirty()
     );
   });
 
@@ -191,12 +335,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSeriesChange = (value: string) => {
-    if (value === "") {
+  const handleSeriesSelect = (selection: { id?: string; name: string; isNew: boolean }) => {
+    setSeriesInputValue(selection.name);
+    if (selection.isNew) {
+      setPendingNewSeriesName(selection.name);
       setFormData((prev) => ({ ...prev, series_id: null, season_id: null }));
     } else {
-      setFormData((prev) => ({ ...prev, series_id: value, season_id: null }));
+      setPendingNewSeriesName(null);
+      setFormData((prev) => ({ ...prev, series_id: selection.id ?? null, season_id: null }));
     }
+  };
+
+  const handleClearSeries = () => {
+    setSeriesInputValue("");
+    setPendingNewSeriesName(null);
+    setFormData((prev) => ({ ...prev, series_id: null, season_id: null }));
   };
 
   const handleSeasonChange = (value: string) => {
@@ -206,15 +359,37 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const handleSave = async () => {
     const data = formData();
     try {
+      let seriesId = data.series_id;
+      const newSeriesName = pendingNewSeriesName();
+      if (newSeriesName) {
+        const newSeries = await createSeriesMutation.mutateAsync({ title: newSeriesName });
+        seriesId = newSeries.id;
+      }
+
       await updateMutation.mutateAsync({
         video_id: props.videoId,
         title: data.title,
         description: data.description || null,
         episode_number: data.episode_number,
         release_date: data.release_date || null,
-        series_id: data.series_id,
+        series_id: seriesId,
         season_id: data.season_id,
       });
+
+      if (urlsChanged()) {
+        await syncEntityUrls();
+      }
+
+      if (taxonsHandle?.isDirty()) {
+        try {
+          await taxonsHandle.apply();
+        } catch (err) {
+          console.error("failed to apply taxon edits:", err);
+          toast.error("failed to save taxon changes");
+        }
+      }
+
+      setPendingNewSeriesName(null);
       toast.success("video updated");
       props.onSave?.();
     } catch (err) {
@@ -299,18 +474,26 @@ export function EditVideoModal(props: EditVideoModalProps) {
             <h3 class="text-sm font-medium text-[var(--color-text-primary)]">series & season</h3>
 
             <div>
-              <Select
+              <VideoSeriesAutocomplete
                 label="series"
-                value={formData().series_id ?? ""}
-                onchange={(e) => handleSeriesChange(e.currentTarget.value)}
-                options={[
-                  { value: "", label: "(none)" },
-                  ...(seriesListQuery.data?.pages.flatMap((p) =>
-                    p.items.map((s) => ({ value: s.id, label: s.title }))
-                  ) ?? []),
-                ]}
-                placeholder="select a series..."
+                value={seriesInputValue()}
+                onSelect={handleSeriesSelect}
+                placeholder="search or type series title..."
+                hint={
+                  pendingNewSeriesName()
+                    ? `"${pendingNewSeriesName()}" will be created as a new series on save`
+                    : undefined
+                }
               />
+              <Show when={seriesInputValue() || pendingNewSeriesName()}>
+                <button
+                  type="button"
+                  onClick={handleClearSeries}
+                  class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                >
+                  remove from series
+                </button>
+              </Show>
             </div>
 
             <Show when={formData().series_id}>
@@ -331,6 +514,22 @@ export function EditVideoModal(props: EditVideoModalProps) {
                 />
               </div>
             </Show>
+          </div>
+
+          {/* taxon links — deferred add/remove buffered until save
+              flushes them via taxonsHandle.apply() */}
+          <div class="border-t border-[var(--color-border-default)] pt-4">
+            <VideoTaxonsEditor
+              videoId={props.videoId}
+              ref={(h) => (taxonsHandle = h)}
+              onDirtyChange={setTaxonsDirty}
+              disabled={!canUpdateVideo()}
+            />
+          </div>
+
+          {/* entity url links */}
+          <div class="border-t border-[var(--color-border-default)] pt-4">
+            <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} disabled={!canUpdateVideo()} />
           </div>
 
           {/* renditions list */}
