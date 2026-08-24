@@ -24,7 +24,11 @@ import {
 } from "../../music/services/cache/blobCache";
 import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import type { Remote } from "../../app/services/storage/types";
-import { appState, setSyncQueueToLocal } from "../../app/services/storage/db";
+import {
+  appState,
+  setCroppedSquareThumbnails,
+  setSyncQueueToLocal,
+} from "../../app/services/storage/db";
 import { truncateMiddle } from "../../utils/truncate";
 
 // confirmation dialog component
@@ -617,6 +621,44 @@ export function StorageSettingsView() {
                 </div>
               </div>
             </Show>
+
+            {/* display settings */}
+            <div class="border-t border-[var(--color-border-subtle)] pt-6 mb-6">
+              <h2 class="text-sm font-medium text-[var(--color-text-primary)] mb-3">
+                display settings
+              </h2>
+              <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                  <div class="flex-1 min-w-0 mr-4">
+                    <div class="text-sm text-[var(--color-text-primary)]">
+                      crop video thumbnails to square
+                    </div>
+                    <p class="text-xs text-[var(--color-text-muted)] mt-1">
+                      when off, video thumbnails in the grid and table views letterbox instead of
+                      cropping (the video detail view always shows the full poster).
+                    </p>
+                  </div>
+                  <button
+                    class={`relative w-11 h-6 rounded-full transition-colors ${
+                      (appState()?.cropped_square_thumbnails ?? true)
+                        ? "bg-[var(--color-accent-500)]"
+                        : "bg-[var(--color-bg-tertiary)]"
+                    }`}
+                    onClick={() =>
+                      setCroppedSquareThumbnails(!(appState()?.cropped_square_thumbnails ?? true))
+                    }
+                  >
+                    <span
+                      class={`absolute left-0 top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        (appState()?.cropped_square_thumbnails ?? true)
+                          ? "translate-x-6"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {/* nuclear option */}
             <div class="border-t border-[var(--color-border-subtle)] pt-6">

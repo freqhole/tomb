@@ -15,6 +15,7 @@ import {
   STORE_PENDING_REMOTES,
   STORE_RADIO_HISTORY,
   STORE_SHARED_ITEMS,
+  STORE_VIDEO_QUEUE_HISTORY,
   type AppState,
   type GraphPrefs,
   type P2PIdentity,
@@ -97,6 +98,14 @@ async function initAppDB(): Promise<IDBPDatabase> {
         });
         sharedStore.createIndex("by_last_seen_at", "last_seen_at");
         sharedStore.createIndex("by_kind", "kind");
+      }
+
+      // create video_queue_history store (v9) — capped at 200 by videoQueueHistory module
+      if (!db.objectStoreNames.contains(STORE_VIDEO_QUEUE_HISTORY)) {
+        const videoHistoryStore = db.createObjectStore(STORE_VIDEO_QUEUE_HISTORY, {
+          keyPath: "id",
+        });
+        videoHistoryStore.createIndex("by_queued_at", "queued_at");
       }
     },
   });
@@ -227,6 +236,11 @@ async function setQueueOpen(isOpen: boolean): Promise<void> {
 // set sync queue to local setting
 async function setSyncQueueToLocal(enabled: boolean): Promise<void> {
   await updateAppState({ sync_queue_to_local: enabled });
+}
+
+// set cropped-square-thumbnails display preference (video grid/table)
+async function setCroppedSquareThumbnails(enabled: boolean): Promise<void> {
+  await updateAppState({ cropped_square_thumbnails: enabled });
 }
 
 // get sync queue to local setting (default: true)
@@ -451,6 +465,7 @@ export {
   setActiveRemoteId,
   setAutoDownloadEnabled,
   setCurrentSong,
+  setCroppedSquareThumbnails,
   setQueue,
   setQueueOpen,
   setSyncQueueToLocal,

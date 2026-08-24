@@ -2494,6 +2494,12 @@ export const FavoriteSongResultSchema = z.object({
 });
 export type FavoriteSongResult = z.infer<typeof FavoriteSongResultSchema>;
 
+export const FavoriteStatusItemSchema = z.object({
+  target_id: z.string(),
+  is_favorite: z.boolean()
+});
+export type FavoriteStatusItem = z.infer<typeof FavoriteStatusItemSchema>;
+
 export const FeedItemSchema = z.object({
   id: z.string(),
   feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
@@ -2821,6 +2827,12 @@ export const GetEntityTaxonsRequestSchema = z.object({
 });
 export type GetEntityTaxonsRequest = z.infer<typeof GetEntityTaxonsRequestSchema>;
 
+export const GetFavoriteStatusBulkRequestSchema = z.object({
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")]),
+  target_ids: z.array(z.string())
+});
+export type GetFavoriteStatusBulkRequest = z.infer<typeof GetFavoriteStatusBulkRequestSchema>;
+
 export const GetJobRequestSchema = z.object({
   job_id: z.string()
 });
@@ -2864,6 +2876,12 @@ export const GetListenSessionRequestSchema = z.object({
   id: z.string()
 });
 export type GetListenSessionRequest = z.infer<typeof GetListenSessionRequestSchema>;
+
+export const GetPlaybackProgressRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type GetPlaybackProgressRequest = z.infer<typeof GetPlaybackProgressRequestSchema>;
 
 export const GetPlaylistRequestSchema = z.object({
   id: z.string()
@@ -3550,6 +3568,11 @@ export const ListPendingReviewRequestSchema = z.object({
   session_id: z.string().nullish()
 });
 export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
+
+export const ListPlaybackProgressRequestSchema = z.object({
+  limit: z.number().nullish()
+});
+export type ListPlaybackProgressRequest = z.infer<typeof ListPlaybackProgressRequestSchema>;
 
 export const ListPlaylistItemsRequestSchema = z.object({
   playlist_id: z.string()
@@ -7083,6 +7106,17 @@ export const UploadMusicByBlake3RequestSchema = z.object({
 }).nullish()
 });
 export type UploadMusicByBlake3Request = z.infer<typeof UploadMusicByBlake3RequestSchema>;
+
+export const UpsertPlaybackProgressRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string(),
+  position_fraction: z.number(),
+  position_seconds: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  position_locator: z.string().nullish(),
+  completed_at: z.number().nullish()
+});
+export type UpsertPlaybackProgressRequest = z.infer<typeof UpsertPlaybackProgressRequestSchema>;
 
 export const UserStatsSchema = z.object({
   user_id: z.string(),

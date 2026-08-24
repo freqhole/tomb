@@ -9,8 +9,8 @@ use crate::media_blobz::BlobType;
 use crate::media_blobz::MediaBlob;
 use crate::music::crud::create_or_update::Genre;
 use crate::music::entities::{albums::Album, artists::Artist, songs::Song};
-use crate::music::users::models::FavoriteTarget;
-use crate::music::users::models::RatingTarget;
+use crate::users::FavoriteTarget;
+use crate::users::RatingTarget;
 
 /// image metadata with primary indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]

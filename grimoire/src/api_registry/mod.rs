@@ -351,11 +351,15 @@ pub mod type_registry {
     };
 
     // video domain offal request/response types (phase 2-3)
+    use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
     use crate::offal::entities::playlist_items::{
         AddPlaylistItemRequest, ListPlaylistItemsRequest, RemovePlaylistItemRequest,
     };
     use crate::offal::entities::taxon_links::{
         AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
+    };
+    use crate::offal::video::progress::{
+        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
     };
     use crate::offal::video::seasons::{
         DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
@@ -869,6 +873,12 @@ pub mod type_registry {
         registered.insert("VideoRendition".to_string());
         gen.add_schema::<GetVideoRenditionsRequest>("GetVideoRenditionsRequest");
         registered.insert("GetVideoRenditionsRequest".to_string());
+        gen.add_schema::<UpsertPlaybackProgressRequest>("UpsertPlaybackProgressRequest");
+        registered.insert("UpsertPlaybackProgressRequest".to_string());
+        gen.add_schema::<GetPlaybackProgressRequest>("GetPlaybackProgressRequest");
+        registered.insert("GetPlaybackProgressRequest".to_string());
+        gen.add_schema::<ListPlaybackProgressRequest>("ListPlaybackProgressRequest");
+        registered.insert("ListPlaybackProgressRequest".to_string());
 
         gen.add_schema::<GetEntityTaxonsRequest>("GetEntityTaxonsRequest");
         registered.insert("GetEntityTaxonsRequest".to_string());
@@ -1347,6 +1357,10 @@ pub mod type_registry {
         // user interaction types
         gen.add_schema::<SetFavoriteRequest>("SetFavoriteRequest");
         registered.insert("SetFavoriteRequest".to_string());
+        gen.add_schema::<GetFavoriteStatusBulkRequest>("GetFavoriteStatusBulkRequest");
+        registered.insert("GetFavoriteStatusBulkRequest".to_string());
+        gen.add_schema::<FavoriteStatusItem>("FavoriteStatusItem");
+        registered.insert("FavoriteStatusItem".to_string());
 
         gen.add_schema::<SetRatingRequest>("SetRatingRequest");
         registered.insert("SetRatingRequest".to_string());

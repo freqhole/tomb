@@ -1,6 +1,11 @@
 // tanstack query hooks for browsing/playing videos — mirrors
 // music/queries/songs.ts's useAlbumsQuery/useAlbumQuery shape.
-import { createInfiniteQuery, createQuery } from "@tanstack/solid-query";
+import {
+  createInfiniteQuery,
+  createMutation,
+  createQuery,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import { getVideoDataSource } from "../data";
 import type { VideoQueryParams } from "../data/types";
 import { videoQueryKeys } from "./queryKeys";
@@ -55,5 +60,33 @@ export function useVideoQuery(videoId: () => string | undefined) {
     enabled: !!videoId(),
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
+  }));
+}
+
+export interface UpdateVideoMutationParams {
+  video_id: string;
+  title?: string;
+  description?: string | null;
+  episode_number?: number | null;
+  release_date?: string | null;
+}
+
+export function useUpdateVideoMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: UpdateVideoMutationParams) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.updateVideo) {
+        throw new Error("current data source does not support updating videos");
+      }
+      await dataSource.updateVideo(params);
+    },
+    onSuccess: (_result, params) => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+      queryClient.invalidateQueries({
+        queryKey: videoQueryKeys.videos.detail(params.video_id),
+      });
+    },
   }));
 }

@@ -920,7 +920,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
     targetId: string;
     isFavorite: boolean;
   }): Promise<void> {
-    const result = await (await this.getClient()).music.setFavorite({
+    const result = await (await this.getClient()).entities.setFavorite({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,
@@ -948,7 +948,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
       throw new Error("rating must be between 0 and 5");
     }
 
-    const result = await (await this.getClient()).music.setRating({
+    const result = await (await this.getClient()).entities.setRating({
       user_id: null, // server will use authenticated user from session
       target_type: params.targetType,
       target_id: params.targetId,

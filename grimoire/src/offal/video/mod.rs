@@ -2,6 +2,7 @@
 //!
 //! covers: video series, seasons, and videos (episodes/movies/clips).
 
+pub mod progress;
 pub mod seasons;
 pub mod series;
 pub mod videos;
@@ -17,6 +18,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(series::ROUTES);
     all.extend_from_slice(seasons::ROUTES);
     all.extend_from_slice(videos::ROUTES);
+    all.extend_from_slice(progress::ROUTES);
     all
 }
 
@@ -63,6 +65,11 @@ pub async fn dispatch(
         "/api/video/videos/delete" => Some(videos::delete(caller, body.clone()).await),
         "/api/video/videos/bulk-delete" => Some(videos::bulk_delete(caller, body.clone()).await),
         "/api/video/videos/renditions" => Some(videos::get_renditions(caller, body.clone()).await),
+
+        // playback progress
+        "/api/video/progress/upsert" => Some(progress::upsert(caller, body.clone()).await),
+        "/api/video/progress/get" => Some(progress::get(caller, body.clone()).await),
+        "/api/video/progress/list" => Some(progress::list(caller, body.clone()).await),
 
         _ => None,
     }

@@ -17,3 +17,23 @@ export function closeAddVideo() {
 export function useAddVideoState() {
   return addVideoOpen;
 }
+
+// edit-video modal open/close state — mirrors the add-video signal above.
+export interface EditVideoOptions {
+  videoId: string;
+  onSave?: () => void;
+}
+
+const [editVideoState, setEditVideoState] = createSignal<EditVideoOptions | null>(null);
+
+export function showEditVideo(options: EditVideoOptions) {
+  setEditVideoState(options);
+}
+
+export function hideEditVideo() {
+  setEditVideoState(null);
+}
+
+export function useEditVideoState() {
+  return editVideoState;
+}

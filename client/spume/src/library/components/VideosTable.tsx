@@ -6,7 +6,9 @@
 import { For, Show } from "solid-js";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration } from "../../utils/formatDuration";
+import { appState } from "../../app/services/storage/db";
 import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
 import type { VideoSummary } from "../../video/data/types";
 
@@ -14,6 +16,10 @@ export interface VideosTableProps {
   videos: VideoSummary[];
   onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
+  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  /** ids of favorited videos (omit to hide the favorite column) */
+  favoriteVideoIds?: Set<string>;
+  onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   class?: string;
 }
 
@@ -21,10 +27,15 @@ function VideoRow(props: {
   video: VideoSummary;
   onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
+  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  favoriteVideoIds?: Set<string>;
+  onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
 }) {
   const localPosterUrl = useLocalVideoPosterUrl(() =>
     props.video.source_type === "local" ? props.video.poster_opfs_path : null
   );
+
+  const croppedSquare = () => appState()?.cropped_square_thumbnails ?? true;
 
   const seriesLabel = () =>
     props.video.episode_number != null ? `E${props.video.episode_number}` : "—";
@@ -40,6 +51,11 @@ function VideoRow(props: {
       class="border-b border-[var(--color-border-subtle)] cursor-pointer hover:bg-[var(--color-bg-hover)]"
       onClick={() => props.onVideoClick?.(props.video)}
       onDblClick={() => props.onVideoPlay?.(props.video)}
+      onContextMenu={(e) => {
+        if (!props.onVideoContextMenu) return;
+        e.preventDefault();
+        props.onVideoContextMenu(e, props.video);
+      }}
     >
       <td class="px-2 py-1">
         <div class="w-8 h-8 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
@@ -48,7 +64,11 @@ function VideoRow(props: {
             fallback={
               <Show when={localPosterUrl()}>
                 {(url) => (
-                  <img src={url()} alt={props.video.title} class="w-full h-full object-cover" />
+                  <img
+                    src={url()}
+                    alt={props.video.title}
+                    class={`w-full h-full ${croppedSquare() ? "object-cover" : "object-contain"}`}
+                  />
                 )}
               </Show>
             }
@@ -58,6 +78,7 @@ function VideoRow(props: {
               remoteServerId={props.video.remote_server_id}
               alt={props.video.title}
               size="xs"
+              objectFit={croppedSquare() ? "cover" : "contain"}
             />
           </Show>
         </div>
@@ -70,6 +91,15 @@ function VideoRow(props: {
         {formatDuration(props.video.duration_seconds)}
       </td>
       <td class="px-2 py-1 text-[var(--color-text-muted)]">{addedLabel()}</td>
+      <Show when={props.favoriteVideoIds}>
+        <td class="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+          <FavoriteHeart
+            isFavorite={props.favoriteVideoIds!.has(props.video.id)}
+            onToggle={(isFavorite) => props.onVideoFavoriteToggle?.(props.video.id, isFavorite)}
+            size="sm"
+          />
+        </td>
+      </Show>
     </tr>
   );
 }
@@ -94,6 +124,9 @@ export function VideosTable(props: VideosTableProps) {
                 <th class="px-2 py-2 font-medium w-16">series</th>
                 <th class="px-2 py-2 font-medium w-20">duration</th>
                 <th class="px-2 py-2 font-medium w-24">added</th>
+                <Show when={props.favoriteVideoIds}>
+                  <th class="px-2 py-2 font-medium w-10"></th>
+                </Show>
               </tr>
             </thead>
             <tbody>
@@ -103,6 +136,9 @@ export function VideosTable(props: VideosTableProps) {
                     video={video}
                     onVideoClick={props.onVideoClick}
                     onVideoPlay={props.onVideoPlay}
+                    onVideoContextMenu={props.onVideoContextMenu}
+                    favoriteVideoIds={props.favoriteVideoIds}
+                    onVideoFavoriteToggle={props.onVideoFavoriteToggle}
                   />
                 )}
               </For>

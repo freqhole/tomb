@@ -119,7 +119,7 @@ impl Transport for LocalTransport {
     }
 
     async fn toggle_favorite(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
-        use grimoire::music::users::FavoritesService;
+        use grimoire::users::FavoritesService;
         let target = parse_favorite_target(target_type)?;
         let service = FavoritesService::new();
         let resp = service
@@ -133,7 +133,7 @@ impl Transport for LocalTransport {
     }
 
     async fn is_favorited(&self, target_type: &str, target_id: &str) -> Result<bool, String> {
-        use grimoire::music::users::FavoritesService;
+        use grimoire::users::FavoritesService;
         let target = parse_favorite_target(target_type)?;
         let service = FavoritesService::new();
         let resp = service
@@ -585,8 +585,8 @@ fn wrap_grimoire_paged<T: serde::Serialize>(
     }
 }
 
-fn parse_favorite_target(s: &str) -> Result<grimoire::music::users::FavoriteTarget, String> {
-    use grimoire::music::users::FavoriteTarget;
+fn parse_favorite_target(s: &str) -> Result<grimoire::users::FavoriteTarget, String> {
+    use grimoire::users::FavoriteTarget;
     match s {
         "song" => Ok(FavoriteTarget::Song),
         "album" => Ok(FavoriteTarget::Album),

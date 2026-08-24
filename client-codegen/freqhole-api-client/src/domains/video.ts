@@ -143,6 +143,43 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    // playback progress
+    upsertPlaybackProgress: (params: s.UpsertPlaybackProgressRequest) => {
+      return call(
+        "video",
+        "upsert_playback_progress",
+        routes.video.upsert_playback_progress.resp,
+        routes.video.upsert_playback_progress.req,
+        routes.video.upsert_playback_progress.method,
+        routes.video.upsert_playback_progress.path,
+        params,
+      );
+    },
+
+    getPlaybackProgress: (params: s.GetPlaybackProgressRequest) => {
+      return call(
+        "video",
+        "get_playback_progress",
+        routes.video.get_playback_progress.resp,
+        routes.video.get_playback_progress.req,
+        routes.video.get_playback_progress.method,
+        routes.video.get_playback_progress.path,
+        params,
+      );
+    },
+
+    listPlaybackProgress: (params: s.ListPlaybackProgressRequest) => {
+      return call(
+        "video",
+        "list_playback_progress",
+        routes.video.list_playback_progress.resp,
+        routes.video.list_playback_progress.req,
+        routes.video.list_playback_progress.method,
+        routes.video.list_playback_progress.path,
+        params,
+      );
+    },
+
     // video series
     queryVideoSeries: (params: s.QueryParams) => {
       return call(

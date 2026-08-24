@@ -14,7 +14,6 @@ pub mod fetch;
 pub mod lastfm;
 pub mod musicbrainz;
 pub mod scanner;
-pub mod users;
 
 // re-export main workflow API
 pub use crud::*;
@@ -24,9 +23,6 @@ pub use scanner::*;
 
 // re-export musicbrainz APIs
 pub use musicbrainz::*;
-
-// re-export music-specific user functionality (explicit to avoid ambiguous globs)
-pub use users::{FavoritesService, RatingStats, RatingsService};
 
 // Public API structure:
 //

@@ -1,4 +1,9 @@
-//! ratings API handlers
+//! domain-agnostic ratings API handlers
+//!
+//! set/remove/query ratings for any `RatingTarget` (song/artist/album/video).
+//! response shapes here are already generic (target_type/target_id/stats),
+//! unlike some of the favorites listing endpoints, so this module moved here
+//! in full.
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
@@ -12,27 +17,27 @@ use serde_json::Value as JsonValue;
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
         name: "set_rating",
-        path: "/api/ratings/set",
+        path: "/api/entities/ratings/set",
         method: Method::POST,
-        domain: Domain::Music,
+        domain: Domain::Entities,
         request_type: "SetRatingRequest",
         response_type: "SetRatingResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
     RouteInfo {
         name: "remove_rating",
-        path: "/api/ratings/remove",
+        path: "/api/entities/ratings/remove",
         method: Method::POST,
-        domain: Domain::Music,
+        domain: Domain::Entities,
         request_type: "RemoveRatingRequest",
         response_type: "RemoveRatingResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
     RouteInfo {
         name: "get_rating_stats",
-        path: "/api/ratings/stats",
+        path: "/api/entities/ratings/stats",
         method: Method::POST,
-        domain: Domain::Music,
+        domain: Domain::Entities,
         request_type: "GetRatingStatsRequest",
         response_type: "RatingStats",
         auth: RouteAuth::Authenticated,
@@ -41,7 +46,7 @@ pub const ROUTES: &[RouteInfo] = &[
 
 /// set a rating
 ///
-/// path: POST /api/ratings/set
+/// path: POST /api/entities/ratings/set
 pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let mut req: SetRatingRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -78,7 +83,7 @@ pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
 
 /// remove a rating
 ///
-/// path: POST /api/ratings/remove
+/// path: POST /api/entities/ratings/remove
 #[derive(Deserialize)]
 struct RemoveRatingRequest {
     target_type: RatingTarget,
@@ -121,7 +126,7 @@ pub async fn remove(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 
 /// get rating stats for an item
 ///
-/// path: POST /api/ratings/stats
+/// path: POST /api/entities/ratings/stats
 #[derive(Deserialize)]
 struct StatsRequest {
     target_type: RatingTarget,

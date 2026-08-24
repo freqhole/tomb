@@ -129,7 +129,7 @@ export interface PlaylistSummary {
 }
 
 // favorite target type for mutations
-export type FavoriteTarget = "song" | "album" | "artist" | "playlist";
+export type FavoriteTarget = "song" | "album" | "artist" | "playlist" | "video";
 
 // favorite item - discriminated union of all favoritable types
 export type FavoriteItem =

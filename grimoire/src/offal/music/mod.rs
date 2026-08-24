@@ -1,7 +1,10 @@
 //! music domain handlers
 //!
-//! covers: songs, albums, artists, playlists, taxonomy, favorites,
-//! ratings, tags, blobs, uploads, jobs, analytics, sessions, search
+//! covers: songs, albums, artists, playlists, taxonomy, favorites listing,
+//! tags, blobs, uploads, jobs, analytics, sessions, search
+//!
+//! generic favorites/ratings set + status-check endpoints live in
+//! `offal::entities` (favorites/ratings themselves are domain-agnostic).
 
 pub mod albums;
 pub mod analytics;
@@ -11,7 +14,6 @@ pub mod import_review;
 pub mod job_events;
 pub mod jobs;
 pub mod playlists;
-pub mod ratings;
 pub mod related_artists;
 pub mod relations;
 pub mod search;
@@ -36,7 +38,6 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(job_events::ROUTES);
     all.extend_from_slice(jobs::ROUTES);
     all.extend_from_slice(playlists::ROUTES);
-    all.extend_from_slice(ratings::ROUTES);
     all.extend_from_slice(related_artists::ROUTES);
     all.extend_from_slice(relations::ROUTES);
     all.extend_from_slice(search::ROUTES);
@@ -154,15 +155,10 @@ pub async fn dispatch(
             Some(relations::unassigned_albums(caller, body.clone()).await)
         }
 
-        // favorites
-        "/api/favorites/set" => Some(favorites::set(caller, body.clone()).await),
+        // favorites (music-specific rich listing; generic set/status-check
+        // live under offal::entities::favorites)
         "/api/favorites/list" => Some(favorites::list(caller, body.clone()).await),
         "/api/favorites/beloved" => Some(favorites::list_beloved(caller, body.clone()).await),
-
-        // ratings
-        "/api/ratings/set" => Some(ratings::set(caller, body.clone()).await),
-        "/api/ratings/remove" => Some(ratings::remove(caller, body.clone()).await),
-        "/api/ratings/stats" => Some(ratings::stats(caller, body.clone()).await),
 
         // tags
         "/api/tags/list" => Some(tags::list(caller, body.clone()).await),

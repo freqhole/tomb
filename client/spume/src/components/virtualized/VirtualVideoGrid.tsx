@@ -25,6 +25,12 @@ export interface VirtualVideoGridProps {
   onVideoClick?: (video: VideoSummary) => void;
   /** callback when play button is clicked */
   onVideoPlay?: (video: VideoSummary) => void;
+  /** callback when a video card is right-clicked */
+  onVideoContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  /** ids of favorited videos (omit to hide favorite hearts entirely) */
+  favoriteVideoIds?: Set<string>;
+  /** callback when a video's favorite heart is toggled */
+  onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   /** callback when user scrolls near end (for infinite scroll) */
   onNearEnd?: () => void;
   /** height of the container */
@@ -184,6 +190,13 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
                               video={video()!}
                               onClick={props.onVideoClick}
                               onPlay={props.onVideoPlay}
+                              onContextMenu={props.onVideoContextMenu}
+                              isFavorite={
+                                props.favoriteVideoIds
+                                  ? props.favoriteVideoIds.has(video()!.id)
+                                  : undefined
+                              }
+                              onFavoriteToggle={props.onVideoFavoriteToggle}
                             />
                           )}
                         </div>

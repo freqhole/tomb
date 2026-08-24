@@ -109,3 +109,19 @@ export async function getLocalVideoById(id: string): Promise<VideoSummary | null
   const row = (await db.get(STORE_VIDEOS, id)) as VideoSummary | undefined;
   return row ?? null;
 }
+
+export async function updateLocalVideo(
+  id: string,
+  updates: {
+    title?: string;
+    description?: string | null;
+    episode_number?: number | null;
+    release_date?: string | null;
+  }
+): Promise<void> {
+  const db = await getVideoDB();
+  const row = (await db.get(STORE_VIDEOS, id)) as LocalVideoRow | undefined;
+  if (!row) return;
+  const updated: LocalVideoRow = { ...row, ...updates, updated_at: Date.now() };
+  await db.put(STORE_VIDEOS, updated);
+}

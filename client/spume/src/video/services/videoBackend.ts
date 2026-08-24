@@ -21,7 +21,16 @@ import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { setCurrentSong } from "../../app/services/storage/db";
 import { getVideoURL } from "./videoBlobAccess";
 import { syncVideoToLocal } from "./sync/syncVideoToLocal";
+import { installVideoPlaybackOrchestrator } from "./queue/videoPlaybackOrchestrator";
 import { error as errorLog } from "../../utils/logger";
+
+// video-side counterpart of `music/services/audio/player.ts`'s
+// `installPlaybackOrchestrator()` call — installed here (rather than in
+// `player.ts`) so this feature's wiring stays out of `music/services/**`.
+// this module is always loaded before any video can play (the facade
+// constructs a `VideoBackend` instance at boot), so this runs early
+// enough to catch every playback tick.
+installVideoPlaybackOrchestrator();
 
 export class VideoBackend implements PlayerBackend {
   readonly kind: BackendKind = "video";

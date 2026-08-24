@@ -11,6 +11,7 @@ import { AddVideoModal } from "../components/modals/AddVideoModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
+import { EditVideoModal } from "../components/modals/EditVideoModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
 import { ResolveShareModal } from "../components/modals/ResolveShareModal";
 import { RemotePickerModal } from "../components/modals/RemotePickerModal";
@@ -52,7 +53,13 @@ import {
   uploadFilesToRemote,
   uploadPathsToRemote,
 } from "../music/import";
-import { closeAddVideo, openAddVideo, useAddVideoState } from "../video/hooks/modals";
+import {
+  closeAddVideo,
+  hideEditVideo,
+  openAddVideo,
+  useAddVideoState,
+  useEditVideoState,
+} from "../video/hooks/modals";
 import { importVideoFiles } from "../video/import/localImport";
 import {
   clearCompletedVideoJobs,
@@ -1221,6 +1228,19 @@ export function App() {
         useCharnelDialog={isCharnelMode()}
         uploadJobs={getVideoUploadJobs()}
       />
+
+      <Show when={useEditVideoState()()}>
+        {(state) => (
+          <EditVideoModal
+            videoId={state().videoId}
+            onClose={hideEditVideo}
+            onSave={() => {
+              state().onSave?.();
+              hideEditVideo();
+            }}
+          />
+        )}
+      </Show>
 
       <ImportReviewModal
         isOpen={reviewSessionId() !== null}

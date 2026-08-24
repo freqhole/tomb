@@ -4,6 +4,7 @@ import {
   deleteLocalVideo as dbDeleteLocalVideo,
   getLocalVideoById,
   getLocalVideos,
+  updateLocalVideo,
 } from "../../services/storage/db/videos";
 import { getLocalVideoSeriesList } from "../../services/storage/db/series";
 import { getLocalVideoSeasons } from "../../services/storage/db/seasons";
@@ -51,6 +52,17 @@ export class LocalVideoDataSource implements VideoDataSource {
   async getVideosBySeries(seriesId: string): Promise<VideoSummary[]> {
     const result = await getLocalVideos({ limit: 1000 });
     return result.items.filter((video) => video.series_id === seriesId);
+  }
+
+  async updateVideo(params: {
+    video_id: string;
+    title?: string;
+    description?: string | null;
+    episode_number?: number | null;
+    release_date?: string | null;
+  }): Promise<void> {
+    const { video_id, ...updates } = params;
+    await updateLocalVideo(video_id, updates);
   }
 }
 

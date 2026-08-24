@@ -1,6 +1,6 @@
 // application-level storage types (domain-agnostic)
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
-import type { MediaItem } from "./mediaItem";
+import type { MediaItem, QueuedVideo } from "./mediaItem";
 
 export interface AppState {
   id: "app_state";
@@ -21,6 +21,10 @@ export interface AppState {
   // user-configurable display name for the web/indexeddb-backed "local
   // library" source. defaults to "local library" when unset.
   local_library_name?: string;
+  // when true (default), video grid/table thumbnails crop to a square via
+  // object-fit: cover. when false, they letterbox (object-fit: contain)
+  // instead so nothing is cropped.
+  cropped_square_thumbnails?: boolean;
 }
 
 /** graph-view preferences — stored as id: "graph_prefs" in STORE_APP_STATE. */
@@ -102,6 +106,39 @@ export interface QueueSourceContext {
   image?: ImageMetadata;
 }
 
+// --- video queue history (parallel to the song history above) ---
+// kept as fully separate types/store from QueueHistoryEntry, which stays
+// song-only by design (see music/services/queue/queueHistory.ts). no
+// server_session fields yet — video remote progress sync is a separate,
+// much-less-frequent mechanism (see video/services/queue/videoListenProgress.ts).
+export type VideoQueueHistorySourceType = "video" | "series" | "season" | "shuffle";
+
+// source context passed to addVideoHistoryEntry/playVideoQueue for history tracking
+export interface VideoQueueSourceContext {
+  type: VideoQueueHistorySourceType;
+  label: string;
+  entity_id?: string; // series_id/season_id
+  image?: ImageMetadata;
+}
+
+export interface VideoQueueHistoryEntry {
+  id: string; // uuid
+  type: VideoQueueHistorySourceType;
+  label: string; // display text, e.g. a video/series title
+  entity_id?: string; // series_id/season_id
+  remote_name?: string; // name of the remote server (undefined for local)
+  video_count: number; // how many videos were added
+  videos: QueuedVideo[]; // the actual videos (for re-queuing)
+  queued_at: number; // timestamp
+  image?: ImageMetadata; // thumbnail, when available
+  // local watch-progress tracking (idb-only)
+  watched_seconds: number; // total seconds watched across all videos
+  total_seconds: number; // sum of all video durations
+  videos_completed: number; // videos where >90% was watched
+  current_video_index: number; // which video we're on (for resume)
+  current_video_position: number; // position in current video (for resume)
+}
+
 // remote types - re-export from centralized zod schemas
 export {
   type TransportType,
@@ -124,7 +161,7 @@ export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 8; // added shared_items store
+export const APP_DB_VERSION = 9; // added video_queue_history store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -134,6 +171,7 @@ export const STORE_ANALYTICS_EVENTS = "analytics_events";
 export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
+export const STORE_VIDEO_QUEUE_HISTORY = "video_queue_history"; // capped at 200 entries by videoQueueHistory.ts
 
 export type SharedItemKind = "album" | "playlist" | "song" | "artist" | "radio_station";
 

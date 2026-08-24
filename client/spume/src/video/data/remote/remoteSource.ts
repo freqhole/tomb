@@ -164,4 +164,25 @@ export class RemoteVideoDataSource implements VideoDataSource {
     if (!result.success) this.failRequest(result);
     return result.data.map((v) => this.mapVideo(v));
   }
+
+  async updateVideo(params: {
+    video_id: string;
+    title?: string;
+    description?: string | null;
+    episode_number?: number | null;
+    release_date?: string | null;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.updateVideos({
+      video_ids: [params.video_id],
+      title: params.title,
+      description: params.description,
+      episode_number: params.episode_number,
+      release_date: params.release_date,
+    });
+    if (!result.success) this.failRequest(result);
+    if (result.data.videos_failed.length > 0) {
+      throw new Error("failed to update video");
+    }
+  }
 }

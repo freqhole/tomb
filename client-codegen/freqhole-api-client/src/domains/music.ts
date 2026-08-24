@@ -11,12 +11,15 @@ import { ListFavoritesResponseSchema } from "./favorites.types.js";
 import type { CallFn } from "./types.js";
 
 // partial schemas for update operations
-const UpdateSongsRequestPartialSchema =
-  UpdateSongsRequestSchema.partial().required({ song_ids: true });
-const UpdateArtistRequestPartialSchema =
-  UpdateArtistRequestSchema.partial().required({ artist_id: true });
-const UpdateAlbumRequestPartialSchema =
-  UpdateAlbumRequestSchema.partial().required({ album_id: true });
+const UpdateSongsRequestPartialSchema = UpdateSongsRequestSchema.partial().required({
+  song_ids: true,
+});
+const UpdateArtistRequestPartialSchema = UpdateArtistRequestSchema.partial().required({
+  artist_id: true,
+});
+const UpdateAlbumRequestPartialSchema = UpdateAlbumRequestSchema.partial().required({
+  album_id: true,
+});
 
 export function createMusicMethods(call: CallFn) {
   return {
@@ -70,9 +73,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateSongs: (
-      params: Partial<s.UpdateSongsRequest> & { song_ids: string[] },
-    ) => {
+    updateSongs: (params: Partial<s.UpdateSongsRequest> & { song_ids: string[] }) => {
       return call(
         "music",
         "update_songs",
@@ -157,9 +158,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateAlbum: (
-      params: Partial<s.UpdateAlbumRequest> & { album_id: string },
-    ) => {
+    updateAlbum: (params: Partial<s.UpdateAlbumRequest> & { album_id: string }) => {
       return call(
         "music",
         "update_album",
@@ -344,9 +343,7 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateArtist: (
-      params: Partial<s.UpdateArtistRequest> & { artist_id: string },
-    ) => {
+    updateArtist: (params: Partial<s.UpdateArtistRequest> & { artist_id: string }) => {
       return call(
         "music",
         "update_artist",
@@ -412,10 +409,7 @@ export function createMusicMethods(call: CallFn) {
     },
 
     getPlaylistEtag: (params: s.GetPlaylistRequest) => {
-      const path = routes.music.get_playlist_etag.path.replace(
-        "{id}",
-        params.id,
-      );
+      const path = routes.music.get_playlist_etag.path.replace("{id}", params.id);
       return call(
         "music",
         "get_playlist_etag",
@@ -619,44 +613,8 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // ratings
-    setRating: (params: s.SetRatingRequest) => {
-      return call(
-        "music",
-        "set_rating",
-        routes.music.set_rating.resp,
-        routes.music.set_rating.req,
-        routes.music.set_rating.method,
-        routes.music.set_rating.path,
-        params,
-      );
-    },
-
-    removeRating: (params: s.RemoveRatingRequest) => {
-      return call(
-        "music",
-        "remove_rating",
-        routes.music.remove_rating.resp,
-        routes.music.remove_rating.req,
-        routes.music.remove_rating.method,
-        routes.music.remove_rating.path,
-        params,
-      );
-    },
-
-    getRatingStats: (params: s.GetRatingStatsRequest) => {
-      return call(
-        "music",
-        "get_rating_stats",
-        routes.music.get_rating_stats.resp,
-        routes.music.get_rating_stats.req,
-        routes.music.get_rating_stats.method,
-        routes.music.get_rating_stats.path,
-        params,
-      );
-    },
-
-    // favorites
+    // favorites listing (music-specific rich shapes; generic set/status-check
+    // live on client.entities)
     listFavorites: (params: s.ListFavoritesRequest) => {
       return call(
         "music",
@@ -665,18 +623,6 @@ export function createMusicMethods(call: CallFn) {
         routes.music.list_favorites.req,
         routes.music.list_favorites.method,
         routes.music.list_favorites.path,
-        params,
-      );
-    },
-
-    setFavorite: (params: s.SetFavoriteRequest) => {
-      return call(
-        "music",
-        "set_favorite",
-        routes.music.set_favorite.resp,
-        routes.music.set_favorite.req,
-        routes.music.set_favorite.method,
-        routes.music.set_favorite.path,
         params,
       );
     },
@@ -839,14 +785,8 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateListenSessionProgress: (
-      id: string,
-      params: s.UpdateListenSessionProgressRequest,
-    ) => {
-      const path = routes.music.update_listen_session_progress.path.replace(
-        "{id}",
-        id,
-      );
+    updateListenSessionProgress: (id: string, params: s.UpdateListenSessionProgressRequest) => {
+      const path = routes.music.update_listen_session_progress.path.replace("{id}", id);
       return call(
         "music",
         "update_listen_session_progress",
@@ -872,14 +812,8 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateListenSessionSongs: (
-      id: string,
-      params: s.UpdateListenSessionSongsRequest,
-    ) => {
-      const path = routes.music.update_listen_session_songs.path.replace(
-        "{id}",
-        id,
-      );
+    updateListenSessionSongs: (id: string, params: s.UpdateListenSessionSongsRequest) => {
+      const path = routes.music.update_listen_session_songs.path.replace("{id}", id);
       return call(
         "music",
         "update_listen_session_songs",

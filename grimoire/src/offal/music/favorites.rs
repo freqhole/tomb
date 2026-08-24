@@ -1,27 +1,23 @@
-//! favorites API handlers
+//! music-specific favorites listing handlers
+//!
+//! these endpoints return rich, music-only shapes (full song/album/artist/
+//! playlist objects, or album+artist "beloved" ids), so they stay under
+//! `offal::music` even though favorites themselves are domain-agnostic.
+//! generic set/bulk-status-check endpoints live in
+//! `offal::entities::favorites`.
 
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
-use crate::music::users::{FavoritesService, SetFavoriteRequest};
 use crate::music::{
     query_favorites, ListBelovedResponse, ListFavoritesRequest, ListFavoritesResponse,
 };
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::users::UserRole;
+use crate::users::{FavoritesService, UserRole};
 use serde_json::Value as JsonValue;
 
-/// route metadata for favorites
+/// route metadata for music-specific favorites listing
 pub const ROUTES: &[RouteInfo] = &[
-    RouteInfo {
-        name: "set_favorite",
-        path: "/api/favorites/set",
-        method: Method::POST,
-        domain: Domain::Music,
-        request_type: "SetFavoriteRequest",
-        response_type: "SetFavoriteResponse",
-        auth: RouteAuth::Role(UserRole::Member),
-    },
     RouteInfo {
         name: "list_favorites",
         path: "/api/favorites/list",
@@ -41,32 +37,6 @@ pub const ROUTES: &[RouteInfo] = &[
         auth: RouteAuth::Authenticated,
     },
 ];
-
-/// set favorite status
-///
-/// path: POST /api/favorites/set
-pub async fn set(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    let mut req: SetFavoriteRequest = match serde_json::from_value(body) {
-        Ok(r) => r,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "bad request",
-                vec![ErrorDetail::new(
-                    "bad_request",
-                    "bad request",
-                    e.to_string(),
-                )],
-            )
-        }
-    };
-
-    // always use caller's user_id
-    req.user_id = Some(caller.user_id.clone());
-
-    let service = FavoritesService::new();
-    let response = service.set_favorite(&req).await;
-    response.map(|_| JsonValue::Null)
-}
 
 /// list favorites
 ///

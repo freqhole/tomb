@@ -7,12 +7,7 @@
 // the entity-specific route lookups below are tomb-specific.
 
 import { bindRoleHierarchy, type AccessRule } from "@freqhole/haruspex/permissions";
-import {
-  roleHierarchy,
-  routes,
-  type RouteAuth,
-  type UserRoleName,
-} from "./codegen/routes.js";
+import { roleHierarchy, routes, type RouteAuth, type UserRoleName } from "./codegen/routes.js";
 
 const roleChecks = bindRoleHierarchy(roleHierarchy);
 
@@ -28,10 +23,7 @@ const roleChecks = bindRoleHierarchy(roleHierarchy);
  * @param requiredRole - the minimum required role
  * @returns true if user has sufficient privileges
  */
-export function canAccessRole(
-  userRole: UserRoleName,
-  requiredRole: UserRoleName,
-): boolean {
+export function canAccessRole(userRole: UserRoleName, requiredRole: UserRoleName): boolean {
   return roleChecks.hasAtLeastRole(userRole, requiredRole);
 }
 
@@ -62,10 +54,7 @@ export function canAccessOwnerOr(
  * @param ownerId - the resource owner's id
  * @returns true if user is the owner
  */
-export function canAccessOwner(
-  userId: string,
-  ownerId: string | null,
-): boolean {
+export function canAccessOwner(userId: string, ownerId: string | null): boolean {
   return roleChecks.isOwner(userId, ownerId);
 }
 
@@ -91,7 +80,6 @@ export function canAccessRoute(
     ownerId,
   });
 }
-
 
 // ============================================================================
 // entity-specific permission helpers
@@ -183,10 +171,7 @@ export function canDeleteListenSession(
  * check if user can update a listen session.
  * listen sessions use Owner - strictly owner only.
  */
-export function canUpdateListenSession(
-  userId: string,
-  sessionOwnerId: string | null,
-): boolean {
+export function canUpdateListenSession(userId: string, sessionOwnerId: string | null): boolean {
   return canAccessOwner(userId, sessionOwnerId);
 }
 
@@ -283,7 +268,7 @@ export function canCreatePlaylist(userRole: UserRoleName): boolean {
  * favorites require Member role.
  */
 export function canSetFavorite(userRole: UserRoleName): boolean {
-  const auth = routes.music.set_favorite.auth;
+  const auth = routes.entities.set_favorite.auth;
   if (auth.type === "role") {
     return canAccessRole(userRole, auth.role);
   }
@@ -295,7 +280,7 @@ export function canSetFavorite(userRole: UserRoleName): boolean {
  * ratings require Member role.
  */
 export function canSetRating(userRole: UserRoleName): boolean {
-  const auth = routes.music.set_rating.auth;
+  const auth = routes.entities.set_rating.auth;
   if (auth.type === "role") {
     return canAccessRole(userRole, auth.role);
   }

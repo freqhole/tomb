@@ -12,7 +12,9 @@
 //! recognized-but-not-yet-wired-up types like `song`/`album` until each
 //! domain exposes its own generalized-table functions).
 
+pub mod favorites;
 pub mod playlist_items;
+pub mod ratings;
 pub mod taxon_links;
 
 use crate::api_registry::{Method, RouteInfo};
@@ -26,6 +28,8 @@ pub fn routes() -> Vec<RouteInfo> {
     let mut all = Vec::new();
     all.extend_from_slice(taxon_links::ROUTES);
     all.extend_from_slice(playlist_items::ROUTES);
+    all.extend_from_slice(favorites::ROUTES);
+    all.extend_from_slice(ratings::ROUTES);
     all
 }
 
@@ -53,6 +57,15 @@ pub async fn dispatch(
             Some(playlist_items::remove(caller, body.clone()).await)
         }
 
+        "/api/entities/favorites/set" => Some(favorites::set(caller, body.clone()).await),
+        "/api/entities/favorites/status-bulk" => {
+            Some(favorites::get_status_bulk(caller, body.clone()).await)
+        }
+
+        "/api/entities/ratings/set" => Some(ratings::set(caller, body.clone()).await),
+        "/api/entities/ratings/remove" => Some(ratings::remove(caller, body.clone()).await),
+        "/api/entities/ratings/stats" => Some(ratings::stats(caller, body.clone()).await),
+
         _ => None,
     }
 }
@@ -67,8 +80,9 @@ pub(super) fn resolve_video_entity_type(
     use crate::entities::TaggableEntity;
     use crate::video::VideoEntityType;
 
-    let taggable = TaggableEntity::parse(entity_type)
-        .map_err(|e| GrimoireResponse::failure("invalid entity type", vec![ErrorDetail::from(&e)]))?;
+    let taggable = TaggableEntity::parse(entity_type).map_err(|e| {
+        GrimoireResponse::failure("invalid entity type", vec![ErrorDetail::from(&e)])
+    })?;
 
     match taggable {
         TaggableEntity::Video => Ok(VideoEntityType::Video),

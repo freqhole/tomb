@@ -55,4 +55,13 @@ export interface VideoDataSource {
   getVideoSeasons(seriesId: string): Promise<VideoSeason[]>;
   getVideosBySeason(seasonId: string): Promise<VideoSummary[]>;
   getVideosBySeries(seriesId: string): Promise<VideoSummary[]>;
+
+  // mutations (optional - not all sources support all mutations)
+  updateVideo?(params: {
+    video_id: string;
+    title?: string;
+    description?: string | null;
+    episode_number?: number | null;
+    release_date?: string | null;
+  }): Promise<void>;
 }

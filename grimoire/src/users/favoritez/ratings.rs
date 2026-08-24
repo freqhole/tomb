@@ -4,9 +4,11 @@
 //! Provides operations for setting, getting, and managing ratings with statistics.
 
 use crate::database;
+// best-effort feed-event integration - music-domain-specific today
 use crate::music::analytics::feed_events::upsert_rating_feed_event;
-use crate::music::users::models::*;
 use crate::users::models::{AuthError, AuthResult};
+
+use super::models::*;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use time::OffsetDateTime;

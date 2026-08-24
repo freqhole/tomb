@@ -3,9 +3,9 @@
 //! applies user-specific favorites and ratings to entity query results.
 //! called at the end of query functions when user_id is provided.
 
-use crate::music::users::favorites::FavoritesService;
-use crate::music::users::models::{FavoriteTarget, RatingTarget};
-use crate::music::users::ratings::RatingsService;
+use crate::users::favoritez::favorites::FavoritesService;
+use crate::users::favoritez::ratings::RatingsService;
+use crate::users::{FavoriteTarget, RatingTarget};
 
 use super::models::{
     AlbumQueryResult, ArtistQueryResult, PlaylistQueryResult, PlaylistSongResult, SongQueryResult,

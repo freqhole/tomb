@@ -4,12 +4,15 @@
 //! Provides operations for setting, getting, and managing favorite status.
 
 use crate::database;
+// best-effort feed-event integration - music-domain-specific today, silently
+// ignored (via `let _ =`) for target types it doesn't recognize (e.g. video)
 use crate::music::analytics::feed_events::{
     create_favorite_feed_event, delete_favorite_feed_event,
 };
-use crate::music::users::models::*;
 use crate::response::GrimoireResponse;
 use crate::users::models::AuthResult;
+
+use super::models::*;
 use sqlx::Row;
 use time::OffsetDateTime;
 

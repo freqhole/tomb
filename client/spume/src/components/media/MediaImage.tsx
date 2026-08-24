@@ -58,6 +58,11 @@ interface MediaImageProps {
   enableAlbumHover?: boolean;
   showFallback?: boolean;
   domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  /** object-fit mode for the resolved image. defaults to "cover" (the
+   *  previous, always-on behavior). use "contain" to letterbox instead of
+   *  cropping — e.g. a video poster shown at something close to its real
+   *  aspect ratio. */
+  objectFit?: "cover" | "contain";
   onError?: () => void;
   onLoad?: () => void;
 }
@@ -396,7 +401,9 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
           src={resolvedUrl()!}
           alt={props.alt}
           draggable={false}
-          class={`${props.class || ""} "absolute inset-0 w-full h-full object-cover z-30"`}
+          class={`${props.class || ""} absolute inset-0 w-full h-full ${
+            props.objectFit === "contain" ? "object-contain" : "object-cover"
+          } z-30`}
           style={{ "user-select": "none" }}
           onLoad={() => {
             setImageLoaded(true);

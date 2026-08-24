@@ -1,12 +1,14 @@
 // video card — mirrors CollectionCard's shape (see
 // components/cards/CollectionCard.tsx) but simplified for the video MVP:
-// poster thumbnail, title, duration, and an "E{n}" episode badge when
-// available. no favorite toggle / genres row (not in scope for this pass).
+// poster thumbnail, title, duration, an "E{n}" episode badge when
+// available, a favorite toggle, and a right-click context menu.
 import { createEffect, createSignal, JSX, onCleanup, Show, type Accessor } from "solid-js";
 import { PlayIcon } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { formatDuration } from "../../utils/formatDuration";
+import { appState } from "../../app/services/storage/db";
 import { readVideoPosterFromOPFS } from "../services/opfs/helpers";
 import type { VideoSummary } from "../data/types";
 
@@ -48,6 +50,10 @@ export interface VideoCardProps {
   size?: "small" | "medium" | "large";
   onClick?: (video: VideoSummary) => void;
   onPlay?: (video: VideoSummary) => void;
+  onContextMenu?: (e: MouseEvent, video: VideoSummary) => void;
+  /** whether this video is favorited (omit to hide the heart entirely) */
+  isFavorite?: boolean;
+  onFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   class?: string;
 }
 
@@ -55,6 +61,10 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
   const localPosterUrl = useLocalVideoPosterUrl(() =>
     props.video.source_type === "local" ? props.video.poster_opfs_path : null
   );
+
+  // grid/table thumbnails default to cropped-square (object-fit: cover);
+  // user can switch to letterboxed/contain in settings.
+  const croppedSquare = () => appState()?.cropped_square_thumbnails ?? true;
 
   const badge = () =>
     props.video.episode_number != null ? `E${props.video.episode_number}` : null;
@@ -72,7 +82,15 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
   };
 
   return (
-    <div class={`group cursor-pointer flex flex-col ${props.class || ""}`} onClick={handleClick}>
+    <div
+      class={`group cursor-pointer flex flex-col ${props.class || ""}`}
+      onClick={handleClick}
+      onContextMenu={(e) => {
+        if (!props.onContextMenu) return;
+        e.preventDefault();
+        props.onContextMenu(e, props.video);
+      }}
+    >
       {/* poster area */}
       <div class="w-full aspect-square bg-[var(--color-bg-base)] rounded-lg mb-2 relative overflow-hidden transition-all duration-300 group-hover:rounded-none">
         <Show
@@ -87,7 +105,11 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
               }
             >
               {(url) => (
-                <img src={url()} alt={props.video.title} class="w-full h-full object-cover" />
+                <img
+                  src={url()}
+                  alt={props.video.title}
+                  class={`w-full h-full ${croppedSquare() ? "object-cover" : "object-contain"}`}
+                />
               )}
             </Show>
           }
@@ -98,6 +120,7 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
             alt={props.video.title}
             showFallback={true}
             thumbnailSize={200}
+            objectFit={croppedSquare() ? "cover" : "contain"}
             class="w-full h-full rounded-lg group-hover:rounded-none"
           />
         </Show>
@@ -106,6 +129,26 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
           <span class="absolute top-2 left-2 z-10 px-1.5 py-0.5 text-[10px] font-medium rounded bg-black/60 text-white">
             {badge()}
           </span>
+        </Show>
+
+        <Show when={props.isFavorite !== undefined}>
+          <div
+            class="absolute top-2 right-2 z-40 transition-opacity duration-200"
+            classList={{
+              "opacity-100": props.isFavorite === true,
+              "opacity-0 group-hover:opacity-100": props.isFavorite !== true,
+            }}
+          >
+            <FavoriteHeart
+              isFavorite={props.isFavorite ?? false}
+              onToggle={(isFavorite) => {
+                event?.stopPropagation();
+                props.onFavoriteToggle?.(props.video.id, isFavorite);
+              }}
+              size="sm"
+              class="bg-black/30 backdrop-blur-sm rounded-full hover:bg-black/50 transition-colors"
+            />
+          </div>
         </Show>
 
         {/* hover overlay with play button - z-40 keeps it above MediaImage's

@@ -13,18 +13,18 @@ import { schema, type PublicNowPlaying } from "@freqhole/api-client";
 import type { RadioHandleLike } from "@freqhole/api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
-import {
-  registerStopRadio,
-  registerVolumeMirror,
-  stopMusicForRadio,
-} from "../playbackCoordinator";
+import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
 import {
   currentRadioStation,
   setCurrentRadioStationPersisted,
 } from "../storage/currentRadioStation";
-import { getRemoteByPeerAddr, getTauriManagedRemote, getRemoteById } from "../remotes/remoteManager";
+import {
+  getRemoteByPeerAddr,
+  getTauriManagedRemote,
+  getRemoteById,
+} from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
 
 // queue-mode adapter api injected at module init via
@@ -58,8 +58,7 @@ const MSE_CODEC = 'audio/mp4; codecs="mp4a.40.2"';
 // environments lack MediaSource; those listeners must use timeline/queue mode.
 const hasMSE =
   typeof window !== "undefined" &&
-  typeof (window as unknown as { MediaSource?: unknown }).MediaSource ===
-    "function";
+  typeof (window as unknown as { MediaSource?: unknown }).MediaSource === "function";
 
 type RadioModeCapability = "chunk_stream" | "timeline_seed";
 
@@ -119,37 +118,26 @@ const [nowPlaying, setNowPlaying] = createSignal<PublicNowPlaying | null>(null);
 const [artUrl, setArtUrl] = createSignal<string | null>(null);
 const [listenerCount, setListenerCount] = createSignal<number>(0);
 const [currentPeerAddr, setCurrentPeerAddr] = createSignal<string | null>(null);
-const [currentStationId, setCurrentStationId] = createSignal<string | null>(
-  null,
-);
+const [currentStationId, setCurrentStationId] = createSignal<string | null>(null);
 const [currentIsLocal, setCurrentIsLocal] = createSignal<boolean>(false);
 // resolved remote_server_id for the currently-tuned peer (used by the player
 // bar to fetch the waveform blob from the right backend). null while
 // resolving or when no matching remote is configured locally.
-const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<
-  string | null
->(null);
+const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<string | null>(null);
 // favorite state for the currently-playing radio track. mirrors the
 // remote's `is_favorite` for the broadcasting peer + currently-logged-in
 // user; reset on every track transition. null = unknown / not yet
 // fetched (also covers "no registered remote for this peer" case where
 // we can't talk to a favorites endpoint at all).
-const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(
-  null,
-);
+const [currentFavorite, setCurrentFavorite] = createSignal<boolean | null>(null);
 // conservative buffering (bigger live-edge cushion, slower resync triggers —
 // see INITIAL_LIVE_EDGE_BUFFER_MS et al below) defaults on now: nothing ever
 // called setRadioStabilityMode to flip this true, so every listener has
 // always run on the smaller/tighter baseline regardless of link quality.
 const [stabilityMode, setStabilityMode] = createSignal<boolean>(true);
-const [modeCapabilities, setModeCapabilities] = createSignal<
-  RadioModeCapability[]
->([]);
-const [timelineSeedActive, setTimelineSeedActive] = createSignal<boolean>(
-  false,
-);
-const [timelineSnapshot, setTimelineSnapshot] =
-  createSignal<RadioTimelineSnapshot | null>(null);
+const [modeCapabilities, setModeCapabilities] = createSignal<RadioModeCapability[]>([]);
+const [timelineSeedActive, setTimelineSeedActive] = createSignal<boolean>(false);
+const [timelineSnapshot, setTimelineSnapshot] = createSignal<RadioTimelineSnapshot | null>(null);
 // true when this client should use queue/timeline mode rather than MSE chunk
 // streaming. auto-set when: MSE is unavailable (mobile safari), the
 // broadcaster has forced timeline-only for this station, or the listener
@@ -176,8 +164,7 @@ const startElapsedTicker = () => {
   if (elapsedTickHandle !== null) return;
   elapsedTickHandle = window.setInterval(() => {
     const now = Date.now();
-    const inFlight =
-      listenStartedAtMs > 0 ? Math.max(0, now - listenStartedAtMs) : 0;
+    const inFlight = listenStartedAtMs > 0 ? Math.max(0, now - listenStartedAtMs) : 0;
     setElapsedMs(listenedAccumulatedMs + inFlight);
   }, 250);
 };
@@ -248,16 +235,11 @@ async function ensureRadioListenSession(): Promise<void> {
         sessionId: result.data.id,
         remoteId: remote.remote_id ?? "",
       };
-      console.info(
-        "[radio] created listen session",
-        result.data.id,
-        "for station",
-        stationId,
-      );
+      console.info("[radio] created listen session", result.data.id, "for station", stationId);
     } else {
       console.warn(
         "[radio] createListenSession failed:",
-        (result as { success: false; error: unknown }).error,
+        (result as { success: false; error: unknown }).error
       );
     }
   } catch (e) {
@@ -268,7 +250,7 @@ async function ensureRadioListenSession(): Promise<void> {
 }
 
 async function endRadioListenSession(
-  status: "completed" | "abandoned" = "completed",
+  status: "completed" | "abandoned" = "completed"
 ): Promise<void> {
   const sess = activeRadioListenSession;
   if (!sess) return;
@@ -371,8 +353,12 @@ export function applyTimelineNowPlaying(track: {
   const songId = track.songId?.trim() ? track.songId.trim() : "";
 
   console.info(
-    "[radioService] applyTimelineNowPlaying — from:", nowPlaying()?.song_id?.trim() || "", "to:", songId,
-    "title:", track.title
+    "[radioService] applyTimelineNowPlaying — from:",
+    nowPlaying()?.song_id?.trim() || "",
+    "to:",
+    songId,
+    "title:",
+    track.title
   );
 
   if (track.artUrl !== undefined) {
@@ -449,22 +435,16 @@ function clearTimelineReconnect(): void {
   timelineReconnectDelayMs = TIMELINE_RECONNECT_BASE_MS;
 }
 
-function scheduleTimelineReconnect(
-  peerAddr: string,
-  opts: TuneOptions,
-  reason: string,
-): void {
+function scheduleTimelineReconnect(peerAddr: string, opts: TuneOptions, reason: string): void {
   if (!peerAddr || timelineReconnectTimer !== null) return;
 
   const delayMs = timelineReconnectDelayMs;
   timelineReconnectDelayMs = Math.min(
     TIMELINE_RECONNECT_MAX_MS,
-    Math.floor(timelineReconnectDelayMs * 1.8),
+    Math.floor(timelineReconnectDelayMs * 1.8)
   );
 
-  console.info(
-    `[radio] timeline session ended (${reason}); reconnecting in ${delayMs}ms`,
-  );
+  console.info(`[radio] timeline session ended (${reason}); reconnecting in ${delayMs}ms`);
 
   timelineReconnectTimer = window.setTimeout(() => {
     timelineReconnectTimer = null;
@@ -755,9 +735,7 @@ function coerceTimelineSnapshot(raw: unknown): RadioTimelineSnapshot | null {
 
   const current = parseCurrent(x.current);
   const upcoming = Array.isArray(x.upcoming)
-    ? x.upcoming
-        .map(parseUpcoming)
-        .filter((u): u is RadioTimelineUpcomingItem => u !== null)
+    ? x.upcoming.map(parseUpcoming).filter((u): u is RadioTimelineUpcomingItem => u !== null)
     : [];
 
   return {
@@ -767,8 +745,7 @@ function coerceTimelineSnapshot(raw: unknown): RadioTimelineSnapshot | null {
     generated_at_ms: x.generated_at_ms,
     current,
     upcoming,
-    lookahead_count:
-      typeof x.lookahead_count === "number" ? x.lookahead_count : upcoming.length,
+    lookahead_count: typeof x.lookahead_count === "number" ? x.lookahead_count : upcoming.length,
   };
 }
 
@@ -813,7 +790,7 @@ function maybeRecordImmediateMetaHistory(
   np: PublicNowPlaying,
   previousSongId: string | null,
   initSeq: number | null,
-  rawNowPlaying: unknown,
+  rawNowPlaying: unknown
 ): void {
   // timeline mode records through the queue adapter; skip here.
   if (useTimelineMode()) return;
@@ -848,7 +825,7 @@ function maybeRecordImmediateMetaHistory(
  */
 export async function tuneIntoRadio(
   peerAddr: string,
-  opts: TuneOptions = {},
+  opts: TuneOptions = {}
 ): Promise<HTMLAudioElement> {
   clearTimelineReconnect();
   if (opts.preservePlayback) {
@@ -875,7 +852,7 @@ export async function tuneIntoRadio(
     "preservePlayback:",
     opts.preservePlayback === true,
     "autoReconnect:",
-    opts.autoReconnect === true,
+    opts.autoReconnect === true
   );
   const tuneAttemptId = bumpTuneAttemptId();
   const isActiveTune = () => tuneAttemptId === activeTuneAttemptId;
@@ -893,10 +870,7 @@ export async function tuneIntoRadio(
   // fallback sequencing when timeline snapshots are missing but
   // now_playing metadata is present (common during mixed-version rollout).
   let fallbackTimelineSeq = 0;
-  const synthesizeTimelineFromNowPlaying = (
-    np: PublicNowPlaying,
-    source: "hello" | "meta",
-  ) => {
+  const synthesizeTimelineFromNowPlaying = (np: PublicNowPlaying, source: "hello" | "meta") => {
     if (!isActiveTune() || !useTimelineMode()) return;
     const songId = (np.song_id ?? "").trim();
     if (!songId) return;
@@ -934,7 +908,7 @@ export async function tuneIntoRadio(
       "song_id:",
       songId,
       "sameSong:",
-      sameSong,
+      sameSong
     );
     setTimelineSnapshot(snapshot);
   };
@@ -981,7 +955,9 @@ export async function tuneIntoRadio(
         guarded(() => setCurrentRemoteServerId(null));
       });
   }
-  let node: { tune_radio: NonNullable<Awaited<ReturnType<typeof getMiddenNode>>["tune_radio"]> } | null = null;
+  let node: {
+    tune_radio: NonNullable<Awaited<ReturnType<typeof getMiddenNode>>["tune_radio"]>;
+  } | null = null;
   if (!useCharnel) {
     const middenNode = await getMiddenNode();
     if (!isActiveTune()) {
@@ -990,9 +966,7 @@ export async function tuneIntoRadio(
     if (typeof middenNode.tune_radio !== "function") {
       setStatus("error");
       setError("midden build missing tune_radio");
-      throw new Error(
-        "this midden build does not expose tune_radio (rebuild client/midden)",
-      );
+      throw new Error("this midden build does not expose tune_radio (rebuild client/midden)");
     }
     node = { tune_radio: middenNode.tune_radio.bind(middenNode) };
   }
@@ -1047,10 +1021,7 @@ export async function tuneIntoRadio(
   const percentile = (samples: number[], p: number): number => {
     if (samples.length === 0) return 0;
     const sorted = [...samples].sort((a, b) => a - b);
-    const idx = Math.min(
-      sorted.length - 1,
-      Math.max(0, Math.floor((sorted.length - 1) * p)),
-    );
+    const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)));
     return sorted[idx];
   };
   const startDiagnostics = () => {
@@ -1070,7 +1041,7 @@ export async function tuneIntoRadio(
           avg_chunk_gap_ms: Math.round(avgChunkGapMs),
           p95_chunk_gap_ms: Math.round(p95ChunkGapMs),
           queue_depth: queue.length,
-        }),
+        })
       );
     }, 30_000);
   };
@@ -1101,10 +1072,7 @@ export async function tuneIntoRadio(
         // recovery the queue would never drain again and the radio
         // session would silently freeze. trigger a SourceBuffer reset
         // and wait for the next init segment so we can resume cleanly.
-        console.warn(
-          "[radio] appendBuffer failed; resetting SourceBuffer to recover:",
-          e,
-        );
+        console.warn("[radio] appendBuffer failed; resetting SourceBuffer to recover:", e);
         const nextResync = (lastAppliedInit ?? -1) + 1;
         // resetSourceBuffer rebuilds `sb` and waits for an init >= nextResync.
         resetSourceBuffer(nextResync);
@@ -1322,15 +1290,12 @@ export async function tuneIntoRadio(
     // baseline and quickly re-creates the same inflated-headroom problem
     // that reset was meant to avoid.
     if (!postSkipMuteActive && liveEdgeBufferMs < MAX_LIVE_EDGE_BUFFER_MS) {
-      liveEdgeBufferMs = Math.min(
-        MAX_LIVE_EDGE_BUFFER_MS,
-        liveEdgeBufferMs + LIVE_EDGE_BUMP_MS,
-      );
+      liveEdgeBufferMs = Math.min(MAX_LIVE_EDGE_BUFFER_MS, liveEdgeBufferMs + LIVE_EDGE_BUMP_MS);
       if (liveEdgeBufferMs > maxLiveEdgeBufferMs) {
         maxLiveEdgeBufferMs = liveEdgeBufferMs;
       }
       console.info(
-        `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`,
+        `[radio] stall #${stallCount} — bumping live-edge buffer to ${liveEdgeBufferMs}ms`
       );
     }
     // no independent seek here: this handler and the watchdog (which
@@ -1345,7 +1310,6 @@ export async function tuneIntoRadio(
     // it forward again — a visible/audible skip-back-then-skip-forward.
     // leaving recovery solely to the watchdog avoids the conflict.
   };
-
 
   // ---- stall watchdog --------------------------------------------------
   // the media element can wedge at the end of a buffered range during a
@@ -1368,19 +1332,14 @@ export async function tuneIntoRadio(
   const MIN_RESUME_AHEAD_S = 1.5;
   const runWatchdog = () => {
     if (!isActiveTune() || useTimelineMode() || !sb) return;
-    if (
-      pendingTrackBoundary &&
-      audio.currentTime >= pendingTrackBoundary.boundaryTime - 0.05
-    ) {
+    if (pendingTrackBoundary && audio.currentTime >= pendingTrackBoundary.boundaryTime - 0.05) {
       const boundary = pendingTrackBoundary;
       pendingTrackBoundary = null;
       applyPendingTrackMeta(boundary.data, boundary.seq);
     }
     if (postSkipMuteActive) {
       const aheadS =
-        sb.buffered.length > 0
-          ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime
-          : 0;
+        sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime : 0;
       const elapsedMs = Date.now() - postSkipMuteEngagedAtMs;
       const pastDeadline = Date.now() >= postSkipMuteDeadlineMs;
       if (
@@ -1433,7 +1392,7 @@ export async function tuneIntoRadio(
     }
     if (seekTarget !== null && Math.abs(seekTarget - t) > 0.05) {
       console.info(
-        `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s`,
+        `[radio] watchdog recovering stall: ${t.toFixed(2)}s -> ${seekTarget.toFixed(2)}s`
       );
       try {
         audio.currentTime = seekTarget;
@@ -1476,7 +1435,7 @@ export async function tuneIntoRadio(
               code: mediaError.code,
               message: mediaError.message,
             }
-          : "unknown",
+          : "unknown"
       );
     });
   }
@@ -1577,10 +1536,7 @@ export async function tuneIntoRadio(
     // patience, surface as an error so they can take action.
     const now = Date.now();
     recentLags.push(now);
-    while (
-      recentLags.length > 0 &&
-      now - recentLags[0] > RAPID_LAG_WINDOW_MS
-    ) {
+    while (recentLags.length > 0 && now - recentLags[0] > RAPID_LAG_WINDOW_MS) {
       recentLags.shift();
     }
     if (recentLags.length >= RAPID_LAG_THRESHOLD) {
@@ -1589,15 +1545,13 @@ export async function tuneIntoRadio(
       // (poor network → prefer queue mode over repeated resync loops)
       if (timelineSnapshot() !== null && !useTimelineMode()) {
         console.info(
-          `[radio] ${recentLags.length} resyncs in the last minute — falling back to timeline/queue mode`,
+          `[radio] ${recentLags.length} resyncs in the last minute — falling back to timeline/queue mode`
         );
         setUseTimelineMode(true);
         // don't set error state; the queue adapter will take over.
       } else {
         setStatus("error");
-        setError(
-          `connection unstable — ${recentLags.length} resyncs in the last minute`,
-        );
+        setError(`connection unstable — ${recentLags.length} resyncs in the last minute`);
       }
     }
   };
@@ -1655,15 +1609,12 @@ export async function tuneIntoRadio(
         }
         const now = Date.now();
         recentLagSignals.push(now);
-        while (
-          recentLagSignals.length > 0 &&
-          now - recentLagSignals[0] > LAG_SIGNAL_WINDOW_MS
-        ) {
+        while (recentLagSignals.length > 0 && now - recentLagSignals[0] > LAG_SIGNAL_WINDOW_MS) {
           recentLagSignals.shift();
         }
         if (now - lastResyncAtMs < RESYNC_COOLDOWN_MS) {
           console.info(
-            `[radio] lag signal in cooldown (${now - lastResyncAtMs}ms < ${RESYNC_COOLDOWN_MS}ms); deferring resync`,
+            `[radio] lag signal in cooldown (${now - lastResyncAtMs}ms < ${RESYNC_COOLDOWN_MS}ms); deferring resync`
           );
         } else if (recentLagSignals.length >= RESYNC_SIGNALS_REQUIRED) {
           resetSourceBuffer(pendingLagResyncSeq ?? at);
@@ -1671,7 +1622,7 @@ export async function tuneIntoRadio(
           recentLagSignals.length = 0;
         } else {
           console.info(
-            `[radio] lag signal buffered (${recentLagSignals.length}/${RESYNC_SIGNALS_REQUIRED})`,
+            `[radio] lag signal buffered (${recentLagSignals.length}/${RESYNC_SIGNALS_REQUIRED})`
           );
         }
       }
@@ -1752,21 +1703,26 @@ export async function tuneIntoRadio(
       if (snapshot) {
         if (expectedStationId && snapshot.station_id !== expectedStationId) {
           console.error(
-            `[radio] station mismatch: expected ${expectedStationId}, got timeline for ${snapshot.station_id}`,
+            `[radio] station mismatch: expected ${expectedStationId}, got timeline for ${snapshot.station_id}`
           );
           leaveRadio();
           guarded(() => {
             setStatus("error");
-            setError(
-              `station mismatch: expected ${expectedStationId}, got ${snapshot.station_id}`,
-            );
+            setError(`station mismatch: expected ${expectedStationId}, got ${snapshot.station_id}`);
           });
           return true;
         }
         if (!currentStationId()) {
           setCurrentStationId(snapshot.station_id);
         }
-        console.info("[radio] timeline snapshot received — seq:", snapshot.timeline_seq, "current:", snapshot.current?.song_id ?? "null", "upcoming:", snapshot.upcoming.length);
+        console.info(
+          "[radio] timeline snapshot received — seq:",
+          snapshot.timeline_seq,
+          "current:",
+          snapshot.current?.song_id ?? "null",
+          "upcoming:",
+          snapshot.upcoming.length
+        );
         setTimelineSnapshot(snapshot);
       } else {
         console.warn("[radio] timeline message failed to parse:", msg);
@@ -1775,7 +1731,6 @@ export async function tuneIntoRadio(
     }
     return false;
   };
-
 
   // ---- meta latching ---------------------------------------------------
   // pendingMeta keyed by init_seq; applied when the matching init chunk
@@ -1835,7 +1790,7 @@ export async function tuneIntoRadio(
       raw_art: { mime: string; data: string } | null;
       listener_count: number;
     },
-    seq: number,
+    seq: number
   ) => {
     pendingInitialNowPlaying = null;
     setNowPlaying(data.now_playing);
@@ -1867,14 +1822,12 @@ export async function tuneIntoRadio(
             : null;
         if (expectedStationId && helloStationId && helloStationId !== expectedStationId) {
           console.error(
-            `[radio] station mismatch: expected ${expectedStationId}, got hello for ${helloStationId}`,
+            `[radio] station mismatch: expected ${expectedStationId}, got hello for ${helloStationId}`
           );
           leaveRadio();
           guarded(() => {
             setStatus("error");
-            setError(
-              `station mismatch: expected ${expectedStationId}, got ${helloStationId}`,
-            );
+            setError(`station mismatch: expected ${expectedStationId}, got ${helloStationId}`);
           });
           return;
         }
@@ -1919,8 +1872,7 @@ export async function tuneIntoRadio(
         lastAppliedInit = msg.init_seq;
       }
       const capabilities = coerceModeCapabilities(msg?.radio_mode_capabilities);
-      const timelineModeActive =
-        useTimelineMode() || msg?.broadcaster_timeline_only === true;
+      const timelineModeActive = useTimelineMode() || msg?.broadcaster_timeline_only === true;
       console.info(
         "[radio] hello mode handshake:",
         JSON.stringify({
@@ -1928,9 +1880,8 @@ export async function tuneIntoRadio(
           broadcaster_timeline_only: msg?.broadcaster_timeline_only === true,
           capabilities,
           timeline_mode_active: timelineModeActive,
-          init_seq:
-            typeof msg?.init_seq === "number" ? msg.init_seq : null,
-        }),
+          init_seq: typeof msg?.init_seq === "number" ? msg.init_seq : null,
+        })
       );
       if (timelineModeActive) {
         // wait for queue adapter playSong() success before reporting
@@ -2009,11 +1960,7 @@ export async function tuneIntoRadio(
           // actually rendered.
           const currentSongId = nowPlaying()?.song_id ?? null;
           const incomingSongId = np.song_id ?? null;
-          if (
-            !currentSongId ||
-            !incomingSongId ||
-            incomingSongId === currentSongId
-          ) {
+          if (!currentSongId || !incomingSongId || incomingSongId === currentSongId) {
             pendingInitialNowPlaying = null;
             setNowPlaying(np);
             synthesizeTimelineFromNowPlaying(np, "meta");
@@ -2021,15 +1968,10 @@ export async function tuneIntoRadio(
             if (typeof msg?.listener_count === "number") {
               setListenerCount(msg.listener_count);
             }
-            maybeRecordImmediateMetaHistory(
-              np,
-              previousSongId,
-              initSeq,
-              msg.now_playing,
-            );
+            maybeRecordImmediateMetaHistory(np, previousSongId, initSeq, msg.now_playing);
           } else {
             console.info(
-              `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`,
+              `[radio] deferring early meta for new song_id ${incomingSongId} (current ${currentSongId})`
             );
           }
         } else {
@@ -2065,7 +2007,7 @@ export async function tuneIntoRadio(
         tryStartChunkPlayback("first chunk");
       }
       console.info(
-        `[radio] first chunk received (seq=${seq}, init=${isInit}, bytes=${bytes.byteLength})`,
+        `[radio] first chunk received (seq=${seq}, init=${isInit}, bytes=${bytes.byteLength})`
       );
     }
     const now = Date.now();
@@ -2203,26 +2145,18 @@ export async function tuneIntoRadio(
       if (!isActiveTune()) return;
       if (!useTimelineMode()) return;
       if (timelineSnapshot() !== null) return;
-      console.warn(
-        "[radio] timeline bootstrap timeout: no timeline snapshot received after 12s",
-      );
+      console.warn("[radio] timeline bootstrap timeout: no timeline snapshot received after 12s");
       setStatus("error");
-      setError(
-        "timeline mode could not start: broadcaster did not provide timeline snapshots",
-      );
+      setError("timeline mode could not start: broadcaster did not provide timeline snapshots");
     }, 12_000);
   } else if (ms) {
     chunkBootstrapTimer = window.setTimeout(() => {
       if (!isActiveTune()) return;
       if (useTimelineMode()) return;
       if (sawFirstChunk) return;
-      console.warn(
-        "[radio] chunk bootstrap timeout: no audio chunks received after 12s",
-      );
+      console.warn("[radio] chunk bootstrap timeout: no audio chunks received after 12s");
       setStatus("error");
-      setError(
-        "radio audio stream did not start: no chunks received from broadcaster",
-      );
+      setError("radio audio stream did not start: no chunks received from broadcaster");
     }, 12_000);
   }
 
@@ -2259,8 +2193,7 @@ function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
         : isArt(r.art) && typeof r.art.blob_id === "string"
           ? r.art.blob_id
           : null,
-    waveform_blob_id:
-      typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
+    waveform_blob_id: typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
     duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : null,
   };
   // best-effort validate via the generated zod schema; ignore on failure
@@ -2285,10 +2218,7 @@ function isArt(v: unknown): v is { blob_id?: unknown } {
  * broadcasting peer's API and update `radioCurrentFavorite`. silently
  * leaves the signal as `null` when no remote is registered or the call
  * fails (e.g. unauthenticated session). */
-async function fetchRadioFavorite(
-  songId: string,
-  peerAddr: string,
-): Promise<void> {
+async function fetchRadioFavorite(songId: string, peerAddr: string): Promise<void> {
   try {
     const remote = await getRemoteByPeerAddr(peerAddr);
     if (!remote) return;
@@ -2316,34 +2246,25 @@ async function fetchRadioFavorite(
 /** toggle the favorite for the currently-playing radio track on the
  * broadcasting peer. optimistically updates `radioCurrentFavorite` and
  * rolls back on failure. throws if no peer/remote is available. */
-export async function setRadioFavorite(
-  songId: string,
-  isFavorite: boolean,
-): Promise<void> {
+export async function setRadioFavorite(songId: string, isFavorite: boolean): Promise<void> {
   const peer = currentPeerAddr();
   if (!peer) throw new Error("no active radio session");
   const remote = await getRemoteByPeerAddr(peer);
   if (!remote) {
-    throw new Error(
-      "broadcasting peer is not a registered remote — cannot favorite",
-    );
+    throw new Error("broadcasting peer is not a registered remote — cannot favorite");
   }
   const previous = currentFavorite();
   setCurrentFavorite(isFavorite);
   try {
     const client = await getClientForRemote(remote);
-    const result = await client.music.setFavorite({
+    const result = await client.entities.setFavorite({
       user_id: null,
       target_type: "song",
       target_id: songId,
       is_favorite: isFavorite,
     });
     if (!result.success) {
-      throw new Error(
-        "error" in result
-          ? JSON.stringify(result.error)
-          : "set favorite failed",
-      );
+      throw new Error("error" in result ? JSON.stringify(result.error) : "set favorite failed");
     }
     if (!result.data?.success) {
       throw new Error(result.data?.message || "set favorite failed");

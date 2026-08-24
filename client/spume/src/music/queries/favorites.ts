@@ -1,9 +1,5 @@
 // query hooks for favorites with optimistic updates
-import { 
-  createInfiniteQuery, 
-  createMutation, 
-  useQueryClient 
-} from "@tanstack/solid-query";
+import { createInfiniteQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { updateSongInQueue } from "../../app/services/storage/db";
 import { toast } from "../../components/feedback/Toast";
@@ -31,9 +27,7 @@ interface UseFavoritesInfiniteQueryOptions {
   targetType?: Accessor<FavoriteTarget | undefined>;
 }
 
-export function useFavoritesInfiniteQuery(
-  options?: UseFavoritesInfiniteQueryOptions,
-) {
+export function useFavoritesInfiniteQuery(options?: UseFavoritesInfiniteQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const targetType = options?.targetType;
 
@@ -46,7 +40,7 @@ export function useFavoritesInfiniteQuery(
         pageParam,
         targetType: targetType?.(),
       });
-      
+
       const dataSource = getDataSource();
       if (!dataSource.listFavorites) {
         throw new Error("favorites not supported by current data source");
@@ -68,9 +62,7 @@ export function useFavoritesInfiniteQuery(
 
       return {
         items: response.items,
-        nextOffset: response.has_more
-          ? pageParam + pageSize
-          : undefined,
+        nextOffset: response.has_more ? pageParam + pageSize : undefined,
       };
     },
     initialPageParam: 0,
@@ -94,9 +86,7 @@ export function useToggleFavoriteMutation() {
        *  popover, federated search). */
       remote?: Remote;
     }) => {
-      const dataSource = params.remote
-        ? new RemoteMusicDataSource(params.remote)
-        : getDataSource();
+      const dataSource = params.remote ? new RemoteMusicDataSource(params.remote) : getDataSource();
 
       // check if datasource supports favorites
       if (!dataSource.setFavorite) {
@@ -123,7 +113,7 @@ export function useToggleFavoriteMutation() {
         updateSongInCache(queryClient, variables.targetId, variables.sha256 || "", {
           is_favorite: variables.isFavorite,
         });
-        
+
         // also update song in queue (IndexedDB) so PlayerBar and Queue show correct state
         if (variables.sha256) {
           debug("favorites", "updating song in queue (IndexedDB)");
@@ -156,14 +146,8 @@ export function useToggleFavoriteMutation() {
       debug("favorites", "onSuccess:", { isFavorite, variables });
 
       // invalidate queries to trigger refetch with updated favorite status
-      const queryKeysToInvalidate = getQueryKeysToInvalidate(
-        variables.targetType,
-      );
-      debug(
-        "favorites",
-        "invalidating queries with keys:",
-        queryKeysToInvalidate,
-      );
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(variables.targetType);
+      debug("favorites", "invalidating queries with keys:", queryKeysToInvalidate);
 
       // invalidate each query key prefix
       queryKeysToInvalidate.forEach((queryKey) => {
@@ -187,9 +171,7 @@ export function useToggleFavoriteMutation() {
 
       // invalidate queries to refetch and show correct state
       debug("favorites", "invalidating queries after error");
-      const queryKeysToInvalidate = getQueryKeysToInvalidate(
-        variables.targetType,
-      );
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(variables.targetType);
       queryKeysToInvalidate.forEach((queryKey) => {
         queryClient.invalidateQueries({
           queryKey,
@@ -255,9 +237,7 @@ export async function toggleSongFavoriteDirect(song: Song): Promise<boolean> {
 
 // helper to invalidate queries for a target type
 // returns array of query keys to invalidate
-function getQueryKeysToInvalidate(
-  targetType: FavoriteTarget,
-): Array<readonly unknown[]> {
+function getQueryKeysToInvalidate(targetType: FavoriteTarget): Array<readonly unknown[]> {
   switch (targetType) {
     case "song":
       // invalidate all queries that might contain songs
@@ -290,5 +270,10 @@ function getQueryKeysToInvalidate(
         queryKeys.playlists.all(), // playlist lists and detail views
         queryKeys.favorites.all(), // favorites list
       ];
+    case "video":
+      // "videos" matches video/queries/queryKeys.ts's videoQueryKeys prefix
+      // (video domain owns its own query-key factory, not imported here to
+      // keep music/queries free of a cross-domain dependency).
+      return [queryKeys.favorites.all(), ["videos"]];
   }
 }
