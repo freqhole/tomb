@@ -216,6 +216,7 @@ pub mod type_registry {
     use crate::upload::{
         AssociationHint, AssociationInfo, DeleteImageRequest, ImageUploadResponse,
         MusicImportResponse, MusicMetadataHints, MusicUploadResponse, SetPrimaryImageRequest,
+        VideoMetadataHints, VideoUploadResponse,
     };
 
     // analytics types
@@ -1313,6 +1314,12 @@ pub mod type_registry {
 
         gen.add_schema::<MusicUploadResponse>("MusicUploadResponse");
         registered.insert("MusicUploadResponse".to_string());
+
+        gen.add_schema::<VideoUploadResponse>("VideoUploadResponse");
+        registered.insert("VideoUploadResponse".to_string());
+
+        gen.add_schema::<VideoMetadataHints>("VideoMetadataHints");
+        registered.insert("VideoMetadataHints".to_string());
 
         gen.add_schema::<MusicImportResponse>("MusicImportResponse");
         registered.insert("MusicImportResponse".to_string());

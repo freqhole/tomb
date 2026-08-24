@@ -9,9 +9,11 @@ import { HttpTransport } from "./transport.js";
 import { createAdminMethods } from "./domains/admin.js";
 import { createAppMethods } from "./domains/app.js";
 import { createAuthMethods } from "./domains/auth.js";
+import { createEntitiesMethods } from "./domains/entities.js";
 import { createJobsMethods } from "./domains/jobs.js";
 import { createMusicMethods } from "./domains/music.js";
 import { createUploadMethods } from "./domains/upload.js";
+import { createVideoMethods } from "./domains/video.js";
 import type { CallFn, SafeParseResult } from "./domains/types.js";
 
 // re-export types for consumers
@@ -28,18 +30,22 @@ export class FreqholeClient {
   public readonly admin: ReturnType<typeof createAdminMethods>;
   public readonly app: ReturnType<typeof createAppMethods>;
   public readonly auth: ReturnType<typeof createAuthMethods>;
+  public readonly entities: ReturnType<typeof createEntitiesMethods>;
   public readonly jobs: ReturnType<typeof createJobsMethods>;
   public readonly music: ReturnType<typeof createMusicMethods>;
   public readonly upload: ReturnType<typeof createUploadMethods>;
+  public readonly video: ReturnType<typeof createVideoMethods>;
 
   constructor(public readonly transport: Transport) {
     const call = this.createCallFn();
     this.admin = createAdminMethods(call);
     this.app = createAppMethods(call);
     this.auth = createAuthMethods(call);
+    this.entities = createEntitiesMethods(call);
     this.jobs = createJobsMethods(transport);
     this.music = createMusicMethods(call);
     this.upload = createUploadMethods(transport);
+    this.video = createVideoMethods(call);
   }
 
   // -------------------------------------------------------------------------
@@ -58,7 +64,14 @@ export class FreqholeClient {
     ): Promise<SafeParseResult<Resp>> => {
       // validate request body for POST/PUT/PATCH
       const isFormData = params instanceof FormData;
-      if (method !== "GET" && method !== "DELETE" && method !== "HEAD" && reqSchema && params && !isFormData) {
+      if (
+        method !== "GET" &&
+        method !== "DELETE" &&
+        method !== "HEAD" &&
+        reqSchema &&
+        params &&
+        !isFormData
+      ) {
         const validated = reqSchema.safeParse(params);
         if (!validated.success) {
           return { success: false, error: validated.error };
@@ -75,9 +88,10 @@ export class FreqholeClient {
       }
 
       // prepare body
-      const body = method !== "GET" && method !== "DELETE" && method !== "HEAD" && params && !isFormData
-        ? JSON.stringify(params)
-        : undefined;
+      const body =
+        method !== "GET" && method !== "DELETE" && method !== "HEAD" && params && !isFormData
+          ? JSON.stringify(params)
+          : undefined;
 
       try {
         const response = await this.transport.request(method, finalPath, body);
@@ -90,14 +104,16 @@ export class FreqholeClient {
           try {
             const errorBody = JSON.parse(response.body);
             if (errorBody?.error) {
-              errorMessage = response.status === 0
-                ? errorBody.error
-                : `HTTP ${response.status}: ${errorBody.error}`;
+              errorMessage =
+                response.status === 0
+                  ? errorBody.error
+                  : `HTTP ${response.status}: ${errorBody.error}`;
             }
             if (errorBody?.message) {
-              errorMessage = response.status === 0
-                ? errorBody.message
-                : `HTTP ${response.status}: ${errorBody.message}`;
+              errorMessage =
+                response.status === 0
+                  ? errorBody.message
+                  : `HTTP ${response.status}: ${errorBody.message}`;
             }
             if (errorBody?.code) {
               errorCode = errorBody.code;
@@ -116,9 +132,7 @@ export class FreqholeClient {
 
           return {
             success: false,
-            error: new z.ZodError([
-              { code: "custom", path: issuePath, message: errorMessage },
-            ]),
+            error: new z.ZodError([{ code: "custom", path: issuePath, message: errorMessage }]),
           };
         }
 
@@ -143,9 +157,7 @@ export class FreqholeClient {
           }
           return {
             success: false,
-            error: new z.ZodError([
-              { code: "custom", path: issuePath, message: errorMessage },
-            ]),
+            error: new z.ZodError([{ code: "custom", path: issuePath, message: errorMessage }]),
           };
         }
 
@@ -176,9 +188,7 @@ export class FreqholeClient {
         }
         return {
           success: false,
-          error: new z.ZodError([
-            { code: "custom", path: [], message },
-          ]),
+          error: new z.ZodError([{ code: "custom", path: [], message }]),
         };
       }
     };
@@ -236,26 +246,24 @@ export function isAuthError<T>(result: SafeParseResult<T>): boolean {
 
 export function isNetworkError<T>(result: SafeParseResult<T>): boolean {
   if (result.success) return false;
-  return result.error.issues.some(
-    (issue) => {
-      if (issue.code !== "custom") return false;
-      const msg = issue.message.toLowerCase();
-      
-      // HTTP fetch errors
-      if (msg === "failed to fetch" || msg === "network error") return true;
-      
-      // P2P/iroh connection errors - be generous with matching
-      if (msg.includes("connection")) return true; // connection failed, closed, refused, etc
-      if (msg.includes("connect to peer")) return true; // "failed to connect to peer ..."
-      if (msg.includes("federation api error")) return true; // wrapper from p2p_client
-      if (msg.includes("no addressing information")) return true; // iroh: peer has no relay/direct addrs
-      if (msg.includes("timeout") || msg.includes("unreachable")) return true;
-      if (msg.includes("closed")) return true; // ClosedPath, stream closed, etc
-      if (msg.includes("no route") || msg.includes("endpoint")) return true;
-      if (msg.includes("stream") && (msg.includes("error") || msg.includes("failed"))) return true;
-      if (msg.includes("read") && msg.includes("error")) return true;
-      
-      return false;
-    }
-  );
+  return result.error.issues.some((issue) => {
+    if (issue.code !== "custom") return false;
+    const msg = issue.message.toLowerCase();
+
+    // HTTP fetch errors
+    if (msg === "failed to fetch" || msg === "network error") return true;
+
+    // P2P/iroh connection errors - be generous with matching
+    if (msg.includes("connection")) return true; // connection failed, closed, refused, etc
+    if (msg.includes("connect to peer")) return true; // "failed to connect to peer ..."
+    if (msg.includes("federation api error")) return true; // wrapper from p2p_client
+    if (msg.includes("no addressing information")) return true; // iroh: peer has no relay/direct addrs
+    if (msg.includes("timeout") || msg.includes("unreachable")) return true;
+    if (msg.includes("closed")) return true; // ClosedPath, stream closed, etc
+    if (msg.includes("no route") || msg.includes("endpoint")) return true;
+    if (msg.includes("stream") && (msg.includes("error") || msg.includes("failed"))) return true;
+    if (msg.includes("read") && msg.includes("error")) return true;
+
+    return false;
+  });
 }
