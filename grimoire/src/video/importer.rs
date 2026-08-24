@@ -34,6 +34,12 @@ pub struct VideoImportResult {
 struct VideoProperties {
     duration_seconds: Option<f64>,
     subtitle_stream_indices: Vec<i64>,
+    container_format: Option<String>,
+    bit_rate: Option<i64>,
+    codec_name: Option<String>,
+    width: Option<i64>,
+    height: Option<i64>,
+    frame_rate: Option<f64>,
 }
 
 /// import a video file: probe, dedupe, create the video row, extract
@@ -63,6 +69,9 @@ pub async fn import_video_file(
     }
 
     let props = probe_video_properties(file_path, &config).await;
+
+    // update the media blob with video metadata (codec, container, bitrate, framerate, dimensions)
+    let _ = update_media_blob_with_video_metadata(media_blob_id, &props).await;
 
     // prefer the caller-supplied original filename (e.g. the name the user
     // uploaded/picked) over `file_path`'s basename - on the upload path,
@@ -298,6 +307,18 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
         .and_then(|d| d.as_str())
         .and_then(|s| s.parse::<f64>().ok());
 
+    let container_format = json
+        .get("format")
+        .and_then(|f| f.get("format_name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string());
+
+    let bit_rate = json
+        .get("format")
+        .and_then(|f| f.get("bit_rate"))
+        .and_then(|b| b.as_str())
+        .and_then(|s| s.parse::<i64>().ok());
+
     let subtitle_stream_indices = json
         .get("streams")
         .and_then(|s| s.as_array())
@@ -310,10 +331,101 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
         })
         .unwrap_or_default();
 
+    // extract video stream properties from the first video stream
+    let video_stream = json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|streams| {
+            streams
+                .iter()
+                .find(|s| s.get("codec_type").and_then(|t| t.as_str()) == Some("video"))
+        });
+
+    let codec_name = video_stream
+        .and_then(|s| s.get("codec_name"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+
+    let width = video_stream
+        .and_then(|s| s.get("width"))
+        .and_then(|w| w.as_i64());
+
+    let height = video_stream
+        .and_then(|s| s.get("height"))
+        .and_then(|h| h.as_i64());
+
+    // parse avg_frame_rate (e.g. "24000/1001" or "30/1") into decimal fps
+    let frame_rate = video_stream
+        .and_then(|s| s.get("avg_frame_rate"))
+        .and_then(|r| r.as_str())
+        .and_then(|s| {
+            let parts: Vec<&str> = s.split('/').collect();
+            if parts.len() == 2 {
+                let numerator = parts[0].parse::<f64>().ok()?;
+                let denominator = parts[1].parse::<f64>().ok()?;
+                if denominator > 0.0 {
+                    Some(numerator / denominator)
+                } else {
+                    None
+                }
+            } else {
+                s.parse::<f64>().ok()
+            }
+        });
+
     VideoProperties {
         duration_seconds,
         subtitle_stream_indices,
+        container_format,
+        bit_rate,
+        codec_name,
+        width,
+        height,
+        frame_rate,
     }
+}
+
+/// update a media blob row with video metadata (codec, container, bitrate, framerate, dimensions)
+async fn update_media_blob_with_video_metadata(
+    media_blob_id: &str,
+    props: &VideoProperties,
+) -> Result<(), JobError> {
+    let pool = crate::database::connect().await?;
+
+    // build metadata JSON with video properties
+    let mut metadata = serde_json::json!({});
+    if let Some(codec) = &props.codec_name {
+        metadata["codec"] = serde_json::json!(codec);
+    }
+    if let Some(container) = &props.container_format {
+        metadata["container"] = serde_json::json!(container);
+    }
+    if let Some(bitrate) = props.bit_rate {
+        metadata["bitrate"] = serde_json::json!(bitrate);
+    }
+    if let Some(fps) = props.frame_rate {
+        metadata["frame_rate"] = serde_json::json!(fps);
+    }
+
+    let metadata_str = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
+
+    // update the media blob with width/height and metadata
+    sqlx::query!(
+        "UPDATE media_blobz 
+         SET width = ?, height = ?, metadata = ?, updated_at = unixepoch()
+         WHERE id = ?",
+        props.width,
+        props.height,
+        metadata_str,
+        media_blob_id
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| JobError::ProcessingFailed {
+        reason: format!("failed to update media blob metadata: {}", e),
+    })?;
+
+    Ok(())
 }
 
 /// extract a single poster frame and store it as a `Thumbnail` blob.

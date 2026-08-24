@@ -26,8 +26,9 @@ pub use entities::series::{
     CreateVideoSeriesRequest, UpdateVideoSeriesRequest, VideoSeries,
 };
 pub use entities::videos::{
-    create_video, get_video, list_videos_by_season, list_videos_by_series, list_videos_unattached,
-    update_video, CreateVideoRequest, UpdateVideoRequest, Video,
+    create_video, get_video, get_video_with_metadata, list_videos_by_season, list_videos_by_series,
+    list_videos_unattached, update_video, CreateVideoRequest, UpdateVideoRequest, Video,
+    VideoWithMetadata,
 };
 
 // cascading delete + side-table cleanup

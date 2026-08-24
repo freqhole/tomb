@@ -12,9 +12,10 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
     bulk_delete_videos as grimoire_bulk_delete_videos, create_video,
-    delete_video as grimoire_delete_video, get_video, list_videos_by_season, list_videos_by_series,
-    list_videos_unattached, query_videos as grimoire_query_videos,
-    update_videos as grimoire_update_videos, CreateVideoRequest, UpdateVideosRequest,
+    delete_video as grimoire_delete_video, get_video, get_video_with_metadata,
+    list_videos_by_season, list_videos_by_series, list_videos_unattached,
+    query_videos as grimoire_query_videos, update_videos as grimoire_update_videos,
+    CreateVideoRequest, UpdateVideosRequest,
 };
 
 /// request for getting a video by id
@@ -115,6 +116,15 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Video,
         request_type: "GetVideoRequest",
         response_type: "Video",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "get_video_with_metadata",
+        path: "/api/video/videos/get-with-metadata",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "GetVideoRequest",
+        response_type: "VideoWithMetadata",
         auth: RouteAuth::Authenticated,
     },
     RouteInfo {
@@ -240,6 +250,28 @@ pub async fn get(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
+/// get a video by id with enriched metadata from media blob
+///
+/// path: POST /api/video/videos/get-with-metadata
+pub async fn get_with_metadata(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: GetVideoRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = get_video_with_metadata(&req.id).await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
 /// list every video attached to a series
 ///
 /// path: POST /api/video/videos/list-by-series
@@ -334,7 +366,7 @@ pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
 ///
 /// path: POST /api/video/videos/update
 pub async fn update(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
-    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_video").await {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "update_videos").await {
         return resp;
     }
 

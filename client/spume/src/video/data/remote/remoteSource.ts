@@ -55,14 +55,24 @@ export class RemoteVideoDataSource implements VideoDataSource {
     return getRemoteMediaUrl(this.baseUrl, blobId);
   }
 
-  // throws RemoteOfflineError on a network error, or a generic error
-  // otherwise. always throws — callers rely on this for control flow.
+  // throws RemoteOfflineError on a network error, or an error carrying
+  // the real server-provided message otherwise (mirrors music's
+  // remoteSource.ts's `updateSong` error-surfacing pattern) — callers
+  // rely on this for control flow; always throws.
   private failRequest(result: SafeParseResult<unknown>): never {
     if (isNetworkError(result)) {
       const remoteName = this.remote.name ?? this.remote.base_url ?? this.remoteId;
       throw new RemoteOfflineError(this.remoteId, remoteName);
     }
-    throw new Error("video request failed");
+    if (result.success) {
+      // unreachable in practice — failRequest is only ever called from
+      // an `if (!result.success)` guard — but keeps this function total.
+      throw new Error("video request failed");
+    }
+    const err = result.error;
+    console.error("video request failed:", err);
+    const message = err?.issues?.[0]?.message || err?.message || JSON.stringify(err);
+    throw new Error(message || "video request failed");
   }
 
   private mapVideo(video: Video): VideoSummary {
@@ -119,6 +129,13 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const result = await client.video.getVideo({ id });
     if (!result.success) return null;
     return this.mapVideo(result.data);
+  }
+
+  async getVideoWithMetadata(id: string) {
+    const client = await this.getClient();
+    const result = await client.video.getVideoWithMetadata({ id });
+    if (!result.success) return null;
+    return result.data;
   }
 
   async getVideoSeriesList(params?: {

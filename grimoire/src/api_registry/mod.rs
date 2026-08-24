@@ -348,7 +348,8 @@ pub mod type_registry {
         CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
         SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
-        UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries, VideosQueryResult,
+        UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries, VideoWithMetadata,
+        VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -819,6 +820,8 @@ pub mod type_registry {
 
         gen.add_schema::<Video>("Video");
         registered.insert("Video".to_string());
+        gen.add_schema::<VideoWithMetadata>("VideoWithMetadata");
+        registered.insert("VideoWithMetadata".to_string());
         gen.add_schema::<CreateVideoRequest>("CreateVideoRequest");
         registered.insert("CreateVideoRequest".to_string());
         gen.add_schema::<UpdateVideoRequest>("UpdateVideoRequest");

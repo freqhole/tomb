@@ -5,8 +5,10 @@
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
+use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
 use crate::response::GrimoireResponse;
+use crate::video::crud::delete::{delete_video_season_if_unused, delete_video_series_if_unused};
 use crate::video::entities::videos::{update_video, UpdateVideoRequest};
 
 /// request to bulk-update videos - every field besides `video_ids` is
@@ -26,11 +28,20 @@ pub struct UpdateVideosRequest {
     pub updated_by: Option<String>,
 }
 
+/// a single video's failure reason within a bulk update - preserves the
+/// real per-video error (rather than discarding it down to a bare id) so
+/// callers/clients can surface something actionable.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct VideoUpdateFailure {
+    pub video_id: String,
+    pub reason: String,
+}
+
 /// result of a bulk video update operation
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct UpdateVideosResult {
     pub videos_updated: u32,
-    pub videos_failed: Vec<String>,
+    pub videos_failed: Vec<VideoUpdateFailure>,
 }
 
 /// bulk-update videos. best-effort - a failed id is recorded but doesn't
@@ -50,6 +61,42 @@ pub async fn update_videos(req: UpdateVideosRequest) -> GrimoireResponse<UpdateV
     let mut videos_updated: u32 = 0;
     let mut videos_failed = Vec::new();
 
+    // collect old series/season ids for orphan cleanup - only needed when
+    // this update actually intends to change series/season (COALESCE means
+    // `None` here leaves the video's existing value untouched, so there's
+    // nothing to potentially orphan in that case).
+    let need_old_series = req.series_id.is_some();
+    let need_old_season = req.season_id.is_some();
+    let mut old_series_ids: Vec<String> = Vec::new();
+    let mut old_season_ids: Vec<String> = Vec::new();
+
+    if need_old_series || need_old_season {
+        if let Ok(pool) = database::connect().await {
+            for video_id in &req.video_ids {
+                if let Ok(row) = sqlx::query!(
+                    "SELECT series_id, season_id FROM videoz WHERE id = ?",
+                    video_id
+                )
+                .fetch_optional(&pool)
+                .await
+                {
+                    if let Some(row) = row {
+                        if need_old_series {
+                            if let Some(id) = row.series_id {
+                                old_series_ids.push(id);
+                            }
+                        }
+                        if need_old_season {
+                            if let Some(id) = row.season_id {
+                                old_season_ids.push(id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     for video_id in &req.video_ids {
         let response = update_video(UpdateVideoRequest {
             video_id: video_id.clone(),
@@ -68,13 +115,50 @@ pub async fn update_videos(req: UpdateVideosRequest) -> GrimoireResponse<UpdateV
         if response.success {
             videos_updated += 1;
         } else {
-            videos_failed.push(video_id.clone());
+            // preserve the real per-video reason (the underlying
+            // `update_video()` response's own error detail, falling back
+            // to its message) instead of discarding it down to just the id.
+            let reason = response
+                .errors
+                .first()
+                .map(|e| e.detail.clone())
+                .unwrap_or_else(|| response.message.clone());
+            videos_failed.push(VideoUpdateFailure {
+                video_id: video_id.clone(),
+                reason,
+            });
+        }
+    }
+
+    // cleanup orphaned series/seasons - mirrors music's
+    // `update_songs()`/`delete_artist_if_unused` pattern: any old
+    // series/season id a video moved away from that no longer has any
+    // non-deleted video attached gets soft-deleted. best-effort - a
+    // failure here doesn't fail the overall update, since the videos
+    // themselves already updated successfully.
+    if let Some(ref new_series_id) = req.series_id {
+        for old_series_id in old_series_ids {
+            if old_series_id != *new_series_id {
+                let _ = delete_video_series_if_unused(&old_series_id).await;
+            }
+        }
+    }
+    if let Some(ref new_season_id) = req.season_id {
+        for old_season_id in old_season_ids {
+            if old_season_id != *new_season_id {
+                let _ = delete_video_season_if_unused(&old_season_id).await;
+            }
         }
     }
 
     let success = videos_failed.is_empty();
     let message = if success {
         format!("updated {} video(s)", videos_updated)
+    } else if videos_failed.len() == 1 {
+        // the common single-video-edit-modal case: surface the real
+        // reason directly in the top-level message, since that's what
+        // `createCallFn`'s synthetic client-side error prioritizes.
+        format!("failed to update video: {}", videos_failed[0].reason)
     } else {
         format!(
             "updated {} video(s), {} failed",

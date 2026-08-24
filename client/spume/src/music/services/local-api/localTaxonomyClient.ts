@@ -8,10 +8,12 @@
 // editor + autocomplete components reuse the same call shape whether
 // the active source is a peer remote or the local library.
 //
-// `createTaxonKind` is a no-op stub today — kinds are not persisted
-// in idb. `listTaxonKinds` synthesises a "well-known" list (music
-// domain only) plus kind_slugs discovered in local storage, scoped by
-// the caller's `domain` — see `resolveKindSlugsForDomain` below.
+// `listTaxonKinds` synthesises a "well-known" list (music domain
+// only) plus kind_slugs discovered in local storage, scoped by the
+// caller's `domain` — see `resolveKindSlugsForDomain` below. explicitly
+// created kinds (via `createTaxonKind`, persisted in the `taxon_kinds`
+// store so a kind can exist with real metadata before any value is
+// added under it) are merged in on top, per-domain.
 
 import {
   upsertTaxon,
@@ -27,6 +29,10 @@ import {
   countAlbumsByKindForRemote,
   findTaxon,
 } from "../storage/db/taxons";
+import {
+  createTaxonKind as createLocalTaxonKind,
+  getTaxonKindsForDomain,
+} from "../storage/db/taxonKinds";
 import { LOCAL_TAXON_REMOTE_ID } from "../storage/types";
 
 // result shape mirrors freqhole-api-client's `SafeParseResult<T>` so
@@ -193,14 +199,39 @@ export const localTaxonomyClient = {
       const isMusicScope = domain === null || domain === "music";
       const wellKnownLabels = new Map(WELL_KNOWN_KINDS.map((k) => [k.slug, k.label]));
 
-      const [kindSlugs, counts] = await Promise.all([
+      const [kindSlugs, counts, storedKinds] = await Promise.all([
         resolveKindSlugsForDomain(domain),
         countAlbumsByKindForRemote(LOCAL_TAXON_REMOTE_ID),
+        getTaxonKindsForDomain(domain ?? "music"),
       ]);
 
-      const out = kindSlugs.map((slug, idx) =>
-        synthesiseKind(slug, wellKnownLabels.get(slug) ?? slug, idx, counts.byKind.get(slug) ?? 0)
-      );
+      const storedBySlug = new Map(storedKinds.map((k) => [k.kind_slug, k]));
+      const slugs = new Set([...kindSlugs, ...storedBySlug.keys()]);
+
+      const out = [...slugs].map((slug, idx) => {
+        const stored = storedBySlug.get(slug);
+        if (stored) {
+          return {
+            id: `local-kind-${stored.kind_slug}`,
+            slug: stored.kind_slug,
+            label: stored.label,
+            description: stored.description,
+            color: stored.color,
+            value_type: stored.value_type,
+            unit: stored.unit,
+            display_order: stored.display_order,
+            is_user_defined: true,
+            created_at: stored.created_at,
+            album_count: counts.byKind.get(slug) ?? 0,
+          };
+        }
+        return synthesiseKind(
+          slug,
+          wellKnownLabels.get(slug) ?? slug,
+          idx,
+          counts.byKind.get(slug) ?? 0
+        );
+      });
 
       // "unassigned" hub (albums with no taxon links) is an album-only
       // concept, like the server-side synth hub it mirrors — only ever
@@ -300,15 +331,39 @@ export const localTaxonomyClient = {
       });
     },
 
-    async createTaxonKind(_req: {
+    async createTaxonKind(req: {
       slug: string;
       label: string;
+      description?: string | null;
+      color?: string | null;
+      value_type?: string | null;
+      unit?: string | null;
+      display_order?: number | null;
+      domain?: string | null;
     }): Promise<ShimResult<ShimTaxonKind>> {
-      // kinds are not persisted in idb yet; createTaxon auto-discovers
-      // a new kind_slug at write time, so explicit kind creation isn't
-      // strictly necessary. surface failure so the ui's "create kind"
-      // affordance can render an explanatory toast.
-      return fail("creating taxon kinds is not yet supported on the local library");
+      const row = await createLocalTaxonKind({
+        kind_slug: req.slug,
+        domain: req.domain ?? "music",
+        label: req.label,
+        description: req.description,
+        color: req.color,
+        value_type: req.value_type,
+        unit: req.unit,
+        display_order: req.display_order,
+      });
+      return ok({
+        id: `local-kind-${row.kind_slug}`,
+        slug: row.kind_slug,
+        label: row.label,
+        description: row.description,
+        color: row.color,
+        value_type: row.value_type,
+        unit: row.unit,
+        display_order: row.display_order,
+        is_user_defined: true,
+        created_at: row.created_at,
+        album_count: 0,
+      });
     },
 
     async deleteTaxon(req: { id: string }): Promise<ShimResult<{ success: true }>> {

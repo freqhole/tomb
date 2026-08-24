@@ -197,6 +197,17 @@ pub struct VideoRenditionConfig {
     /// ffmpeg writes to and the blob's stored filename/mime.
     #[serde(default = "default_rendition_extension")]
     pub extension: String,
+    /// target video codec (e.g. "h264", "vp9") - used to skip transcoding
+    /// when the source video already uses this codec. optional; when unset,
+    /// always transcode.
+    #[serde(default)]
+    pub target_codec: Option<String>,
+    /// target container format (e.g. "mp4", "matroska,webm") - used to skip
+    /// transcoding when the source video already uses this container. optional;
+    /// when unset, always transcode. matches against ffprobe's format_name
+    /// (which can be a comma-separated list of synonyms, e.g. "matroska,webm").
+    #[serde(default)]
+    pub target_container: Option<String>,
 }
 
 fn default_max_connections() -> u32 {
@@ -293,6 +304,8 @@ fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
         label: "compatible".to_string(),
         args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
         extension: default_rendition_extension(),
+        target_codec: Some("h264".to_string()),
+        target_container: Some("mp4".to_string()),
     }]
 }
 

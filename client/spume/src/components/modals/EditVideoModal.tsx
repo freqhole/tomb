@@ -14,7 +14,11 @@ import { EntityImages } from "../layout/EntityImages";
 import { toast } from "../feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
 import { canUpdateVideo } from "../../video/data/permissions";
-import { useUpdateVideoMutation, useVideoQuery } from "../../video/queries/videos";
+import {
+  useUpdateVideoMutation,
+  useVideoQuery,
+  useVideoWithMetadataQuery,
+} from "../../video/queries/videos";
 import { useCreateVideoSeriesMutation } from "../../video/queries/series";
 import { getVideoDataSource } from "../../video/data";
 import { getClientForRemote } from "../../app/api/client";
@@ -24,6 +28,19 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoRendition } from "@freqhole/api-client";
 import { Modal } from "./Modal";
 import { Icon, IconNames } from "../icons/registry";
+import { formatDateTime } from "../../utils/dateTime";
+
+function formatFileSize(bytes: number | null | undefined): string {
+  if (!bytes) return "unknown";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
 
 export interface EditVideoModalProps {
   videoId: string;
@@ -42,6 +59,7 @@ interface FormData {
 
 export function EditVideoModal(props: EditVideoModalProps) {
   const videoQuery = useVideoQuery(() => props.videoId);
+  const videoMetadataQuery = useVideoWithMetadataQuery(() => props.videoId);
   const updateMutation = useUpdateVideoMutation();
   const createSeriesMutation = useCreateVideoSeriesMutation();
 
@@ -511,7 +529,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       props.onSave?.();
     } catch (err) {
       console.error("failed to update video:", err);
-      toast.error("failed to update video");
+      toast.error(err instanceof Error ? err.message : "failed to update video");
     }
   };
 
@@ -664,6 +682,113 @@ export function EditVideoModal(props: EditVideoModalProps) {
           {/* entity url links */}
           <div class="border-t border-[var(--color-border-default)] pt-4">
             <EntityUrlz urls={entityUrls()} onChange={setEntityUrls} disabled={!canUpdateVideo()} />
+          </div>
+
+          {/* metadata section */}
+          <div class="space-y-3 border-t border-[var(--color-border-default)] pt-4">
+            <h3 class="text-sm font-medium text-[var(--color-text-primary)]">metadata</h3>
+
+            <Show when={videoMetadataQuery.data}>
+              {(metadata) => (
+                <div class="space-y-1 text-sm">
+                  {/* created / updated info */}
+                  <Show when={metadata().video.created_at}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">created: </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {formatDateTime(metadata().video.created_at * 1000)}
+                      </span>
+                      <Show when={metadata().created_by_username}>
+                        <span class="text-[var(--color-text-tertiary)]"> by </span>
+                        <span class="text-[var(--color-text-secondary)]">
+                          {metadata().created_by_username}
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
+
+                  <Show
+                    when={
+                      metadata().video.updated_at &&
+                      metadata().video.updated_at !== metadata().video.created_at
+                        ? metadata().video.updated_at
+                        : undefined
+                    }
+                    keyed
+                  >
+                    {(updatedAt) => (
+                      <div>
+                        <span class="text-[var(--color-text-tertiary)]">updated: </span>
+                        <span class="text-[var(--color-text-secondary)]">
+                          {formatDateTime(updatedAt * 1000)}
+                        </span>
+                        <Show when={metadata().updated_by_username}>
+                          <span class="text-[var(--color-text-tertiary)]"> by </span>
+                          <span class="text-[var(--color-text-secondary)]">
+                            {metadata().updated_by_username}
+                          </span>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+
+                  {/* file metadata */}
+                  <Show when={metadata().blob_width && metadata().blob_height}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">resolution: </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {metadata().blob_width} × {metadata().blob_height}
+                      </span>
+                    </div>
+                  </Show>
+
+                  <Show when={metadata().blob_size}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">file size: </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {formatFileSize(metadata().blob_size)}
+                      </span>
+                    </div>
+                  </Show>
+
+                  <Show when={metadata().codec}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">codec: </span>
+                      <span class="text-[var(--color-text-secondary)]">{metadata().codec}</span>
+                    </div>
+                  </Show>
+
+                  <Show when={metadata().container}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">container: </span>
+                      <span class="text-[var(--color-text-secondary)]">{metadata().container}</span>
+                    </div>
+                  </Show>
+
+                  <Show when={metadata().bitrate}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">bitrate: </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {(metadata().bitrate! / 1000).toFixed(0)} kbps
+                      </span>
+                    </div>
+                  </Show>
+
+                  <Show when={metadata().frame_rate}>
+                    <div>
+                      <span class="text-[var(--color-text-tertiary)]">frame rate: </span>
+                      <span class="text-[var(--color-text-secondary)]">
+                        {metadata().frame_rate!.toFixed(2)} fps
+                      </span>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </Show>
+
+            <Show when={videoMetadataQuery.isLoading}>
+              <div class="text-xs text-[var(--color-text-tertiary)]">loading metadata...</div>
+            </Show>
           </div>
 
           {/* renditions list */}

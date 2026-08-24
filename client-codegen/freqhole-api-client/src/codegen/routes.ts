@@ -239,6 +239,7 @@ export const routes = {
     get_video_season: { method: 'POST', path: '/api/video/seasons/get', req: s.GetVideoSeasonRequestSchema, resp: s.VideoSeasonSchema, auth: { type: 'authenticated' } as const },
     get_video_series: { method: 'POST', path: '/api/video/series/get', req: s.GetVideoSeriesRequestSchema, resp: s.VideoSeriesSchema, auth: { type: 'authenticated' } as const },
     get_video_series_detail: { method: 'POST', path: '/api/video/series/detail', req: s.GetVideoSeriesRequestSchema, resp: s.SeriesDetailSchema, auth: { type: 'authenticated' } as const },
+    get_video_with_metadata: { method: 'POST', path: '/api/video/videos/get-with-metadata', req: s.GetVideoRequestSchema, resp: s.VideoWithMetadataSchema, auth: { type: 'authenticated' } as const },
     list_playback_progress: { method: 'POST', path: '/api/video/progress/list', req: s.ListPlaybackProgressRequestSchema, resp: s.PlaybackProgressSchema.array(), auth: { type: 'authenticated' } as const },
     list_video_seasons: { method: 'POST', path: '/api/video/seasons/list', req: s.ListVideoSeasonsRequestSchema, resp: s.VideoSeasonSchema.array(), auth: { type: 'authenticated' } as const },
     list_video_series: { method: 'POST', path: '/api/video/series/list', req: s.ListVideoSeriesRequestSchema, resp: s.VideoSeriesSchema.array(), auth: { type: 'authenticated' } as const },

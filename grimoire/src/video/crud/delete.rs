@@ -95,7 +95,10 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireRespo
 /// soft-delete a video season, cascade-soft-delete every video in it, and
 /// clean up `entity_taxonz`/`playlist_itemz`/`playback_progressz` rows for
 /// the season and each of its videos.
-pub async fn delete_video_season(season_id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+pub async fn delete_video_season(
+    season_id: &str,
+    deleted_by: Option<String>,
+) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -127,9 +130,7 @@ pub async fn delete_video_season(season_id: &str, deleted_by: Option<String>) ->
         if !response.success {
             return response;
         }
-        if let Err(e) =
-            cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await
-        {
+        if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await {
             return GrimoireResponse::failure(
                 "Season videos deleted, but failed to clean up related rows",
                 vec![ErrorDetail::from(e)],
@@ -142,8 +143,7 @@ pub async fn delete_video_season(season_id: &str, deleted_by: Option<String>) ->
         return response;
     }
 
-    if let Err(e) =
-        cleanup_entity_side_tables(&pool, VideoEntityType::VideoSeason, season_id).await
+    if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::VideoSeason, season_id).await
     {
         return GrimoireResponse::failure(
             "Video season deleted, but failed to clean up related rows",
@@ -157,7 +157,10 @@ pub async fn delete_video_season(season_id: &str, deleted_by: Option<String>) ->
 /// soft-delete a video series, cascade-soft-delete every season and video
 /// under it, and clean up `entity_taxonz`/`playlist_itemz`/
 /// `playback_progressz` rows for the series, each season, and each video.
-pub async fn delete_video_series(series_id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
+pub async fn delete_video_series(
+    series_id: &str,
+    deleted_by: Option<String>,
+) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -206,9 +209,7 @@ pub async fn delete_video_series(series_id: &str, deleted_by: Option<String>) ->
         if !response.success {
             return response;
         }
-        if let Err(e) =
-            cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await
-        {
+        if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await {
             return GrimoireResponse::failure(
                 "Series videos deleted, but failed to clean up related rows",
                 vec![ErrorDetail::from(e)],
@@ -236,8 +237,7 @@ pub async fn delete_video_series(series_id: &str, deleted_by: Option<String>) ->
         return response;
     }
 
-    if let Err(e) =
-        cleanup_entity_side_tables(&pool, VideoEntityType::VideoSeries, series_id).await
+    if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::VideoSeries, series_id).await
     {
         return GrimoireResponse::failure(
             "Video series deleted, but failed to clean up related rows",
@@ -246,6 +246,101 @@ pub async fn delete_video_series(series_id: &str, deleted_by: Option<String>) ->
     }
 
     GrimoireResponse::success_unit("Video series deleted successfully")
+}
+
+/// soft-delete a video series if no non-deleted video still references it -
+/// mirrors music's `delete_artist_if_unused`. returns `Ok(true)` if the
+/// series was deleted, `Ok(false)` if it's still in use.
+pub async fn delete_video_series_if_unused(series_id: &str) -> GrimoireResponse<bool> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let video_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM videoz WHERE series_id = ? AND deleted_at IS NULL"#,
+        series_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to check video series usage",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if video_count > 0 {
+        return GrimoireResponse::success("Video series is still in use", false);
+    }
+
+    match sqlx::query!(
+        "UPDATE video_seriez SET deleted_at = unixepoch(), updated_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
+        series_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("Video series deleted successfully", true),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to delete video series", vec![ErrorDetail::from(e)])
+        }
+    }
+}
+
+/// soft-delete a video season if no non-deleted video still references it -
+/// mirrors `delete_video_series_if_unused` one level down.
+pub async fn delete_video_season_if_unused(season_id: &str) -> GrimoireResponse<bool> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let video_count = match sqlx::query_scalar!(
+        r#"SELECT COUNT(*) as "count!" FROM videoz WHERE season_id = ? AND deleted_at IS NULL"#,
+        season_id
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to check video season usage",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    if video_count > 0 {
+        return GrimoireResponse::success("Video season is still in use", false);
+    }
+
+    match sqlx::query!(
+        "UPDATE video_seasonz SET deleted_at = unixepoch(), updated_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
+        season_id
+    )
+    .execute(&pool)
+    .await
+    {
+        Ok(_) => GrimoireResponse::success("Video season deleted successfully", true),
+        Err(e) => {
+            GrimoireResponse::failure("Failed to delete video season", vec![ErrorDetail::from(e)])
+        }
+    }
 }
 
 /// bulk soft-delete videos (each via `delete_video`, so side-table cleanup

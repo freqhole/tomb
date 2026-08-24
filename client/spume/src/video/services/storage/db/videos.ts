@@ -117,6 +117,8 @@ export async function updateLocalVideo(
     description?: string | null;
     episode_number?: number | null;
     release_date?: string | null;
+    series_id?: string | null;
+    season_id?: string | null;
   }
 ): Promise<void> {
   const db = await getVideoDB();

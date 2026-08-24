@@ -82,6 +82,19 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             )),
         );
 
+        // skip transcoding if source already matches target codec/container
+        if should_skip_transcode(&source_blob, rendition) {
+            info!(
+                "skipping transcode for video {} rendition {}: source already compatible",
+                params.video_id, rendition.label
+            );
+            // reuse the original blob as the "rendition" by creating a rendition
+            // reference pointing to it (or just skip creating a redundant rendition
+            // blob - depends on whether downstream code expects an explicit rendition
+            // blob or not. for now, just skip and don't add to rendition_blob_ids).
+            continue;
+        }
+
         let renditions_dir = config.renditions_dir();
         if let Err(e) = tokio::fs::create_dir_all(&renditions_dir).await {
             warn!(
@@ -214,4 +227,37 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         })
         .map_err(JobError::Serialization)?,
     ))
+}
+
+/// check if source video already matches the target codec/container, allowing us to skip transcoding
+fn should_skip_transcode(
+    source_blob: &crate::media_blobz::MediaBlob,
+    rendition: &crate::config::VideoRenditionConfig,
+) -> bool {
+    // need both target_codec and target_container specified to skip
+    let Some(target_codec) = &rendition.target_codec else {
+        return false;
+    };
+    let Some(target_container) = &rendition.target_container else {
+        return false;
+    };
+
+    // extract source codec and container from metadata
+    let metadata = &source_blob.metadata;
+    let source_codec = metadata.get("codec").and_then(|c| c.as_str()).unwrap_or("");
+    let source_container = metadata
+        .get("container")
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+
+    // codec match (exact, case-insensitive)
+    let codec_matches = source_codec.eq_ignore_ascii_case(target_codec);
+
+    // container match: ffprobe returns comma-separated synonyms like "matroska,webm"
+    // or "mov,mp4,m4a,3gp,3g2,mj2", so check if any synonym matches
+    let container_matches = source_container
+        .split(',')
+        .any(|syn| syn.trim().eq_ignore_ascii_case(target_container));
+
+    codec_matches && container_matches
 }

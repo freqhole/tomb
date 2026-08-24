@@ -7167,7 +7167,10 @@ export type UpdateVideosRequest = z.infer<typeof UpdateVideosRequestSchema>;
 
 export const UpdateVideosResultSchema = z.object({
   videos_updated: z.number(),
-  videos_failed: z.array(z.string())
+  videos_failed: z.array(z.object({
+  video_id: z.string(),
+  reason: z.string()
+}))
 });
 export type UpdateVideosResult = z.infer<typeof UpdateVideosResultSchema>;
 
@@ -7300,6 +7303,37 @@ export const VideoUploadResponseSchema = z.object({
   message: z.string()
 });
 export type VideoUploadResponse = z.infer<typeof VideoUploadResponseSchema>;
+
+export const VideoWithMetadataSchema = z.object({
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+}),
+  created_by_username: z.string().nullish(),
+  updated_by_username: z.string().nullish(),
+  blob_size: z.number().nullish(),
+  blob_width: z.number().nullish(),
+  blob_height: z.number().nullish(),
+  codec: z.string().nullish(),
+  container: z.string().nullish(),
+  bitrate: z.number().nullish(),
+  frame_rate: z.number().nullish()
+});
+export type VideoWithMetadata = z.infer<typeof VideoWithMetadataSchema>;
 
 export const VideosQueryResultSchema = z.object({
   items: z.array(z.object({

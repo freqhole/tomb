@@ -1,9 +1,10 @@
 // bulk edit modal for one or more videos.
 //
 // scoped to what's useful in bulk for video: series/season assignment
-// (a plain `<Select>`, not a creatable combobox - picking an existing
-// series is all bulk mode needs) and bulk taxon editing (immediate
-// fan-out via `BulkVideoTaxonsEditor`, no save step of its own).
+// (via VideoSeriesAutocomplete, supporting both picking an existing
+// series and typing a new series name to create-on-save) and bulk taxon
+// editing (immediate fan-out via `BulkVideoTaxonsEditor`, no save step
+// of its own).
 //
 // series/season use the current active remote directly (video has no
 // per-remote browsing UI like the music library view does), mirroring
@@ -12,13 +13,14 @@ import { createEffect, createMemo, createResource, createSignal, onCleanup, Show
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
 import { Select } from "../forms/Select";
+import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import { toast } from "../feedback/Toast";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data/currentState";
 import { queryClient } from "../../queryClient";
 import { getVideoDataSource } from "../../video/data";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
-import { useVideoSeriesListQuery } from "../../video/queries/series";
+import { useVideoSeriesListQuery, useCreateVideoSeriesMutation } from "../../video/queries/series";
 import { canUpdateVideo } from "../../video/data/permissions";
 import type { VideoSummary } from "../../video/data/types";
 import { BulkVideoTaxonsEditor } from "../taxonomy/BulkVideoTaxonsEditor";
@@ -44,6 +46,8 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
   );
 
   const seriesListQuery = useVideoSeriesListQuery();
+  const createSeriesMutation = useCreateVideoSeriesMutation();
+
   const seriesOptions = createMemo(() =>
     (seriesListQuery.data?.pages ?? []).flatMap((p) =>
       p.items.map((s) => ({ value: s.id, label: s.title }))
@@ -63,8 +67,11 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
     return seriesOptions().find((o) => o.value === id)?.label ?? null;
   });
 
-  const [seriesId, setSeriesId] = createSignal("");
-  const [seriesTouched, setSeriesTouched] = createSignal(false);
+  // series autocomplete input text and pending new series name (for
+  // create-on-save flow, mirroring EditVideoModal.tsx).
+  const [seriesInputValue, setSeriesInputValue] = createSignal("");
+  const [pendingNewSeriesName, setPendingNewSeriesName] = createSignal<string | null>(null);
+  const [formSeriesId, setFormSeriesId] = createSignal<string | null>(null);
   const [seasonId, setSeasonId] = createSignal("");
   const [availableSeasons, setAvailableSeasons] = createSignal<
     Array<{ id: string; title: string; season_number: number }>
@@ -73,7 +80,7 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
 
   // fetch seasons whenever the user picks a series in this modal.
   createEffect(() => {
-    const id = seriesId();
+    const id = formSeriesId();
     if (!id) {
       setAvailableSeasons([]);
       return;
@@ -103,12 +110,21 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
     })();
   });
 
-  const isValid = createMemo(() => seriesTouched());
+  const isValid = createMemo(
+    () => seriesInputValue().trim().length > 0 || pendingNewSeriesName() !== null
+  );
 
-  const handleSeriesChange = (value: string) => {
-    setSeriesTouched(true);
-    setSeriesId(value);
-    setSeasonId("");
+  const handleSeriesSelect = (selection: { id?: string; name: string; isNew: boolean }) => {
+    setSeriesInputValue(selection.name);
+    if (selection.isNew) {
+      setPendingNewSeriesName(selection.name);
+      setFormSeriesId(null);
+      setSeasonId("");
+    } else {
+      setPendingNewSeriesName(null);
+      setFormSeriesId(selection.id ?? null);
+      setSeasonId("");
+    }
   };
 
   const handleSave = async () => {
@@ -120,10 +136,18 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
     }
     setIsSaving(true);
     try {
+      // if a new series name was typed, create it first
+      let seriesIdToApply = formSeriesId();
+      const newSeriesName = pendingNewSeriesName();
+      if (newSeriesName) {
+        const newSeries = await createSeriesMutation.mutateAsync({ title: newSeriesName });
+        seriesIdToApply = newSeries.id;
+      }
+
       const client = await getClientForRemote(remote);
       const result = await client.video.updateVideos({
         video_ids: props.videoIds,
-        series_id: seriesId() || null,
+        series_id: seriesIdToApply || null,
         season_id: seasonId() || null,
       });
       if (!result.success) {
@@ -161,23 +185,16 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
           </div>
 
           <div class="space-y-1">
-            <label class="text-sm text-[var(--color-text-secondary)] mb-1 block">
-              series
-              <Show when={commonSeriesLabel()}>
-                <span class="ml-2 text-xs text-[var(--color-text-tertiary)]">
-                  (current: {commonSeriesLabel()})
-                </span>
-              </Show>
-            </label>
-            <Select
-              value={seriesId()}
-              onchange={(e) => handleSeriesChange(e.currentTarget.value)}
-              options={[{ value: "", label: "(no change)" }, ...seriesOptions()]}
-              placeholder="select a series…"
+            <VideoSeriesAutocomplete
+              label="series"
+              value={seriesInputValue()}
+              onSelect={handleSeriesSelect}
+              placeholder="search or type series title..."
+              hint={commonSeriesLabel() ? `(current: ${commonSeriesLabel()})` : undefined}
             />
           </div>
 
-          <Show when={seriesTouched() && seriesId()}>
+          <Show when={formSeriesId()}>
             <div class="space-y-1">
               <label class="text-sm text-[var(--color-text-secondary)] mb-1 block">season</label>
               <Select

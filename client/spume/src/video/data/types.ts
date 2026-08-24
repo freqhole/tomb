@@ -1,7 +1,12 @@
 // data source abstractions for the video domain
 // mirrors music/data/types.ts's MusicDataSource shape, simplified
 
-import type { Video, VideoSeries, VideoSeason } from "@freqhole/api-client";
+import type {
+  Video,
+  VideoSeries,
+  VideoSeason,
+  VideoWithMetadata,
+} from "@freqhole/api-client";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -9,7 +14,7 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 // the video domain (mirrors grimoire's video::crud::entity_imagez::VideoEntityType)
 export type VideoImageEntityType = "video" | "video_series";
 
-export type { Video, VideoSeries, VideoSeason };
+export type { Video, VideoSeries, VideoSeason, VideoWithMetadata };
 
 /** a browsable video row — local or remote, with the same local-storage
  * bookkeeping fields a queued video carries (minus queue-only fields).
@@ -51,6 +56,7 @@ export interface VideoQueryParams {
 export interface VideoDataSource {
   getVideos(params?: VideoQueryParams): Promise<PaginatedVideos>;
   getVideoById(id: string): Promise<VideoSummary | null>;
+  getVideoWithMetadata?(id: string): Promise<VideoWithMetadata | null>;
   getVideoSeriesList(params?: {
     offset?: number;
     limit?: number;

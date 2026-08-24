@@ -17,6 +17,7 @@ import {
   STORE_SONGS,
   STORE_TAGS,
   STORE_TAXONS,
+  STORE_TAXON_KINDS,
 } from "../types";
 import { debug } from "../../../../utils/logger";
 
@@ -209,6 +210,16 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         entityTaxonsStore.createIndex("by_taxon_id", ["entity_type", "taxon_id"]);
         entityTaxonsStore.createIndex("by_remote_id", "remote_id");
         entityTaxonsStore.createIndex("by_created_at", "created_at");
+      }
+
+      // taxon_kinds - explicit local kind metadata (see TaxonKindRow doc
+      // comment), keyed by (domain, kind_slug) so "tag" can independently
+      // exist under both "music" and "video" domains.
+      if (!db.objectStoreNames.contains(STORE_TAXON_KINDS)) {
+        const taxonKindsStore = db.createObjectStore(STORE_TAXON_KINDS, {
+          keyPath: ["domain", "kind_slug"],
+        });
+        taxonKindsStore.createIndex("by_domain", "domain");
       }
 
       // v11 -> v12: migrate cached songs from `album_genres` (GenreRef[]) to

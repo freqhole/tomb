@@ -7,6 +7,10 @@ import {
   updateLocalVideo,
 } from "../../services/storage/db/videos";
 import { getLocalVideoSeriesList } from "../../services/storage/db/series";
+import {
+  getOrCreateLocalVideoSeries,
+  updateLocalVideoSeries,
+} from "../../services/storage/db/series";
 import { getLocalVideoSeasons } from "../../services/storage/db/seasons";
 import { purgeVideoFromOPFS } from "../../services/opfs/helpers";
 import type {
@@ -61,6 +65,8 @@ export class LocalVideoDataSource implements VideoDataSource {
     description?: string | null;
     episode_number?: number | null;
     release_date?: string | null;
+    series_id?: string | null;
+    season_id?: string | null;
   }): Promise<void> {
     const { video_id, ...updates } = params;
     await updateLocalVideo(video_id, updates);
@@ -68,6 +74,32 @@ export class LocalVideoDataSource implements VideoDataSource {
 
   async deleteVideo(videoId: string): Promise<void> {
     await purgeVideoFromOPFS(videoId);
+  }
+
+  async createVideoSeries(params: {
+    title: string;
+    description?: string | null;
+  }): Promise<VideoSeries> {
+    // mirrors music's `getOrCreateArtist` dedup-by-name pattern so a
+    // repeated create (e.g. double-click, or the same title typed again
+    // via the autocomplete's "create new" affordance) never spawns
+    // duplicate local series rows.
+    const series = await getOrCreateLocalVideoSeries(params.title);
+    if (params.description && !series.description) {
+      await updateLocalVideoSeries(series.id, { description: params.description });
+      return { ...series, description: params.description };
+    }
+    return series;
+  }
+
+  async updateVideoSeries(params: {
+    series_id: string;
+    title?: string;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }): Promise<void> {
+    const { series_id, ...updates } = params;
+    await updateLocalVideoSeries(series_id, updates);
   }
 }
 

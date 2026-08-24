@@ -63,6 +63,22 @@ export function useVideoQuery(videoId: () => string | undefined) {
   }));
 }
 
+export function useVideoWithMetadataQuery(videoId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: [...videoQueryKeys.videos.detail(videoId() || ""), "with-metadata"],
+    queryFn: async () => {
+      const id = videoId();
+      if (!id) return null;
+      const dataSource = getVideoDataSource();
+      if (!dataSource.getVideoWithMetadata) return null;
+      return dataSource.getVideoWithMetadata(id);
+    },
+    enabled: !!videoId(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  }));
+}
+
 export interface UpdateVideoMutationParams {
   video_id: string;
   title?: string;

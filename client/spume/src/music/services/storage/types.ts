@@ -269,7 +269,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 14;
+export const MUSIC_DB_VERSION = 15;
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -285,6 +285,7 @@ export const STORE_ALBUM_TAGS = "album_tags";
 export const STORE_TAXONS = "taxons";
 export const STORE_ALBUM_TAXONS = "album_taxons";
 export const STORE_ENTITY_TAXONS = "entity_taxons";
+export const STORE_TAXON_KINDS = "taxon_kinds";
 
 // sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
 // entries that belong to the local indexeddb library. matches
@@ -336,5 +337,24 @@ export interface EntityTaxonRow {
   entity_id: string;
   taxon_id: string;
   remote_id: string;
+  created_at: number;
+}
+
+// ===== TAXON_KINDS TABLE (local, explicit kind creation) =====
+// a locally-created taxon kind's own metadata (label/color/etc.), scoped
+// by domain so a kind created for "video" doesn't leak into "music"'s
+// listing. distinct from a kind_slug merely *appearing* because some
+// taxon value already uses it (see `resolveKindSlugsForDomain` in
+// `localTaxonomyClient.ts`) - this store exists so a kind can be created
+// with real metadata before any value is ever added under it.
+export interface TaxonKindRow {
+  kind_slug: string;
+  domain: string;
+  label: string;
+  description: string | null;
+  color: string | null;
+  value_type: string;
+  unit: string | null;
+  display_order: number;
   created_at: number;
 }

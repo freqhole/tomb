@@ -133,6 +133,140 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
     }
 }
 
+/// get video by id with enriched media blob metadata
+pub async fn get_video_with_metadata(
+    id: &str,
+) -> GrimoireResponse<crate::video::VideoWithMetadata> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    // join videoz with media_blobz and userz to get enriched data
+    #[derive(sqlx::FromRow)]
+    struct QueryRow {
+        video_id: String,
+        series_id: Option<String>,
+        season_id: Option<String>,
+        episode_number: Option<i64>,
+        video_title: String,
+        description: Option<String>,
+        media_blob_id: String,
+        poster_blob_id: Option<String>,
+        duration_seconds: Option<f64>,
+        release_date: Option<String>,
+        video_created_at: i64,
+        video_updated_at: i64,
+        deleted_at: Option<i64>,
+        created_by: Option<String>,
+        updated_by: Option<String>,
+        deleted_by: Option<String>,
+        blob_size: Option<i64>,
+        blob_width: Option<i64>,
+        blob_height: Option<i64>,
+        blob_metadata: String,
+        created_by_username: Option<String>,
+        updated_by_username: Option<String>,
+    }
+
+    let result = sqlx::query_as::<_, QueryRow>(
+        r#"SELECT
+            v.id as video_id,
+            v.series_id,
+            v.season_id,
+            v.episode_number,
+            v.title as video_title,
+            v.description,
+            v.media_blob_id,
+            v.poster_blob_id,
+            v.duration_seconds,
+            v.release_date,
+            v.created_at as video_created_at,
+            v.updated_at as video_updated_at,
+            v.deleted_at,
+            v.created_by,
+            v.updated_by,
+            v.deleted_by,
+            b.size as blob_size,
+            b.width as blob_width,
+            b.height as blob_height,
+            COALESCE(b.metadata, '{}') as blob_metadata,
+            cu.username as created_by_username,
+            uu.username as updated_by_username
+         FROM videoz v
+         LEFT JOIN media_blobz b ON v.media_blob_id = b.id
+         LEFT JOIN userz cu ON v.created_by = cu.id
+         LEFT JOIN userz uu ON v.updated_by = uu.id
+         WHERE v.id = ? AND v.deleted_at IS NULL"#,
+    )
+    .bind(id)
+    .fetch_optional(&pool)
+    .await;
+
+    let row = match result {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            let err = GrimoireError::VideoNotFound { id: id.to_string() };
+            return GrimoireResponse::failure("Video not found", vec![ErrorDetail::from(&err)]);
+        }
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to get video", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    // parse metadata JSON to extract codec/container/bitrate/frame_rate
+    let metadata: serde_json::Value = serde_json::from_str(&row.blob_metadata).unwrap_or_default();
+    let codec = metadata
+        .get("codec")
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+    let container = metadata
+        .get("container")
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+    let bitrate = metadata.get("bitrate").and_then(|b| b.as_i64());
+    let frame_rate = metadata.get("frame_rate").and_then(|f| f.as_f64());
+
+    let video = Video {
+        id: row.video_id,
+        series_id: row.series_id,
+        season_id: row.season_id,
+        episode_number: row.episode_number,
+        title: row.video_title,
+        description: row.description,
+        media_blob_id: row.media_blob_id,
+        poster_blob_id: row.poster_blob_id,
+        duration_seconds: row.duration_seconds,
+        release_date: row.release_date,
+        created_at: row.video_created_at,
+        updated_at: row.video_updated_at,
+        deleted_at: row.deleted_at,
+        created_by: row.created_by,
+        updated_by: row.updated_by,
+        deleted_by: row.deleted_by,
+    };
+
+    let video_with_metadata = crate::video::VideoWithMetadata {
+        video,
+        created_by_username: row.created_by_username,
+        updated_by_username: row.updated_by_username,
+        blob_size: row.blob_size,
+        blob_width: row.blob_width,
+        blob_height: row.blob_height,
+        codec,
+        container,
+        bitrate,
+        frame_rate,
+    };
+
+    GrimoireResponse::success("Video retrieved successfully", video_with_metadata)
+}
+
 /// list every video attached to a series (both season-grouped and
 /// season-less episodes), non-deleted only
 pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Video>> {
