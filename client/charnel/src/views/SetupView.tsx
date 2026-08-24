@@ -45,6 +45,7 @@ interface ScanResult {
 interface MusicDir {
   path: string;
   tags: string[];
+  domain: "music" | "video";
   scanned: boolean;
 }
 
@@ -77,9 +78,7 @@ export default function SetupView() {
   // advanced config toggle
   const [showAdvanced, setShowAdvanced] = createSignal(false);
   // dependency check state
-  const [depCheck, setDepCheck] = createSignal<DependencyCheckResult | null>(
-    null,
-  );
+  const [depCheck, setDepCheck] = createSignal<DependencyCheckResult | null>(null);
   const [depCheckLoading, setDepCheckLoading] = createSignal(true);
   // federation options
   const [federationEnabled, setFederationEnabled] = createSignal(false);
@@ -135,15 +134,9 @@ export default function SetupView() {
       }>();
       channel.onmessage = (frame) => {
         if (frame.kind !== "event") return;
-        const evt = frame.evt as
-          | { kind?: string; details?: Record<string, unknown> }
-          | undefined;
+        const evt = frame.evt as { kind?: string; details?: Record<string, unknown> } | undefined;
         if (!evt) return;
-        if (
-          evt.kind === "progress" &&
-          evt.details &&
-          typeof evt.details === "object"
-        ) {
+        if (evt.kind === "progress" && evt.details && typeof evt.details === "object") {
           const d = evt.details as {
             directory?: string;
             songs_added?: number;
@@ -220,9 +213,7 @@ export default function SetupView() {
         directory: false,
         multiple: false,
         title: "choose server icon image",
-        filters: [
-          { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] },
-        ],
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
       });
       if (selected) {
         setServerImage(await resolvePath(selected as string));
@@ -304,7 +295,7 @@ export default function SetupView() {
         const resolved = await resolvePath(selected as string);
         setMusicDirs([
           ...musicDirs(),
-          { path: resolved, tags: [], scanned: false },
+          { path: resolved, tags: [], domain: "music", scanned: false },
         ]);
       }
     } catch (e) {
@@ -321,19 +312,17 @@ export default function SetupView() {
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
-    setMusicDirs(
-      musicDirs().map((d) => (d.path === path ? { ...d, tags } : d)),
-    );
+    setMusicDirs(musicDirs().map((d) => (d.path === path ? { ...d, tags } : d)));
   }
 
   function updateMusicDirPath(oldPath: string, newPath: string) {
     const trimmed = newPath.trim();
     if (!trimmed || trimmed === oldPath) return;
-    setMusicDirs(
-      musicDirs().map((d) =>
-        d.path === oldPath ? { ...d, path: trimmed } : d,
-      ),
-    );
+    setMusicDirs(musicDirs().map((d) => (d.path === oldPath ? { ...d, path: trimmed } : d)));
+  }
+
+  function updateMusicDirDomain(path: string, domain: "music" | "video") {
+    setMusicDirs(musicDirs().map((d) => (d.path === path ? { ...d, domain } : d)));
   }
 
   async function scanMusicDirs() {
@@ -346,12 +335,9 @@ export default function SetupView() {
           await invoke<ScanResult>("scan_directory", {
             path: dir.path,
             tags: dir.tags,
+            domain: dir.domain,
           });
-          setMusicDirs(
-            musicDirs().map((d) =>
-              d.path === dir.path ? { ...d, scanned: true } : d,
-            ),
-          );
+          setMusicDirs(musicDirs().map((d) => (d.path === dir.path ? { ...d, scanned: true } : d)));
         }
       }
       setStep("done");
@@ -393,9 +379,7 @@ export default function SetupView() {
         <div class="step">
           <h1>welcome to freqhole</h1>
 
-          <p style={{ "margin-bottom": "1rem", color: "#a1a1aa" }}>
-            this wizard will help you:
-          </p>
+          <p style={{ "margin-bottom": "1rem", color: "#a1a1aa" }}>this wizard will help you:</p>
           <ul class="list">
             <li>configure freqhole</li>
             <li>set up a new database</li>
@@ -423,9 +407,7 @@ export default function SetupView() {
             </h3>
 
             <Show when={depCheckLoading()}>
-              <p style={{ color: "#71717a", "font-size": "0.875rem" }}>
-                checking dependencies...
-              </p>
+              <p style={{ color: "#71717a", "font-size": "0.875rem" }}>checking dependencies...</p>
             </Show>
 
             <Show when={!depCheckLoading() && depCheck()}>
@@ -441,9 +423,7 @@ export default function SetupView() {
                 >
                   <span
                     style={{
-                      color: depCheck()!.ffmpeg_installed
-                        ? "#4ade80"
-                        : "#f87171",
+                      color: depCheck()!.ffmpeg_installed ? "#4ade80" : "#f87171",
                     }}
                   >
                     {depCheck()!.ffmpeg_installed ? "✓" : "✕"}
@@ -469,9 +449,7 @@ export default function SetupView() {
                 >
                   <span
                     style={{
-                      color: depCheck()!.ytdlp_installed
-                        ? "#4ade80"
-                        : "#fbbf24",
+                      color: depCheck()!.ytdlp_installed ? "#4ade80" : "#fbbf24",
                     }}
                   >
                     {depCheck()!.ytdlp_installed ? "✓" : "○"}
@@ -505,8 +483,7 @@ export default function SetupView() {
                         "font-size": "0.8125rem",
                       }}
                     >
-                      audio transcoding requires ffmpeg. on macOS:{" "}
-                      <code>brew install ffmpeg</code>
+                      audio transcoding requires ffmpeg. on macOS: <code>brew install ffmpeg</code>
                     </p>
                   </div>
                 </Show>
@@ -545,11 +522,7 @@ export default function SetupView() {
           </div>
 
           <div class="button-row">
-            <button
-              class="primary"
-              onClick={() => setStep("config")}
-              disabled={depCheckLoading()}
-            >
+            <button class="primary" onClick={() => setStep("config")} disabled={depCheckLoading()}>
               get started
             </button>
           </div>
@@ -599,9 +572,7 @@ export default function SetupView() {
                 </button>
               </Show>
             </div>
-            <p class="hint">
-              displayed in remote clients to identify your server.
-            </p>
+            <p class="hint">displayed in remote clients to identify your server.</p>
           </div>
 
           <div class="form-group">
@@ -614,11 +585,7 @@ export default function SetupView() {
                 onInput={(e) => setFetchMusicDir(e.currentTarget.value)}
                 placeholder="/path/to/music"
               />
-              <button
-                type="button"
-                class="browse-btn"
-                onClick={browseFetchMusicDir}
-              >
+              <button type="button" class="browse-btn" onClick={browseFetchMusicDir}>
                 browse
               </button>
             </div>
@@ -641,8 +608,7 @@ export default function SetupView() {
               <span class="checkbox-content">
                 <span class="checkbox-label">enable P2P federation</span>
                 <span class="checkbox-hint">
-                  connect with other freqhole servers over encrypted P2P
-                  network.
+                  connect with other freqhole servers over encrypted P2P network.
                 </span>
               </span>
             </label>
@@ -662,12 +628,10 @@ export default function SetupView() {
                   </svg>
                 </span>
                 <span class="checkbox-content">
-                  <span class="checkbox-label">
-                    allow unknown peers to knock
-                  </span>
+                  <span class="checkbox-label">allow unknown peers to knock</span>
                   <span class="checkbox-hint">
-                    let unknown users request access to your server. you can
-                    approve/reject them later.
+                    let unknown users request access to your server. you can approve/reject them
+                    later.
                   </span>
                 </span>
               </label>
@@ -677,9 +641,7 @@ export default function SetupView() {
                 <input
                   type="checkbox"
                   checked={remoteAdminEnabled()}
-                  onChange={(e) =>
-                    setRemoteAdminEnabled(e.currentTarget.checked)
-                  }
+                  onChange={(e) => setRemoteAdminEnabled(e.currentTarget.checked)}
                 />
                 <span class="checkbox-box">
                   <svg viewBox="0 0 14 14">
@@ -687,9 +649,7 @@ export default function SetupView() {
                   </svg>
                 </span>
                 <span class="checkbox-content">
-                  <span class="checkbox-label">
-                    enable remote admin over P2P
-                  </span>
+                  <span class="checkbox-label">enable remote admin over P2P</span>
                   <span class="checkbox-hint">
                     allow admin control channels over federation transport.
                   </span>
@@ -712,9 +672,7 @@ export default function SetupView() {
               </span>
               <span class="checkbox-content">
                 <span class="checkbox-label">enable radio</span>
-                <span class="checkbox-hint">
-                  enable radio routes and playback services.
-                </span>
+                <span class="checkbox-hint">enable radio routes and playback services.</span>
               </span>
             </label>
           </div>
@@ -733,9 +691,7 @@ export default function SetupView() {
               </span>
               <span class="checkbox-content">
                 <span class="checkbox-label">enable fetch music routes</span>
-                <span class="checkbox-hint">
-                  controls [server.fetch_music].enabled in config.
-                </span>
+                <span class="checkbox-hint">controls [server.fetch_music].enabled in config.</span>
               </span>
             </label>
           </div>
@@ -766,8 +722,7 @@ export default function SetupView() {
                   </button>
                 </div>
                 <p class="hint">
-                  where database, cache, config, and miscellaneous filez are
-                  stored.
+                  where database, cache, config, and miscellaneous filez are stored.
                 </p>
               </div>
             </div>
@@ -809,9 +764,7 @@ export default function SetupView() {
       <Show when={step() === "admin"}>
         <div class="step">
           <h1>create admin account</h1>
-          <p class="subtitle">
-            create an administrator account to manage your server.
-          </p>
+          <p class="subtitle">create an administrator account to manage your server.</p>
 
           <div class="form-group">
             <label for="username">admin username</label>
@@ -823,8 +776,8 @@ export default function SetupView() {
               onInput={(e) => setUsername(e.currentTarget.value)}
             />
             <p class="hint">
-              choose a username for your admin account. this account will have
-              full access to manage your server.
+              choose a username for your admin account. this account will have full access to manage
+              your server.
             </p>
           </div>
 
@@ -844,9 +797,7 @@ export default function SetupView() {
       <Show when={step() === "music"}>
         <div class="step">
           <h1>add your music</h1>
-          <p class="subtitle">
-            optionally add directories to scan for music filez.
-          </p>
+          <p class="subtitle">optionally add directories to scan for music filez.</p>
 
           <div class="directory-list" style={{ margin: "1.5rem 0" }}>
             <Show when={musicDirs().length === 0}>
@@ -860,31 +811,49 @@ export default function SetupView() {
                       type="text"
                       class="directory-path-input"
                       value={dir.path}
-                      onBlur={(e) =>
-                        updateMusicDirPath(dir.path, e.currentTarget.value)
-                      }
+                      onBlur={(e) => updateMusicDirPath(dir.path, e.currentTarget.value)}
                       disabled={dir.scanned}
                     />
                     <Show when={dir.scanned}>
                       <span class="directory-meta">queued for scan</span>
                     </Show>
+                    <div
+                      class="domain-toggle-row"
+                      style={{ display: "flex", gap: "1rem", margin: "0.4rem 0" }}
+                    >
+                      <label>
+                        <input
+                          type="radio"
+                          name={`domain-${dir.path}`}
+                          checked={dir.domain === "music"}
+                          disabled={dir.scanned}
+                          onChange={() => updateMusicDirDomain(dir.path, "music")}
+                        />{" "}
+                        music
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name={`domain-${dir.path}`}
+                          checked={dir.domain === "video"}
+                          disabled={dir.scanned}
+                          onChange={() => updateMusicDirDomain(dir.path, "video")}
+                        />{" "}
+                        video
+                      </label>
+                    </div>
                     <div class="tag-input-row">
                       <input
                         type="text"
                         class="tag-input"
                         placeholder="optional tags (comma-separated)"
                         value={dir.tags.join(", ")}
-                        onBlur={(e) =>
-                          updateMusicDirTags(dir.path, e.currentTarget.value)
-                        }
+                        onBlur={(e) => updateMusicDirTags(dir.path, e.currentTarget.value)}
                         disabled={dir.scanned}
                       />
                     </div>
                   </div>
-                  <button
-                    class="secondary small"
-                    onClick={() => removeMusicDir(dir.path)}
-                  >
+                  <button class="secondary small" onClick={() => removeMusicDir(dir.path)}>
                     remove
                   </button>
                 </div>
@@ -953,14 +922,11 @@ export default function SetupView() {
               </div>
               <div style={{ color: "#a1a1aa", "font-size": "0.875rem" }}>
                 <Show when={jobProgress()?.directory}>
-                  <div style={{ "margin-bottom": "0.25rem" }}>
-                    {jobProgress()?.directory}
-                  </div>
+                  <div style={{ "margin-bottom": "0.25rem" }}>{jobProgress()?.directory}</div>
                 </Show>
                 <div>
-                  {jobProgress()?.songsAdded} songs added •{" "}
-                  {jobProgress()?.jobsPending} of {jobProgress()?.jobsTotal}{" "}
-                  remaining
+                  {jobProgress()?.songsAdded} songs added • {jobProgress()?.jobsPending} of{" "}
+                  {jobProgress()?.jobsTotal} remaining
                 </div>
               </div>
             </div>
@@ -983,8 +949,7 @@ export default function SetupView() {
 
           <Show when={!jobProgress() && !jobsComplete()}>
             <p style={{ color: "#a1a1aa", "margin-bottom": "1.5rem" }}>
-              the server will start automatically. you can control it from the
-              menu bar icon.
+              the server will start automatically. you can control it from the menu bar icon.
             </p>
           </Show>
 

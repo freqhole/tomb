@@ -33,6 +33,11 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
                 reason: "missing local_path".to_string(),
             })?;
 
+    // original filename (e.g. what the user picked/uploaded) - `local_path`
+    // is the on-disk storage path, named after the blob's id, so it can't
+    // be used to derive a human-readable title.
+    let filename = params["filename"].as_str();
+
     info!(
         "importing video: blob_id={}, local_path={}",
         blob_id, local_path_str
@@ -57,7 +62,8 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
 
     crate::jobs::job_events::emit_stage_from_job(job, "importing", Some("importing video"));
 
-    let import_result = import_video_file(&blob_id, file_path, job.created_by.clone()).await?;
+    let import_result =
+        import_video_file(&blob_id, file_path, filename, job.created_by.clone()).await?;
 
     info!(
         "successfully imported video: video_id={}, is_duplicate={}",

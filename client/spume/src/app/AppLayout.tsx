@@ -34,6 +34,7 @@ import {
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar } from "../components/player/PlayerBar";
+import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getCurrentUser, getDataSource, useLocalSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
@@ -119,6 +120,7 @@ import {
   openImageCarouselFromResolvers,
   type ImageResolveResult,
 } from "../music/hooks/modals";
+import { openAddVideo } from "../video/hooks/modals";
 import {
   appState,
   setQueueOpen,
@@ -1200,6 +1202,7 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "artists", path: `${prefix}/artists` },
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
+      { label: "videos", path: `${prefix}/video` },
     ];
     // feed is only available for remote sources
     if (!routeContext.isLocal()) {
@@ -1310,6 +1313,7 @@ export function AppLayout(props: AppLayoutProps) {
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
         onAddMusic={() => openAddMusic()}
+        onAddVideo={() => openAddVideo()}
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
         viewOptions={viewOptions()}
@@ -1866,38 +1870,43 @@ export function AppLayout(props: AppLayoutProps) {
             ) : undefined;
 
           return (
-            <PlayerBar
-              song={barSong()}
-              isPlaying={barIsPlaying()}
-              isLoading={barIsLoading()}
-              hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
-              currentTime={barCurrentTime()}
-              duration={barDuration()}
-              volume={volume()}
-              queueOpen={queueOpen()}
-              onPlayPause={onPlayPause}
-              onPrevious={onPrev}
-              onNext={onNext}
-              onSeek={onSeekCb}
-              onVolumeChange={setPlayerVolume}
-              onQueueToggle={handleQueueToggle}
-              onFavoriteToggle={onFavToggle}
-              onImageClick={onImageClick}
-              onSongMetaClick={onSongMetaClick}
-              queueLength={appState()?.queue.length || 0}
-              canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
-              canGoPrevious={isRadio() ? false : canGoPrevious()}
-              showNext={!isRadio() || canAdminSkipRadioTrack()}
-              showPrevious={!isRadio()}
-              statusBadge={statusBadge()}
-              isLiveStream={isRadio()}
-              showExternalStorageIcon={externalStorageMounted()}
-              externalStorageBusy={externalStorageSyncingSignal()}
-              externalStorageProgress={externalStorageSyncProgressSignal()}
-              onExternalStorageIconClick={() => navigate("/storage-overview")}
-              isVideoActive={!isRadio() && !!currentVideoData()}
-              videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
-            />
+            <>
+              <Show when={!isRadio() && currentVideoData() && getVideoElement()}>
+                {(el) => <VideoMiniPlayer videoElement={el()} />}
+              </Show>
+              <PlayerBar
+                song={barSong()}
+                isPlaying={barIsPlaying()}
+                isLoading={barIsLoading()}
+                hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
+                currentTime={barCurrentTime()}
+                duration={barDuration()}
+                volume={volume()}
+                queueOpen={queueOpen()}
+                onPlayPause={onPlayPause}
+                onPrevious={onPrev}
+                onNext={onNext}
+                onSeek={onSeekCb}
+                onVolumeChange={setPlayerVolume}
+                onQueueToggle={handleQueueToggle}
+                onFavoriteToggle={onFavToggle}
+                onImageClick={onImageClick}
+                onSongMetaClick={onSongMetaClick}
+                queueLength={appState()?.queue.length || 0}
+                canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
+                canGoPrevious={isRadio() ? false : canGoPrevious()}
+                showNext={!isRadio() || canAdminSkipRadioTrack()}
+                showPrevious={!isRadio()}
+                statusBadge={statusBadge()}
+                isLiveStream={isRadio()}
+                showExternalStorageIcon={externalStorageMounted()}
+                externalStorageBusy={externalStorageSyncingSignal()}
+                externalStorageProgress={externalStorageSyncProgressSignal()}
+                onExternalStorageIconClick={() => navigate("/storage-overview")}
+                isVideoActive={!isRadio() && !!currentVideoData()}
+                videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
+              />
+            </>
           );
         })()}
       </Show>

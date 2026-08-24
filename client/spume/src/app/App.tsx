@@ -7,6 +7,7 @@ import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { toast } from "../components/feedback/Toast";
 import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
 import { AddMusicModal } from "../components/modals/AddMusicModal";
+import { AddVideoModal } from "../components/modals/AddVideoModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
@@ -51,6 +52,14 @@ import {
   uploadFilesToRemote,
   uploadPathsToRemote,
 } from "../music/import";
+import { closeAddVideo, openAddVideo, useAddVideoState } from "../video/hooks/modals";
+import { importVideoFiles } from "../video/import/localImport";
+import {
+  clearCompletedVideoJobs,
+  getVideoUploadJobs,
+  uploadVideoFilesToRemote,
+  uploadVideoPathsToRemote,
+} from "../video/import/remoteImport";
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
 import { swapPlayerBackend } from "../music/services/audio/player";
@@ -67,7 +76,7 @@ import { recoverLegacyImages } from "../music/services/storage/legacyImageRecove
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
-import { AUDIO_EXTS } from "../utils/filePicker";
+import { AUDIO_EXTS, VIDEO_EXTS } from "../utils/filePicker";
 import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
 import {
@@ -110,6 +119,7 @@ import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
 export function App() {
   const queryClient = useQueryClient();
   const isAddMusicOpen = useAddMusicState();
+  const isAddVideoOpen = useAddVideoState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   // session id for the import review modal - set when user clicks "review now"
@@ -1012,6 +1022,129 @@ export function App() {
     closeAddMusic();
   };
 
+  // callback for when any remote video job completes — invalidate video queries
+  const onRemoteVideoJobComplete = () => {
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return key === "videos" || key === "video";
+      },
+      // refetch even queries with no active observer right now (e.g. the
+      // videos view isn't mounted at the moment the upload finishes) - a
+      // plain "active"-only refetch would just mark them stale and rely on
+      // refetchOnMount, but useVideosQuery sets refetchOnMount: false, so
+      // the grid/table would keep showing the pre-upload list until a full
+      // reload.
+      refetchType: "all",
+    });
+  };
+
+  const handleVideoFilesSelected = async (files: FileList) => {
+    const remote = getCurrentRemote();
+
+    if (remote) {
+      // remote upload: fire-and-forget, jobs are tracked reactively
+      await uploadVideoFilesToRemote(Array.from(files), onRemoteVideoJobComplete);
+    } else {
+      // local import: process files into OPFS/IndexedDB
+      try {
+        const result = await importVideoFiles(Array.from(files));
+        if (result.errors.length > 0) {
+          console.error("failed to import some video files:", result.errors);
+        }
+        if (result.imported > 0) {
+          onRemoteVideoJobComplete();
+        } else if (result.errors.length > 0) {
+          toast.error("failed to import video files", { title: "import error" });
+        }
+      } catch (error) {
+        console.error("failed to process video files:", error);
+        toast.error("failed to import video files", { title: "import error" });
+      }
+    }
+  };
+
+  // handle video paths selected via tauri dialog (desktop only, Android uses file input)
+  // supports local import (no remote), charnel-managed local remotes, and P2P remotes
+  const handleVideoPathsSelected = async (paths: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote) {
+      // local import from file paths: read files via tauri-plugin-fs and import locally
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+          readFile: (path: string) => Promise<Uint8Array>;
+        };
+
+        const videoFilePaths = await expandPathsToVideoFiles(paths);
+
+        const files: File[] = [];
+        for (const filePath of videoFilePaths) {
+          try {
+            const data = await fsModule.readFile(filePath);
+            const filename = filePath.split("/").pop() || filePath.split("\\").pop() || "video.mp4";
+            const ext = filename.split(".").pop()?.toLowerCase() || "";
+            const mimeMap: Record<string, string> = {
+              mp4: "video/mp4",
+              mkv: "video/x-matroska",
+              webm: "video/webm",
+              mov: "video/quicktime",
+              avi: "video/x-msvideo",
+            };
+            files.push(
+              new File([data as BlobPart], filename, { type: mimeMap[ext] || "video/mp4" })
+            );
+          } catch (err) {
+            console.error("failed to read file:", filePath, err);
+          }
+        }
+
+        if (files.length > 0) {
+          const result = await importVideoFiles(files);
+          if (result.errors.length > 0) {
+            console.error("failed to import some video files:", result.errors);
+          }
+          if (result.imported > 0) onRemoteVideoJobComplete();
+        }
+      } catch (error) {
+        console.error("failed to import local video paths:", error);
+        toast.error("failed to read files", { title: "import error" });
+      }
+      return;
+    }
+
+    // P2P remote: upload each file via iroh-blobs pull model
+    if (remote.peer_addr) {
+      const videoFilePaths = await expandPathsToVideoFiles(paths);
+      await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete);
+      return;
+    }
+
+    // charnel-managed local remote: send paths directly (server reads from disk)
+    if (!remote.is_charnel_managed) {
+      toast.warning("path-based import is only available for local or P2P remotes", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    // no batch-by-paths endpoint exists for video (unlike musicByPaths) - upload
+    // each expanded path individually, same as the P2P branch.
+    try {
+      const videoFilePaths = await expandPathsToVideoFiles(paths);
+      await uploadVideoPathsToRemote(videoFilePaths, onRemoteVideoJobComplete);
+    } catch (error) {
+      console.error("failed to import video paths:", error);
+      toast.error("failed to start import", { title: "import error" });
+    }
+  };
+
+  const handleCloseAddVideo = () => {
+    clearCompletedVideoJobs();
+    closeAddVideo();
+  };
+
   const handleSongDoubleClick = async (song: Song) => {
     // add song to end of queue and play it
     await addToQueue([song], { startPlaying: true, source: { type: "song", label: song.title } });
@@ -1048,6 +1181,7 @@ export function App() {
           <HashRouter>
             {routes({
               onAddMusic: () => openAddMusic(),
+              onAddVideo: () => openAddVideo(),
               onSongDoubleClick: handleSongDoubleClick,
               onImportReview: (sid) => {
                 openReviewSession(sid);
@@ -1076,6 +1210,16 @@ export function App() {
         refetchReviewKey={reviewRefetchKey()}
         isAdmin={isAdmin()}
         dismissedReviewSessionId={completedReviewSessionId()}
+      />
+
+      <AddVideoModal
+        isOpen={isAddVideoOpen()}
+        onClose={handleCloseAddVideo}
+        onFilesSelected={handleVideoFilesSelected}
+        onPathsSelected={handleVideoPathsSelected}
+        remoteName={getCurrentRemote()?.name}
+        useCharnelDialog={isCharnelMode()}
+        uploadJobs={getVideoUploadJobs()}
       />
 
       <ImportReviewModal
@@ -1333,6 +1477,51 @@ async function expandPathsToAudioFiles(paths: string[]): Promise<string[]> {
     await collectAudioFiles(path);
   }
   return audioFilePaths;
+}
+
+/**
+ * expand a list of tauri-dialog-selected paths into video file paths.
+ * mirrors `expandPathsToAudioFiles` above (same recursion into directories),
+ * shared by every `handleVideoPathsSelected` branch.
+ */
+async function expandPathsToVideoFiles(paths: string[]): Promise<string[]> {
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const fsModule = (await import("@tauri-apps/plugin-fs" as any)) as {
+    readDir: (path: string) => Promise<{ name: string; isDirectory: boolean }[]>;
+  };
+  // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+  const pathModule = (await import("@tauri-apps/api/path" as any)) as {
+    join: (...parts: string[]) => Promise<string>;
+  };
+
+  const videoFilePaths: string[] = [];
+  const collectVideoFiles = async (path: string): Promise<void> => {
+    let entries: { name: string; isDirectory: boolean }[] | null = null;
+    try {
+      entries = await fsModule.readDir(path);
+    } catch {
+      // not a directory - treat as a single file path
+    }
+    if (entries === null) {
+      videoFilePaths.push(path);
+      return;
+    }
+    for (const entry of entries) {
+      const entryPath = await pathModule.join(path, entry.name);
+      if (entry.isDirectory) {
+        await collectVideoFiles(entryPath);
+      } else {
+        const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+        if (VIDEO_EXTS.includes(ext)) {
+          videoFilePaths.push(entryPath);
+        }
+      }
+    }
+  };
+  for (const path of paths) {
+    await collectVideoFiles(path);
+  }
+  return videoFilePaths;
 }
 
 /**

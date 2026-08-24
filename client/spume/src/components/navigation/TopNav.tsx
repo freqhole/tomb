@@ -18,7 +18,7 @@ import {
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { isNarrowViewport } from "../../config/breakpoints";
-import { canCreatePlaylist, canUploadMusic } from "../../music/data/permissions";
+import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { routes } from "../../music/utils/routing";
@@ -169,8 +169,17 @@ export interface TopNavProps {
   viewOptions?: ViewOption[];
   /** callback for add music action */
   onAddMusic?: () => void;
+  /** callback for add video action */
+  onAddVideo?: () => void;
   /** additional classes */
   class?: string;
+}
+
+// video uploads don't have a dedicated generated permission (no
+// `upload_video` role check exists in the codegen'd `permissions` module
+// yet) - reuse the generic member-role check instead of forking one.
+function canUploadVideo(): boolean {
+  return isMemberOrHigher();
 }
 
 // remote type used internally
@@ -1049,14 +1058,24 @@ export function TopNav(props: TopNavProps) {
                             </div>
                           </Show>
                         </div>
-                        <Show when={props.onAddMusic && canUploadMusic()}>
-                          <button
-                            class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
-                            onClick={() => props.onAddMusic?.()}
-                          >
-                            add music
-                          </button>
-                        </Show>
+                        <div class="flex items-center gap-2">
+                          <Show when={props.onAddMusic && canUploadMusic()}>
+                            <button
+                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                              onClick={() => props.onAddMusic?.()}
+                            >
+                              add music
+                            </button>
+                          </Show>
+                          <Show when={props.onAddVideo && canUploadVideo()}>
+                            <button
+                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
+                              onClick={() => props.onAddVideo?.()}
+                            >
+                              add video
+                            </button>
+                          </Show>
+                        </div>
                       </div>
 
                       {/* aggregate feed link */}

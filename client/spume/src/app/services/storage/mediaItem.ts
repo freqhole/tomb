@@ -20,10 +20,19 @@ import type { Song } from "../../../music/services/storage/types";
 export interface QueuedVideo extends Video {
   /** assigned when the video is added to the queue (progress tracking). */
   queue_entry_id?: string;
-  /** which remote this video came from. video content is always
-   * server-backed (no local-only OPFS video library exists yet, unlike
-   * songs) — always resolved via the remote transport blob path. */
-  remote_server_id: string;
+  /** which remote this video came from — required for remote/server-backed
+   * videos (resolved via the remote transport blob path), absent for a
+   * locally-imported (OPFS-backed) video. */
+  remote_server_id?: string;
+  /** `"local"` for a browser-imported video stored in OPFS (see
+   * `video/services/opfs/helpers.ts`), `"remote"` for a server-backed
+   * video. mirrors `Song.source_type`, simplified (no downloaded/synced
+   * variants yet for video). */
+  source_type: "local" | "remote";
+  /** local/imported videos: OPFS path for the video file. */
+  opfs_path?: string | null;
+  /** local/imported videos: OPFS path for the generated poster thumbnail. */
+  poster_opfs_path?: string | null;
 }
 
 export type MediaItem = { kind: "song"; song: Song } | { kind: "video"; video: QueuedVideo };

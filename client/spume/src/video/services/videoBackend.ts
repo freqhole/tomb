@@ -18,6 +18,7 @@ import {
   type Unsubscribe,
 } from "../../music/services/audio/backend";
 import type { MediaItem } from "../../app/services/storage/mediaItem";
+import { setCurrentSong } from "../../app/services/storage/db";
 import { getVideoURL } from "./videoBlobAccess";
 import { error as errorLog } from "../../utils/logger";
 
@@ -151,6 +152,12 @@ export class VideoBackend implements PlayerBackend {
 
     this.currentVideoId = video.id;
     el.src = url;
+
+    // update app state — AppLayout/PlayerBar watch `current_sha256` to
+    // decide whether the mini video player + video-aware bar UI show up;
+    // without this the video plays (audio audible) but no video UI ever
+    // appears, since nothing else in this path updates app state.
+    await setCurrentSong(video.id);
 
     const initialPositionSec = options?.initialPosition ?? 0;
     if (initialPositionSec > 0) {

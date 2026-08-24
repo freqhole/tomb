@@ -11,11 +11,20 @@
   },
   "app": {
     "windows": [],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/**", "$APPDATA/**", "$APPLOCALDATA/**", "/home/**", "/var/home/**", "/run/flatpak/**", "/tmp/**"]
+        "scope": [
+          "$HOME/**",
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
+          "/home/**",
+          "/var/home/**",
+          "/run/flatpak/**",
+          "/tmp/**"
+        ]
       }
     }
   },
@@ -31,11 +40,16 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["libayatana-appindicator3-1", "ffmpeg"],
+        "depends": [
+          "libayatana-appindicator3-1",
+          "ffmpeg"
+        ],
         "desktopTemplate": "freqhole.desktop"
       },
       "rpm": {
-        "depends": ["libayatana-appindicator-gtk3"],
+        "depends": [
+          "libayatana-appindicator-gtk3"
+        ],
         "desktopTemplate": "freqhole.desktop"
       }
     }
@@ -43,10 +57,17 @@
   "plugins": {
     "deep-link": {
       "mobile": [
-        { "host": "*", "scheme": ["freqhole"] }
+        {
+          "host": "*",
+          "scheme": [
+            "freqhole"
+          ]
+        }
       ],
       "desktop": {
-        "schemes": ["freqhole"]
+        "schemes": [
+          "freqhole"
+        ]
       }
     }
   }

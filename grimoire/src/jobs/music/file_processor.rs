@@ -176,6 +176,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         let import_result = crate::video::importer::import_video_file(
             &media_blob_id,
             file_path,
+            None,
             job.created_by.clone(),
         )
         .await?;

@@ -27,6 +27,10 @@ import { SongsView } from "../../music/views/SongsView";
 import { RadioView } from "../../music/views/RadioView";
 import { SharedItemsView } from "../../music/views/SharedItemsView";
 import { StorageOverviewView } from "../../storage/views/StorageOverviewView";
+import { VideosView } from "../../video/views/VideosView";
+import { VideoDetailView } from "../../video/views/VideoDetailView";
+import { VideoSeriesView } from "../../video/views/VideoSeriesView";
+import { VideoSeriesDetailView } from "../../video/views/VideoSeriesDetailView";
 import { AppLayout } from "../AppLayout";
 import {
   SettingsLayout,
@@ -47,6 +51,7 @@ import { debug } from "../../utils/logger";
 
 interface RoutesProps {
   onAddMusic: () => void;
+  onAddVideo?: () => void;
   onSongDoubleClick: (song: any) => void;
   onImportReview?: (sessionId: string) => void;
 }
@@ -197,6 +202,10 @@ export function routes(props: RoutesProps) {
                 />
               )}
             />
+            <Route path="/video" component={() => <VideosView onAddVideo={props.onAddVideo} />} />
+            <Route path="/video/:videoId" component={VideoDetailView} />
+            <Route path="/video/series" component={VideoSeriesView} />
+            <Route path="/video/series/:id" component={VideoSeriesDetailView} />
           </Route>
         )}
 
@@ -236,6 +245,10 @@ export function routes(props: RoutesProps) {
               />
             )}
           />
+          <Route path="/video" component={() => <VideosView onAddVideo={props.onAddVideo} />} />
+          <Route path="/video/:videoId" component={VideoDetailView} />
+          <Route path="/video/series" component={VideoSeriesView} />
+          <Route path="/video/series/:id" component={VideoSeriesDetailView} />
         </Route>
       </Route>
     </>

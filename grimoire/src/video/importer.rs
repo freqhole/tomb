@@ -41,6 +41,7 @@ struct VideoProperties {
 pub async fn import_video_file(
     media_blob_id: &str,
     file_path: &Path,
+    original_filename: Option<&str>,
     created_by: Option<String>,
 ) -> Result<VideoImportResult, JobError> {
     let config = get_config();
@@ -63,8 +64,15 @@ pub async fn import_video_file(
 
     let props = probe_video_properties(file_path, &config).await;
 
-    let title = file_path
-        .file_stem()
+    // prefer the caller-supplied original filename (e.g. the name the user
+    // uploaded/picked) over `file_path`'s basename - on the upload path,
+    // `file_path` is the on-disk storage path, named after the media blob's
+    // id (not the original filename), so falling back to it as a title
+    // source would show a uuid instead of a human-readable name.
+    let title = original_filename
+        .map(|s| Path::new(s))
+        .or(Some(file_path))
+        .and_then(|p| p.file_stem())
         .and_then(|s| s.to_str())
         .unwrap_or("untitled")
         .to_string();
@@ -83,9 +91,11 @@ pub async fn import_video_file(
     };
 
     let video = match create_video(create_req).await {
-        response if response.success => response.data.ok_or_else(|| JobError::ProcessingFailed {
-            reason: "video creation succeeded but returned no data".to_string(),
-        })?,
+        response if response.success => {
+            response.data.ok_or_else(|| JobError::ProcessingFailed {
+                reason: "video creation succeeded but returned no data".to_string(),
+            })?
+        }
         response => {
             // race: another worker imported the same blob concurrently.
             let is_dup = response
@@ -93,8 +103,7 @@ pub async fn import_video_file(
                 .iter()
                 .any(|e| e.error_type == "duplicate_video");
             if is_dup {
-                if let Some(existing_video_id) = find_video_by_media_blob_id(media_blob_id).await?
-                {
+                if let Some(existing_video_id) = find_video_by_media_blob_id(media_blob_id).await? {
                     return Ok(VideoImportResult {
                         video_id: existing_video_id,
                         poster_blob_id: None,
@@ -149,8 +158,14 @@ pub async fn import_video_file(
     // inline subtitle extraction (best-effort per track)
     let mut subtitle_blob_ids = Vec::new();
     for stream_index in &props.subtitle_stream_indices {
-        match extract_subtitle_track(media_blob_id, file_path, *stream_index, &config, created_by.clone())
-            .await
+        match extract_subtitle_track(
+            media_blob_id,
+            file_path,
+            *stream_index,
+            &config,
+            created_by.clone(),
+        )
+        .await
         {
             Ok(blob_id) => subtitle_blob_ids.push(blob_id),
             Err(e) => warn!(
@@ -293,12 +308,27 @@ async fn extract_video_poster(
     config: &GrimoireConfig,
     created_by: Option<String>,
 ) -> Result<String, crate::error::GrimoireError> {
-    let temp_file = format!("/tmp/video_poster_{}.jpg", uuid::Uuid::new_v4());
+    // use the app's own data-dir-relative temp dir, not the OS-global `/tmp`:
+    // a packaged/sandboxed desktop (tauri) build may not have write access to
+    // `/tmp`, which would otherwise make poster extraction silently fail (this
+    // is a soft-fail path, so it wouldn't surface as a visible error - just a
+    // missing thumbnail).
+    let temp_dir = config.temp_dir();
+    if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
+        warn!("failed to create temp dir {}: {}", temp_dir.display(), e);
+    }
+    let temp_file = temp_dir
+        .join(format!("video_poster_{}.jpg", uuid::Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
     let input = file_path.to_string_lossy().to_string();
 
     run_ffmpeg(
         &config.media.extract_video_poster_args,
-        &[("{input}", input.as_str()), ("{output}", temp_file.as_str())],
+        &[
+            ("{input}", input.as_str()),
+            ("{output}", temp_file.as_str()),
+        ],
         &config.media.ffmpeg_path,
     )
     .await?;
@@ -360,7 +390,18 @@ async fn extract_subtitle_track(
     config: &GrimoireConfig,
     created_by: Option<String>,
 ) -> Result<String, crate::error::GrimoireError> {
-    let temp_file = format!("/tmp/video_subtitle_{}_{}.srt", stream_index, uuid::Uuid::new_v4());
+    let temp_dir = config.temp_dir();
+    if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
+        warn!("failed to create temp dir {}: {}", temp_dir.display(), e);
+    }
+    let temp_file = temp_dir
+        .join(format!(
+            "video_subtitle_{}_{}.srt",
+            stream_index,
+            uuid::Uuid::new_v4()
+        ))
+        .to_string_lossy()
+        .to_string();
     let input = file_path.to_string_lossy().to_string();
     let map_arg = format!("0:{}", stream_index);
 

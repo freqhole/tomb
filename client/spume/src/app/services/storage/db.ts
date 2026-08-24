@@ -107,6 +107,14 @@ async function initAppDB(): Promise<IDBPDatabase> {
   return dbInstance;
 }
 
+// pre-`MediaItem` queue entries were plain `Song` objects (no `kind`
+// discriminant) — wrap any such stragglers still sitting in an existing
+// user's IndexedDB so `mediaItemKey`/`isSongItem`/etc. don't crash on them.
+function migrateLegacyQueueItem(item: MediaItem | Song): MediaItem {
+  if (item && typeof item === "object" && "kind" in item) return item as MediaItem;
+  return { kind: "song", song: item as Song };
+}
+
 // load app state from db
 async function loadAppState(): Promise<AppState> {
   const db = await initAppDB();
@@ -122,6 +130,9 @@ async function loadAppState(): Promise<AppState> {
       active_remote_id: null,
       last_updated: Date.now(),
     };
+    await db.put(STORE_APP_STATE, state);
+  } else if (state.queue?.some((item: MediaItem | Song) => !item || !("kind" in item))) {
+    state = { ...state, queue: state.queue.map(migrateLegacyQueueItem) };
     await db.put(STORE_APP_STATE, state);
   }
 

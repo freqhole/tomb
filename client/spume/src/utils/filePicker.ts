@@ -25,7 +25,7 @@
 
 import { debug } from "./logger";
 
-export type FileKind = "audio" | "image";
+export type FileKind = "audio" | "image" | "video";
 
 export interface PickedFile {
   /** display filename (best-effort — derived from path/uri when native picker doesn't surface one) */
@@ -60,6 +60,8 @@ export interface PickFilesOptions {
 // file extension filters per kind (used by native dialogs).
 export const AUDIO_EXTS = ["mp3", "flac", "wav", "m4a", "ogg", "aac", "alac", "wma"];
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
+// mirrors grimoire/src/config.rs's default_supported_video_formats()
+export const VIDEO_EXTS = ["mp4", "mkv", "webm", "mov", "avi"];
 
 // accept attribute for <input type=file> on the web.
 // ios safari mishandles `audio/*` wildcard — it grays out audio files and
@@ -67,15 +69,41 @@ const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
 // this while still working everywhere else.
 const WEB_ACCEPT: Record<FileKind, string> = {
   audio: [
-    "audio/mpeg", "audio/mp3",
-    "audio/flac", "audio/x-flac",
-    "audio/wav", "audio/x-wav", "audio/wave",
-    "audio/mp4", "audio/x-m4a", "audio/m4a",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/flac",
+    "audio/x-flac",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/wave",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/m4a",
     "audio/ogg",
-    "audio/aac", "audio/x-aac",
-    ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".alac", ".wma",
+    "audio/aac",
+    "audio/x-aac",
+    ".mp3",
+    ".flac",
+    ".wav",
+    ".m4a",
+    ".ogg",
+    ".aac",
+    ".alac",
+    ".wma",
   ].join(","),
   image: "image/*",
+  video: [
+    "video/mp4",
+    "video/x-matroska",
+    "video/webm",
+    "video/quicktime",
+    "video/x-msvideo",
+    ".mp4",
+    ".mkv",
+    ".webm",
+    ".mov",
+    ".avi",
+  ].join(","),
 };
 
 // rough mime guess from extension for wrapping read bytes into a `File`.
@@ -89,6 +117,14 @@ function guessMime(name: string, kind: FileKind): string {
     if (ext === "webp") return "image/webp";
     if (ext === "avif") return "image/avif";
     return "image/*";
+  }
+  if (kind === "video") {
+    if (ext === "mp4") return "video/mp4";
+    if (ext === "mkv") return "video/x-matroska";
+    if (ext === "webm") return "video/webm";
+    if (ext === "mov") return "video/quicktime";
+    if (ext === "avi") return "video/x-msvideo";
+    return "video/mp4";
   }
   if (ext === "mp3") return "audio/mpeg";
   if (ext === "flac") return "audio/flac";
@@ -207,13 +243,17 @@ async function pickViaInputElement(opts: PickFilesOptions): Promise<PickedFile[]
 
 async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]> {
   const dialog = await loadDialog();
-  const filters = [
-    {
-      name: opts.kind === "audio" ? "audio" : "images",
-      extensions: opts.kind === "audio" ? AUDIO_EXTS : IMAGE_EXTS,
-    },
-  ];
-  const title = opts.title ?? (opts.kind === "audio" ? "select music files" : "select image");
+  const filterName = opts.kind === "audio" ? "audio" : opts.kind === "video" ? "video" : "images";
+  const filterExts =
+    opts.kind === "audio" ? AUDIO_EXTS : opts.kind === "video" ? VIDEO_EXTS : IMAGE_EXTS;
+  const filters = [{ name: filterName, extensions: filterExts }];
+  const title =
+    opts.title ??
+    (opts.kind === "audio"
+      ? "select music files"
+      : opts.kind === "video"
+        ? "select video files"
+        : "select image");
 
   const selected = await dialog.open({
     multiple: !!opts.multiple,
@@ -282,7 +322,7 @@ export async function pickFiles(opts: PickFilesOptions): Promise<PickedFile[]> {
 
 /** convenience: pick a single file, or null if cancelled. */
 export async function pickFile(
-  opts: Omit<PickFilesOptions, "multiple">,
+  opts: Omit<PickFilesOptions, "multiple">
 ): Promise<PickedFile | null> {
   const picked = await pickFiles({ ...opts, multiple: false });
   return picked[0] ?? null;

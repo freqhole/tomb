@@ -13,9 +13,7 @@ use crate::media_blobz::{create_media_blob, get_media_blob, BlobType, CreateMedi
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-pub async fn process_transcode_video_job(
-    job: &Job,
-) -> Result<Option<serde_json::Value>, JobError> {
+pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json::Value>, JobError> {
     let params: TranscodeVideoParams = job.parameters()?;
     info!(
         "processing TranscodeVideo job {}: video_id={}",
@@ -58,14 +56,15 @@ pub async fn process_transcode_video_job(
                 reason: format!("failed to load source blob {}: {}", params.media_blob_id, e),
             })?;
 
-    let input_path = source_blob.local_path.clone().ok_or_else(|| {
-        JobError::ProcessingFailed {
+    let input_path = source_blob
+        .local_path
+        .clone()
+        .ok_or_else(|| JobError::ProcessingFailed {
             reason: format!(
                 "source blob {} has no local_path to transcode from",
                 params.media_blob_id
             ),
-        }
-    })?;
+        })?;
 
     let mut rendition_blob_ids = Vec::new();
     let total = renditions.len();
@@ -81,11 +80,18 @@ pub async fn process_transcode_video_job(
             )),
         );
 
-        let output_path = format!(
-            "/tmp/video_rendition_{}_{}.mp4",
-            rendition.label,
-            uuid::Uuid::new_v4()
-        );
+        let temp_dir = config.temp_dir();
+        if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
+            warn!("failed to create temp dir {}: {}", temp_dir.display(), e);
+        }
+        let output_path = temp_dir
+            .join(format!(
+                "video_rendition_{}_{}.mp4",
+                rendition.label,
+                uuid::Uuid::new_v4()
+            ))
+            .to_string_lossy()
+            .to_string();
 
         if let Err(e) = run_ffmpeg(
             &rendition.args,

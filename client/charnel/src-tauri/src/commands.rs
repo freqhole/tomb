@@ -762,13 +762,24 @@ pub struct ScanResult {
     pub message: String,
 }
 
-/// scan a directory for music files (creates import jobs)
+/// scan a directory for music and/or video files (creates a ScanDirectory job,
+/// which in turn creates ProcessFile jobs for each file found)
+///
+/// `domain` selects which media pipeline to scan for: `"music"`, `"video"`,
+/// or omitted. a JSON-absent `domain` defaults to music-only (matching
+/// `media_domain::default_music_domain`), preserving today's behavior for
+/// any call site that hasn't been updated to pass it explicitly - `None`
+/// itself would mean "scan for both", which is a UI-visible behavior change
+/// we don't want to apply silently.
 #[tauri::command]
 pub async fn scan_directory(
     app_handle: tauri::AppHandle,
     path: String,
     tags: Vec<String>,
+    domain: Option<String>,
 ) -> ScanResult {
+    use std::str::FromStr;
+
     // ensure config and database are initialized
     if let Err(e) = ensure_initialized(&app_handle).await {
         return ScanResult {
@@ -790,6 +801,20 @@ pub async fn scan_directory(
         };
     }
 
+    let domain = match domain {
+        Some(s) => match grimoire::MediaDomain::from_str(&s) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                return ScanResult {
+                    success: false,
+                    jobs_created: 0,
+                    message: e,
+                }
+            }
+        },
+        None => Some(grimoire::MediaDomain::Music),
+    };
+
     // set up directory tag rules if tags were specified
     if !tags.is_empty() {
         let tag_response =
@@ -800,10 +825,11 @@ pub async fn scan_directory(
         }
     }
 
-    // create a job session first (required for foreign key constraint)
+    // create a job session first (required for foreign key constraint) -
+    // mirrors cli's `jobs scan` handler (cli/src/plumbing/jobs.rs)
     let session_request = grimoire::jobs::CreateJobSessionRequest {
-        job_type: grimoire::jobs::JobType::ProcessFile,
-        batch_size: None,
+        job_type: grimoire::jobs::JobType::ScanDirectory,
+        batch_size: Some(100),
         created_by: Some("tauri-scan".to_string()),
     };
     let session_response = grimoire::jobs::create_job_session(session_request).await;
@@ -815,58 +841,64 @@ pub async fn scan_directory(
         };
     }
     let session = session_response.data.unwrap();
-    let session_id = &session.id;
+    let session_id = session.id.clone();
 
-    let result = grimoire::music::scanner::scan_directory(
-        &path, session_id, true,  // recursive
-        None,  // no max depth
-        None,  // default extensions
-        false, // don't skip tracked subdirs
-    )
-    .await;
+    let scan_params = grimoire::jobs::ScanDirectoryParams {
+        directory_path: path.clone(),
+        recursive: true,
+        max_depth: None,
+        file_extensions: None,
+        skip_tracked_subdirs: false,
+        domain,
+    };
 
-    match result.data {
-        Some(outcome) => {
-            // record the scanned directory in the database
-            let _ =
-                grimoire::jobs::record_scanned_directory(&path, outcome.file_count as i64, None)
-                    .await;
+    let job_request = grimoire::jobs::CreateJobRequest {
+        job_type: grimoire::jobs::JobType::ScanDirectory,
+        session_id: Some(session_id.clone()),
+        parameters: serde_json::json!(scan_params),
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: Some("tauri-scan".to_string()),
+        priority: None,
+    };
+    let job_response = grimoire::jobs::create_job(job_request).await;
 
-            if outcome.jobs_created > 0 {
-                // start background polling for job completion
-                let app_handle_clone = app_handle.clone();
-                let session_id_clone = session_id.clone();
-                let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
-                tauri::async_runtime::spawn(async move {
-                    poll_scan_jobs_until_complete(
-                        app_handle_clone,
-                        session_id_clone,
-                        shutdown_token,
-                    )
-                    .await;
-                });
-            }
-
-            let message = if outcome.jobs_created == 0 && outcome.files_skipped > 0 {
-                format!(
-                    "nothing new to import: {} file(s) already in your library",
-                    outcome.files_skipped
-                )
-            } else {
-                format!("scheduled {} music files for import", outcome.files_queued)
+    let job = match job_response.data {
+        Some(j) => j,
+        None => {
+            return ScanResult {
+                success: false,
+                jobs_created: 0,
+                message: format!("failed to create scan job: {}", job_response.message),
             };
-
-            ScanResult {
-                success: true,
-                jobs_created: outcome.jobs_created as u32,
-                message,
-            }
         }
-        None => ScanResult {
-            success: false,
-            jobs_created: 0,
-            message: result.message,
-        },
+    };
+
+    // start background polling for job completion. the ScanDirectory job
+    // and every ProcessFile job it spawns share this session_id (see
+    // `grimoire::jobs::music::scan_processor`), so polling by session_id
+    // already covers both the scan itself and its resulting imports.
+    let app_handle_clone = app_handle.clone();
+    let session_id_clone = session_id.clone();
+    let scan_job_id = job.id.clone();
+    let scanned_path = path.clone();
+    let shutdown_token = app_handle.state::<ShutdownToken>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        poll_scan_jobs_until_complete(
+            app_handle_clone,
+            session_id_clone,
+            scan_job_id,
+            scanned_path,
+            shutdown_token,
+        )
+        .await;
+    });
+
+    let domain_label = domain.map(|d| d.as_str()).unwrap_or("music and video");
+    ScanResult {
+        success: true,
+        jobs_created: 1,
+        message: format!("scanning {} for {} files", path, domain_label),
     }
 }
 
@@ -1096,6 +1128,8 @@ async fn poll_rescan_job_until_complete(
 async fn poll_scan_jobs_until_complete(
     app_handle: tauri::AppHandle,
     session_id: String,
+    scan_job_id: String,
+    scanned_path: String,
     shutdown_token: ShutdownToken,
 ) {
     use grimoire::jobs::{list_jobs, JobStatus};
@@ -1192,6 +1226,31 @@ async fn poll_scan_jobs_until_complete(
                 }
 
                 if pending == 0 && !jobs.is_empty() {
+                    // record the scanned directory now that the scan job's
+                    // own result (file count) is available - this used to
+                    // happen synchronously right after `scan_directory`
+                    // returned, back when it called the scanner directly
+                    // instead of going through the job queue.
+                    if let Some(scan_job) = grimoire::jobs::get_job(&scan_job_id).await.data {
+                        if let Some(result_str) = &scan_job.result {
+                            match serde_json::from_str::<grimoire::jobs::ScanDirectoryResult>(
+                                result_str,
+                            ) {
+                                Ok(scan_result) => {
+                                    let _ = grimoire::jobs::record_scanned_directory(
+                                        &scanned_path,
+                                        scan_result.files_discovered as i64,
+                                        None,
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "scan-poll: failed to parse scan job result");
+                                }
+                            }
+                        }
+                    }
+
                     // all jobs complete - send final notification
                     if let Err(e) =
                         notify_scan_complete(&app_handle, songs_added, albums_added, artists_added)

@@ -20,14 +20,25 @@ pub async fn run_ffmpeg(
     substitutions: &[(&str, &str)],
     ffmpeg_path: &str,
 ) -> Result<(), GrimoireError> {
-    let mut rendered = args_template.to_string();
-    for (placeholder, value) in substitutions {
-        rendered = rendered.replace(placeholder, value);
-    }
+    // parse the template into argv FIRST, then substitute placeholders
+    // per-arg — substituting into the whole string before splitting would
+    // let a value containing a space (e.g. a macOS data dir under
+    // `~/Library/Application Support/...`) get torn into two argv
+    // entries, truncating the path ffmpeg actually sees. mirrors the
+    // pattern already used by blob_data::helpers's album art / waveform
+    // extraction.
+    let mut args =
+        shell_words::split(args_template).map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to parse ffmpeg args: {}", e),
+        })?;
 
-    let args = shell_words::split(&rendered).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("failed to parse ffmpeg args: {}", e),
-    })?;
+    for arg in args.iter_mut() {
+        for (placeholder, value) in substitutions {
+            if arg.contains(placeholder) {
+                *arg = arg.replace(placeholder, value);
+            }
+        }
+    }
 
     let mut cmd = tokio::process::Command::new(ffmpeg_path);
     cmd.args(&args).stdout(Stdio::null()).stderr(Stdio::piped());

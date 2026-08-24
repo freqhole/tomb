@@ -379,6 +379,13 @@ export const FullscreenIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
+export const VideoIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video"}>
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+    <path d="M16 10l6-3.5v11L16 14" />
+  </StrokeBaseIcon>
+);
+
 export const ExternalLinkIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "External link"}>
     <path
@@ -565,6 +572,7 @@ export const IconRegistry = {
   radioTower: RadioTowerIcon,
   carousel: CarouselIcon,
   fullscreen: FullscreenIcon,
+  video: VideoIcon,
   externalLink: ExternalLinkIcon,
   autoDownload: AutoDownloadIcon,
   downloadZip: DownloadZipIcon,
@@ -677,6 +685,7 @@ export const IconNames = {
   radioTower: "radioTower",
   carousel: "carousel",
   fullscreen: "fullscreen",
+  video: "video",
   externalLink: "externalLink",
   autoDownload: "autoDownload",
   downloadZip: "downloadZip",

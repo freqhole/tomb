@@ -111,39 +111,16 @@ export interface PlayerBarProps {
 // compact mode: 801-1200px, reduce progress bar width and padding
 const COMPACT_MAX_WIDTH = 1200;
 
-/** mounts the shared, singleton video element into a small thumbnail-sized
- * slot and offers a fullscreen toggle (calls `requestFullscreen` directly
- * on the video element — no extra container needed, and it works on iOS
- * Safari's video-only fullscreen too). the element is moved via
- * `appendChild`, not cloned/recreated, so playback isn't interrupted. */
-function VideoThumbSlot(props: { videoElement: HTMLVideoElement; sizeClass: string }) {
-  let mount!: HTMLDivElement;
-  onMount(() => {
-    const el = props.videoElement;
-    el.style.width = "100%";
-    el.style.height = "100%";
-    el.style.objectFit = "cover";
-    if (mount && el.parentElement !== mount) mount.appendChild(el);
-  });
-  const requestFullscreen = (e: MouseEvent) => {
-    e.stopPropagation();
-    const el = props.videoElement;
-    if (el.requestFullscreen) void el.requestFullscreen();
-    else if ("webkitEnterFullscreen" in el) {
-      (el as unknown as { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
-    }
-  };
+/** small static placeholder shown in the bar's thumbnail slot while a video
+ * is active — the actual `<video>` element lives in the floating
+ * `VideoMiniPlayer` above the bar (see `AppLayout.tsx`), not here, so only
+ * one place ever calls `appendChild` on the shared singleton element. */
+function VideoThumbSlot(props: { sizeClass: string }) {
   return (
-    <div class={`relative group ${props.sizeClass} flex-shrink-0 bg-black rounded overflow-hidden`}>
-      <div ref={(el) => (mount = el)} class="w-full h-full" />
-      <button
-        type="button"
-        class="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 opacity-0 group-hover:opacity-100 transition-colors"
-        onClick={requestFullscreen}
-        title="fullscreen"
-      >
-        <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
-      </button>
+    <div
+      class={`relative ${props.sizeClass} flex-shrink-0 bg-black rounded overflow-hidden flex items-center justify-center`}
+    >
+      <Icon name={IconNames.video} size={18} className="text-white/70" />
     </div>
   );
 }
@@ -465,7 +442,7 @@ export function PlayerBar(props: PlayerBarProps) {
               </div>
             }
           >
-            <VideoThumbSlot videoElement={props.videoElement!} sizeClass="w-10 h-10" />
+            <VideoThumbSlot sizeClass="w-10 h-10" />
           </Show>
 
           {/* favorite button */}
@@ -683,7 +660,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 </div>
               }
             >
-              <VideoThumbSlot videoElement={props.videoElement!} sizeClass="w-12 h-12" />
+              <VideoThumbSlot sizeClass="w-12 h-12" />
             </Show>
 
             {/* favorite button */}
