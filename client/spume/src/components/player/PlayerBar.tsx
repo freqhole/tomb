@@ -96,12 +96,57 @@ export interface PlayerBarProps {
   externalStorageProgress?: { current: number; total: number } | null;
   /** callback when the removable-storage icon is clicked (opens the storage overview). */
   onExternalStorageIconClick?: () => void;
+  /** whether the active backend is playing video (mounts `videoElement`
+   * into the thumbnail slot + shows a fullscreen toggle, instead of the
+   * usual song artwork). */
+  isVideoActive?: boolean;
+  /** the singleton `<video>` element owned by the video backend — moved
+   * into the bar's thumbnail slot via DOM append (not recreated), same
+   * pattern as `RadioAudioSink`'s owned `<audio>` element. */
+  videoElement?: HTMLVideoElement | null;
   /** additional classes */
   class?: string;
 }
 
 // compact mode: 801-1200px, reduce progress bar width and padding
 const COMPACT_MAX_WIDTH = 1200;
+
+/** mounts the shared, singleton video element into a small thumbnail-sized
+ * slot and offers a fullscreen toggle (calls `requestFullscreen` directly
+ * on the video element — no extra container needed, and it works on iOS
+ * Safari's video-only fullscreen too). the element is moved via
+ * `appendChild`, not cloned/recreated, so playback isn't interrupted. */
+function VideoThumbSlot(props: { videoElement: HTMLVideoElement; sizeClass: string }) {
+  let mount!: HTMLDivElement;
+  onMount(() => {
+    const el = props.videoElement;
+    el.style.width = "100%";
+    el.style.height = "100%";
+    el.style.objectFit = "cover";
+    if (mount && el.parentElement !== mount) mount.appendChild(el);
+  });
+  const requestFullscreen = (e: MouseEvent) => {
+    e.stopPropagation();
+    const el = props.videoElement;
+    if (el.requestFullscreen) void el.requestFullscreen();
+    else if ("webkitEnterFullscreen" in el) {
+      (el as unknown as { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
+    }
+  };
+  return (
+    <div class={`relative group ${props.sizeClass} flex-shrink-0 bg-black rounded overflow-hidden`}>
+      <div ref={(el) => (mount = el)} class="w-full h-full" />
+      <button
+        type="button"
+        class="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 opacity-0 group-hover:opacity-100 transition-colors"
+        onClick={requestFullscreen}
+        title="fullscreen"
+      >
+        <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
+      </button>
+    </div>
+  );
+}
 
 // player bar component for bottom of screen
 export function PlayerBar(props: PlayerBarProps) {
@@ -374,43 +419,54 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
 
           {/* thumbnail */}
-          <div
-            class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
-            onClick={() => props.onImageClick?.()}
-          >
-            <MediaImage
-              images={props.song ? getSongDisplayImages(props.song) : undefined}
-              blobId={props.song?.thumbnailBlobId}
-              imageUrl={props.song?.thumbnailUrl}
-              alt={props.song?.title || "song artwork"}
-              domainType="song"
-              thumbnailSize={50}
-              class="w-10 h-10 rounded object-cover"
-            />
-            <Show when={props.onImageClick && props.song}>
+          <Show
+            when={props.isVideoActive && props.videoElement}
+            fallback={
               <div
-                class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
-                classList={{
-                  "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
-                    !imageCarouselLoading(),
-                  "bg-black/30 opacity-100": imageCarouselLoading(),
-                }}
+                class={`relative group w-10 h-10 flex-shrink-0 ${props.onImageClick ? "cursor-pointer" : ""}`}
+                onClick={() => props.onImageClick?.()}
               >
-                <Show
-                  when={!imageCarouselLoading()}
-                  fallback={
-                    <Icon
-                      name={IconNames.loader}
-                      size={16}
-                      className="text-white drop-shadow-lg animate-spin"
-                    />
-                  }
-                >
-                  <Icon name={IconNames.carousel} size={16} className="text-white drop-shadow-lg" />
+                <MediaImage
+                  images={props.song ? getSongDisplayImages(props.song) : undefined}
+                  blobId={props.song?.thumbnailBlobId}
+                  imageUrl={props.song?.thumbnailUrl}
+                  alt={props.song?.title || "song artwork"}
+                  domainType="song"
+                  thumbnailSize={50}
+                  class="w-10 h-10 rounded object-cover"
+                />
+                <Show when={props.onImageClick && props.song}>
+                  <div
+                    class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                    classList={{
+                      "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                        !imageCarouselLoading(),
+                      "bg-black/30 opacity-100": imageCarouselLoading(),
+                    }}
+                  >
+                    <Show
+                      when={!imageCarouselLoading()}
+                      fallback={
+                        <Icon
+                          name={IconNames.loader}
+                          size={16}
+                          className="text-white drop-shadow-lg animate-spin"
+                        />
+                      }
+                    >
+                      <Icon
+                        name={IconNames.carousel}
+                        size={16}
+                        className="text-white drop-shadow-lg"
+                      />
+                    </Show>
+                  </div>
                 </Show>
               </div>
-            </Show>
-          </div>
+            }
+          >
+            <VideoThumbSlot videoElement={props.videoElement!} sizeClass="w-10 h-10" />
+          </Show>
 
           {/* favorite button */}
           <Show when={props.song}>
@@ -581,47 +637,54 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             {/* thumbnail */}
-            <div
-              class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
-              onClick={() => props.onImageClick?.()}
-            >
-              <MediaImage
-                images={props.song ? getSongDisplayImages(props.song) : undefined}
-                blobId={props.song?.thumbnailBlobId}
-                imageUrl={props.song?.thumbnailUrl}
-                alt={props.song?.title || "song artwork"}
-                domainType="song"
-                thumbnailSize={50}
-                class="w-12 h-12 rounded object-cover"
-              />
-              <Show when={props.onImageClick && props.song}>
+            <Show
+              when={props.isVideoActive && props.videoElement}
+              fallback={
                 <div
-                  class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
-                  classList={{
-                    "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
-                      !imageCarouselLoading(),
-                    "bg-black/30 opacity-100": imageCarouselLoading(),
-                  }}
+                  class={`relative group w-12 h-12 flex-shrink-0 ${props.onImageClick ? "cursor-pointer hover:opacity-80 transition-opacity" : ""}`}
+                  onClick={() => props.onImageClick?.()}
                 >
-                  <Show
-                    when={!imageCarouselLoading()}
-                    fallback={
-                      <Icon
-                        name={IconNames.loader}
-                        size={20}
-                        className="text-white drop-shadow-lg animate-spin"
-                      />
-                    }
-                  >
-                    <Icon
-                      name={IconNames.carousel}
-                      size={20}
-                      className="text-white drop-shadow-lg"
-                    />
+                  <MediaImage
+                    images={props.song ? getSongDisplayImages(props.song) : undefined}
+                    blobId={props.song?.thumbnailBlobId}
+                    imageUrl={props.song?.thumbnailUrl}
+                    alt={props.song?.title || "song artwork"}
+                    domainType="song"
+                    thumbnailSize={50}
+                    class="w-12 h-12 rounded object-cover"
+                  />
+                  <Show when={props.onImageClick && props.song}>
+                    <div
+                      class="absolute inset-0 bg-black/0 transition-colors flex items-center justify-center rounded"
+                      classList={{
+                        "opacity-0 group-hover:bg-black/30 group-hover:opacity-100":
+                          !imageCarouselLoading(),
+                        "bg-black/30 opacity-100": imageCarouselLoading(),
+                      }}
+                    >
+                      <Show
+                        when={!imageCarouselLoading()}
+                        fallback={
+                          <Icon
+                            name={IconNames.loader}
+                            size={20}
+                            className="text-white drop-shadow-lg animate-spin"
+                          />
+                        }
+                      >
+                        <Icon
+                          name={IconNames.carousel}
+                          size={20}
+                          className="text-white drop-shadow-lg"
+                        />
+                      </Show>
+                    </div>
                   </Show>
                 </div>
-              </Show>
-            </div>
+              }
+            >
+              <VideoThumbSlot videoElement={props.videoElement!} sizeClass="w-12 h-12" />
+            </Show>
 
             {/* favorite button */}
             <Show when={props.song}>

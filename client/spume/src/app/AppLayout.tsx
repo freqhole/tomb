@@ -42,6 +42,7 @@ import { useRecentPlaylistsQuery } from "../music/queries/playlists";
 import {
   currentTime,
   duration,
+  getVideoElement,
   isLoading,
   isPlaying,
   pendingUpNextSha256,
@@ -1894,6 +1895,8 @@ export function AppLayout(props: AppLayoutProps) {
               externalStorageBusy={externalStorageSyncingSignal()}
               externalStorageProgress={externalStorageSyncProgressSignal()}
               onExternalStorageIconClick={() => navigate("/storage-overview")}
+              isVideoActive={!isRadio() && !!currentVideoData()}
+              videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
             />
           );
         })()}
