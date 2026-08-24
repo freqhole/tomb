@@ -143,6 +143,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    deleteVideoRendition: (params: s.DeleteVideoRenditionRequest) => {
+      return call(
+        "video",
+        "delete_video_rendition",
+        routes.video.delete_video_rendition.resp,
+        routes.video.delete_video_rendition.req,
+        routes.video.delete_video_rendition.method,
+        routes.video.delete_video_rendition.path,
+        params,
+      );
+    },
+
     // playback progress
     upsertPlaybackProgress: (params: s.UpsertPlaybackProgressRequest) => {
       return call(

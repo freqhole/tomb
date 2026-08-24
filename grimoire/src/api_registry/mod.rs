@@ -368,9 +368,9 @@ pub mod type_registry {
         DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
     };
     use crate::offal::video::videos::{
-        BulkDeleteVideosRequest, DeleteVideoRequest, GetVideoRenditionsRequest, GetVideoRequest,
-        ListVideosBySeasonRequest, ListVideosBySeriesRequest, ListVideosUnattachedRequest,
-        QueryVideosRequest, VideoRendition,
+        BulkDeleteVideosRequest, DeleteVideoRenditionRequest, DeleteVideoRequest,
+        GetVideoRenditionsRequest, GetVideoRequest, ListVideosBySeasonRequest,
+        ListVideosBySeriesRequest, ListVideosUnattachedRequest, QueryVideosRequest, VideoRendition,
     };
 
     pub fn register_all_types(gen: &mut ZodGenerator, registered: &mut HashSet<String>) {
@@ -873,6 +873,8 @@ pub mod type_registry {
         registered.insert("VideoRendition".to_string());
         gen.add_schema::<GetVideoRenditionsRequest>("GetVideoRenditionsRequest");
         registered.insert("GetVideoRenditionsRequest".to_string());
+        gen.add_schema::<DeleteVideoRenditionRequest>("DeleteVideoRenditionRequest");
+        registered.insert("DeleteVideoRenditionRequest".to_string());
         gen.add_schema::<UpsertPlaybackProgressRequest>("UpsertPlaybackProgressRequest");
         registered.insert("UpsertPlaybackProgressRequest".to_string());
         gen.add_schema::<GetPlaybackProgressRequest>("GetPlaybackProgressRequest");

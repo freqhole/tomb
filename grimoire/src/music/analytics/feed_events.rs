@@ -36,11 +36,13 @@ pub enum FeedEventType {
     NewImageAlbum,
     NewImageArtist,
     NewImagePlaylist,
+    FavoriteVideo,
+    VideoWatch,
 }
 
 impl ZodSchemaTrait for FeedEventType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist")])"#.to_string()
+        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch")])"#.to_string()
     }
 }
 
@@ -62,6 +64,8 @@ impl std::fmt::Display for FeedEventType {
             FeedEventType::NewImageAlbum => write!(f, "new_image_album"),
             FeedEventType::NewImageArtist => write!(f, "new_image_artist"),
             FeedEventType::NewImagePlaylist => write!(f, "new_image_playlist"),
+            FeedEventType::FavoriteVideo => write!(f, "favorite_video"),
+            FeedEventType::VideoWatch => write!(f, "video_watch"),
         }
     }
 }
@@ -86,6 +90,8 @@ impl TryFrom<&str> for FeedEventType {
             "new_image_album" => Ok(FeedEventType::NewImageAlbum),
             "new_image_artist" => Ok(FeedEventType::NewImageArtist),
             "new_image_playlist" => Ok(FeedEventType::NewImagePlaylist),
+            "favorite_video" => Ok(FeedEventType::FavoriteVideo),
+            "video_watch" => Ok(FeedEventType::VideoWatch),
             _ => Err(format!("unknown feed event type: {}", s)),
         }
     }
@@ -121,6 +127,7 @@ pub struct FeedEvent {
     pub artist_id: Option<String>,
     pub playlist_id: Option<String>,
     pub session_id: Option<String>,
+    pub video_id: Option<String>,
     pub created_by_user_id: String,
     pub created_by_username: String,
     pub updated_by_user_id: Option<String>,
@@ -163,6 +170,7 @@ struct RawFeedEventRow {
     artist_id: Option<String>,
     playlist_id: Option<String>,
     session_id: Option<String>,
+    video_id: Option<String>,
     created_by_user_id: String,
     created_by_username: String,
     updated_by_user_id: Option<String>,
@@ -206,6 +214,7 @@ impl RawFeedEventRow {
             artist_id: self.artist_id,
             playlist_id: self.playlist_id,
             session_id: self.session_id,
+            video_id: self.video_id,
             created_by_user_id: self.created_by_user_id,
             created_by_username: self.created_by_username,
             updated_by_user_id: self.updated_by_user_id,
@@ -924,6 +933,7 @@ pub async fn create_favorite_feed_event(
         album_id: Option<String>,
         artist_id: Option<String>,
         playlist_id: Option<String>,
+        video_id: Option<String>,
         title: String,
         subtitle: Option<String>,
         artist_name: Option<String>,
@@ -957,6 +967,7 @@ pub async fn create_favorite_feed_event(
                     album_id: d.album_id,
                     artist_id: None,
                     playlist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -989,6 +1000,7 @@ pub async fn create_favorite_feed_event(
                     album_id: Some(target_id.to_string()),
                     artist_id: None,
                     playlist_id: None,
+                    video_id: None,
                     title: d.title,
                     subtitle: d.artist_name.clone(),
                     artist_name: d.artist_name,
@@ -1020,6 +1032,7 @@ pub async fn create_favorite_feed_event(
                     album_id: None,
                     artist_id: Some(target_id.to_string()),
                     playlist_id: None,
+                    video_id: None,
                     title: d.name.clone(),
                     subtitle: None,
                     artist_name: Some(d.name),
@@ -1052,6 +1065,7 @@ pub async fn create_favorite_feed_event(
                     album_id: None,
                     artist_id: None,
                     playlist_id: Some(target_id.to_string()),
+                    video_id: None,
                     title: d.title,
                     subtitle: d.description,
                     artist_name: None,
@@ -1061,16 +1075,55 @@ pub async fn create_favorite_feed_event(
                 _ => return GrimoireResponse::failure("playlist not found", vec![]),
             }
         }
+        "video" => {
+            let row = sqlx::query!(
+                r#"
+                SELECT 
+                    v.title,
+                    v.description,
+                    COALESCE(
+                        (SELECT mb.id FROM media_blobz mb WHERE mb.id = v.poster_blob_id AND mb.blob_type = 'image'),
+                        ''
+                    ) as "poster_blob_id?: String",
+                    CASE 
+                        WHEN v.poster_blob_id IS NOT NULL THEN 
+                            json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                        ELSE '[]'
+                    END as "images!: String"
+                FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+                "#,
+                target_id
+            )
+            .fetch_optional(&pool)
+            .await;
+
+            match row {
+                Ok(Some(d)) => FavoriteData {
+                    feed_type: FeedEventType::FavoriteVideo.to_string(),
+                    song_id: None,
+                    album_id: None,
+                    artist_id: None,
+                    playlist_id: None,
+                    video_id: Some(target_id.to_string()),
+                    title: d.title,
+                    subtitle: d.description,
+                    artist_name: None,
+                    album_title: None,
+                    images: d.images,
+                },
+                _ => return GrimoireResponse::failure("video not found", vec![]),
+            }
+        }
         _ => return GrimoireResponse::failure("invalid target type", vec![]),
     };
 
     let result = sqlx::query_scalar!(
         r#"
         INSERT INTO feed_eventz (
-            feed_type, song_id, album_id, artist_id, playlist_id,
+            feed_type, song_id, album_id, artist_id, playlist_id, video_id,
             created_by_user_id, created_by_username,
             title, subtitle, artist_name, album_title, images
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         "#,
         data.feed_type,
@@ -1078,6 +1131,7 @@ pub async fn create_favorite_feed_event(
         data.album_id,
         data.artist_id,
         data.playlist_id,
+        data.video_id,
         user_id,
         username,
         data.title,
@@ -1116,6 +1170,7 @@ pub async fn delete_favorite_feed_event(
         "album" => FeedEventType::FavoriteAlbum.to_string(),
         "artist" => FeedEventType::FavoriteArtist.to_string(),
         "playlist" => FeedEventType::FavoritePlaylist.to_string(),
+        "video" => FeedEventType::FavoriteVideo.to_string(),
         _ => return GrimoireResponse::failure("invalid target type", vec![]),
     };
 
@@ -1128,11 +1183,14 @@ pub async fn delete_favorite_feed_event(
             (? = 'song' AND song_id = ?) OR
             (? = 'album' AND album_id = ?) OR
             (? = 'artist' AND artist_id = ?) OR
-            (? = 'playlist' AND playlist_id = ?)
+            (? = 'playlist' AND playlist_id = ?) OR
+            (? = 'video' AND video_id = ?)
         )
         "#,
         feed_type,
         user_id,
+        target_type,
+        target_id,
         target_type,
         target_id,
         target_type,

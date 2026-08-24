@@ -5,6 +5,7 @@ pub mod events;
 pub mod music;
 pub mod repl;
 pub mod state;
+pub mod video;
 
 pub use events::{
     ActionMenu, ActionMenuOption, AdminCommand, AppAction, ArgKind, ArgSpec, CommandForm,
@@ -16,6 +17,7 @@ pub use state::{
     AppState, EphemeralState, Focus, JobsStatus, LocalRef, PendingRemoteEntry, PersistedState,
     RemoteEntry, ScanStatus, ServeBadge, ServeMode, UiPrefs,
 };
+pub use video::{SeriesRow, VideoMode, VideoRow, VideoState};
 
 use super::transport::{MusicPlayer, Transport};
 use std::rc::Rc;

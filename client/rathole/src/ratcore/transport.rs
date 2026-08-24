@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 
-use super::app::{DispatchResponse, SongRow};
+use super::app::{DispatchResponse, SeriesRow, SongRow, VideoRow};
 
 #[async_trait(?Send)]
 pub trait Transport {
@@ -158,6 +158,56 @@ pub trait Transport {
     ) -> Result<(Option<String>, Option<String>), String> {
         let _ = (kind, id);
         Err("transport does not support resolve_parent_ids".to_string())
+    }
+
+    /// query videos, optionally filtered by search query, series, or
+    /// season. returns a list of `VideoRow`s. default Err so shells
+    /// without a backend fail loudly.
+    async fn query_videos(
+        &self,
+        query: Option<&str>,
+        series_id: Option<&str>,
+        season_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<VideoRow>, String> {
+        let _ = (query, series_id, season_id, limit);
+        Err("transport does not support query_videos".to_string())
+    }
+
+    /// fetch a single video by id (for detail view). default Err so
+    /// shells without a backend fail loudly.
+    async fn get_video(&self, id: &str) -> Result<VideoRow, String> {
+        let _ = id;
+        Err("transport does not support get_video".to_string())
+    }
+
+    /// update a video's metadata (title, description, episode_number).
+    /// returns the updated `VideoRow`. default Err so shells without
+    /// a backend fail loudly.
+    async fn update_video(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        episode_number: Option<i64>,
+    ) -> Result<VideoRow, String> {
+        let _ = (id, title, description, episode_number);
+        Err("transport does not support update_video".to_string())
+    }
+
+    /// soft-delete a video by id. default Err so shells without a
+    /// backend fail loudly.
+    async fn delete_video(&self, id: &str) -> Result<(), String> {
+        let _ = id;
+        Err("transport does not support delete_video".to_string())
+    }
+
+    /// list video series (for read-only series context display in
+    /// detail view). default Err so shells without a backend fail
+    /// loudly.
+    async fn list_video_series(&self, limit: u32) -> Result<Vec<SeriesRow>, String> {
+        let _ = limit;
+        Err("transport does not support list_video_series".to_string())
     }
 }
 

@@ -35,11 +35,15 @@ pub enum FeedItemType {
     ListenSession,
     /// a new image was added to an entity (song, album, artist, playlist)
     NewImage,
+    /// a video was recently watched/completed
+    RecentVideoWatch,
+    /// a video was recently favorited
+    RecentVideoFavorite,
 }
 
 impl ZodSchemaTrait for FeedItemType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")])"#.to_string()
+        r#"z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")])"#.to_string()
     }
 }
 
@@ -58,6 +62,8 @@ pub struct FeedItem {
     pub artist_id: Option<String>,
     /// playlist id (if applicable)
     pub playlist_id: Option<String>,
+    /// video id (if applicable)
+    pub video_id: Option<String>,
     /// main title (song title or album title)
     pub title: String,
     /// subtitle (artist name, album name, etc.)
@@ -138,6 +144,8 @@ fn map_feed_event_type(feed_type: &str) -> FeedItemType {
         "favorite_song" | "favorite_album" | "favorite_artist" | "favorite_playlist" => {
             FeedItemType::RecentFavorite
         }
+        "favorite_video" => FeedItemType::RecentVideoFavorite,
+        "video_watch" => FeedItemType::RecentVideoWatch,
         "rating_song" | "rating_album" | "rating_artist" => FeedItemType::RecentRating,
         "new_image_song" | "new_image_album" | "new_image_artist" | "new_image_playlist" => {
             FeedItemType::NewImage
@@ -161,6 +169,8 @@ fn feed_item_type_to_event_types(item_type: &FeedItemType) -> Vec<&'static str> 
                 "favorite_playlist",
             ]
         }
+        FeedItemType::RecentVideoFavorite => vec!["favorite_video"],
+        FeedItemType::RecentVideoWatch => vec!["video_watch"],
         FeedItemType::RecentRating => vec!["rating_song", "rating_album", "rating_artist"],
         FeedItemType::NewImage => vec![
             "new_image_song",
@@ -204,6 +214,7 @@ pub async fn get_combined_feed(
             fe.album_id,
             fe.artist_id,
             fe.playlist_id,
+            fe.video_id,
             fe.title,
             fe.subtitle,
             fe.images,
@@ -238,7 +249,7 @@ pub async fn get_combined_feed(
             COALESCE((
                 SELECT 1 FROM user_favoritez uf 
                 WHERE uf.user_id = ?
-                AND uf.target_id = COALESCE(fe.song_id, fe.album_id, fe.playlist_id, fe.artist_id)
+                AND uf.target_id = COALESCE(fe.song_id, fe.album_id, fe.playlist_id, fe.artist_id, fe.video_id)
                 LIMIT 1
             ), 0) as is_favorite,
             (fe.created_at = fe.updated_at) as is_initial_add,
@@ -246,6 +257,7 @@ pub async fn get_combined_feed(
                 (SELECT p.created_at FROM playlistz p WHERE p.id = fe.playlist_id),
                 (SELECT a.created_at FROM albumz a WHERE a.id = fe.album_id),
                 (SELECT ar.created_at FROM artistz ar WHERE ar.id = fe.artist_id),
+                (SELECT v.created_at FROM videoz v WHERE v.id = fe.video_id),
                 fe.created_at
             ) as entity_created_at,
             fe.collage_images,
@@ -313,6 +325,7 @@ struct RawFeedRow {
     album_id: Option<String>,
     artist_id: Option<String>,
     playlist_id: Option<String>,
+    video_id: Option<String>,
     title: String,
     subtitle: Option<String>,
     images: Option<String>,
@@ -377,6 +390,7 @@ impl RawFeedRow {
             album_id: self.album_id,
             artist_id: self.artist_id,
             playlist_id: self.playlist_id,
+            video_id: self.video_id,
             title: self.title,
             subtitle: self.subtitle,
             images,

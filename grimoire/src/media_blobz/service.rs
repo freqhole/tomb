@@ -818,6 +818,70 @@ pub async fn delete_media_blob(id: &str, deleted_by: Option<String>) -> Grimoire
     Ok(())
 }
 
+/// hard delete a rendition blob immediately (row + underlying bytes)
+///
+/// unlike the soft-delete used for originals (delete_media_blob), this
+/// permanently removes the blob record and its bytes right away. renditions
+/// are cheap to regenerate, so immediate deletion makes sense.
+///
+/// safety: rejects any blob_type != BlobType::Rendition to prevent
+/// accidental deletion of user-supplied originals.
+pub async fn hard_delete_rendition_blob(blob_id: &str) -> GrimoireResult<()> {
+    let pool = database::connect().await?;
+
+    // fetch the blob row to verify it's actually a rendition
+    let blob = get_media_blob(blob_id).await?;
+
+    // safety check: only allow deleting renditions
+    if blob.blob_type != BlobType::Rendition {
+        return Err(GrimoireError::NotARendition {
+            blob_id: blob_id.to_string(),
+            blob_type: format!("{:?}", blob.blob_type),
+        });
+    }
+
+    // delete underlying bytes:
+    // 1. if file-backed (local_path exists), remove the file
+    if let Some(local_path) = blob.local_path.as_ref() {
+        if let Err(e) = tokio::fs::remove_file(local_path).await {
+            tracing::warn!(
+                blob_id = %blob_id,
+                local_path = %local_path,
+                error = %e,
+                "hard_delete_rendition: failed to remove local file, continuing with db cleanup"
+            );
+        }
+    }
+
+    // 2. if blob-data-backed (no local_path), delete from blob_data table
+    if blob.local_path.is_none() {
+        let delete_resp = blob_data::delete_blob_data(blob_id).await;
+        if !delete_resp.success {
+            tracing::warn!(
+                blob_id = %blob_id,
+                message = %delete_resp.message,
+                "hard_delete_rendition: blob_data deletion failed, continuing with db cleanup"
+            );
+        }
+    }
+
+    // mirror to reliquary: soft-delete then hard-delete (back-to-back) so
+    // it's gone immediately from the reliquary side
+    if let Some(blake3) = blob.blake3.as_deref() {
+        // soft-delete first (mirror_hard_delete only removes already-soft-deleted rows)
+        reliquary_mirror::mirror_soft_delete(blake3, "system").await;
+        // then hard-delete immediately
+        reliquary_mirror::mirror_hard_delete(blake3).await;
+    }
+
+    // hard delete from media_blobz table
+    sqlx::query!("DELETE FROM media_blobz WHERE id = ?", blob_id)
+        .execute(&pool)
+        .await?;
+
+    Ok(())
+}
+
 /// update a media blob's registered content identity (sha256, blake3,
 /// mime, size) to match bytes that have replaced its previously-stored
 /// content - e.g. converting an original image to webp under the same

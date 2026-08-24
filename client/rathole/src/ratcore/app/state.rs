@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::events::{ActionMenu, CommandForm, LastDispatch};
 use super::music::MusicState;
 use super::repl::ReplState;
+use super::video::VideoState;
 
 /// portable view-layer representation of the serve subprocess state.
 /// shells translate their concrete monitor types into this; views
@@ -190,6 +191,8 @@ pub enum Focus {
     Repl,
     /// the global player row chrome (focusable transport buttons).
     PlayerRow,
+    /// video browse, detail, and edit view.
+    VideoView,
 }
 
 /// in-memory slice. rebuilt on every launch.
@@ -227,6 +230,8 @@ pub struct EphemeralState {
     /// optional pop-up listing per-row actions for the row currently
     /// under the result-panel cursor.
     pub action_menu: Option<ActionMenu>,
+    /// state for the video browse/detail/edit view.
+    pub video: VideoState,
     /// state for the music search + playback view.
     pub music: MusicState,
     /// state for the bottom `/` slash-command repl.
@@ -307,6 +312,7 @@ impl Default for EphemeralState {
             form: None,
             last_dispatch_scroll: 0,
             last_knock_id: None,
+            video: VideoState::new(),
             action_menu: None,
             music: MusicState::new(),
             repl: ReplState::default(),

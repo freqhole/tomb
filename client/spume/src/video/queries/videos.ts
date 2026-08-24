@@ -69,6 +69,8 @@ export interface UpdateVideoMutationParams {
   description?: string | null;
   episode_number?: number | null;
   release_date?: string | null;
+  series_id?: string | null;
+  season_id?: string | null;
 }
 
 export function useUpdateVideoMutation() {

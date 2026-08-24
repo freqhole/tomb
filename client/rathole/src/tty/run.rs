@@ -19,7 +19,7 @@ use super::LaunchOpts;
 use crate::ratcore::app::DispatchResponse;
 use crate::ratcore::app::{
     AdminCommand, App, AppAction, AppState, ArgKind, CommandForm, CommandKind, FieldState, Focus,
-    LastDispatch, PersistedState, ReplStatus, SelectOption,
+    LastDispatch, PersistedState, ReplStatus, SelectOption, VideoMode,
 };
 use crate::ratcore::catalog;
 use crate::ratcore::transport::Transport;
@@ -493,6 +493,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::ResultPanel => on_result_panel_key(app, k.code, k.modifiers),
         Focus::ResultActionMenu => on_action_menu_key(app, k.code, action_tx),
         Focus::MusicView => on_music_key(app, k.code, action_tx),
+        Focus::VideoView => on_video_key(app, k.code, action_tx),
         Focus::Repl => on_repl_key(app, k.code, k.modifiers, action_tx),
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
         Focus::RemoteList => on_remote_list_key_tty(app, k.code, action_tx),
@@ -1025,6 +1026,120 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
                     });
                 } else {
                     app.state.ephemeral.music.current_favorited = false;
+                }
+            }
+        }
+        AppAction::QueryVideos {
+            query,
+            series_id,
+            season_id,
+        } => {
+            let v = &mut app.state.ephemeral.video;
+            v.searching = true;
+            v.search_error = None;
+            let transport = app.transport.clone();
+            let q = query.clone();
+            let series = series_id.clone();
+            let season = season_id.clone();
+            let tx_clone = action_tx.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport
+                    .query_videos(q.as_deref(), series.as_deref(), season.as_deref(), 100)
+                    .await;
+                let _ = tx_clone.send(AppAction::VideoQueryResults { query: q, result });
+            });
+        }
+        AppAction::VideoQueryResults { query, result } => {
+            let v = &mut app.state.ephemeral.video;
+            v.searching = false;
+            // only apply if query matches (discard stale responses)
+            if query.as_ref() == Some(&v.query) || (query.is_none() && v.query.is_empty()) {
+                match result {
+                    Ok(rows) => {
+                        v.results = rows;
+                        v.results_cursor = 0;
+                        v.search_error = None;
+                    }
+                    Err(e) => {
+                        v.search_error = Some(e);
+                        v.results.clear();
+                    }
+                }
+            }
+        }
+        AppAction::UpdateVideo {
+            id,
+            title,
+            description,
+            episode_number,
+        } => {
+            let transport = app.transport.clone();
+            let tx_clone = action_tx.clone();
+            let id_clone = id.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport
+                    .update_video(
+                        &id_clone,
+                        title.as_deref(),
+                        description.as_deref(),
+                        episode_number,
+                    )
+                    .await;
+                let _ = tx_clone.send(AppAction::VideoUpdateResult { result });
+            });
+        }
+        AppAction::VideoUpdateResult { result } => {
+            let v = &mut app.state.ephemeral.video;
+            match result {
+                Ok(updated) => {
+                    // update the selected_video and the results list
+                    if let Some(selected) = &mut v.selected_video {
+                        *selected = updated.clone();
+                    }
+                    // also update in results list if present
+                    if let Some(idx) = v.results.iter().position(|r| r.id == updated.id) {
+                        v.results[idx] = updated;
+                    }
+                    v.mode = VideoMode::Detail;
+                    v.last_error = None;
+                }
+                Err(e) => {
+                    v.last_error = Some(e);
+                }
+            }
+        }
+        AppAction::DeleteVideo { id } => {
+            let transport = app.transport.clone();
+            let tx_clone = action_tx.clone();
+            let id_clone = id.clone();
+            tokio::task::spawn_local(async move {
+                let result = transport.delete_video(&id_clone).await;
+                let _ = tx_clone.send(AppAction::VideoDeleteResult {
+                    id: id_clone,
+                    result,
+                });
+            });
+        }
+        AppAction::VideoDeleteResult { id, result } => {
+            let v = &mut app.state.ephemeral.video;
+            match result {
+                Ok(_) => {
+                    // remove from results list
+                    if let Some(idx) = v.results.iter().position(|r| r.id == id) {
+                        v.results.remove(idx);
+                        if v.results_cursor >= v.results.len() && !v.results.is_empty() {
+                            v.results_cursor = v.results.len() - 1;
+                        }
+                    }
+                    // clear selected if it was deleted
+                    if v.selected_video.as_ref().map(|s| &s.id) == Some(&id) {
+                        v.selected_video = None;
+                        v.mode = VideoMode::Results;
+                    }
+                    v.last_error = None;
+                }
+                Err(e) => {
+                    v.last_error = Some(format!("delete failed: {}", e));
                 }
             }
         }
@@ -2551,6 +2666,195 @@ fn on_music_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActi
         (MusicMode::Search, KeyCode::Char(c)) if !c.is_control() => {
             let m = &mut app.state.ephemeral.music;
             ti::insert_char(&mut m.query, &mut m.query_cursor, c);
+        }
+        _ => {}
+    }
+}
+
+fn on_video_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
+    use crate::ratcore::app::VideoMode;
+    use crate::ratcore::text_input as ti;
+
+    let mode = app.state.ephemeral.video.mode;
+    match (mode, code) {
+        (_, KeyCode::Esc) => match mode {
+            VideoMode::Results => {
+                if app.state.ephemeral.video.pending_delete_confirm {
+                    app.state.ephemeral.video.pending_delete_confirm = false;
+                } else {
+                    app.state.ephemeral.focus = Focus::Landing;
+                }
+            }
+            VideoMode::Detail => {
+                app.state.ephemeral.video.mode = VideoMode::Results;
+                app.state.ephemeral.video.selected_video = None;
+                app.state.ephemeral.video.last_error = None;
+            }
+            VideoMode::Edit => {
+                app.state.ephemeral.video.cancel_edit();
+                app.state.ephemeral.video.last_error = None;
+            }
+        },
+        // results mode: browse list
+        (VideoMode::Results, KeyCode::Down) => {
+            let v = &mut app.state.ephemeral.video;
+            if !v.results.is_empty() {
+                v.results_cursor = (v.results_cursor + 1).min(v.results.len() - 1);
+            }
+        }
+        (VideoMode::Results, KeyCode::Up) => {
+            let v = &mut app.state.ephemeral.video;
+            v.results_cursor = v.results_cursor.saturating_sub(1);
+        }
+        (VideoMode::Results, KeyCode::Enter) => {
+            // show detail for selected video
+            let v = &mut app.state.ephemeral.video;
+            if let Some(row) = v.results.get(v.results_cursor).cloned() {
+                v.selected_video = Some(row);
+                v.mode = VideoMode::Detail;
+                v.last_error = None;
+                // optionally load series context here if needed
+            }
+        }
+        (VideoMode::Results, KeyCode::Char('d')) => {
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_delete_confirm {
+                // user already pressed d once; this is the second press — abort
+                v.pending_delete_confirm = false;
+            } else {
+                v.pending_delete_confirm = true;
+            }
+        }
+        (VideoMode::Results, KeyCode::Char('y')) => {
+            // confirm delete
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_delete_confirm {
+                if let Some(row) = v.results.get(v.results_cursor) {
+                    let id = row.id.clone();
+                    let _ = tx.send(AppAction::DeleteVideo { id });
+                }
+                v.pending_delete_confirm = false;
+            }
+        }
+        (VideoMode::Results, KeyCode::Char('n')) => {
+            // cancel delete
+            let v = &mut app.state.ephemeral.video;
+            if v.pending_delete_confirm {
+                v.pending_delete_confirm = false;
+            }
+        }
+        (VideoMode::Results, KeyCode::Char('e')) => {
+            // enter edit mode for selected video
+            let v = &mut app.state.ephemeral.video;
+            if let Some(row) = v.results.get(v.results_cursor).cloned() {
+                v.selected_video = Some(row);
+                v.begin_edit();
+                v.last_error = None;
+            }
+        }
+        // detail mode: view single video
+        (VideoMode::Detail, KeyCode::Char('e')) => {
+            app.state.ephemeral.video.begin_edit();
+            app.state.ephemeral.video.last_error = None;
+        }
+        (VideoMode::Detail, KeyCode::Char('d')) => {
+            // delete from detail view (with confirmation prompt)
+            let v = &mut app.state.ephemeral.video;
+            if let Some(video) = &v.selected_video {
+                let id = video.id.clone();
+                let _ = tx.send(AppAction::DeleteVideo { id });
+            }
+        }
+        // edit mode: modify fields
+        (VideoMode::Edit, KeyCode::Tab) => {
+            let v = &mut app.state.ephemeral.video;
+            v.edit_field_cursor = (v.edit_field_cursor + 1) % 3;
+            v.edit_field_caret = 0; // reset caret on field change
+        }
+        (VideoMode::Edit, KeyCode::Enter) => {
+            // save changes
+            let v = &app.state.ephemeral.video;
+            if let Some(video) = &v.selected_video {
+                let id = video.id.clone();
+                let title = if v.edit_title.is_empty() {
+                    None
+                } else {
+                    Some(v.edit_title.clone())
+                };
+                let description = if v.edit_description.is_empty() {
+                    None
+                } else {
+                    Some(v.edit_description.clone())
+                };
+                let episode_number = if v.edit_episode_number.is_empty() {
+                    None
+                } else {
+                    v.edit_episode_number.parse::<i64>().ok()
+                };
+                let _ = tx.send(AppAction::UpdateVideo {
+                    id,
+                    title,
+                    description,
+                    episode_number,
+                });
+            }
+        }
+        (VideoMode::Edit, KeyCode::Backspace) => {
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &mut v.edit_title,
+                1 => &mut v.edit_description,
+                2 => &mut v.edit_episode_number,
+                _ => return,
+            };
+            ti::backspace(field, &mut v.edit_field_caret);
+        }
+        (VideoMode::Edit, KeyCode::Delete) => {
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &mut v.edit_title,
+                1 => &mut v.edit_description,
+                2 => &mut v.edit_episode_number,
+                _ => return,
+            };
+            ti::delete(field, &mut v.edit_field_caret);
+        }
+        (VideoMode::Edit, KeyCode::Left) => {
+            let v = &mut app.state.ephemeral.video;
+            ti::move_left(&mut v.edit_field_caret);
+        }
+        (VideoMode::Edit, KeyCode::Right) => {
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &v.edit_title,
+                1 => &v.edit_description,
+                2 => &v.edit_episode_number,
+                _ => return,
+            };
+            ti::move_right(field, &mut v.edit_field_caret);
+        }
+        (VideoMode::Edit, KeyCode::Home) => {
+            app.state.ephemeral.video.edit_field_caret = 0;
+        }
+        (VideoMode::Edit, KeyCode::End) => {
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &v.edit_title,
+                1 => &v.edit_description,
+                2 => &v.edit_episode_number,
+                _ => return,
+            };
+            ti::move_end(field, &mut v.edit_field_caret);
+        }
+        (VideoMode::Edit, KeyCode::Char(c)) => {
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &mut v.edit_title,
+                1 => &mut v.edit_description,
+                2 => &mut v.edit_episode_number,
+                _ => return,
+            };
+            ti::insert_char(field, &mut v.edit_field_caret, c);
         }
         _ => {}
     }

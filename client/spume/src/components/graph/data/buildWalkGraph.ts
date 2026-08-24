@@ -29,6 +29,10 @@ export interface BuildWalkGraphInput {
    *  so renames (web local-library AppState, charnel toml server.name) are
    *  reflected in the graph viz. falls back to remoteId when unset. */
   remoteNamesById?: Map<string, string>;
+  /** total count of videos across all sources (local + remotes). used
+   *  for the video_root node's childCount so it scales visually based
+   *  on library size. defaults to 0 when unset. */
+  videoCount?: number;
 }
 
 export interface BuildWalkGraphOutput {
@@ -82,14 +86,17 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
   const rId = rootId();
   nodes.push({ id: rId, role: "root", label: "root", parentId: null, childCount: remoteIds.length + 1 });
 
-  // ---- video domain root (synthetic placeholder) ---------------------------
-  // the graph is currently music-only: there is no per-remote video data
-  // feeding this builder yet, so this is a single static stub (no children)
-  // marking where the video domain will attach once it gets real data
-  // plumbing. gives the video root shape a real node to render onto the
-  // canvas ahead of that work.
+  // ---- video domain root --------------------------------------------------
+  // single synthetic video root (not per-remote yet — that's deferred).
+  // childCount now reflects real video library size from the input.
   const vId = videoRootId();
-  nodes.push({ id: vId, role: "video_root", label: "video", parentId: rId, childCount: 0 });
+  nodes.push({
+    id: vId,
+    role: "video_root",
+    label: "video",
+    parentId: rId,
+    childCount: input.videoCount ?? 0,
+  });
   edges.push({ source: rId, target: vId });
 
   for (const remoteId of remoteIds) {

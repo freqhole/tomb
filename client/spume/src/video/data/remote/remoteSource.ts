@@ -171,6 +171,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
     description?: string | null;
     episode_number?: number | null;
     release_date?: string | null;
+    series_id?: string | null;
+    season_id?: string | null;
   }): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.updateVideos({
@@ -179,6 +181,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
       description: params.description,
       episode_number: params.episode_number,
       release_date: params.release_date,
+      series_id: params.series_id,
+      season_id: params.season_id,
     });
     if (!result.success) this.failRequest(result);
     if (result.data.videos_failed.length > 0) {

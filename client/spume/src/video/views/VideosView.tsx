@@ -17,6 +17,8 @@ import { useVideosQuery } from "../queries/videos";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { buildRoute } from "../../music/utils/routing";
 import { Icon } from "../../components/icons/registry";
+import { useToggleFavoriteMutation } from "../../music/queries/favorites";
+import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import type { VideoQueryParams, VideoSummary } from "../data/types";
 
 export interface VideosViewProps {
@@ -85,6 +87,33 @@ export function VideosView(props: VideosViewProps) {
     const pages = videosQuery.data?.pages ?? [];
     return pages.flatMap((page) => page.items);
   });
+
+  // extract video ids for favorite status query
+  const videoIds = createMemo(() => videos().map((v) => v.id));
+
+  // fetch favorite statuses for all visible videos
+  const favoriteStatusesQuery = useVideoFavoriteStatuses(videoIds);
+  const favoriteVideoIds = createMemo(() => favoriteStatusesQuery.data ?? new Set<string>());
+
+  // favorite toggle mutation
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // handle favorite toggle
+  const handleVideoFavoriteToggle = (videoId: string, isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video",
+      targetId: videoId,
+      isFavorite,
+    });
+  };
+
+  // context menu handler - passed down to grid/table components which
+  // handle rendering the menu via their own ContextMenu wrappers
+  const handleVideoContextMenu = (e: MouseEvent, _video: VideoSummary) => {
+    e.preventDefault();
+    // the grid/table components are responsible for rendering the
+    // context menu - this is just a placeholder for now
+  };
 
   // update page info for TopNav
   createEffect(() => {
@@ -192,6 +221,9 @@ export function VideosView(props: VideosViewProps) {
               videos={videos()}
               onVideoClick={handleVideoClick}
               onVideoPlay={handleVideoPlay}
+              onVideoContextMenu={handleVideoContextMenu}
+              favoriteVideoIds={favoriteVideoIds()}
+              onVideoFavoriteToggle={handleVideoFavoriteToggle}
             />
           }
         >
@@ -228,6 +260,9 @@ export function VideosView(props: VideosViewProps) {
                   videos={videos()}
                   onVideoClick={handleVideoClick}
                   onVideoPlay={handleVideoPlay}
+                  onVideoContextMenu={handleVideoContextMenu}
+                  favoriteVideoIds={favoriteVideoIds()}
+                  onVideoFavoriteToggle={handleVideoFavoriteToggle}
                   onNearEnd={loadMore}
                   height={gridHeight()}
                   scrollRestoreKey="videos-grid"

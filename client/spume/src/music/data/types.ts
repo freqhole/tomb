@@ -155,7 +155,8 @@ export type SuggestionType =
   | "song"
   | "taxon"
   | "genre"
-  | "playlist";
+  | "playlist"
+  | "video";
 
 export interface SearchSuggestion {
   value: string;
@@ -256,6 +257,7 @@ export interface SearchResponse {
   albums?: SearchAlbumResult[] | null;
   genres?: SearchGenreResult[] | null;
   playlists?: SearchPlaylistResult[] | null;
+  videos?: VideoSearchResult[] | null;
   total_count: number;
   page: number;
   page_size: number;
@@ -267,13 +269,29 @@ export interface SearchResponse {
   sort_applied?: string | null;
 }
 
+export interface VideoSearchResult {
+  id: string;
+  title: string;
+  series_id?: string | null;
+  series_name?: string | null;
+  episode_number?: number | null;
+  duration_seconds?: number | null;
+  thumbnail_url?: string | null;
+  user_rating?: number | null;
+  is_favorite: boolean;
+  search_rank: number;
+  match_type: string;
+  highlight?: string | null;
+}
+
 export type SearchField =
   | "all"
   | "artists"
   | "albums"
   | "songs"
   | "genres"
-  | "playlists";
+  | "playlists"
+  | "videos";
 
 // main data source interface
 // both local and remote sources implement this
@@ -368,7 +386,7 @@ export interface MusicDataSource {
   }): Promise<void>;
 
   setRating?(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number; // 0-5, where 0 means remove rating
   }): Promise<void>;

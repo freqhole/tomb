@@ -1613,6 +1613,11 @@ export const DeleteTaxonRequestSchema = z.object({
 });
 export type DeleteTaxonRequest = z.infer<typeof DeleteTaxonRequestSchema>;
 
+export const DeleteVideoRenditionRequestSchema = z.object({
+  blob_id: z.string()
+});
+export type DeleteVideoRenditionRequest = z.infer<typeof DeleteVideoRenditionRequestSchema>;
+
 export const DeleteVideoRequestSchema = z.object({
   id: z.string()
 });
@@ -2502,11 +2507,12 @@ export type FavoriteStatusItem = z.infer<typeof FavoriteStatusItemSchema>;
 
 export const FeedItemSchema = z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({
@@ -2554,13 +2560,13 @@ export const FeedItemSchema = z.object({
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
-export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]);
+export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]);
 export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
 
 export const FeedRequestSchema = z.object({
   limit: z.number().nullish(),
   offset: z.number().nullish(),
-  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")])).nullish(),
+  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")])).nullish(),
   user_id: z.string().nullish()
 });
 export type FeedRequest = z.infer<typeof FeedRequestSchema>;
@@ -2568,11 +2574,12 @@ export type FeedRequest = z.infer<typeof FeedRequestSchema>;
 export const FeedResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
+  video_id: z.string().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({

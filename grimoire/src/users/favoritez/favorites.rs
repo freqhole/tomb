@@ -1,11 +1,11 @@
 //! Favorites service for managing user favorites
 //!
-//! This module handles user favorites for songs, artists, albums, genres, and playlists.
+//! This module handles user favorites for songs, artists, albums, genres, playlists, and videos.
 //! Provides operations for setting, getting, and managing favorite status.
 
 use crate::database;
-// best-effort feed-event integration - music-domain-specific today, silently
-// ignored (via `let _ =`) for target types it doesn't recognize (e.g. video)
+// feed-event integration - creates feed events for all favorite actions
+// across all supported target types (song/album/artist/playlist/video)
 use crate::music::analytics::feed_events::{
     create_favorite_feed_event, delete_favorite_feed_event,
 };

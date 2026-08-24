@@ -3,9 +3,10 @@ import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { debug, error as logError } from "../../utils/logger";
 import { getDataSource } from "../data";
 import { queryKeys } from "./queryKeys";
+import { videoQueryKeys } from "../../video/queries/queryKeys";
 
 // rating target types
-export type RatingTarget = "song" | "album" | "artist";
+export type RatingTarget = "song" | "album" | "artist" | "video";
 
 // mutation hook for setting rating
 export function useSetRatingMutation() {
@@ -38,14 +39,8 @@ export function useSetRatingMutation() {
       debug("ratings", "onSuccess:", { rating, variables });
 
       // invalidate queries to trigger refetch with updated rating
-      const queryKeysToInvalidate = getQueryKeysToInvalidate(
-        variables.targetType,
-      );
-      debug(
-        "ratings",
-        "invalidating queries with keys:",
-        queryKeysToInvalidate,
-      );
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(variables.targetType);
+      debug("ratings", "invalidating queries with keys:", queryKeysToInvalidate);
 
       // invalidate each query key prefix
       queryKeysToInvalidate.forEach((queryKey) => {
@@ -64,9 +59,7 @@ export function useSetRatingMutation() {
 
       // invalidate queries to refetch and show correct state
       debug("ratings", "invalidating queries after error");
-      const queryKeysToInvalidate = getQueryKeysToInvalidate(
-        variables.targetType,
-      );
+      const queryKeysToInvalidate = getQueryKeysToInvalidate(variables.targetType);
       queryKeysToInvalidate.forEach((queryKey) => {
         queryClient.invalidateQueries({
           queryKey,
@@ -79,9 +72,7 @@ export function useSetRatingMutation() {
 
 // helper to invalidate queries for a target type
 // returns array of query keys to invalidate
-function getQueryKeysToInvalidate(
-  targetType: RatingTarget,
-): Array<readonly unknown[]> {
+function getQueryKeysToInvalidate(targetType: RatingTarget): Array<readonly unknown[]> {
   switch (targetType) {
     case "song":
       // invalidate all queries that might contain songs
@@ -102,5 +93,7 @@ function getQueryKeysToInvalidate(
         queryKeys.artists.all(),
         ["artist", "songs"], // artist songs contain artist data with ratings
       ];
+    case "video":
+      return [videoQueryKeys.videos.all()];
   }
 }

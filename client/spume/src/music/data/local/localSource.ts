@@ -748,10 +748,16 @@ export class LocalMusicDataSource implements MusicDataSource {
   }
 
   async setRating(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number;
   }): Promise<void> {
+    if (params.targetType === "video") {
+      // video is not part of the local (offline IndexedDB) music library -
+      // ratings for video only go through the remote data source.
+      throw new Error("local data source does not support video ratings");
+    }
+
     const db = await initMusicDB();
 
     // validate rating

@@ -225,6 +225,7 @@ export const routes = {
     create_video_season: { method: 'POST', path: '/api/video/seasons', req: s.CreateVideoSeasonRequestSchema, resp: s.VideoSeasonSchema, auth: { type: 'role', role: 'admin' } as const },
     create_video_series: { method: 'POST', path: '/api/video/series', req: s.CreateVideoSeriesRequestSchema, resp: s.VideoSeriesSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_video: { method: 'POST', path: '/api/video/videos/delete', req: s.DeleteVideoRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
+    delete_video_rendition: { method: 'POST', path: '/api/video/videos/renditions/delete', req: s.DeleteVideoRenditionRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_video_season: { method: 'POST', path: '/api/video/seasons/delete', req: s.DeleteVideoSeasonRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     delete_video_series: { method: 'POST', path: '/api/video/series/delete', req: s.DeleteVideoSeriesRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     get_playback_progress: { method: 'POST', path: '/api/video/progress/get', req: s.GetPlaybackProgressRequestSchema, resp: s.PlaybackProgressSchema.array(), auth: { type: 'authenticated' } as const },

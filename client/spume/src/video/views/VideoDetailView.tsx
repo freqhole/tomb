@@ -1,19 +1,23 @@
 // video detail view - mirrors AlbumDetailView.tsx's shape (see
 // music/views/AlbumDetailView.tsx) for a single video: poster, title,
 // description, series/season/episode info if present, duration, release
-// date, and a play button. deliberately minimal for the MVP pass — no
-// image carousel, no context menu, no favorite/rating UI yet.
+// date, and a play button.
 import { useNavigate, useParams } from "@solidjs/router";
-import { createSignal, Show } from "solid-js";
+import { createSignal, createMemo, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState } from "../../components/feedback";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
+import { Rating } from "../../components/ratings/Rating";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { useVideoQuery } from "../queries/videos";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { useLocalVideoPosterUrl } from "../components/VideoCard";
+import { useToggleFavoriteMutation } from "../../music/queries/favorites";
+import { useSetRatingMutation } from "../../music/queries/ratings";
+import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 
 export function VideoDetailView() {
   const params = useParams<{ videoId: string }>();
@@ -22,6 +26,51 @@ export function VideoDetailView() {
   const videoQuery = useVideoQuery(() => params.videoId);
 
   const [playPending, setPlayPending] = createSignal(false);
+
+  // favorite status query for this video
+  const videoIds = createMemo(() => {
+    const id = params.videoId;
+    return id ? [id] : [];
+  });
+  const favoriteStatusesQuery = useVideoFavoriteStatuses(videoIds);
+  const isFavorite = createMemo(() => {
+    const id = params.videoId;
+    return id ? (favoriteStatusesQuery.data?.has(id) ?? false) : false;
+  });
+
+  // TODO: rating state - currently no backend support for fetching user's
+  // own rating for video (getRatingStats only returns average_rating and
+  // total_ratings). for now, start at 0 and let the mutation update it.
+  const [userRating, setUserRating] = createSignal(0);
+
+  // mutations
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+  const setRatingMutation = useSetRatingMutation();
+
+  // handle favorite toggle
+  const handleFavoriteToggle = (newIsFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video",
+      targetId: params.videoId,
+      isFavorite: newIsFavorite,
+    });
+  };
+
+  // handle rating change
+  const handleRatingChange = (rating: number) => {
+    setRatingMutation.mutate(
+      {
+        targetType: "video",
+        targetId: params.videoId,
+        rating,
+      },
+      {
+        onSuccess: () => {
+          setUserRating(rating);
+        },
+      }
+    );
+  };
 
   const localPosterUrl = useLocalVideoPosterUrl(() => {
     const v = videoQuery.data;
@@ -109,6 +158,8 @@ export function VideoDetailView() {
                       view series
                     </Button>
                   </Show>
+                  <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                  <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                 </div>
               </div>
             </div>

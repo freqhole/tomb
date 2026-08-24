@@ -607,6 +607,35 @@ pub enum AppAction {
     /// player backend emitted an event (state change, progress tick,
     /// track-changed, error, etc.).
     MusicEvent(MusicEvent),
+    /// query videos (for video view results list).
+    QueryVideos {
+        query: Option<String>,
+        series_id: Option<String>,
+        season_id: Option<String>,
+    },
+    /// video query results arrived.
+    VideoQueryResults {
+        query: Option<String>,
+        result: Result<Vec<super::VideoRow>, String>,
+    },
+    /// update a video's metadata.
+    UpdateVideo {
+        id: String,
+        title: Option<String>,
+        description: Option<String>,
+        episode_number: Option<i64>,
+    },
+    /// video update result arrived.
+    VideoUpdateResult {
+        result: Result<super::VideoRow, String>,
+    },
+    /// delete a video.
+    DeleteVideo { id: String },
+    /// video delete result arrived.
+    VideoDeleteResult {
+        id: String,
+        result: Result<(), String>,
+    },
     /// grimoire emitted a `JobProgress` event for one of the in-flight
     /// job sessions. shells forward these into the ui loop so the
     /// top-bar `jobs_status` badge can update.

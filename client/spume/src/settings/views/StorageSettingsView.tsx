@@ -4,6 +4,7 @@ import {
   getStorageBreakdown,
   clearCacheApiData,
   clearOPFSData,
+  clearVideoOPFSData,
   clearMusicDbData,
   clearAllData,
   formatBytes,
@@ -269,6 +270,20 @@ export function StorageSettingsView() {
       async () => {
         setClearing("opfs");
         await clearOPFSData();
+        setClearing(null);
+      }
+    );
+  };
+
+  const handleClearVideoOPFS = () => {
+    showConfirmDialog(
+      "clear video files",
+      "this will delete all locally stored video files and posters from OPFS. video metadata in IndexedDB will also be removed. remote videos are not affected.",
+      "clear video files",
+      true,
+      async () => {
+        setClearing("videoOpfs");
+        await clearVideoOPFSData();
         setClearing(null);
       }
     );
@@ -556,6 +571,27 @@ export function StorageSettingsView() {
                 clearLabel="clear local files"
                 clearDanger
                 loading={clearing() === "opfs"}
+              />
+
+              {/* video opfs */}
+              <StorageCard
+                title="local videos (OPFS)"
+                icon=""
+                size={data().videoOpfs.size}
+                details={[
+                  {
+                    label: "video files",
+                    value: `${data().videoOpfs.videoCount} (${formatBytes(data().videoOpfs.videoSize)})`,
+                  },
+                  {
+                    label: "posters",
+                    value: `${data().videoOpfs.postersCount} (${formatBytes(data().videoOpfs.postersSize)})`,
+                  },
+                ]}
+                onClear={handleClearVideoOPFS}
+                clearLabel="clear video files"
+                clearDanger
+                loading={clearing() === "videoOpfs"}
               />
 
               {/* indexeddb */}

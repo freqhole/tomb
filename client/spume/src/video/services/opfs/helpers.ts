@@ -121,3 +121,124 @@ export async function deleteVideoPosterFromOPFS(path: string): Promise<void> {
     errorLog("opfs", `delete video poster failed (${path}):`, error);
   }
 }
+
+// get aggregate video OPFS usage stats (mirrors music's getOPFSUsage pattern but for video/video-posters dirs)
+export async function getVideoOPFSUsage(): Promise<{
+  videoSize: number;
+  postersSize: number;
+  videoCount: number;
+  postersCount: number;
+  totalSize: number;
+}> {
+  try {
+    if (!isOPFSSupported()) {
+      return { videoSize: 0, postersSize: 0, videoCount: 0, postersCount: 0, totalSize: 0 };
+    }
+
+    const root = await getOPFSRoot();
+    let videoSize = 0;
+    let postersSize = 0;
+    let videoCount = 0;
+    let postersCount = 0;
+
+    // count video directory
+    try {
+      const videoDir = await root.getDirectoryHandle(VIDEO_DIR);
+      for await (const entry of (videoDir as any).values()) {
+        if (entry.kind === "file") {
+          const file = await entry.getFile();
+          videoSize += file.size;
+          videoCount++;
+        }
+      }
+    } catch {
+      // directory doesn't exist yet, not an error
+    }
+
+    // count posters directory
+    try {
+      const postersDir = await root.getDirectoryHandle(POSTERS_DIR);
+      for await (const entry of (postersDir as any).values()) {
+        if (entry.kind === "file") {
+          const file = await entry.getFile();
+          postersSize += file.size;
+          postersCount++;
+        }
+      }
+    } catch {
+      // directory doesn't exist yet, not an error
+    }
+
+    return {
+      videoSize,
+      postersSize,
+      videoCount,
+      postersCount,
+      totalSize: videoSize + postersSize,
+    };
+  } catch (error) {
+    errorLog("opfs", "get video opfs usage failed:", error);
+    return { videoSize: 0, postersSize: 0, videoCount: 0, postersCount: 0, totalSize: 0 };
+  }
+}
+
+// purge a single video from OPFS (delete OPFS files + IDB row) - a coherent single operation
+export async function purgeVideoFromOPFS(videoId: string): Promise<void> {
+  const { getLocalVideoById } = await import("../storage/db/videos");
+  const { deleteLocalVideo } = await import("../storage/db/videos");
+
+  try {
+    const video = await getLocalVideoById(videoId);
+    if (!video) {
+      debug("opfs", `purgeVideoFromOPFS: video ${videoId} not found in IDB, skipping`);
+      return;
+    }
+
+    // delete OPFS files first (if they exist)
+    if (video.opfs_path) {
+      await deleteVideoFromOPFS(video.opfs_path);
+    }
+    if (video.poster_opfs_path) {
+      await deleteVideoPosterFromOPFS(video.poster_opfs_path);
+    }
+
+    // then delete the IDB row (so we never leave a dangling row pointing at deleted OPFS files)
+    await deleteLocalVideo(videoId);
+    debug("opfs", `purged video ${videoId} from OPFS + IDB`);
+  } catch (error) {
+    errorLog("opfs", `purge video ${videoId} failed:`, error);
+    throw error;
+  }
+}
+
+// purge all videos from OPFS - continues past individual failures, doesn't abort the whole batch on one error
+export async function purgeAllVideosFromOPFS(): Promise<void> {
+  const { getLocalVideos } = await import("../storage/db/videos");
+
+  try {
+    // fetch all local videos (no pagination, get them all)
+    const result = await getLocalVideos({ limit: 10000, offset: 0 });
+    const videos = result.items;
+
+    debug("opfs", `purging ${videos.length} videos from OPFS`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const video of videos) {
+      try {
+        await purgeVideoFromOPFS(video.id);
+        successCount++;
+      } catch (error) {
+        errorLog("opfs", `failed to purge video ${video.id}:`, error);
+        failCount++;
+        // continue to next video, don't abort
+      }
+    }
+
+    debug("opfs", `purge complete: ${successCount} success, ${failCount} failed`);
+  } catch (error) {
+    errorLog("opfs", "purge all videos failed:", error);
+    throw error;
+  }
+}

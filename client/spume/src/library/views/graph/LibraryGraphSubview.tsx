@@ -278,6 +278,9 @@ function Inner(props: {
   >(new Map());
   type LookupState = "loading" | "loaded" | "absent";
   const crossRemoteLookups = new Map<string, LookupState>();
+  // video counts per remote (local + each peer remote). aggregated and
+  // passed to buildWalkGraph for the video_root node's childCount.
+  const [videoCountByRemote, setVideoCountByRemote] = createSignal<Map<string, number>>(new Map());
 
   const setFetchingNodeFlag = (nodeId: string, fetching: boolean) => {
     setFetchingByNode((prev) => {
@@ -593,6 +596,59 @@ function Inner(props: {
     }
   };
 
+  // fetch video count for a remote and store in the video count map.
+  // queries first page with limit=1 to minimize payload — only the
+  // total_count field matters for the video_root node's childCount.
+  const loadVideoCountForRemote = async (remote: Remote): Promise<void> => {
+    try {
+      const client = await getClientForRemote(remote);
+      const result = await client.video.queryVideos({
+        params: {
+          q: null,
+          search_fields: null,
+          filters: {},
+          sort_by: null,
+          sort_direction: null,
+          limit: 1,
+          offset: 0,
+          user_id: null,
+          favorites_only: null,
+          min_rating: null,
+          mb_lookup_status: null,
+          pending_review: null,
+          caller_is_admin: null,
+        },
+        series_id: null,
+        season_id: null,
+        unassigned: false,
+      });
+      if (!result.success || !result.data) return;
+      setVideoCountByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remote.remote_id, result.data.total_count);
+        return next;
+      });
+    } catch (err) {
+      console.warn("video count fetch failed", { remoteId: remote.remote_id, err });
+    }
+  };
+
+  // local twin: fetch local video count from indexeddb.
+  const loadVideoCountForLocal = async (): Promise<void> => {
+    try {
+      const { getVideoDataSource } = await import("../../../video/data");
+      const dataSource = getVideoDataSource();
+      const result = await dataSource.getVideos({ limit: 1, offset: 0 });
+      setVideoCountByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(LOCAL_GRAPH_REMOTE_ID, result.total_count);
+        return next;
+      });
+    } catch (err) {
+      console.warn("local video count fetch failed", { err });
+    }
+  };
+
   // fetch taxon kinds for a remote and seed first-order relation hub
   // nodes (one per categorical user-defined kind). favorites is still
   // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
@@ -835,6 +891,10 @@ function Inner(props: {
     };
     const remoteNames = new Map<string, string>(props.remotes().map((r) => [r.remote_id, r.name]));
     if (includeLocalHub) remoteNames.set(LOCAL_GRAPH_REMOTE_ID, getLocalLibraryName());
+    // aggregate video counts across all contributing remotes for the video_root
+    // node's childCount (makes it scale visually with library size).
+    const videoCounts = videoCountByRemote();
+    const totalVideoCount = remoteIds.reduce((sum, rid) => sum + (videoCounts.get(rid) ?? 0), 0);
     return buildWalkGraph({
       remoteIds,
       albumsByRemote: filterByFocus(stripDisabled(byRemote)),
@@ -848,6 +908,7 @@ function Inner(props: {
           .map((r) => r.remote_id)
       ),
       remoteNamesById: remoteNames,
+      videoCount: totalVideoCount,
     });
   });
   // node lookup that covers both the eagerly-loaded data and any cross-remote
@@ -3146,6 +3207,32 @@ function Inner(props: {
       void loadTaxonKindsForLocal();
     }
   });
+
+  // load video counts once per online+activated remote. fires when
+  // onlineRemotes changes or when the worker was re-init'd. video count
+  // is aggregated across all remotes and fed to buildWalkGraph for the
+  // video_root node's childCount, so it scales visually with library size.
+  const videoCountLoadedRemotes = new Set<string>();
+  let videoCountLastResetTick = 0;
+  createEffect(() => {
+    const tick = mergeResetTick();
+    const online = onlineRemotes();
+    if (tick !== videoCountLastResetTick) {
+      videoCountLastResetTick = tick;
+      for (const r of online) videoCountLoadedRemotes.delete(r.remote_id);
+      if (includeLocalHub) videoCountLoadedRemotes.delete(LOCAL_GRAPH_REMOTE_ID);
+    }
+    for (const remote of online) {
+      if (videoCountLoadedRemotes.has(remote.remote_id)) continue;
+      videoCountLoadedRemotes.add(remote.remote_id);
+      void loadVideoCountForRemote(remote);
+    }
+    if (includeLocalHub && !videoCountLoadedRemotes.has(LOCAL_GRAPH_REMOTE_ID)) {
+      videoCountLoadedRemotes.add(LOCAL_GRAPH_REMOTE_ID);
+      void loadVideoCountForLocal();
+    }
+  });
+
   // ensure local is purged from the dedup set on every reset so the
   // effect above can refire. has to happen in the same effect that
   // drains peer remotes; piggyback there.

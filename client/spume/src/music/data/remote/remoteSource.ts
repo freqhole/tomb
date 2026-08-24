@@ -939,7 +939,7 @@ export class RemoteMusicDataSource implements MusicDataSource {
   }
 
   async setRating(params: {
-    targetType: "song" | "album" | "artist";
+    targetType: "song" | "album" | "artist" | "video";
     targetId: string;
     rating: number;
   }): Promise<void> {

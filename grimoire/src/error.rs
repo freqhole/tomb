@@ -189,6 +189,9 @@ pub enum GrimoireError {
 
     #[error("route not found: {path}")]
     RouteNotFound { path: String },
+
+    #[error("blob {blob_id} is not a rendition (type: {blob_type})")]
+    NotARendition { blob_id: String, blob_type: String },
 }
 
 /// result type alias for grimoire operations
@@ -270,6 +273,7 @@ impl GrimoireError {
             GrimoireError::Forbidden { .. } => false,
             GrimoireError::BadRequest { .. } => false,
             GrimoireError::RouteNotFound { .. } => false,
+            GrimoireError::NotARendition { .. } => false,
         }
     }
 
@@ -284,6 +288,7 @@ impl GrimoireError {
             GrimoireError::InvalidFormat { .. } => 400,
             GrimoireError::Serialization(_) => 400,
             GrimoireError::InvalidEntityType { .. } => 400,
+            GrimoireError::NotARendition { .. } => 400,
             // not found errors
             GrimoireError::SongNotFound { .. }
             | GrimoireError::AlbumNotFound { .. }

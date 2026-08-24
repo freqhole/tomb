@@ -6,7 +6,11 @@ import { closeMusicDB } from "../../music/services/storage/db/init";
 import { closeBlobDB, BLOB_DB_NAME } from "../../music/services/storage/blobs";
 import { APP_DB_NAME } from "../../app/services/storage/types";
 import { closeAppDB } from "../../app/services/storage/db";
-import { closeMetadataDB, clearBlobCache, listRemoteBlobCaches } from "../../music/services/cache/blobCache";
+import {
+  closeMetadataDB,
+  clearBlobCache,
+  listRemoteBlobCaches,
+} from "../../music/services/cache/blobCache";
 import { clearAllP2PCache } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
 
@@ -27,6 +31,13 @@ export interface StorageBreakdown {
     thumbnailsSize: number;
     audioCount: number;
     thumbnailCount: number;
+  };
+  videoOpfs: {
+    size: number;
+    videoSize: number;
+    postersSize: number;
+    videoCount: number;
+    postersCount: number;
   };
   indexedDb: {
     musicDbSize: number;
@@ -50,7 +61,7 @@ async function estimateIDBSize(dbName: string): Promise<number> {
       const db = request.result;
       let totalSize = 0;
       const storeNames = Array.from(db.objectStoreNames);
-      
+
       if (storeNames.length === 0) {
         db.close();
         resolve(0);
@@ -58,14 +69,14 @@ async function estimateIDBSize(dbName: string): Promise<number> {
       }
 
       let processed = 0;
-      
+
       for (const storeName of storeNames) {
         try {
           const tx = db.transaction(storeName, "readonly");
           const store = tx.objectStore(storeName);
           const countReq = store.count();
           const getAllReq = store.getAll();
-          
+
           getAllReq.onsuccess = () => {
             const data = getAllReq.result;
             // estimate size by serializing to JSON
@@ -81,7 +92,7 @@ async function estimateIDBSize(dbName: string): Promise<number> {
               resolve(totalSize);
             }
           };
-          
+
           getAllReq.onerror = () => {
             processed++;
             if (processed === storeNames.length) {
@@ -107,12 +118,12 @@ async function getCacheApiStats(): Promise<{ size: number; entryCount: number }>
     const cacheNames = await listRemoteBlobCaches();
     let totalSize = 0;
     let totalEntryCount = 0;
-    
+
     for (const cacheName of cacheNames) {
       const cache = await caches.open(cacheName);
       const keys = await cache.keys();
       totalEntryCount += keys.length;
-      
+
       for (const request of keys) {
         const response = await cache.match(request);
         if (response) {
@@ -121,7 +132,7 @@ async function getCacheApiStats(): Promise<{ size: number; entryCount: number }>
         }
       }
     }
-    
+
     return { size: totalSize, entryCount: totalEntryCount };
   } catch (error) {
     console.warn("failed to get cache api stats:", error);
@@ -140,13 +151,13 @@ async function getOPFSStats(): Promise<{
     if (!("storage" in navigator) || !navigator.storage.getDirectory) {
       return { audioSize: 0, thumbnailsSize: 0, audioCount: 0, thumbnailCount: 0 };
     }
-    
+
     const root = await navigator.storage.getDirectory();
     let audioSize = 0;
     let thumbnailsSize = 0;
     let audioCount = 0;
     let thumbnailCount = 0;
-    
+
     // count audio directory
     try {
       const audioDir = await root.getDirectoryHandle(OPFS_AUDIO_DIR);
@@ -160,7 +171,7 @@ async function getOPFSStats(): Promise<{
     } catch {
       // directory doesn't exist
     }
-    
+
     // count thumbnails directory
     try {
       const thumbDir = await root.getDirectoryHandle(OPFS_THUMBNAILS_DIR);
@@ -174,7 +185,7 @@ async function getOPFSStats(): Promise<{
     } catch {
       // directory doesn't exist
     }
-    
+
     return { audioSize, thumbnailsSize, audioCount, thumbnailCount };
   } catch (error) {
     console.warn("failed to get opfs stats:", error);
@@ -192,20 +203,36 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
     usage = estimate.usage || 0;
     quota = estimate.quota || 0;
   }
-  
+
   // get cache api stats
   const cacheStats = await getCacheApiStats();
-  
-  // get opfs stats
+
+  // get opfs stats (music)
   const opfsStats = await getOPFSStats();
-  
+
+  // get video opfs stats
+  let videoOpfsStats = {
+    videoSize: 0,
+    postersSize: 0,
+    videoCount: 0,
+    postersCount: 0,
+    totalSize: 0,
+  };
+  try {
+    const { getVideoOPFSUsage } = await import("../../video/services/opfs/helpers");
+    videoOpfsStats = await getVideoOPFSUsage();
+  } catch (error) {
+    // video module might not be available in all contexts, fail gracefully
+    console.warn("failed to get video opfs stats:", error);
+  }
+
   // get indexeddb sizes
   const [musicDbSize, appDbSize, cacheMetadataDbSize] = await Promise.all([
     estimateIDBSize(MUSIC_DB_NAME),
     estimateIDBSize(APP_DB_NAME),
     estimateIDBSize(CACHE_METADATA_DB_NAME),
   ]);
-  
+
   return {
     cacheApi: {
       size: cacheStats.size,
@@ -217,6 +244,13 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
       thumbnailsSize: opfsStats.thumbnailsSize,
       audioCount: opfsStats.audioCount,
       thumbnailCount: opfsStats.thumbnailCount,
+    },
+    videoOpfs: {
+      size: videoOpfsStats.totalSize,
+      videoSize: videoOpfsStats.videoSize,
+      postersSize: videoOpfsStats.postersSize,
+      videoCount: videoOpfsStats.videoCount,
+      postersCount: videoOpfsStats.postersCount,
     },
     indexedDb: {
       musicDbSize,
@@ -235,7 +269,7 @@ export async function getStorageBreakdown(): Promise<StorageBreakdown> {
 // delete all cache api data (HTTP + P2P blobs in per-remote caches)
 export async function clearCacheApiData(): Promise<void> {
   const errors: string[] = [];
-  
+
   // clear all per-remote blob caches
   try {
     await clearBlobCache(); // no remoteId = clear all remote caches
@@ -244,7 +278,7 @@ export async function clearCacheApiData(): Promise<void> {
     console.error("failed to clear blob caches:", error);
     errors.push("blob caches");
   }
-  
+
   // clear P2P in-memory URLs
   try {
     await clearAllP2PCache();
@@ -253,7 +287,7 @@ export async function clearCacheApiData(): Promise<void> {
     console.error("failed to clear P2P in-memory URLs:", error);
     errors.push("P2P in-memory");
   }
-  
+
   // clear cache metadata IndexedDB
   try {
     closeMetadataDB(); // close connection first
@@ -273,11 +307,11 @@ export async function clearCacheApiData(): Promise<void> {
     console.error("failed to clear cache metadata db:", error);
     errors.push("cache metadata");
   }
-  
+
   if (errors.length > 0) {
     throw new Error(`failed to clear: ${errors.join(", ")}`);
   }
-  
+
   debug("storageManager", "cleared all cache data");
 }
 
@@ -287,9 +321,9 @@ export async function clearOPFSData(): Promise<void> {
     if (!("storage" in navigator) || !navigator.storage.getDirectory) {
       throw new Error("opfs not supported");
     }
-    
+
     const root = await navigator.storage.getDirectory();
-    
+
     // remove audio directory
     try {
       await root.removeEntry(OPFS_AUDIO_DIR, { recursive: true });
@@ -297,7 +331,7 @@ export async function clearOPFSData(): Promise<void> {
     } catch {
       // directory doesn't exist, that's fine
     }
-    
+
     // remove thumbnails directory
     try {
       await root.removeEntry(OPFS_THUMBNAILS_DIR, { recursive: true });
@@ -305,10 +339,22 @@ export async function clearOPFSData(): Promise<void> {
     } catch {
       // directory doesn't exist, that's fine
     }
-    
+
     debug("storageManager", "cleared opfs data");
   } catch (error) {
     console.error("failed to clear opfs data:", error);
+    throw error;
+  }
+}
+
+// delete all video opfs data
+export async function clearVideoOPFSData(): Promise<void> {
+  try {
+    const { purgeAllVideosFromOPFS } = await import("../../video/services/opfs/helpers");
+    await purgeAllVideosFromOPFS();
+    debug("storageManager", "cleared video opfs data");
+  } catch (error) {
+    console.error("failed to clear video opfs data:", error);
     throw error;
   }
 }
@@ -318,17 +364,17 @@ export async function clearMusicDbData(): Promise<void> {
   return new Promise((resolve, reject) => {
     // close any open connections first
     const request = indexedDB.deleteDatabase(MUSIC_DB_NAME);
-    
+
     request.onsuccess = () => {
       debug("storageManager", "deleted music database");
       resolve();
     };
-    
+
     request.onerror = () => {
       console.error("failed to delete music database:", request.error);
       reject(request.error);
     };
-    
+
     request.onblocked = () => {
       console.warn("music database deletion blocked - other tabs may be using it");
       // still resolve after a delay, the deletion will complete when tabs close
@@ -340,7 +386,7 @@ export async function clearMusicDbData(): Promise<void> {
 // delete all data (cache api, opfs, all indexeddb)
 export async function clearAllData(): Promise<void> {
   const errors: Error[] = [];
-  
+
   // close all database connections first - critical for Safari!
   // if connections remain open, deletion will be "blocked" and silently fail
   debug("storageManager", "closing database connections...");
@@ -364,10 +410,10 @@ export async function clearAllData(): Promise<void> {
   } catch (e) {
     console.warn("[clearAllData] error closing metadata db:", e);
   }
-  
+
   // small delay to ensure connections are fully closed
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
   // clear cache api
   try {
     await clearCacheApiData();
@@ -383,17 +429,17 @@ export async function clearAllData(): Promise<void> {
   } catch (error) {
     errors.push(error as Error);
   }
-  
+
   // clear opfs
   try {
     await clearOPFSData();
   } catch (error) {
     errors.push(error as Error);
   }
-  
+
   // delete all known indexeddb databases
   const dbNames = [MUSIC_DB_NAME, APP_DB_NAME, BLOB_DB_NAME, CACHE_METADATA_DB_NAME];
-  
+
   for (const dbName of dbNames) {
     try {
       await new Promise<void>((resolve, reject) => {
@@ -410,7 +456,9 @@ export async function clearAllData(): Promise<void> {
         request.onblocked = () => {
           // database is blocked by open connections - this is expected
           // the deletion will complete when the page reloads (which happens after this fn)
-          console.warn(`[clearAllData] database deletion blocked: ${dbName} - will complete on page reload`);
+          console.warn(
+            `[clearAllData] database deletion blocked: ${dbName} - will complete on page reload`
+          );
           resolve(); // don't reject, the reload will close connections
         };
       });
@@ -418,12 +466,12 @@ export async function clearAllData(): Promise<void> {
       errors.push(error as Error);
     }
   }
-  
+
   if (errors.length > 0) {
     console.error("[clearAllData] some errors during clear all:", errors);
-    throw new Error(`failed to clear some data: ${errors.map(e => e.message).join(", ")}`);
+    throw new Error(`failed to clear some data: ${errors.map((e) => e.message).join(", ")}`);
   }
-  
+
   debug("storageManager", "cleared all data successfully");
 }
 

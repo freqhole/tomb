@@ -63,5 +63,7 @@ export interface VideoDataSource {
     description?: string | null;
     episode_number?: number | null;
     release_date?: string | null;
+    series_id?: string | null;
+    season_id?: string | null;
   }): Promise<void>;
 }

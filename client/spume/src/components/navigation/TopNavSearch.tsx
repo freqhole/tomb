@@ -4,7 +4,7 @@ import { isNarrowViewport } from "../../config/breakpoints";
 import { getCurrentRemote, getDataSource } from "../../music/data";
 import type { SearchSuggestion as APISuggestion } from "../../music/data/types";
 import { addToQueue, playQueue } from "../../music/services/queue/queue";
-import { routes, matchRoute } from "../../music/utils/routing";
+import { routes, matchRoute, buildRoute } from "../../music/utils/routing";
 import { valueNodeId, type RelationKind } from "../graph/data/nodeIds";
 import { setHighlightedSongId } from "../../music/state/highlightedSong";
 import { Icon } from "../icons/registry";
@@ -87,7 +87,15 @@ export interface TopNavSearchProps {
 }
 
 // filterable route keys — used for the "press return to filter X" hint
-const FILTERABLE_KEYS = new Set(["songs", "albums", "artists", "playlists", "genres", "library"]);
+const FILTERABLE_KEYS = new Set([
+  "songs",
+  "albums",
+  "artists",
+  "playlists",
+  "genres",
+  "library",
+  "videos",
+]);
 // routes that filter inline (no autocomplete dropdown, debounced as-you-type)
 const FILTER_ONLY_KEYS = new Set(["library"]);
 
@@ -434,6 +442,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
         props.onNavigate?.(`/explore?graph=${encodeURIComponent(nodeId)}`);
         break;
       }
+      case "video":
+        props.onNavigate?.(buildRoute(`/video/${s.entity_id}`));
+        break;
     }
 
     // close dropdown and clear focus so hint doesn't linger
@@ -944,6 +955,41 @@ export function TopNavSearch(props: TopNavSearchProps) {
                     : routes.playlist(apiSuggestion.entity_id)
                 ),
             });
+            break;
+          }
+          case "video": {
+            contextMenuActions.push({
+              label: "play video",
+              icon: "play",
+              onClick: () => props.onNavigate?.(buildRoute(`/video/${apiSuggestion.entity_id}`)),
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: isFav ? "remove from favorites" : "add to favorites",
+              icon: isFav ? "favorite" : "favoriteOutline",
+              onClick: async () => {
+                const r = await resolveDs();
+                toggleFavoriteMutation.mutate({
+                  targetType: "video",
+                  targetId: apiSuggestion.entity_id,
+                  isFavorite: !isFav,
+                  remote: r?.remote ?? undefined,
+                });
+              },
+            });
+            contextMenuActions.push({ type: "separator" });
+            contextMenuActions.push({
+              label: "go to video",
+              icon: "video",
+              onClick: () => props.onNavigate?.(buildRoute(`/video/${apiSuggestion.entity_id}`)),
+            });
+            if (meta?.series_id) {
+              contextMenuActions.push({
+                label: "go to series",
+                icon: "list",
+                onClick: () => props.onNavigate?.(buildRoute(`/video/series/${meta.series_id}`)),
+              });
+            }
             break;
           }
         }

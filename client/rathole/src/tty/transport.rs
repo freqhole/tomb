@@ -10,7 +10,7 @@ use grimoire::offal::Caller;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use crate::ratcore::app::{DispatchResponse, SongRow};
+use crate::ratcore::app::{DispatchResponse, SeriesRow, SongRow, VideoRow};
 use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
@@ -269,6 +269,130 @@ impl Transport for LocalTransport {
             return Ok(vec![]);
         };
         Ok(result.items.iter().map(song_query_to_row).collect())
+    }
+
+    async fn query_videos(
+        &self,
+        query: Option<&str>,
+        series_id: Option<&str>,
+        season_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<VideoRow>, String> {
+        use grimoire::music::crud::QueryParams;
+        use grimoire::video::query_videos;
+
+        let params = QueryParams {
+            limit: Some(limit),
+            offset: Some(0),
+            q: query
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            ..Default::default()
+        };
+        let resp = query_videos(
+            params,
+            series_id.map(|s| s.to_string()),
+            season_id.map(|s| s.to_string()),
+            false,
+        )
+        .await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(result) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(result.items.into_iter().map(video_to_row).collect())
+    }
+
+    async fn get_video(&self, id: &str) -> Result<VideoRow, String> {
+        use grimoire::video::get_video;
+        let resp = get_video(id).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        resp.data
+            .map(video_to_row)
+            .ok_or_else(|| "video not found".to_string())
+    }
+
+    async fn update_video(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        episode_number: Option<i64>,
+    ) -> Result<VideoRow, String> {
+        use grimoire::video::{update_videos, UpdateVideosRequest};
+        let req = UpdateVideosRequest {
+            video_ids: vec![id.to_string()],
+            title: title.map(|s| s.to_string()),
+            description: description.map(|s| s.to_string()),
+            episode_number,
+            series_id: None,
+            season_id: None,
+            poster_blob_id: None,
+            duration_seconds: None,
+            release_date: None,
+            updated_by: Some(self.caller.user_id.clone()),
+        };
+        let resp = update_videos(req).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        // update_videos returns only counts, so refetch the video
+        if let Some(result) = resp.data {
+            if result.videos_updated > 0 {
+                return self.get_video(id).await;
+            }
+        }
+        Err("update failed".to_string())
+    }
+
+    async fn delete_video(&self, id: &str) -> Result<(), String> {
+        use grimoire::video::delete_video;
+        let deleted_by = Some(self.caller.username.clone());
+        let resp = delete_video(id, deleted_by).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        Ok(())
+    }
+
+    async fn list_video_series(&self, limit: u32) -> Result<Vec<SeriesRow>, String> {
+        use grimoire::video::list_video_seriez;
+        let resp = list_video_seriez(Some(limit), Some(0)).await;
+        if !resp.success {
+            return Err(resp.message);
+        }
+        let Some(series_list) = resp.data else {
+            return Ok(vec![]);
+        };
+        Ok(series_list
+            .into_iter()
+            .map(|s| SeriesRow {
+                id: s.id,
+                title: s.title,
+                description: s.description,
+            })
+            .collect())
+    }
+}
+
+/// shared Video → VideoRow conversion.
+fn video_to_row(v: grimoire::video::Video) -> VideoRow {
+    VideoRow {
+        id: v.id,
+        title: v.title,
+        series_id: v.series_id,
+        series_name: None, // query_videos doesn't populate series name inline
+        season_id: v.season_id,
+        episode_number: v.episode_number,
+        duration_seconds: v.duration_seconds,
+        description: v.description,
+        media_blob_id: v.media_blob_id,
+        poster_blob_id: v.poster_blob_id,
+        release_date: v.release_date,
     }
 }
 

@@ -61,6 +61,12 @@ pub struct GetVideoRenditionsRequest {
     pub media_blob_id: String,
 }
 
+/// request for hard-deleting a transcoded video rendition
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct DeleteVideoRenditionRequest {
+    pub blob_id: String,
+}
+
 /// a single transcoded rendition of a video's original media blob.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct VideoRendition {
@@ -173,6 +179,15 @@ pub const ROUTES: &[RouteInfo] = &[
         request_type: "GetVideoRenditionsRequest",
         response_type: "Vec<VideoRendition>",
         auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "delete_video_rendition",
+        path: "/api/video/videos/renditions/delete",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "DeleteVideoRenditionRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
     },
 ];
 
@@ -453,4 +468,35 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         "video renditions",
         serde_json::to_value(renditions).unwrap(),
     )
+}
+
+/// hard delete a transcoded video rendition (row + bytes)
+///
+/// path: POST /api/video/videos/renditions/delete
+pub async fn delete_rendition(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "delete_video").await {
+        return resp;
+    }
+
+    let req: DeleteVideoRenditionRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    match crate::media_blobz::hard_delete_rendition_blob(&req.blob_id).await {
+        Ok(()) => {
+            let empty = crate::health::EmptyResponse::ok();
+            GrimoireResponse::success("rendition deleted", serde_json::to_value(empty).unwrap())
+        }
+        Err(e) => GrimoireResponse::failure("failed to delete rendition", vec![e.into()]),
+    }
 }
