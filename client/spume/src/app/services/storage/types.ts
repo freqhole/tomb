@@ -111,7 +111,7 @@ export interface QueueSourceContext {
 // song-only by design (see music/services/queue/queueHistory.ts). no
 // server_session fields yet — video remote progress sync is a separate,
 // much-less-frequent mechanism (see video/services/queue/videoListenProgress.ts).
-export type VideoQueueHistorySourceType = "video" | "series" | "season" | "shuffle";
+export type VideoQueueHistorySourceType = "video" | "series" | "season" | "shuffle" | "playlist";
 
 // source context passed to addVideoHistoryEntry/playVideoQueue for history tracking
 export interface VideoQueueSourceContext {

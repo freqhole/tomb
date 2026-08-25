@@ -47,4 +47,12 @@ export const videoQueryKeys = {
         ? ([...videoQueryKeys.series.all(), "seasons", "remote", remoteId, seriesId] as const)
         : ([...videoQueryKeys.series.all(), "seasons", seriesId] as const),
   },
+
+  // video-typed items inside a (possibly mixed audio+video) playlist —
+  // see queries/playlistItems.ts. songs inside the same playlist are
+  // still keyed under music/queries/queryKeys.ts's `playlists.songs()`.
+  playlistItems: {
+    all: () => ["playlist-video-items", getDataSourceKey()] as const,
+    list: (playlistId?: string) => [...videoQueryKeys.playlistItems.all(), playlistId] as const,
+  },
 } as const;

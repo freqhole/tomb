@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
-use crate::video::VideoSearchResult;
+use crate::video::{VideoSearchResult, VideoSeriesSearchResult};
 
 /// search field enum for scoping searches
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -18,11 +18,13 @@ pub enum SearchField {
     Genres,
     Playlists,
     Videos,
+    #[serde(rename = "video_series")]
+    VideoSeries,
 }
 
 impl ZodSchemaTrait for SearchField {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")])"#.to_string()
+        r#"z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")])"#.to_string()
     }
 }
 
@@ -42,6 +44,9 @@ pub enum SuggestionType {
     #[serde(alias = "genre")]
     Taxon,
     Playlist,
+    Video,
+    #[serde(rename = "video_series")]
+    VideoSeries,
 }
 
 impl ZodSchemaTrait for SuggestionType {
@@ -49,7 +54,7 @@ impl ZodSchemaTrait for SuggestionType {
         // FEDERATION-COMPAT-LEGACY-GENRE-TYPE: the zod union accepts
         // both "taxon" (current) and "genre" (legacy from older
         // peers) so client validation doesn't reject legacy payloads.
-        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")])"#.to_string()
+        r#"z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")])"#.to_string()
     }
 }
 
@@ -168,6 +173,8 @@ pub struct SearchResponse {
     pub playlists: Option<Vec<PlaylistSearchResult>>,
     #[serde(default)]
     pub videos: Option<Vec<VideoSearchResult>>,
+    #[serde(default)]
+    pub video_series: Option<Vec<VideoSeriesSearchResult>>,
     pub total_count: i64,
     pub page: u32,
     pub page_size: u32,

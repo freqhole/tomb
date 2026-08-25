@@ -583,14 +583,41 @@ export function QueueSidebar(props: QueueSidebarProps) {
           <Show when={hasVideoQueueEntries()}>
             <div class="flex flex-col gap-0.5 px-2 pt-2">
               <For each={props.videos}>
-                {(entry) => (
-                  <VideoQueueRow
-                    video={entry.video}
-                    isCurrentlyPlaying={entry.video.id === props.currentVideoId}
-                    onPlay={() => props.onVideoClick?.(entry.fullIndex)}
-                    onRemove={() => props.onRemoveVideo?.(entry.fullIndex)}
-                  />
-                )}
+                {(entry) => {
+                  // get waveform URL - check local blob first, then P2P/remote
+                  // (mirrors the song row's waveformUrl resolution below)
+                  const waveformImg = () => getWaveformImage(entry.video.images);
+
+                  const resolvedP2PWaveformUrl = useResolvedP2PImageUrl(() => {
+                    const img = waveformImg();
+                    if (!img?.remote_blob_id || !img?.remote_server_id) return undefined;
+                    return {
+                      blobId: img.remote_blob_id,
+                      remoteId: img.remote_server_id,
+                      httpFallback: img.remote_url,
+                    };
+                  });
+
+                  const waveformUrl = () => {
+                    const img = waveformImg();
+                    if (!img) return undefined;
+                    if (img.local_blob_id) {
+                      const cached = getCachedBlobObjectURL(img.local_blob_id);
+                      if (cached) return cached;
+                    }
+                    return resolvedP2PWaveformUrl();
+                  };
+
+                  return (
+                    <VideoQueueRow
+                      video={entry.video}
+                      isCurrentlyPlaying={entry.video.id === props.currentVideoId}
+                      onPlay={() => props.onVideoClick?.(entry.fullIndex)}
+                      onRemove={() => props.onRemoveVideo?.(entry.fullIndex)}
+                      waveformUrl={waveformUrl()}
+                    />
+                  );
+                }}
               </For>
             </div>
           </Show>

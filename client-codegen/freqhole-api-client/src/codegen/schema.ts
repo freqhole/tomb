@@ -4422,6 +4422,12 @@ export const PlaylistItemSchema = z.object({
 });
 export type PlaylistItem = z.infer<typeof PlaylistItemSchema>;
 
+export const PlaylistItemRefSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type PlaylistItemRef = z.infer<typeof PlaylistItemRefSchema>;
+
 export const PlaylistQueryResultSchema = z.object({
   playlist: z.object({
   id: z.string(),
@@ -5562,6 +5568,15 @@ export const RemoveTaxonParentRequestSchema = z.object({
 });
 export type RemoveTaxonParentRequest = z.infer<typeof RemoveTaxonParentRequestSchema>;
 
+export const ReorderPlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  ordered_entity_refs: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type ReorderPlaylistItemsRequest = z.infer<typeof ReorderPlaylistItemsRequestSchema>;
+
 export const ReorderPlaylistSongsRequestSchema = z.object({
   playlist_id: z.string(),
   song_ids: z.array(z.string()),
@@ -5625,7 +5640,7 @@ export const ScalarAttributeSchema = z.object({
 });
 export type ScalarAttribute = z.infer<typeof ScalarAttributeSchema>;
 
-export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]);
+export const SearchFieldSchema = z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]);
 export type SearchField = z.infer<typeof SearchFieldSchema>;
 
 export const SearchRecordingsRequestSchema = z.object({
@@ -5647,7 +5662,7 @@ export type SearchReleasesRequest = z.infer<typeof SearchReleasesRequestSchema>;
 
 export const SearchRequestSchema = z.object({
   query: z.string(),
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]).nullish(),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]).nullish(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
   context: z.object({
@@ -5735,6 +5750,16 @@ export const SearchResponseSchema = z.object({
   match_type: z.string(),
   highlight: z.string().nullish()
 })).nullish(),
+  video_series: z.array(z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  video_count: z.number(),
+  thumbnail_url: z.string().nullish(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+})).nullish(),
   total_count: z.number(),
   page: z.number(),
   page_size: z.number(),
@@ -5775,7 +5800,12 @@ export const SeasonWithVideosSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 }))
 });
 export type SeasonWithVideos = z.infer<typeof SeasonWithVideosSchema>;
@@ -5827,7 +5857,12 @@ export const SeriesDetailSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 }))
 })),
   unassigned_videos: z.array(z.object({
@@ -5846,7 +5881,12 @@ export const SeriesDetailSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 }))
 });
 export type SeriesDetail = z.infer<typeof SeriesDetailSchema>;
@@ -6392,7 +6432,7 @@ export const SuggestionSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
@@ -6402,11 +6442,11 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
-export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]);
+export const SuggestionTypeSchema = z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]);
 export type SuggestionType = z.infer<typeof SuggestionTypeSchema>;
 
 export const SuggestionsRequestSchema = z.object({
-  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos")]),
+  field: z.union([z.literal("all"), z.literal("artists"), z.literal("albums"), z.literal("songs"), z.literal("genres"), z.literal("playlists"), z.literal("videos"), z.literal("video_series")]),
   partial: z.string(),
   page: z.number().nullish(),
   page_size: z.number().nullish(),
@@ -6428,7 +6468,7 @@ export const SuggestionsResponseSchema = z.object({
   display: z.string(),
   highlight: z.string(),
   count: z.number(),
-  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist")]),
+  suggestion_type: z.union([z.literal("artist"), z.literal("album"), z.literal("song"), z.literal("taxon"), z.literal("genre"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   confidence: z.number(),
   metadata: z.any().nullish(),
   entity_id: z.string(),
@@ -7230,7 +7270,12 @@ export const VideoSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 });
 export type Video = z.infer<typeof VideoSchema>;
 
@@ -7246,7 +7291,8 @@ export const VideoRenditionSchema = z.object({
   blob_id: z.string(),
   label: z.string(),
   extension: z.string(),
-  mime: z.string().nullish()
+  mime: z.string().nullish(),
+  skipped: z.boolean()
 });
 export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
 
@@ -7293,6 +7339,18 @@ export const VideoSeriesSchema = z.object({
 });
 export type VideoSeries = z.infer<typeof VideoSeriesSchema>;
 
+export const VideoSeriesSearchResultSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  video_count: z.number(),
+  thumbnail_url: z.string().nullish(),
+  search_rank: z.number(),
+  match_type: z.string(),
+  highlight: z.string().nullish()
+});
+export type VideoSeriesSearchResult = z.infer<typeof VideoSeriesSearchResultSchema>;
+
 export const VideoUploadResponseSchema = z.object({
   blob_id: z.string(),
   job_id: z.string(),
@@ -7321,7 +7379,12 @@ export const VideoWithMetadataSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 }),
   created_by_username: z.string().nullish(),
   updated_by_username: z.string().nullish(),
@@ -7352,7 +7415,12 @@ export const VideosQueryResultSchema = z.object({
   deleted_at: z.number().nullish(),
   created_by: z.string().nullish(),
   updated_by: z.string().nullish(),
-  deleted_by: z.string().nullish()
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish()
 })),
   total_count: z.number(),
   has_more: z.boolean(),

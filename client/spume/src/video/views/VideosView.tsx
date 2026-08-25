@@ -2,7 +2,7 @@
 // videos (see music/views/AlbumsView.tsx). deliberately minimal per
 // docs/video-domain-plan.md's MVP scope: no tag filtering, no bulk
 // select/edit, no musicbrainz-style enrichment.
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
@@ -37,6 +37,7 @@ const videoSortFields = [
 
 export function VideosView(props: VideosViewProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
@@ -60,15 +61,23 @@ export function VideosView(props: VideosViewProps) {
     "desc"
   );
 
+  // top-nav search wiring: read the same `q` query param AlbumsView reads
+  // (VideosView was never wired up to it, unlike VideoSeriesView).
+  const searchQuery = () => {
+    const q = searchParams.q;
+    return Array.isArray(q) ? q[0] : q;
+  };
+
   const videosQuery = useVideosQuery({
+    search: searchQuery,
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
   });
 
-  // reset virtual grid when sort changes
+  // reset virtual grid when sort or search query changes
   createEffect(
     on(
-      () => [sortField(), sortDirection()] as const,
+      () => [searchQuery(), sortField(), sortDirection()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);

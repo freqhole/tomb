@@ -34,6 +34,7 @@ pub struct VideoImportResult {
 struct VideoProperties {
     duration_seconds: Option<f64>,
     subtitle_stream_indices: Vec<i64>,
+    has_audio_stream: bool,
     container_format: Option<String>,
     bit_rate: Option<i64>,
     codec_name: Option<String>,
@@ -132,52 +133,121 @@ pub async fn import_video_file(
     // inline poster extraction (best-effort - a failed poster grab
     // shouldn't fail the whole import, mirrors music's "no album art
     // found" being a soft failure).
-    let poster_blob_id =
-        match extract_video_poster(media_blob_id, file_path, &config, created_by.clone()).await {
-            Ok(blob_id) => {
-                let update_resp = crate::video::update_video(crate::video::UpdateVideoRequest {
-                    video_id: video.id.clone(),
-                    series_id: None,
-                    season_id: None,
-                    episode_number: None,
-                    title: None,
-                    description: None,
-                    poster_blob_id: Some(blob_id.clone()),
-                    duration_seconds: None,
-                    release_date: None,
-                    updated_by: created_by.clone(),
-                })
-                .await;
-                if update_resp.success {
-                    debug!("linked poster blob to video {}", video.id);
+    let poster_blob_id = match extract_video_poster(
+        media_blob_id,
+        file_path,
+        props.duration_seconds,
+        &config,
+        created_by.clone(),
+    )
+    .await
+    {
+        Ok(blob_id) => {
+            let update_resp = crate::video::update_video(crate::video::UpdateVideoRequest {
+                video_id: video.id.clone(),
+                series_id: None,
+                season_id: None,
+                episode_number: None,
+                title: None,
+                description: None,
+                poster_blob_id: Some(blob_id.clone()),
+                duration_seconds: None,
+                release_date: None,
+                updated_by: created_by.clone(),
+            })
+            .await;
+            if update_resp.success {
+                debug!("linked poster blob to video {}", video.id);
+            } else {
+                warn!(
+                    "failed to link poster blob to video {}: {}",
+                    video.id, update_resp.message
+                );
+            }
+            let image_resp = crate::video::add_entity_image(
+                crate::video::VideoEntityType::Video,
+                &video.id,
+                &blob_id,
+                Some(true),
+                BlobType::Thumbnail,
+                created_by.as_deref(),
+            )
+            .await;
+            if !image_resp.success {
+                warn!(
+                    "failed to link poster blob to entity_imagez for video {}: {}",
+                    video.id, image_resp.message
+                );
+            }
+            Some(blob_id)
+        }
+        Err(e) => {
+            warn!("poster extraction failed for {}: {}", video.id, e);
+            None
+        }
+    };
+
+    // inline waveform generation (best-effort - mirrors music's
+    // `create_audio_waveform_blob` pipeline exactly: ffmpeg's `showwavespic`
+    // filter reads the `[0:a]` audio stream, which works unchanged whether
+    // the input file is a standalone audio file or a video container, so no
+    // video-specific waveform-generation code is needed at all). videos with
+    // no audio track at all (silent clips) have nothing for `[0:a]` to bind
+    // to, so ffmpeg's filtergraph setup fails outright - skip the attempt
+    // entirely rather than logging a spurious-looking ffmpeg error.
+    if !props.has_audio_stream {
+        debug!(
+            "skipping waveform generation for video {}: no audio stream",
+            video.id
+        );
+    } else {
+        match crate::blob_data::create_audio_waveform_blob(
+            media_blob_id,
+            &file_path.to_string_lossy(),
+            &config,
+            created_by.clone(),
+        )
+        .await
+        {
+            response if response.success => {
+                if let Some(waveform_blob_id) = response.data {
+                    let image_resp = crate::video::add_entity_image(
+                        crate::video::VideoEntityType::Video,
+                        &video.id,
+                        &waveform_blob_id,
+                        Some(false),
+                        BlobType::Waveform,
+                        created_by.as_deref(),
+                    )
+                    .await;
+                    if image_resp.success {
+                        debug!("linked waveform blob to video {}", video.id);
+                    } else {
+                        warn!(
+                            "failed to link waveform blob to entity_imagez for video {}: {}",
+                            video.id, image_resp.message
+                        );
+                    }
                 } else {
                     warn!(
-                        "failed to link poster blob to video {}: {}",
-                        video.id, update_resp.message
+                        "waveform generation for video {} returned no data",
+                        video.id
                     );
                 }
-                let image_resp = crate::video::add_entity_image(
-                    crate::video::VideoEntityType::Video,
-                    &video.id,
-                    &blob_id,
-                    Some(true),
-                    BlobType::Thumbnail,
-                    created_by.as_deref(),
-                )
-                .await;
-                if !image_resp.success {
-                    warn!(
-                        "failed to link poster blob to entity_imagez for video {}: {}",
-                        video.id, image_resp.message
-                    );
-                }
-                Some(blob_id)
             }
-            Err(e) => {
-                warn!("poster extraction failed for {}: {}", video.id, e);
-                None
+            response => {
+                let error_msg = if !response.errors.is_empty() {
+                    response.errors[0].detail.clone()
+                } else {
+                    response.message
+                };
+                warn!(
+                    "waveform generation failed for video {}: {}",
+                    video.id, error_msg
+                );
             }
-        };
+        }
+    }
 
     // inline subtitle extraction (best-effort per track)
     let mut subtitle_blob_ids = Vec::new();
@@ -331,6 +401,16 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
         })
         .unwrap_or_default();
 
+    let has_audio_stream = json
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .map(|streams| {
+            streams
+                .iter()
+                .any(|s| s.get("codec_type").and_then(|t| t.as_str()) == Some("audio"))
+        })
+        .unwrap_or(false);
+
     // extract video stream properties from the first video stream
     let video_stream = json
         .get("streams")
@@ -376,6 +456,7 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
     VideoProperties {
         duration_seconds,
         subtitle_stream_indices,
+        has_audio_stream,
         container_format,
         bit_rate,
         codec_name,
@@ -432,6 +513,7 @@ async fn update_media_blob_with_video_metadata(
 async fn extract_video_poster(
     media_blob_id: &str,
     file_path: &Path,
+    duration_seconds: Option<f64>,
     config: &GrimoireConfig,
     created_by: Option<String>,
 ) -> Result<String, crate::error::GrimoireError> {
@@ -450,10 +532,21 @@ async fn extract_video_poster(
         .to_string();
     let input = file_path.to_string_lossy().to_string();
 
+    // clamp the seek point to 10% into the clip (capped at 5s) rather than
+    // a fixed 5s - a fixed seek past the end of a short clip (e.g. a few
+    // seconds long) leaves ffmpeg with no frame to grab at all, failing
+    // the whole extraction ("No filtered frames for output stream").
+    let seek_seconds = match duration_seconds {
+        Some(d) if d > 0.0 => (d * 0.1).clamp(0.1, 5.0),
+        _ => 1.0,
+    };
+    let seek = format!("{:.2}", seek_seconds);
+
     run_ffmpeg(
         &config.media.extract_video_poster_args,
         &[
             ("{input}", input.as_str()),
+            ("{seek}", seek.as_str()),
             ("{output}", temp_file.as_str()),
         ],
         &config.media.ffmpeg_path,
@@ -488,15 +581,31 @@ async fn extract_video_poster(
         local_path: None,
         filename: Some("poster.webp".to_string()),
         parent_blob_id: Some(media_blob_id.to_string()),
-        blob_type: Some(BlobType::Thumbnail),
+        // Original (not Thumbnail) - matches music's create_album_art_blob
+        // pattern: only Original/Waveform parents are eligible for the
+        // server's on-demand /thumb/:size generation pipeline (a Thumbnail
+        // parent is rejected there to avoid infinite recursion), so a
+        // poster stored as Thumbnail could never get sized variants.
+        blob_type: Some(BlobType::Original),
         metadata: serde_json::json!({ "source": "video_poster_extraction" }),
-        created_by,
+        created_by: created_by.clone(),
         data: Some(crate::Bytes::from(webp_data)),
         width: None,
         height: None,
         blake3: Some(blake3),
     })
     .await?;
+
+    // eagerly generate sized thumbnails (mirrors create_image_blob_from_webp_data's
+    // behavior for album art) rather than relying on lazy on-demand
+    // generation, which the /thumb/:size route doesn't actually do.
+    let thumb_result = crate::blob_data::generate_sized_thumbnails(&blob.id, created_by).await;
+    if !thumb_result.success {
+        warn!(
+            "failed to generate sized thumbnails for video poster {}: {}",
+            blob.id, thumb_result.message
+        );
+    }
 
     Ok(blob.id)
 }

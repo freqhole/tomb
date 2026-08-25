@@ -27,8 +27,14 @@ export async function resolvePlaybackBlobId(video: QueuedVideo, remoteId: string
     if (!remote) return mediaBlobId;
     const client = await getClientForRemote(remote);
     const result = await client.video.getVideoRenditions({ media_blob_id: mediaBlobId });
-    if (result.success && result.data.length > 0) {
-      return result.data[0].blob_id;
+    if (result.success) {
+      // "skipped" entries are synthesized placeholders (empty blob_id)
+      // for rendition targets the transcode job decided not to produce
+      // (source already compatible) - never actually playable blobs.
+      const playable = result.data.find((r) => !r.skipped && r.blob_id);
+      if (playable) {
+        return playable.blob_id;
+      }
     }
   } catch (err) {
     warn("videoBlobAccess", `failed to resolve renditions for ${mediaBlobId}:`, err);

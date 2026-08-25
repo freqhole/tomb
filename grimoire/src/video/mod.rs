@@ -59,8 +59,12 @@ pub use crud::playback_progressz::{
     PlaybackProgress,
 };
 pub use crud::playlist_itemz::{
-    add_playlist_item, list_playlist_items, remove_playlist_item, PlaylistItem,
+    add_playlist_item, list_playlist_items, remove_playlist_item, reorder_playlist_items,
+    PlaylistItem,
 };
 
 // full-text search
-pub use search::{search_videos, VideoSearchResult};
+pub use search::{
+    get_video_series_suggestions, get_video_suggestions, search_video_seriez, search_videos,
+    VideoSearchResult, VideoSeriesSearchResult,
+};

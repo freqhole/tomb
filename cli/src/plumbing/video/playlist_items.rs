@@ -53,7 +53,7 @@ pub async fn handle_command(action: PlaylistItemsAction) -> CommandOutput<serde_
     match action {
         PlaylistItemsAction::List { playlist_id } => {
             dispatch_to_offal(
-                "/api/playlists/items/list",
+                "/api/entities/playlists/items/list",
                 json!({ "playlist_id": playlist_id }),
             )
             .await
@@ -63,30 +63,36 @@ pub async fn handle_command(action: PlaylistItemsAction) -> CommandOutput<serde_
             entity_type,
             entity_ids,
         } => {
-            let items: Vec<_> = entity_ids
-                .into_iter()
-                .map(|entity_id| json!({ "entity_type": entity_type, "entity_id": entity_id }))
-                .collect();
-            dispatch_to_offal(
-                "/api/playlists/items/add",
-                json!({ "playlist_id": playlist_id, "items": items }),
-            )
-            .await
+            let mut last = CommandOutput::success("no items to add", serde_json::Value::Null);
+            for entity_id in entity_ids {
+                last = dispatch_to_offal(
+                    "/api/entities/playlists/items/add",
+                    json!({ "playlist_id": playlist_id, "entity_type": entity_type, "entity_id": entity_id }),
+                )
+                .await;
+                if !last.success {
+                    return last;
+                }
+            }
+            last
         }
         PlaylistItemsAction::Remove {
             playlist_id,
             entity_type,
             entity_ids,
         } => {
-            let items: Vec<_> = entity_ids
-                .into_iter()
-                .map(|entity_id| json!({ "entity_type": entity_type, "entity_id": entity_id }))
-                .collect();
-            dispatch_to_offal(
-                "/api/playlists/items/remove",
-                json!({ "playlist_id": playlist_id, "items": items }),
-            )
-            .await
+            let mut last = CommandOutput::success("no items to remove", serde_json::Value::Null);
+            for entity_id in entity_ids {
+                last = dispatch_to_offal(
+                    "/api/entities/playlists/items/remove",
+                    json!({ "playlist_id": playlist_id, "entity_type": entity_type, "entity_id": entity_id }),
+                )
+                .await;
+                if !last.success {
+                    return last;
+                }
+            }
+            last
         }
         PlaylistItemsAction::Reorder {
             playlist_id,
@@ -98,7 +104,7 @@ pub async fn handle_command(action: PlaylistItemsAction) -> CommandOutput<serde_
                 .map(|entity_id| json!({ "entity_type": entity_type, "entity_id": entity_id }))
                 .collect();
             dispatch_to_offal(
-                "/api/playlists/items/reorder",
+                "/api/entities/playlists/items/reorder",
                 json!({ "playlist_id": playlist_id, "ordered_entity_refs": ordered_entity_refs }),
             )
             .await

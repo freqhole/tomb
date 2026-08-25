@@ -7,6 +7,11 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 interface PlaylistSelectorState {
   isOpen: boolean;
   songIds: string[];
+  /** video ids to add instead of songIds — mutually exclusive with
+   *  songIds (set exactly one, per call site). videos go through the
+   *  domain-generic `playlist_itemz` table (see video/queries/playlistItems.ts)
+   *  rather than `addSongsToPlaylist`. */
+  videoIds: string[];
   /** when set, the modal scopes its queries/mutations to this remote
    *  rather than the globally-active data source. used by context-menu
    *  actions on songs that came from a remote different from the
@@ -18,6 +23,7 @@ interface PlaylistSelectorState {
 const defaultState: PlaylistSelectorState = {
   isOpen: false,
   songIds: [],
+  videoIds: [],
   remote: undefined,
   resolve: null,
 };
@@ -35,14 +41,32 @@ const [playlistSelectorState, setPlaylistSelectorState] =
  * // modal is now closed and songs have been added (or user cancelled)
  * ```
  */
-export function showPlaylistSelector(
-  songIds: string[],
-  remote?: Remote,
-): Promise<void> {
+export function showPlaylistSelector(songIds: string[], remote?: Remote): Promise<void> {
   return new Promise((resolve) => {
     setPlaylistSelectorState({
       isOpen: true,
       songIds,
+      videoIds: [],
+      remote,
+      resolve,
+    });
+  });
+}
+
+/**
+ * show a playlist selector modal for adding videos instead of songs.
+ *
+ * usage:
+ * ```typescript
+ * await showPlaylistSelectorForVideos(["video-id-1"]);
+ * ```
+ */
+export function showPlaylistSelectorForVideos(videoIds: string[], remote?: Remote): Promise<void> {
+  return new Promise((resolve) => {
+    setPlaylistSelectorState({
+      isOpen: true,
+      songIds: [],
+      videoIds,
       remote,
       resolve,
     });

@@ -290,7 +290,7 @@ fn default_ffprobe_video_properties_args() -> String {
 }
 
 fn default_extract_video_poster_args() -> String {
-    "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}".to_string()
+    "-i {input} -ss {seek} -vframes 1 -q:v 2 -y {output}".to_string()
 }
 
 fn default_rendition_extension() -> String {

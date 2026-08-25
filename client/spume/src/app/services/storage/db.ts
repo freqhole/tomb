@@ -196,7 +196,10 @@ async function setQueue(items: MediaItem[]): Promise<void> {
       if (song.urls) plain.urls = song.urls.map((url) => ({ ...url }));
       return { kind: "song" as const, song: plain };
     }
-    return { kind: "video" as const, video: { ...withId.video } };
+    return {
+      kind: "video" as const,
+      video: { ...withId.video, images: withId.video.images?.map((img) => ({ ...img })) },
+    };
   });
 
   await updateAppState({ queue: plainItems });

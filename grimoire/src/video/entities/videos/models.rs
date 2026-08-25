@@ -1,5 +1,7 @@
 //! video domain models (the unified entity: standalone + episodes)
 
+use crate::music::crud::ImageMetadata;
+use crate::JsonVec;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
@@ -26,6 +28,11 @@ pub struct Video {
     pub created_by: Option<String>,
     pub updated_by: Option<String>,
     pub deleted_by: Option<String>,
+    /// images linked via the generic `entity_imagez` table (posters +
+    /// waveforms) - `#[sqlx(default)]` so any query that forgets to
+    /// select it falls back to `None` instead of failing at runtime.
+    #[sqlx(default)]
+    pub images: Option<JsonVec<ImageMetadata>>,
 }
 
 /// request for creating a new video

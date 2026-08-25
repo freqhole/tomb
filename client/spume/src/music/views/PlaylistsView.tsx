@@ -25,7 +25,7 @@ import {
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { formatHumanDuration } from "../../utils/formatDuration";
+import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource, getRemoteClient, RemoteOfflineError } from "../data";
 import type { Song } from "../data/types";
@@ -62,6 +62,13 @@ import { debug, error as errorLog } from "../../utils/logger";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { isTouchDevice } from "../../utils/isMobile";
+import { MediaImage } from "../../components/media/MediaImage";
+import { playVideoQueue } from "../../video/services/queue/playVideoQueue";
+import {
+  usePlaylistVideoItemsQuery,
+  useRemoveVideoFromPlaylistMutation,
+  type PlaylistVideoItem,
+} from "../../video/queries/playlistItems";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -342,6 +349,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     return pages.flatMap((page) => page.items);
   });
 
+  // fetch video-typed items for the selected playlist (domain-generic
+  // playlist_itemz table, separate from the song-only playlist_songz
+  // table above — see video/queries/playlistItems.ts). remote-only for
+  // now, resolves to an empty list when viewing a local playlist.
+  const playlistVideoItemsQuery = usePlaylistVideoItemsQuery(
+    () => selectedPlaylistId() ?? undefined
+  );
+  const playlistVideoItems = createMemo(() => playlistVideoItemsQuery.data ?? []);
+  const removeVideoMutation = useRemoveVideoFromPlaylistMutation();
+
   // current remote (full Remote record) — used as the source for "send to remote".
   const currentRemoteFull = createCurrentRemoteFull();
 
@@ -477,6 +494,29 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     if (!dataSource.removeSongsFromPlaylist) return;
     await dataSource.removeSongsFromPlaylist(playlistId, [song.id]);
     await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+  };
+
+  // play a video-typed playlist item (double-click / play button) —
+  // queues every video item in the playlist, starting at the clicked one.
+  const handleVideoItemDoubleClick = async (item: PlaylistVideoItem) => {
+    const items = playlistVideoItems();
+    const startIndex = items.findIndex((i) => i.itemId === item.itemId);
+    const playlist = selectedPlaylist();
+    await playVideoQueue(
+      items.map((i) => i.video),
+      Math.max(0, startIndex),
+      {
+        type: "playlist",
+        label: playlist?.title ?? "playlist",
+        entity_id: playlist?.playlist_id,
+      }
+    );
+  };
+
+  const handleRemoveVideoFromPlaylist = (item: PlaylistVideoItem) => {
+    const playlistId = selectedPlaylistId();
+    if (!playlistId) return;
+    removeVideoMutation.mutate({ playlistId, videoId: item.video.id });
   };
 
   // fetch more playlists when scrolling near end
@@ -1569,6 +1609,57 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             </Show>
                           </Show>
                         </div>
+
+                        {/* video-typed playlist items (domain-generic playlist_itemz
+                            table when a remote is active, local indexeddb junction
+                            table otherwise - see music/services/storage/playlists.ts)
+                            - kept as a separate, simple list rather than interleaved
+                            into the song list's drag-reorder machinery above; see
+                            docs/video-domain-round2-plan.md's "gap agent D" section
+                            for why. */}
+                        <Show when={playlistVideoItems().length > 0}>
+                          <div class="mt-2 border-t border-[var(--color-border)] pt-2">
+                            <div class="px-2 pb-1 text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">
+                              videos
+                            </div>
+                            <div class="space-y-1">
+                              <For each={playlistVideoItems()}>
+                                {(item) => (
+                                  <div
+                                    onDblClick={() => void handleVideoItemDoubleClick(item)}
+                                    class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
+                                  >
+                                    <MediaImage
+                                      remoteBlobId={item.video.poster_blob_id}
+                                      remoteServerId={item.video.remote_server_id}
+                                      alt={item.video.title}
+                                      size="sm"
+                                      thumbnailSize={50}
+                                      domainType="video"
+                                      class="w-8 h-8 rounded flex-shrink-0"
+                                    />
+                                    <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
+                                      {item.video.title}
+                                    </span>
+                                    <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+                                      {formatDuration(item.video.duration_seconds)}
+                                    </span>
+                                    <IconButton
+                                      icon="close"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e: MouseEvent) => {
+                                        e.stopPropagation();
+                                        handleRemoveVideoFromPlaylist(item);
+                                      }}
+                                      aria-label="remove from playlist"
+                                    />
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
                       </div>
                     </Show>
                   }

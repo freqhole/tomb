@@ -45,6 +45,11 @@ export function useVideoSeriesListQuery(options?: UseVideoSeriesListQueryOptions
 export interface VideoSeriesDetail {
   series: VideoSeries;
   seasons: (VideoSeason & { videos: VideoSummary[] })[];
+  /** videos attached directly to the series with no season (season-less
+   * docuseries episodes) — these were previously silently dropped since
+   * the old query only ever walked `seasons`, never the series' own
+   * season-less videos. */
+  unassignedVideos: VideoSummary[];
 }
 
 export function useVideoSeriesDetailQuery(seriesId: () => string | undefined) {
@@ -55,18 +60,7 @@ export function useVideoSeriesDetailQuery(seriesId: () => string | undefined) {
       if (!id) return null;
 
       const dataSource = getVideoDataSource();
-      const series = await dataSource.getVideoSeriesById(id);
-      if (!series) return null;
-
-      const seasons = await dataSource.getVideoSeasons(id);
-      const seasonsWithVideos = await Promise.all(
-        seasons.map(async (season) => ({
-          ...season,
-          videos: await dataSource.getVideosBySeason(season.id),
-        }))
-      );
-
-      return { series, seasons: seasonsWithVideos };
+      return dataSource.getVideoSeriesDetail(id);
     },
     enabled: !!seriesId(),
     staleTime: 5 * 60 * 1000,
@@ -86,7 +80,55 @@ export function useCreateVideoSeriesMutation() {
       return dataSource.createVideoSeries(params);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+      // refetchType: "all" (not just "active") — the series list query is
+      // created with refetchOnMount: false, so a series created while
+      // that list wasn't mounted (e.g. from EditVideoModal's "create new
+      // series" affordance) would otherwise sit invalidated-but-unfetched
+      // until the next full reload, since remounting alone won't refetch.
+      queryClient.invalidateQueries({
+        queryKey: videoQueryKeys.series.all(),
+        refetchType: "all",
+      });
+    },
+  }));
+}
+
+/** every season belonging to a series (no search — series rarely have
+ * enough seasons to need it, mirrors the plain-Select fetch this hook
+ * replaces in EditVideoModal.tsx/BulkEditVideosModal.tsx). */
+export function useVideoSeasonsQuery(seriesId: () => string | undefined) {
+  return createQuery(() => ({
+    queryKey: videoQueryKeys.series.seasons(seriesId() || ""),
+    queryFn: async () => {
+      const id = seriesId();
+      if (!id) return [];
+      const dataSource = getVideoDataSource();
+      return dataSource.getVideoSeasons(id);
+    },
+    enabled: !!seriesId(),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  }));
+}
+
+export function useCreateVideoSeasonMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: {
+      series_id: string;
+      season_number: number;
+      title?: string | null;
+      description?: string | null;
+    }) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.createVideoSeason) {
+        throw new Error("current data source does not support creating video seasons");
+      }
+      return dataSource.createVideoSeason(params);
+    },
+    onSuccess: (_result, params) => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.seasons(params.series_id) });
     },
   }));
 }

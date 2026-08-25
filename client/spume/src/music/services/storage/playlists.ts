@@ -1,8 +1,8 @@
 // playlist storage helpers
 
 import type { IDBPDatabase } from "idb";
-import type { ImageMetadata, Playlist, PlaylistSong, Song } from "./types";
-import { STORE_PLAYLISTS, STORE_PLAYLIST_SONGS } from "./types";
+import type { ImageMetadata, Playlist, PlaylistSong, PlaylistVideoItem, Song } from "./types";
+import { STORE_PLAYLISTS, STORE_PLAYLIST_SONGS, STORE_PLAYLIST_VIDEO_ITEMS } from "./types";
 
 /**
  * unwrap proxy arrays before storing in IndexedDB
@@ -24,7 +24,7 @@ export async function createLocalPlaylist(
     description?: string | null;
     is_public?: boolean;
     images?: ImageMetadata[];
-  },
+  }
 ): Promise<void> {
   const now = Date.now();
   const localPlaylist: Playlist = {
@@ -53,7 +53,7 @@ export async function upsertLocalPlaylistWithSongs(
     is_public?: boolean;
     images?: ImageMetadata[];
   },
-  songs: Song[],
+  songs: Song[]
 ): Promise<void> {
   const now = Date.now();
 
@@ -129,7 +129,7 @@ export function isEditablePlaylist(_playlist: Playlist): boolean {
 export async function updatePlaylistSongs(
   db: IDBPDatabase,
   playlistId: string,
-  songs: Array<{ song_id: string; position: number }>,
+  songs: Array<{ song_id: string; position: number }>
 ): Promise<void> {
   const tx = db.transaction(STORE_PLAYLIST_SONGS, "readwrite");
   const store = tx.objectStore(STORE_PLAYLIST_SONGS);
@@ -159,13 +159,10 @@ export async function updatePlaylistSongs(
 /**
  * delete a playlist and all its songs
  */
-export async function deletePlaylist(
-  db: IDBPDatabase,
-  playlistId: string,
-): Promise<void> {
+export async function deletePlaylist(db: IDBPDatabase, playlistId: string): Promise<void> {
   const tx = db.transaction(
-    [STORE_PLAYLISTS, STORE_PLAYLIST_SONGS],
-    "readwrite",
+    [STORE_PLAYLISTS, STORE_PLAYLIST_SONGS, STORE_PLAYLIST_VIDEO_ITEMS],
+    "readwrite"
   );
 
   // delete playlist
@@ -177,6 +174,87 @@ export async function deletePlaylist(
   const songs = await index.getAll(playlistId);
   for (const song of songs) {
     await playlistSongsStore.delete([song.playlist_id, song.song_id]);
+  }
+
+  // delete all playlist video items
+  const playlistVideoItemsStore = tx.objectStore(STORE_PLAYLIST_VIDEO_ITEMS);
+  const videoIndex = playlistVideoItemsStore.index("by_playlist_id");
+  const videoItems = await videoIndex.getAll(playlistId);
+  for (const item of videoItems) {
+    await playlistVideoItemsStore.delete([item.playlist_id, item.video_id]);
+  }
+
+  await tx.done;
+}
+
+/**
+ * every video-typed item in a local playlist, ordered by position -
+ * local counterpart to the remote `list_playlist_items` route (video-only
+ * slice). resolving each id to full video metadata is the caller's job
+ * (mirrors video/queries/playlistItems.ts's remote path).
+ */
+export async function getLocalPlaylistVideoItems(
+  db: IDBPDatabase,
+  playlistId: string
+): Promise<PlaylistVideoItem[]> {
+  const index = db.transaction(STORE_PLAYLIST_VIDEO_ITEMS).store.index("by_playlist_id");
+  const items = (await index.getAll(playlistId)) as PlaylistVideoItem[];
+  return items.sort((a, b) => a.position - b.position);
+}
+
+/**
+ * add a single video to a local playlist (no-op if already present) -
+ * local counterpart to the remote `add_playlist_item` route.
+ */
+export async function addVideoToLocalPlaylist(
+  db: IDBPDatabase,
+  playlistId: string,
+  videoId: string
+): Promise<void> {
+  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_VIDEO_ITEMS], "readwrite");
+  const store = tx.objectStore(STORE_PLAYLIST_VIDEO_ITEMS);
+
+  const existing = await store.get([playlistId, videoId]);
+  if (!existing) {
+    const index = store.index("by_playlist_id");
+    const existingItems = (await index.getAll(playlistId)) as PlaylistVideoItem[];
+    const maxPosition = existingItems.reduce((max, item) => Math.max(max, item.position), 0);
+    const item: PlaylistVideoItem = {
+      playlist_id: playlistId,
+      video_id: videoId,
+      position: maxPosition + 1,
+      added_at: Date.now(),
+    };
+    await store.put(item);
+  }
+
+  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
+  const playlist = await playlistsStore.get(playlistId);
+  if (playlist) {
+    playlist.updated_at = Date.now();
+    await playlistsStore.put(playlist);
+  }
+
+  await tx.done;
+}
+
+/**
+ * remove a single video from a local playlist - local counterpart to the
+ * remote `remove_playlist_item` route.
+ */
+export async function removeVideoFromLocalPlaylist(
+  db: IDBPDatabase,
+  playlistId: string,
+  videoId: string
+): Promise<void> {
+  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_VIDEO_ITEMS], "readwrite");
+  await tx.objectStore(STORE_PLAYLIST_VIDEO_ITEMS).delete([playlistId, videoId]);
+
+  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
+  const playlist = await playlistsStore.get(playlistId);
+  if (playlist) {
+    playlist.updated_at = Date.now();
+    await playlistsStore.put(playlist);
   }
 
   await tx.done;

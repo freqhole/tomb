@@ -1,7 +1,7 @@
 //! cross-entity video queries (composing series/season/video reads that
 //! don't belong to any single entity's own repository.rs)
 
-use sea_query::{Cond, Expr, Iden, Order, Query, SqliteQueryBuilder};
+use sea_query::{Alias, Cond, Expr, Iden, Order, Query, SqliteQueryBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use zod_gen_derive::ZodSchema;
@@ -328,6 +328,15 @@ pub async fn query_videos(
 
     let mut query = Query::select();
     query.column(sea_query::Asterisk).from(VideozCol::Table);
+    query.expr_as(
+        Expr::cust(
+            "(SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]') \
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez \
+                   WHERE entity_type = 'video' AND entity_id = videoz.id \
+                   ORDER BY is_primary DESC, created_at DESC))",
+        ),
+        Alias::new("images"),
+    );
     apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {

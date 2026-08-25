@@ -25,10 +25,13 @@ function generateId(): string {
 }
 
 // unwrap proxy objects before storing videos in IndexedDB or passing through
-// IPC — mirrors queueHistory.ts's unwrapSongs(). unlike Song, QueuedVideo
-// has no nested array fields, so a shallow spread per item is sufficient.
+// IPC — mirrors queueHistory.ts's unwrapSongs(). `images` is the one
+// nested array field QueuedVideo carries (added alongside Video.images),
+// so it needs its own deep copy the same way a shallow spread doesn't
+// unwrap a solid-store-proxied array — see app/services/storage/db.ts's
+// `setQueue` for the sibling fix and the DataCloneError it was causing.
 export function unwrapVideos(videos: QueuedVideo[]): QueuedVideo[] {
-  return videos.map((v) => ({ ...v }));
+  return videos.map((v) => ({ ...v, images: v.images?.map((img) => ({ ...img })) }));
 }
 
 // load history from idb into reactive signal

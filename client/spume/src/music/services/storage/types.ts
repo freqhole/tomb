@@ -181,6 +181,17 @@ export interface PlaylistSong {
   added_at: number;
 }
 
+// ===== PLAYLIST_VIDEO_ITEMS TABLE (junction) =====
+// local-storage counterpart to the server's generic `playlist_itemz`
+// table (video-only slice) - mirrors PlaylistSong's shape so a playlist
+// can hold both locally, without a remote connection.
+export interface PlaylistVideoItem {
+  playlist_id: string; // FK to playlists
+  video_id: string; // FK to the video domain's own local db
+  position: number; // order in playlist
+  added_at: number;
+}
+
 // ===== USER DATA TABLES =====
 
 // user favorites (songs, albums, artists, playlists, videos)
@@ -269,7 +280,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 15;
+export const MUSIC_DB_VERSION = 16;
 
 // store names
 export const STORE_ARTISTS = "artists";
@@ -278,6 +289,7 @@ export const STORE_SONGS = "songs";
 export const STORE_GENRES = "genres";
 export const STORE_PLAYLISTS = "playlists";
 export const STORE_PLAYLIST_SONGS = "playlist_songs";
+export const STORE_PLAYLIST_VIDEO_ITEMS = "playlist_video_items";
 export const STORE_FAVORITES = "favorites";
 export const STORE_RATINGS = "ratings";
 export const STORE_TAGS = "tags";

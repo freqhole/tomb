@@ -156,7 +156,8 @@ export type SuggestionType =
   | "taxon"
   | "genre"
   | "playlist"
-  | "video";
+  | "video"
+  | "video_series";
 
 export interface SearchSuggestion {
   value: string;
@@ -258,6 +259,7 @@ export interface SearchResponse {
   genres?: SearchGenreResult[] | null;
   playlists?: SearchPlaylistResult[] | null;
   videos?: VideoSearchResult[] | null;
+  video_series?: VideoSeriesSearchResult[] | null;
   total_count: number;
   page: number;
   page_size: number;
@@ -284,6 +286,17 @@ export interface VideoSearchResult {
   highlight?: string | null;
 }
 
+export interface VideoSeriesSearchResult {
+  id: string;
+  title: string;
+  description?: string | null;
+  video_count: number;
+  thumbnail_url?: string | null;
+  search_rank: number;
+  match_type: string;
+  highlight?: string | null;
+}
+
 export type SearchField =
   | "all"
   | "artists"
@@ -291,7 +304,8 @@ export type SearchField =
   | "songs"
   | "genres"
   | "playlists"
-  | "videos";
+  | "videos"
+  | "video_series";
 
 // main data source interface
 // both local and remote sources implement this

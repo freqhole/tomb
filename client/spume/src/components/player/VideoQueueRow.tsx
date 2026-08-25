@@ -15,6 +15,11 @@ export interface VideoQueueRowProps {
   isCurrentlyPlaying: boolean;
   onPlay: () => void;
   onRemove: () => void;
+  /** resolved waveform image URL (local blob or P2P/remote), if the
+   * video has a waveform blob linked - mirrors the song queue row's
+   * waveform background, minus progress-based reveal since video queue
+   * rows don't track per-item playback progress. */
+  waveformUrl?: string;
 }
 
 export function VideoQueueRow(props: VideoQueueRowProps) {
@@ -25,7 +30,7 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
 
   return (
     <div
-      class={`flex items-center py-2 pl-2 pr-2 group rounded-lg transition-colors ${
+      class={`relative flex items-center py-2 pl-2 pr-2 group rounded-lg overflow-hidden transition-colors ${
         props.isCurrentlyPlaying
           ? "bg-[var(--color-accent-500)]/10"
           : "hover:bg-[var(--color-accent-500)]/10"
@@ -35,7 +40,21 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
       onDblClick={() => props.onPlay()}
       title="double-click to play"
     >
-      <div class="w-12 h-12 rounded overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 mr-3 relative">
+      <Show when={props.waveformUrl}>
+        <div
+          class="absolute inset-0 pointer-events-none z-0"
+          style={{
+            "background-image": `url(${props.waveformUrl})`,
+            "background-position": "left center",
+            "background-size": "100% 100%",
+            "background-repeat": "no-repeat",
+            opacity: props.isCurrentlyPlaying ? 0.35 : 0.12,
+            "mix-blend-mode": "screen",
+          }}
+        />
+      </Show>
+
+      <div class="w-12 h-12 rounded overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 mr-3 relative z-10">
         <Show
           when={props.video.source_type === "remote"}
           fallback={
@@ -67,7 +86,7 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
         </div>
       </div>
 
-      <div class="flex-1 min-w-0">
+      <div class="flex-1 min-w-0 relative z-10">
         <h4
           class={`text-sm font-medium m-0 text-shadow-glow ${
             props.isCurrentlyPlaying
@@ -83,7 +102,7 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
       </div>
 
       <button
-        class="opacity-0 group-hover:opacity-100 p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-all duration-200 flex-shrink-0"
+        class="relative z-10 opacity-0 group-hover:opacity-100 p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-all duration-200 flex-shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           props.onRemove();

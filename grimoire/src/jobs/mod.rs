@@ -26,6 +26,7 @@ pub use models::{
     JobResponse, JobResult, JobSession, JobStatsResponse, JobStatus, JobType, ListJobsRequest,
     ProcessorResponse, QueueStats, SessionStatus, TranscodeVideoParams, TranscodeVideoResult,
 };
+pub(crate) use video::should_skip_transcode;
 
 // re-export music job types for backward compatibility
 pub use music::{

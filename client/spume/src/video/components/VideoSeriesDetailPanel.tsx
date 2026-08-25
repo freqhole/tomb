@@ -1,0 +1,408 @@
+// reusable video series detail panel — mirrors ArtistDetailPanel.tsx's
+// role for ArtistsView.tsx: the right column of VideoSeriesView.tsx's
+// two-column layout. previously this content lived only in a standalone
+// routed view (VideoSeriesDetailView.tsx); folded in here so the series
+// list + detail can live side-by-side like artists/albums do.
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { LoadingState } from "../../components/feedback";
+import { MediaImage } from "../../components/media/MediaImage";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { Button } from "../../components/buttons/Button";
+import { Icon, IconNames, PlayIcon } from "../../components/icons/registry";
+import { HeadingSection } from "../../components/layout/HeadingSection";
+import { MarqueeText } from "../../components/text/MarqueeText";
+import { formatDuration } from "../../utils/formatDuration";
+import { buildRoute } from "../../music/utils/routing";
+import { useVideoSeriesDetailQuery } from "../queries/series";
+import { playVideoQueue } from "../services/queue/playVideoQueue";
+import { addVideosToQueue } from "../services/videoQueueActions";
+import { showEditVideoSeries } from "../hooks/modals";
+import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import { canUpdateVideo } from "../data/permissions";
+import type { VideoSeason, VideoSummary } from "../data/types";
+
+/** a single episode row - thumbnail (with a hover play button), title,
+ * duration, and a right-click context menu. clicking the row itself
+ * navigates to the episode's detail page; the thumbnail's play button
+ * plays it directly (mirrors VideoCard's poster/hover-play split). */
+function EpisodeRow(props: { video: VideoSummary; index: number; onPlay: () => void }) {
+  const navigate = useNavigate();
+  const contextMenuActions = createMemo(() =>
+    useVideoContextMenu(props.video, { showPlayActions: true })
+  );
+
+  return (
+    <ContextMenu actions={contextMenuActions()}>
+      <div
+        onClick={() => navigate(buildRoute(`/video/${props.video.id}`))}
+        class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
+      >
+        <span class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
+          {props.video.episode_number ?? props.index + 1}
+        </span>
+        <div class="relative w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
+          <MediaImage
+            remoteBlobId={props.video.poster_blob_id}
+            remoteServerId={props.video.remote_server_id}
+            alt={props.video.title}
+            showFallback={true}
+            thumbnailSize={80}
+            objectFit="cover"
+            class="w-full h-full"
+          />
+          <div class="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onPlay();
+              }}
+              class="w-6 h-6 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
+              title="play episode"
+              aria-label="play episode"
+            >
+              <PlayIcon size={12} className="ml-0.5" />
+            </button>
+          </div>
+        </div>
+        <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
+          {props.video.title}
+        </span>
+        <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
+          {formatDuration(props.video.duration_seconds)}
+        </span>
+      </div>
+    </ContextMenu>
+  );
+}
+
+export interface VideoSeriesDetailPanelProps {
+  seriesId: string;
+  /** show a mobile back button in a sticky header (mirrors ArtistDetailPanel) */
+  showBackButton?: boolean;
+  onBack?: () => void;
+  /** callback after the series itself is deleted via the context menu */
+  onDeleted?: () => void;
+  class?: string;
+}
+
+export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
+  const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
+
+  const seasons = createMemo((): (VideoSeason & { videos: VideoSummary[] })[] => {
+    return detailQuery.data?.seasons ?? [];
+  });
+
+  const unassignedVideos = createMemo((): VideoSummary[] => {
+    return detailQuery.data?.unassignedVideos ?? [];
+  });
+
+  // all episodes across every season plus any season-less videos, in
+  // display order - used for the header's play-all/add-all-to-queue
+  // actions and the context menu.
+  const allVideos = createMemo((): VideoSummary[] => {
+    return [...seasons().flatMap((season) => season.videos), ...unassignedVideos()];
+  });
+
+  // seasons expanded/collapsed by id - first season expanded by default.
+  // reset whenever the selected series changes so a stale season id from
+  // the previous series doesn't linger in the expanded set.
+  const [expandedSeasonIds, setExpandedSeasonIds] = createSignal<Set<string>>(new Set());
+
+  createEffect(() => {
+    props.seriesId;
+    setExpandedSeasonIds(new Set());
+  });
+
+  createEffect(() => {
+    const list = seasons();
+    if (list.length > 0 && expandedSeasonIds().size === 0) {
+      setExpandedSeasonIds(new Set([list[0].id]));
+    }
+  });
+
+  const toggleSeason = (seasonId: string) => {
+    setExpandedSeasonIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(seasonId)) {
+        next.delete(seasonId);
+      } else {
+        next.add(seasonId);
+      }
+      return next;
+    });
+  };
+
+  const handleEpisodeClick = async (
+    season: VideoSeason & { videos: VideoSummary[] },
+    index: number
+  ) => {
+    // source is required so a history entry is created and watch-progress
+    // tracking starts (without it, position never resumes on reload).
+    await playVideoQueue(season.videos, index, {
+      type: "season",
+      label: season.title ?? `season ${season.season_number}`,
+      entity_id: season.id,
+    });
+  };
+
+  const handleUnassignedClick = async (index: number) => {
+    const series = detailQuery.data?.series;
+    await playVideoQueue(unassignedVideos(), index, {
+      type: "series",
+      label: series?.title ?? "series",
+      entity_id: series?.id,
+    });
+  };
+
+  // tracks which of play-all/add-all-to-queue is currently fetching +
+  // queueing videos, mirrors AlbumDetailView's albumActionPending pattern.
+  const [seriesActionPending, setSeriesActionPending] = createSignal<"play" | "queue" | null>(null);
+
+  const handlePlayAll = async () => {
+    if (seriesActionPending()) return;
+    const videos = allVideos();
+    if (videos.length === 0) return;
+    setSeriesActionPending("play");
+    try {
+      const series = detailQuery.data?.series;
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series?.title ?? "series",
+        entity_id: series?.id,
+      });
+    } finally {
+      setSeriesActionPending(null);
+    }
+  };
+
+  const handleAddAllToQueue = async () => {
+    if (seriesActionPending()) return;
+    const videos = allVideos();
+    if (videos.length === 0) return;
+    setSeriesActionPending("queue");
+    try {
+      await addVideosToQueue(videos);
+    } finally {
+      setSeriesActionPending(null);
+    }
+  };
+
+  const seriesContextMenuActions = createMemo(() => {
+    const series = detailQuery.data?.series;
+    if (!series) return [];
+    return useVideoSeriesContextMenu(series, allVideos(), {
+      onDeleted: props.onDeleted,
+    });
+  });
+
+  const seasonLabel = (season: VideoSeason) => season.title || `season ${season.season_number}`;
+
+  return (
+    <div class={`flex flex-col h-full ${props.class || ""}`}>
+      {/* sticky header with back button for mobile - only meaningful once
+          data has loaded (mirrors ArtistDetailPanel's back-button header) */}
+      <Show when={props.showBackButton && detailQuery.data}>
+        {(data) => (
+          <HeadingSection
+            title={data().series.title}
+            titleElement={<MarqueeText text={data().series.title} hoverOnly={true} />}
+            variant="detail"
+            sticky
+            showBackButton={props.showBackButton}
+            onBack={props.onBack}
+            class="px-4 py-3 wide:hidden"
+          />
+        )}
+      </Show>
+
+      <div class="flex-1 overflow-auto">
+        <Show
+          when={!detailQuery.isError}
+          fallback={
+            <div class="flex flex-col items-center justify-center h-full gap-2 p-8 text-center">
+              <p class="text-lg text-[var(--color-text-secondary)]">failed to load series</p>
+              <p class="text-sm text-[var(--color-text-tertiary)]">
+                {detailQuery.error instanceof Error ? detailQuery.error.message : "unknown error"}
+              </p>
+            </div>
+          }
+        >
+          <Show
+            when={!detailQuery.isLoading}
+            fallback={
+              <div class="flex items-center justify-center h-full">
+                <LoadingState text="loading series..." />
+              </div>
+            }
+          >
+            <Show
+              when={detailQuery.data}
+              fallback={
+                <div class="flex flex-col items-center justify-center h-full gap-2 p-8 text-center">
+                  <p class="text-lg text-[var(--color-text-secondary)]">series not found</p>
+                  <p class="text-sm text-[var(--color-text-tertiary)]">
+                    it may have been deleted, or the link is stale
+                  </p>
+                </div>
+              }
+            >
+              {(data) => (
+                <>
+                  {/* header: poster + title + description */}
+                  <div class="flex gap-4 wide:gap-6 p-4 wide:p-6">
+                    <ContextMenu actions={seriesContextMenuActions()}>
+                      <div class="w-32 h-32 wide:w-64 wide:h-64 bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden">
+                        <MediaImage
+                          blobId={data().series.poster_blob_id}
+                          alt={data().series.title}
+                          showFallback={true}
+                          thumbnailSize={200}
+                          domainType="video_series"
+                          class="w-full h-full object-cover"
+                        />
+                      </div>
+                    </ContextMenu>
+                    <div class="flex flex-col min-w-0 justify-center">
+                      <h1 class="text-2xl wide:text-4xl font-bold text-[var(--color-text-primary)] truncate">
+                        {data().series.title}
+                      </h1>
+                      <Show when={data().series.description}>
+                        <p class="mt-2 text-sm text-[var(--color-text-secondary)] wide:max-w-2xl">
+                          {data().series.description}
+                        </p>
+                      </Show>
+
+                      <div class="mt-3 flex items-center gap-2">
+                        <Button
+                          variant="primary"
+                          loading={seriesActionPending() === "play"}
+                          disabled={seriesActionPending() !== null || allVideos().length === 0}
+                          onClick={handlePlayAll}
+                        >
+                          <span class="hidden wide:inline">play all</span>
+                          <span class="wide:hidden">play</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          loading={seriesActionPending() === "queue"}
+                          disabled={seriesActionPending() !== null || allVideos().length === 0}
+                          onClick={handleAddAllToQueue}
+                          title="add all episodes to queue"
+                          aria-label="add all episodes to queue"
+                        >
+                          <span class="hidden wide:inline">+queue</span>
+                          <span class="wide:hidden inline-flex items-center">
+                            <Icon name={IconNames.queue} />
+                          </span>
+                        </Button>
+                        <Show when={canUpdateVideo()}>
+                          <button
+                            onClick={() => showEditVideoSeries({ seriesId: data().series.id })}
+                            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                            title="edit series info"
+                            aria-label="edit series info"
+                          >
+                            <Icon name={IconNames.edit} />
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* seasons + any season-less ("extras") videos */}
+                  <div class="px-4 wide:px-6 pb-4 space-y-4">
+                    <For each={seasons()}>
+                      {(season) => {
+                        const isExpanded = () => expandedSeasonIds().has(season.id);
+                        return (
+                          <div>
+                            <button
+                              onClick={() => toggleSeason(season.id)}
+                              class="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors text-left"
+                            >
+                              <Show when={season.poster_blob_id}>
+                                <div class="w-10 h-10 rounded overflow-hidden bg-[var(--color-bg-elevated)] flex-shrink-0">
+                                  <MediaImage
+                                    blobId={season.poster_blob_id}
+                                    alt={seasonLabel(season)}
+                                    showFallback={true}
+                                    thumbnailSize={80}
+                                    domainType="video_series"
+                                    class="w-full h-full object-cover"
+                                  />
+                                </div>
+                              </Show>
+                              <span class="flex-1 font-medium text-[var(--color-text-primary)]">
+                                {seasonLabel(season)}
+                              </span>
+                              <Icon
+                                name={isExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
+                                className="text-[var(--color-text-secondary)] flex-shrink-0"
+                              />
+                            </button>
+                            <Show when={isExpanded()}>
+                              <Show when={season.description}>
+                                <p class="px-2 pt-1 text-xs text-[var(--color-text-tertiary)]">
+                                  {season.description}
+                                </p>
+                              </Show>
+                              <div class="space-y-1 mt-1">
+                                <For each={season.videos}>
+                                  {(video, index) => (
+                                    <EpisodeRow
+                                      video={video}
+                                      index={index()}
+                                      onPlay={() => handleEpisodeClick(season, index())}
+                                    />
+                                  )}
+                                </For>
+                                <Show when={season.videos.length === 0}>
+                                  <div class="px-2 py-2 text-sm text-[var(--color-text-tertiary)]">
+                                    no episodes
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
+
+                    {/* videos attached directly to the series with no
+                        season - previously silently dropped (see
+                        useVideoSeriesDetailQuery's comment). */}
+                    <Show when={unassignedVideos().length > 0}>
+                      <div>
+                        <div class="px-2 py-2 font-medium text-[var(--color-text-primary)]">
+                          {seasons().length > 0 ? "extras" : "episodes"}
+                        </div>
+                        <div class="space-y-1 mt-1">
+                          <For each={unassignedVideos()}>
+                            {(video, index) => (
+                              <EpisodeRow
+                                video={video}
+                                index={index()}
+                                onPlay={() => handleUnassignedClick(index())}
+                              />
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    </Show>
+
+                    <Show when={seasons().length === 0 && unassignedVideos().length === 0}>
+                      <div class="text-sm text-[var(--color-text-tertiary)] py-8 text-center">
+                        no episodes yet
+                      </div>
+                    </Show>
+                  </div>
+                </>
+              )}
+            </Show>
+          </Show>
+        </Show>
+      </div>
+    </div>
+  );
+}

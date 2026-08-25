@@ -15,7 +15,7 @@ export interface ListItem {
   images?: ImageMetadata[];
   thumbnailUrl?: string | null;
   /** domain type for appropriate fallback icon */
-  domainType?: "song" | "album" | "artist" | "genre" | "playlist";
+  domainType?: "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series";
   /** custom fallback text when no image (e.g., artist abbreviation) */
   fallbackText?: string;
 }

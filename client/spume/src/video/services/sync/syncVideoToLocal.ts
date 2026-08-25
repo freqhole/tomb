@@ -11,6 +11,7 @@
 
 import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
+import { isCharnelMode } from "../../../app/services/charnel";
 import { addLocalVideo, getLocalVideoById } from "../storage/db/videos";
 import { writeVideoPosterToOPFS, writeVideoToOPFS } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../videoBlobAccess";
@@ -39,6 +40,20 @@ export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
   if (video.source_type !== "remote") return;
   if (!video.remote_server_id || !video.media_blob_id) return;
   if (!getSyncQueueToLocal()) return;
+
+  // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
+  // getDirectoryHandle but not the async createWritable() writable-stream
+  // api, so writeVideoToOPFS below would throw. music's syncSongToLocal.ts
+  // avoids this by routing charnel-mode syncs through a native iroh-blobs
+  // pull (isCharnelMode() -> syncSongViaLocalGrimoire); no video equivalent
+  // route exists yet, so just skip rather than crash into the opfs write.
+  if (isCharnelMode()) {
+    debug(
+      "videoSync",
+      `skipping local sync for video ${video.id}: opfs write unsupported in charnel/tauri mode (no native sync route yet)`
+    );
+    return;
+  }
 
   try {
     if (await getLocalVideoById(video.id)) {

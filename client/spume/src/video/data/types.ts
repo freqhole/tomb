@@ -66,6 +66,16 @@ export interface VideoDataSource {
   getVideoSeasons(seriesId: string): Promise<VideoSeason[]>;
   getVideosBySeason(seasonId: string): Promise<VideoSummary[]>;
   getVideosBySeries(seriesId: string): Promise<VideoSummary[]>;
+  /** full series detail in one call: the series, every season (each with
+   * its videos), and any videos attached directly to the series with no
+   * season (mirrors grimoire's `get_series_detail` — this is the piece
+   * `useVideoSeriesDetailQuery` was missing, which silently dropped any
+   * season-less video from the series detail view). */
+  getVideoSeriesDetail(id: string): Promise<{
+    series: VideoSeries;
+    seasons: (VideoSeason & { videos: VideoSummary[] })[];
+    unassignedVideos: VideoSummary[];
+  } | null>;
 
   // mutations (optional - not all sources support all mutations)
   updateVideo?(params: {
@@ -91,6 +101,14 @@ export interface VideoDataSource {
     poster_blob_id?: string | null;
   }): Promise<void>;
   deleteVideoSeries?(seriesId: string): Promise<void>;
+  // seasons have no local writer yet either (mirrors createVideoSeries
+  // above) — only implemented by RemoteVideoDataSource.
+  createVideoSeason?(params: {
+    series_id: string;
+    season_number: number;
+    title?: string | null;
+    description?: string | null;
+  }): Promise<VideoSeason>;
 
   // image operations — generic entity_imagez routes (mirrors
   // music/data/types.ts's MusicDataSource image methods)

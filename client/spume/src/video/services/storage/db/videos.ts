@@ -1,13 +1,22 @@
 // local video CRUD against the video domain's IndexedDB store
 import { getVideoDB, STORE_VIDEOS } from "./init";
 import type { PaginatedVideos, VideoQueryParams, VideoSummary } from "../../../data/types";
+import type { ImageMetadata } from "../../../../music/services/storage/types";
 
 // local-only bookkeeping fields kept on the stored row but not part of
-// the server-derived VideoSummary shape.
-interface LocalVideoRow extends VideoSummary {
+// the server-derived VideoSummary shape. `images` is overridden from
+// VideoSummary's inherited raw codegen shape (`{blob_id, is_primary:
+// number, blob_type}`, meant for server responses) to the richer
+// `ImageMetadata` shape (`local_blob_id`/`remote_blob_id`/`is_primary:
+// boolean`/...) that the entity_imagez-backed gallery UI (EditVideoModal
+// et al, via VideoDataSource.getEntityImages) actually reads/writes —
+// mirrors how music's local Album/Artist/Playlist row types declare
+// `images?: ImageMetadata[]` directly.
+interface LocalVideoRow extends Omit<VideoSummary, "images"> {
   file_name: string;
   file_size: number;
   mime_type: string;
+  images?: ImageMetadata[];
 }
 
 export async function addLocalVideo(input: {
@@ -119,6 +128,8 @@ export async function updateLocalVideo(
     release_date?: string | null;
     series_id?: string | null;
     season_id?: string | null;
+    poster_blob_id?: string | null;
+    images?: ImageMetadata[];
   }
 ): Promise<void> {
   const db = await getVideoDB();

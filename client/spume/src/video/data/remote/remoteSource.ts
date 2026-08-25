@@ -197,6 +197,20 @@ export class RemoteVideoDataSource implements VideoDataSource {
     return result.data.map((v) => this.mapVideo(v));
   }
 
+  async getVideoSeriesDetail(id: string) {
+    const client = await this.getClient();
+    const result = await client.video.getVideoSeriesDetail({ id });
+    if (!result.success) return null;
+    return {
+      series: result.data.series,
+      seasons: result.data.seasons.map((s) => ({
+        ...s.season,
+        videos: s.videos.map((v) => this.mapVideo(v)),
+      })),
+      unassignedVideos: result.data.unassigned_videos.map((v) => this.mapVideo(v)),
+    };
+  }
+
   async updateVideo(params: {
     video_id: string;
     title?: string;
@@ -253,6 +267,24 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const client = await this.getClient();
     const result = await client.video.deleteVideoSeries({ id: seriesId });
     if (!result.success) this.failRequest(result);
+  }
+
+  async createVideoSeason(params: {
+    series_id: string;
+    season_number: number;
+    title?: string | null;
+    description?: string | null;
+  }): Promise<VideoSeason> {
+    const client = await this.getClient();
+    const result = await client.video.createVideoSeason({
+      series_id: params.series_id,
+      season_number: params.season_number,
+      title: params.title ?? null,
+      description: params.description ?? null,
+      poster_blob_id: null,
+    });
+    if (!result.success) this.failRequest(result);
+    return result.data;
   }
 
   // image operations — same generic entity_imagez routes albums use,

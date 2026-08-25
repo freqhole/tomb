@@ -1,6 +1,16 @@
 // local read/write helpers for video series
 import { getVideoDB, STORE_VIDEO_SERIES } from "./init";
 import type { PaginatedVideoSeries, VideoSeries } from "../../../data/types";
+import type { ImageMetadata } from "../../../../music/services/storage/types";
+
+// local-only extension of the generated VideoSeries type — the server
+// schema has no `images` field (series posters are just the denormalized
+// poster_blob_id column server-side), but local/no-remote storage needs
+// somewhere to keep the entity_imagez-equivalent gallery the edit modal
+// reads/writes via VideoDataSource.getEntityImages.
+export interface LocalVideoSeriesRow extends VideoSeries {
+  images?: ImageMetadata[];
+}
 
 export async function findLocalVideoSeriesByTitle(title: string): Promise<VideoSeries | undefined> {
   const db = await getVideoDB();
@@ -14,7 +24,7 @@ export async function createLocalVideoSeries(input: {
 }): Promise<VideoSeries> {
   const db = await getVideoDB();
   const now = Date.now();
-  const series: VideoSeries = {
+  const series: LocalVideoSeriesRow = {
     id: crypto.randomUUID(),
     title: input.title,
     description: input.description ?? null,
@@ -25,7 +35,8 @@ export async function createLocalVideoSeries(input: {
     created_by: null,
     updated_by: null,
     deleted_by: null,
-  } as VideoSeries;
+    images: [],
+  };
   await db.put(STORE_VIDEO_SERIES, series);
   return series;
 }
@@ -38,14 +49,19 @@ export async function getOrCreateLocalVideoSeries(title: string): Promise<VideoS
 
 export async function updateLocalVideoSeries(
   seriesId: string,
-  updates: { title?: string; description?: string | null; poster_blob_id?: string | null }
+  updates: {
+    title?: string;
+    description?: string | null;
+    poster_blob_id?: string | null;
+    images?: ImageMetadata[];
+  }
 ): Promise<void> {
   const db = await getVideoDB();
-  const existing = (await db.get(STORE_VIDEO_SERIES, seriesId)) as VideoSeries | undefined;
+  const existing = (await db.get(STORE_VIDEO_SERIES, seriesId)) as LocalVideoSeriesRow | undefined;
   if (!existing) {
     throw new Error(`video series not found: ${seriesId}`);
   }
-  const updated: VideoSeries = { ...existing, ...updates, updated_at: Date.now() } as VideoSeries;
+  const updated: LocalVideoSeriesRow = { ...existing, ...updates, updated_at: Date.now() };
   await db.put(STORE_VIDEO_SERIES, updated);
 }
 
@@ -58,7 +74,7 @@ export async function getLocalVideoSeriesList(params?: {
   const offset = params?.offset ?? 0;
 
   const db = await getVideoDB();
-  let items = (await db.getAll(STORE_VIDEO_SERIES)) as VideoSeries[];
+  let items = (await db.getAll(STORE_VIDEO_SERIES)) as LocalVideoSeriesRow[];
 
   if (params?.search) {
     const searchLower = params.search.toLowerCase();

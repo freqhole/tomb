@@ -78,6 +78,28 @@ pub async fn get_suggestions(
                     }
                 },
             );
+            all_suggestions.extend(
+                match crate::video::get_video_suggestions(&pool, &req.partial, user_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get video suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
+            all_suggestions.extend(
+                match crate::video::get_video_series_suggestions(&pool, &req.partial).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to get video series suggestions",
+                            vec![e.into()],
+                        )
+                    }
+                },
+            );
             all_suggestions
         }
         SearchField::Songs => match get_song_suggestions(&pool, &req.partial, user_id).await {
@@ -128,8 +150,23 @@ pub async fn get_suggestions(
                 }
             }
         }
-        // no typeahead suggestions for videos yet - full search only
-        SearchField::Videos => Vec::new(),
+        SearchField::Videos => match crate::video::get_video_suggestions(&pool, &req.partial, user_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                return GrimoireResponse::failure("failed to get video suggestions", vec![e.into()])
+            }
+        },
+        SearchField::VideoSeries => {
+            match crate::video::get_video_series_suggestions(&pool, &req.partial).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get video series suggestions",
+                        vec![e.into()],
+                    )
+                }
+            }
+        }
     };
 
     // apply confidence filtering per field type
@@ -197,6 +234,7 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
         genres: None,
         playlists: None,
         videos: None,
+        video_series: None,
         total_count: 0,
         page,
         page_size,
@@ -266,6 +304,17 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                     Ok(v) => v,
                     Err(e) => {
                         return GrimoireResponse::failure("failed to search videos", vec![e.into()])
+                    }
+                },
+            );
+            response.video_series = Some(
+                match crate::video::search_video_seriez(&pool, &req.query, 10, 0).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search video series",
+                            vec![e.into()],
+                        )
                     }
                 },
             );
@@ -359,6 +408,21 @@ pub async fn search(req: SearchRequest, user_id: Option<&str>) -> GrimoireRespon
                 };
             response.total_count = videos.len() as i64;
             response.videos = Some(videos);
+        }
+        SearchField::VideoSeries => {
+            let series =
+                match crate::video::search_video_seriez(&pool, &req.query, page_size, offset).await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return GrimoireResponse::failure(
+                            "failed to search video series",
+                            vec![e.into()],
+                        )
+                    }
+                };
+            response.total_count = series.len() as i64;
+            response.video_series = Some(series);
         }
     }
 

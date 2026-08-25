@@ -386,8 +386,9 @@ pub async fn get_media_blob(id: &str) -> GrimoireResult<MediaBlob> {
          LIMIT 1",
         id
     )
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| crate::error::GrimoireError::MediaBlobNotFound { id: id.to_string() })?;
 
     // Parse the metadata JSON
     let mut blob_with_metadata = blob;

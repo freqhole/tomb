@@ -9,6 +9,7 @@ import {
   writeVideoToOPFS,
 } from "../services/opfs/helpers";
 import { addLocalVideo } from "../services/storage/db/videos";
+import { isCharnelMode } from "../../app/services/charnel";
 import { debug, warn } from "../../utils/logger";
 
 export interface VideoImportResult {
@@ -97,6 +98,21 @@ async function extractVideoMetadata(file: File): Promise<ExtractedVideoMetadata>
 export async function importVideoFiles(files: File[]): Promise<VideoImportResult> {
   if (!isOPFSSupported()) {
     return { imported: 0, errors: ["opfs not supported in this browser"] };
+  }
+
+  // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
+  // getDirectoryHandle but not the async createWritable() writable-stream
+  // api that writeVideoToOPFS needs — a webkit gap, not video-specific.
+  // there's no native local-path-based video import route yet (unlike
+  // music's charnel-mode sync path), so fail up front with a clear message
+  // instead of throwing fileHandle.createWritable-is-not-a-function per file.
+  if (isCharnelMode()) {
+    return {
+      imported: 0,
+      errors: [
+        "local video import isn't supported in the desktop app yet — use a remote server to add videos",
+      ],
+    };
   }
 
   let imported = 0;

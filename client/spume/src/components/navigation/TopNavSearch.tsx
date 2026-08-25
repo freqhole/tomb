@@ -21,6 +21,11 @@ import { isP2PRemote } from "../../app/services/storage/schemas/remote";
 import { createShareMenuAction } from "../../music/hooks/contextMenu";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
+import {
+  getSearchFilterRegistration,
+  isFilterableRoute,
+  isFilterOnlyRoute,
+} from "./searchFilterRegistry";
 
 export interface TopNavSearchProps {
   placeholder?: string;
@@ -86,18 +91,9 @@ export interface TopNavSearchProps {
   hintOverride?: () => { message: string; onClick?: () => void } | null;
 }
 
-// filterable route keys — used for the "press return to filter X" hint
-const FILTERABLE_KEYS = new Set([
-  "songs",
-  "albums",
-  "artists",
-  "playlists",
-  "genres",
-  "library",
-  "videos",
-]);
-// routes that filter inline (no autocomplete dropdown, debounced as-you-type)
-const FILTER_ONLY_KEYS = new Set(["library"]);
+// filterable route keys, and the "press return to filter X" hint copy,
+// are registered per-view in `searchFilterRegistry.ts` — see that file
+// instead of growing a hardcoded Set/switch here.
 
 export function TopNavSearch(props: TopNavSearchProps) {
   const [searchValue, setSearchValue] = createSignal("");
@@ -126,7 +122,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const currentRouteKey = createMemo(() => matchRoute(props.currentPath || ""));
   const filterableView = createMemo(() => {
     const key = currentRouteKey();
-    return key && FILTERABLE_KEYS.has(key) ? key : null;
+    return isFilterableRoute(key) ? key : null;
   });
 
   // hint message — overridden by parent if `hintOverride` provided,
@@ -136,7 +132,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (override) return override.message;
     const view = filterableView();
     if (!view || !isFocused()) return null;
-    return `press return to filter ${view}`;
+    return `press return to filter ${getSearchFilterRegistration(view)?.label ?? view}`;
   });
 
   const hintClick = () => {
@@ -270,7 +266,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     if (value && !isExpanded()) setIsExpanded(true);
     // filter-only routes (e.g. library): suppress autocomplete + debounce-submit
     const key = currentRouteKey();
-    if (key && FILTER_ONLY_KEYS.has(key)) {
+    if (isFilterOnlyRoute(key)) {
       setSuggestionsOpen(false);
       clearTimeout(filterDebounceTimer);
       filterDebounceTimer = setTimeout(() => submitFilter(), 250);
@@ -308,7 +304,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
   const handleFocus = () => {
     setIsFocused(true);
     const key = currentRouteKey();
-    if (key && FILTER_ONLY_KEYS.has(key)) return;
+    if (isFilterOnlyRoute(key)) return;
     // reopen suggestions if there's a query (results may still be cached from previous search)
     if (searchValue().length >= 2 || (props.suggestions?.length ?? 0) > 0) {
       setSuggestionsOpen(true);
@@ -333,7 +329,7 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (fullPath.includes("?") && key && FILTERABLE_KEYS.has(key)) {
+    if (fullPath.includes("?") && isFilterableRoute(key)) {
       props.onNavigate?.(pathname);
     }
   };
@@ -344,13 +340,13 @@ export function TopNavSearch(props: TopNavSearchProps) {
     const fullPath = props.currentPath || "";
     const pathname = fullPath.split("?")[0];
     const key = matchRoute(fullPath);
-    if (!key || !FILTERABLE_KEYS.has(key)) return;
+    if (!isFilterableRoute(key)) return;
     // empty q on filter-only routes clears the filter; otherwise require >=2 chars
     if (!q) {
       props.onNavigate?.(pathname);
       return;
     }
-    if (q.length < 2 && !FILTER_ONLY_KEYS.has(key)) return;
+    if (q.length < 2 && !isFilterOnlyRoute(key)) return;
     props.onNavigate?.(`${pathname}?q=${encodeURIComponent(q)}`);
   };
 
@@ -444,6 +440,9 @@ export function TopNavSearch(props: TopNavSearchProps) {
       }
       case "video":
         props.onNavigate?.(buildRoute(`/video/${s.entity_id}`));
+        break;
+      case "video_series":
+        props.onNavigate?.(buildRoute(`/video/series/${s.entity_id}`));
         break;
     }
 
@@ -990,6 +989,15 @@ export function TopNavSearch(props: TopNavSearchProps) {
                 onClick: () => props.onNavigate?.(buildRoute(`/video/series/${meta.series_id}`)),
               });
             }
+            break;
+          }
+          case "video_series": {
+            contextMenuActions.push({
+              label: "go to series",
+              icon: "list",
+              onClick: () =>
+                props.onNavigate?.(buildRoute(`/video/series/${apiSuggestion.entity_id}`)),
+            });
             break;
           }
         }

@@ -5,6 +5,7 @@ import { useNavigate } from "@solidjs/router";
 import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { createFavoriteMenuAction } from "../../music/hooks/contextMenu";
+import { showPlaylistSelectorForVideos } from "../../music/hooks/playlistSelectorState";
 import { buildRoute } from "../../music/utils/routing";
 import { confirm } from "../../app/services/confirmState";
 import { toast } from "../../components/feedback/Toast";
@@ -14,6 +15,7 @@ import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideoToQueue, addVideosToQueue, playVideoNext } from "../services/videoQueueActions";
 import { useDeleteVideoMutation } from "../queries/videos";
 import { useDeleteVideoSeriesMutation } from "../queries/series";
+import { useRemoveVideoFromPlaylistMutation } from "../queries/playlistItems";
 import type { VideoSeries, VideoSummary } from "../data/types";
 
 export interface VideoContextMenuOptions {
@@ -26,6 +28,12 @@ export interface VideoContextMenuOptions {
   /** whether to show play/queue actions (false in contexts like the
    *  queue sidebar where they don't make sense) */
   showPlayActions?: boolean;
+  /** whether to show "remove from playlist" action (playlist detail view only) */
+  showRemoveFromPlaylist?: boolean;
+  /** playlist id for remove action */
+  playlistId?: string;
+  /** callback after a successful "remove from playlist" (e.g. refresh the list) */
+  onRemovedFromPlaylist?: () => void;
   /** custom actions to append */
   customActions?: MenuAction[];
 }
@@ -36,6 +44,7 @@ export function useVideoContextMenu(
 ): MenuAction[] {
   const navigate = useNavigate();
   const deleteMutation = useDeleteVideoMutation();
+  const removeFromPlaylistMutation = useRemoveVideoFromPlaylistMutation();
   const actions: MenuAction[] = [];
 
   if (options.showPlayActions !== false) {
@@ -81,6 +90,33 @@ export function useVideoContextMenu(
   });
 
   actions.push(createFavoriteMenuAction("video", video.id, options.isFavorite ?? false));
+
+  actions.push({
+    label: "add to playlist...",
+    icon: IconNames.playlist,
+    onClick: () => {
+      void showPlaylistSelectorForVideos([video.id]);
+    },
+  });
+
+  if (options.showRemoveFromPlaylist && options.playlistId) {
+    actions.push({
+      label: "remove from playlist",
+      icon: IconNames.close,
+      onClick: async () => {
+        try {
+          await removeFromPlaylistMutation.mutateAsync({
+            playlistId: options.playlistId!,
+            videoId: video.id,
+          });
+          options.onRemovedFromPlaylist?.();
+        } catch (err) {
+          console.error("failed to remove video from playlist:", err);
+          toast.error("failed to remove video from playlist");
+        }
+      },
+    });
+  }
 
   if (canUpdateVideo()) {
     actions.push({ type: "separator" });

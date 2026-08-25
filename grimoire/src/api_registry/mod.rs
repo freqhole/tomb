@@ -348,15 +348,16 @@ pub mod type_registry {
         CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
         SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
-        UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries, VideoWithMetadata,
-        VideosQueryResult,
+        UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries,
+        VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
     use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
     use crate::offal::entities::image_links::GetEntityImagesRequest;
     use crate::offal::entities::playlist_items::{
-        AddPlaylistItemRequest, ListPlaylistItemsRequest, RemovePlaylistItemRequest,
+        AddPlaylistItemRequest, ListPlaylistItemsRequest, PlaylistItemRef,
+        RemovePlaylistItemRequest, ReorderPlaylistItemsRequest,
     };
     use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
     use crate::offal::entities::taxon_links::{
@@ -918,6 +919,10 @@ pub mod type_registry {
         registered.insert("AddPlaylistItemRequest".to_string());
         gen.add_schema::<RemovePlaylistItemRequest>("RemovePlaylistItemRequest");
         registered.insert("RemovePlaylistItemRequest".to_string());
+        gen.add_schema::<PlaylistItemRef>("PlaylistItemRef");
+        registered.insert("PlaylistItemRef".to_string());
+        gen.add_schema::<ReorderPlaylistItemsRequest>("ReorderPlaylistItemsRequest");
+        registered.insert("ReorderPlaylistItemsRequest".to_string());
 
         // album metadata blob types — single source of truth.
         gen.add_schema::<MbLookupStatus>("MbLookupStatus");
@@ -1443,6 +1448,9 @@ pub mod type_registry {
 
         gen.add_schema::<VideoSearchResult>("VideoSearchResult");
         registered.insert("VideoSearchResult".to_string());
+
+        gen.add_schema::<VideoSeriesSearchResult>("VideoSeriesSearchResult");
+        registered.insert("VideoSeriesSearchResult".to_string());
 
         // knock types
         gen.add_schema::<KnockRequest>("KnockRequest");

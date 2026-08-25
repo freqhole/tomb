@@ -1690,6 +1690,7 @@ export function AppLayout(props: AppLayoutProps) {
         isOpen={playlistSelectorState().isOpen}
         onClose={closePlaylistSelector}
         songIds={playlistSelectorState().songIds}
+        videoIds={playlistSelectorState().videoIds}
         remote={playlistSelectorState().remote}
       />
 

@@ -76,6 +76,7 @@ export const routes = {
     remove_entity_url: { method: 'POST', path: '/api/entities/urls/remove', req: s.RemoveEntityUrlRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     remove_playlist_item: { method: 'POST', path: '/api/entities/playlists/items/remove', req: s.RemovePlaylistItemRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     remove_rating: { method: 'POST', path: '/api/entities/ratings/remove', req: s.RemoveRatingRequestSchema, resp: s.RemoveRatingResponseSchema, auth: { type: 'role', role: 'member' } as const },
+    reorder_playlist_items: { method: 'POST', path: '/api/entities/playlists/items/reorder', req: s.ReorderPlaylistItemsRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     set_favorite: { method: 'POST', path: '/api/entities/favorites/set', req: s.SetFavoriteRequestSchema, resp: s.SetFavoriteResponseSchema, auth: { type: 'role', role: 'member' } as const },
     set_rating: { method: 'POST', path: '/api/entities/ratings/set', req: s.SetRatingRequestSchema, resp: s.SetRatingResponseSchema, auth: { type: 'role', role: 'member' } as const },
   },

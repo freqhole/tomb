@@ -69,12 +69,21 @@ pub struct DeleteVideoRenditionRequest {
 }
 
 /// a single transcoded rendition of a video's original media blob.
+///
+/// a "skipped" entry (`skipped: true`, `blob_id: ""`) is synthesized for
+/// any still-configured rendition target the transcode job decided NOT
+/// to produce because the source was already compatible
+/// (`should_skip_transcode()` in `jobs::video::transcode_processor`) -
+/// skipping creates no blob row at all, so without this the modal would
+/// have nothing to show for that rendition slot.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct VideoRendition {
     pub blob_id: String,
     pub label: String,
     pub extension: String,
     pub mime: Option<String>,
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// request for querying videos, optionally scoped to a series/season or to
@@ -472,7 +481,7 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         }
     };
 
-    let renditions: Vec<VideoRendition> = blobs
+    let mut renditions: Vec<VideoRendition> = blobs
         .into_iter()
         .map(|blob| {
             let label = blob
@@ -492,9 +501,35 @@ pub async fn get_renditions(_caller: &Caller, body: JsonValue) -> GrimoireRespon
                 label,
                 extension,
                 mime: blob.mime,
+                skipped: false,
             }
         })
         .collect();
+
+    // synthesize an entry for any configured rendition that was skipped
+    // because the source already matched its target codec/container (no
+    // blob row exists for those - see should_skip_transcode()'s caller).
+    let config = crate::config::get_config();
+    if config.media.transcode_video_enabled {
+        if let Ok(source_blob) = crate::media_blobz::get_media_blob(&req.media_blob_id).await {
+            let existing_labels: std::collections::HashSet<String> =
+                renditions.iter().map(|r| r.label.clone()).collect();
+            for rendition in &config.media.video_transcode_renditions {
+                if existing_labels.contains(rendition.label.as_str()) {
+                    continue;
+                }
+                if crate::jobs::should_skip_transcode(&source_blob, rendition) {
+                    renditions.push(VideoRendition {
+                        blob_id: String::new(),
+                        label: rendition.label.clone(),
+                        extension: rendition.extension.clone(),
+                        mime: None,
+                        skipped: true,
+                    });
+                }
+            }
+        }
+    }
 
     GrimoireResponse::success(
         "video renditions",

@@ -10,6 +10,7 @@ import {
   useRecentPlaylistsQuery,
 } from "../../music/queries/playlists";
 import { queryKeys } from "../../music/queries/queryKeys";
+import { useAddVideoToPlaylistMutation } from "../../video/queries/playlistItems";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -23,12 +24,14 @@ export interface PlaylistSelectorModalProps {
   onClose: () => void;
   /** song IDs to add to the selected playlist */
   songIds: string[];
+  /** video IDs to add instead of songIds (mutually exclusive with songIds) */
+  videoIds?: string[];
   /** when set, scope all queries/mutations to this remote rather than
    *  the globally-active data source. */
   remote?: Remote;
 }
 
-// playlist selector modal for adding songs to playlists
+// playlist selector modal for adding songs (or videos) to playlists
 export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isCreatingNew, setIsCreatingNew] = createSignal(false);
@@ -47,7 +50,34 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   });
 
   const addSongsMutation = useAddSongsToPlaylistMutation();
+  const addVideoMutation = useAddVideoToPlaylistMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
+
+  const videoIds = () => props.videoIds ?? [];
+  const isVideoMode = () => videoIds().length > 0;
+  const itemCount = () => (isVideoMode() ? videoIds().length : props.songIds.length);
+  const itemLabel = () => {
+    const count = itemCount();
+    return isVideoMode() ? (count === 1 ? "video" : "videos") : count === 1 ? "song" : "songs";
+  };
+
+  // add whichever kind of item this modal instance was opened for to a
+  // playlist - videos go through the domain-generic playlist_itemz
+  // route one at a time (no bulk endpoint yet), songs keep the existing
+  // bulk addSongsToPlaylist call.
+  const addItemsToPlaylist = async (playlistId: string) => {
+    if (isVideoMode()) {
+      for (const videoId of videoIds()) {
+        await addVideoMutation.mutateAsync({ playlistId, videoId });
+      }
+      return;
+    }
+    await addSongsMutation.mutateAsync({
+      playlistId,
+      songIds: props.songIds,
+      remote: props.remote,
+    });
+  };
 
   // filter playlists based on search query
   const filteredPlaylists = createMemo(() => {
@@ -64,21 +94,15 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
   const handleSelectPlaylist = async (playlist: PlaylistSummary) => {
     try {
-      await addSongsMutation.mutateAsync({
-        playlistId: playlist.playlist_id,
-        songIds: props.songIds,
-        remote: props.remote,
-      });
+      await addItemsToPlaylist(playlist.playlist_id);
 
-      const songCount = props.songIds.length;
-      const songText = songCount === 1 ? "song" : "songs";
-      toast.success(`added ${songCount} ${songText} to "${playlist.title}"`);
+      toast.success(`added ${itemCount()} ${itemLabel()} to "${playlist.title}"`);
 
       props.onClose();
     } catch (error) {
-      console.error("failed to add songs to playlist:", error);
+      console.error(`failed to add ${itemLabel()} to playlist:`, error);
       const errorMessage = error instanceof Error ? error.message : "unknown error";
-      toast.error(`failed to add songs: ${errorMessage}`, {
+      toast.error(`failed to add ${itemLabel()}: ${errorMessage}`, {
         title: "error",
       });
     }
@@ -95,16 +119,10 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
         remote: props.remote,
       });
 
-      // immediately add songs to the newly created playlist
-      await addSongsMutation.mutateAsync({
-        playlistId: newPlaylist.playlist_id,
-        songIds: props.songIds,
-        remote: props.remote,
-      });
+      // immediately add the items to the newly created playlist
+      await addItemsToPlaylist(newPlaylist.playlist_id);
 
-      const songCount = props.songIds.length;
-      const songText = songCount === 1 ? "song" : "songs";
-      toast.success(`created "${name}" and added ${songCount} ${songText}`);
+      toast.success(`created "${name}" and added ${itemCount()} ${itemLabel()}`);
 
       // close modal immediately - don't wait for query invalidation
       props.onClose();
@@ -127,7 +145,8 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     props.onClose();
   };
 
-  const isLoading = () => addSongsMutation.isPending || createPlaylistMutation.isPending;
+  const isLoading = () =>
+    addSongsMutation.isPending || addVideoMutation.isPending || createPlaylistMutation.isPending;
 
   return (
     <Modal

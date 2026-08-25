@@ -12,11 +12,21 @@ import { getVideoDataSource } from "../../video/data";
 import { getCurrentRemote } from "../../music/data";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { queryClient } from "../../queryClient";
+import { videoQueryKeys } from "../../video/queries/queryKeys";
 import {
   useVideoSeriesDetailQuery,
   useUpdateVideoSeriesMutation,
 } from "../../video/queries/series";
 import { Modal } from "./Modal";
+
+// broad invalidation so any other view (series grid tiles, series detail
+// header, episode rows, etc.) picks up a changed poster/gallery image or
+// metadata — mirrors EditVideoModal.tsx's invalidateVideoQueries.
+function invalidateVideoQueries(): void {
+  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+}
 
 export interface EditVideoSeriesModalProps {
   seriesId: string;
@@ -126,6 +136,7 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
 
       setImageProcessing(null);
       await fetchImages(props.seriesId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to upload image:", err);
       toast.error("failed to upload image");
@@ -153,6 +164,7 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
         blobId,
       });
       await fetchImages(props.seriesId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");
@@ -179,6 +191,7 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
         blobId,
       });
       await fetchImages(props.seriesId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to remove image:", err);
       toast.error("failed to remove image");
@@ -201,8 +214,15 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
     }
   };
 
+  // invalidate on close regardless of whether save was clicked — image
+  // mutations above apply immediately (not deferred to save).
+  const handleClose = () => {
+    invalidateVideoQueries();
+    props.onClose();
+  };
+
   return (
-    <Modal isOpen={true} onClose={props.onClose} title="edit series" size="lg" disableBackdropClose>
+    <Modal isOpen={true} onClose={handleClose} title="edit series" size="lg" disableBackdropClose>
       <Show
         when={initialData()}
         fallback={
@@ -254,7 +274,7 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
       </Show>
 
       <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
-        <Button onClick={props.onClose} variant="ghost">
+        <Button onClick={handleClose} variant="ghost">
           cancel
         </Button>
         <Show when={canUpdateVideo()}>

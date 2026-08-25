@@ -12,6 +12,7 @@ import {
   STORE_FAVORITES,
   STORE_GENRES,
   STORE_PLAYLIST_SONGS,
+  STORE_PLAYLIST_VIDEO_ITEMS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
   STORE_SONGS,
@@ -127,6 +128,18 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
         playlistSongsStore.createIndex("by_song_id", "song_id");
         playlistSongsStore.createIndex("by_position", ["playlist_id", "position"]);
+      }
+
+      // playlist_video_items junction - local counterpart to the server's
+      // generic playlist_itemz table (video-only slice), so a playlist can
+      // hold videos without an active remote connection.
+      if (!db.objectStoreNames.contains(STORE_PLAYLIST_VIDEO_ITEMS)) {
+        const playlistVideoItemsStore = db.createObjectStore(STORE_PLAYLIST_VIDEO_ITEMS, {
+          keyPath: ["playlist_id", "video_id"],
+        });
+        playlistVideoItemsStore.createIndex("by_playlist_id", "playlist_id");
+        playlistVideoItemsStore.createIndex("by_video_id", "video_id");
+        playlistVideoItemsStore.createIndex("by_position", ["playlist_id", "position"]);
       }
 
       // favorites

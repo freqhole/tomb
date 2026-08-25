@@ -1,13 +1,15 @@
 // video detail view - mirrors AlbumDetailView.tsx's shape (see
-// music/views/AlbumDetailView.tsx) for a single video: poster, title,
-// description, series/season/episode info if present, duration, release
-// date, and a play button.
+// music/views/AlbumDetailView.tsx) for a single video: poster in a
+// flex-shrink-0 box on the right, info column first/left, taxon chips,
+// and responsive action buttons.
 import { useNavigate, useParams } from "@solidjs/router";
 import { createSignal, createMemo, createEffect, Show } from "solid-js";
 import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState } from "../../components/feedback";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { Icon, IconNames } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { formatDuration } from "../../utils/formatDuration";
@@ -16,11 +18,15 @@ import { TaxonChips } from "../../components/badges/TaxonChips";
 import { useVideoQuery } from "../queries/videos";
 import { useVideoTaxonsQuery } from "../queries/taxons";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
+import { addVideoToQueue } from "../services/videoQueueActions";
 import { useLocalVideoPosterUrl } from "../components/VideoCard";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
+import { useVideoContextMenu } from "../hooks/contextMenu";
+import { showEditVideo } from "../hooks/modals";
+import { canUpdateVideo } from "../data/permissions";
 
 export function VideoDetailView() {
   const params = useParams<{ videoId: string }>();
@@ -30,6 +36,7 @@ export function VideoDetailView() {
   const taxonsQuery = useVideoTaxonsQuery(() => params.videoId);
 
   const [playPending, setPlayPending] = createSignal(false);
+  const [queuePending, setQueuePending] = createSignal(false);
 
   // favorite status query for this video
   const videoIds = createMemo(() => {
@@ -106,6 +113,29 @@ export function VideoDetailView() {
     }
   };
 
+  const handleAddToQueue = async () => {
+    const video = videoQuery.data;
+    if (!video || queuePending()) return;
+    setQueuePending(true);
+    try {
+      await addVideoToQueue(video);
+    } finally {
+      setQueuePending(false);
+    }
+  };
+
+  // context menu for the poster (play/queue/favorite/edit/delete parity
+  // with the grid/table context menus elsewhere in the video domain)
+  const videoContextMenuActions = createMemo(() => {
+    const video = videoQuery.data;
+    if (!video) return [];
+    return useVideoContextMenu(video, {
+      isFavorite: isFavorite(),
+      showPlayActions: true,
+      onDeleted: () => navigate(buildRoute("/video")),
+    });
+  });
+
   return (
     <DetailViewWrapper
       pageTitle="video"
@@ -116,30 +146,8 @@ export function VideoDetailView() {
         <Show when={videoQuery.data} fallback={<LoadingState class="flex-1" />}>
           {(video) => (
             <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
+              {/* video info */}
               <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
-                {/* poster */}
-                <div class="w-32 h-32 wide:w-64 wide:h-64 mb-3 rounded-lg overflow-hidden bg-[var(--color-bg-base)]">
-                  <Show
-                    when={video().source_type === "remote"}
-                    fallback={
-                      <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
-                        {(url) => (
-                          <img src={url()} alt={video().title} class="w-full h-full object-cover" />
-                        )}
-                      </Show>
-                    }
-                  >
-                    <MediaImage
-                      remoteBlobId={video().poster_blob_id}
-                      remoteServerId={video().remote_server_id}
-                      alt={video().title}
-                      showFallback={true}
-                      thumbnailSize={200}
-                      class="w-full h-full"
-                    />
-                  </Show>
-                </div>
-
                 <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
                   {video().title}
                 </h1>
@@ -172,17 +180,74 @@ export function VideoDetailView() {
                     loading={playPending()}
                     onClick={() => void handlePlay()}
                   >
-                    play
+                    <span class="hidden wide:inline">play video</span>
+                    <span class="wide:hidden">play</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    loading={queuePending()}
+                    onClick={() => void handleAddToQueue()}
+                    title="add video to queue"
+                    aria-label="add video to queue"
+                  >
+                    <span class="hidden wide:inline">+queue</span>
+                    <span class="wide:hidden inline-flex items-center">
+                      <Icon name={IconNames.queue} />
+                    </span>
                   </Button>
                   <Show when={video().series_id}>
-                    <Button variant="ghost" onClick={() => navigate(buildRoute("/video/series"))}>
-                      view series
+                    <Button
+                      variant="ghost"
+                      onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
+                      title="view series"
+                      aria-label="view series"
+                    >
+                      <span class="hidden wide:inline">view series</span>
+                      <span class="wide:hidden inline-flex items-center">
+                        <Icon name={IconNames.video} />
+                      </span>
                     </Button>
+                  </Show>
+                  <Show when={canUpdateVideo()}>
+                    <button
+                      onClick={() => showEditVideo({ videoId: video().id })}
+                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                      title="edit video info"
+                      aria-label="edit video info"
+                    >
+                      <Icon name={IconNames.edit} />
+                    </button>
                   </Show>
                   <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
                   <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                 </div>
               </div>
+
+              {/* poster */}
+              <ContextMenu actions={videoContextMenuActions()}>
+                <div class="w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0">
+                  <Show
+                    when={video().source_type === "remote"}
+                    fallback={
+                      <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
+                        {(url) => (
+                          <img src={url()} alt={video().title} class="w-full h-full object-cover" />
+                        )}
+                      </Show>
+                    }
+                  >
+                    <MediaImage
+                      remoteBlobId={video().poster_blob_id}
+                      remoteServerId={video().remote_server_id}
+                      alt={video().title}
+                      showFallback={true}
+                      thumbnailSize={200}
+                      domainType="video"
+                      class="w-full h-full"
+                    />
+                  </Show>
+                </div>
+              </ContextMenu>
             </div>
           )}
         </Show>

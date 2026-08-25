@@ -9,18 +9,25 @@
 // series/season use the current active remote directly (video has no
 // per-remote browsing UI like the music library view does), mirroring
 // EditVideoModal.tsx's getCurrentRemote()+getClientForRemote() pattern.
-import { createEffect, createMemo, createResource, createSignal, onCleanup, Show } from "solid-js";
+import { createMemo, createResource, createSignal, Show } from "solid-js";
 import { Modal } from "./Modal";
 import { Button } from "../buttons/Button";
-import { Select } from "../forms/Select";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
+import {
+  VideoSeasonAutocomplete,
+  type VideoSeasonSelection,
+} from "../forms/VideoSeasonAutocomplete";
 import { toast } from "../feedback/Toast";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data/currentState";
 import { queryClient } from "../../queryClient";
 import { getVideoDataSource } from "../../video/data";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
-import { useVideoSeriesListQuery, useCreateVideoSeriesMutation } from "../../video/queries/series";
+import {
+  useVideoSeriesListQuery,
+  useCreateVideoSeriesMutation,
+  useCreateVideoSeasonMutation,
+} from "../../video/queries/series";
 import { canUpdateVideo } from "../../video/data/permissions";
 import type { VideoSummary } from "../../video/data/types";
 import { BulkVideoTaxonsEditor } from "../taxonomy/BulkVideoTaxonsEditor";
@@ -47,6 +54,7 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
 
   const seriesListQuery = useVideoSeriesListQuery();
   const createSeriesMutation = useCreateVideoSeriesMutation();
+  const createSeasonMutation = useCreateVideoSeasonMutation();
 
   const seriesOptions = createMemo(() =>
     (seriesListQuery.data?.pages ?? []).flatMap((p) =>
@@ -72,43 +80,17 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
   const [seriesInputValue, setSeriesInputValue] = createSignal("");
   const [pendingNewSeriesName, setPendingNewSeriesName] = createSignal<string | null>(null);
   const [formSeriesId, setFormSeriesId] = createSignal<string | null>(null);
-  const [seasonId, setSeasonId] = createSignal("");
-  const [availableSeasons, setAvailableSeasons] = createSignal<
-    Array<{ id: string; title: string; season_number: number }>
-  >([]);
-  const [isSaving, setIsSaving] = createSignal(false);
 
-  // fetch seasons whenever the user picks a series in this modal.
-  createEffect(() => {
-    const id = formSeriesId();
-    if (!id) {
-      setAvailableSeasons([]);
-      return;
-    }
-    const remote = getCurrentRemote();
-    if (!remote) {
-      setAvailableSeasons([]);
-      return;
-    }
-    let cancelled = false;
-    onCleanup(() => {
-      cancelled = true;
-    });
-    void (async () => {
-      const client = await getClientForRemote(remote);
-      const result = await client.video.listVideoSeasons({ series_id: id });
-      if (cancelled) return;
-      setAvailableSeasons(
-        result.success
-          ? result.data.map((s) => ({
-              id: s.id,
-              title: s.title ?? "",
-              season_number: s.season_number,
-            }))
-          : []
-      );
-    })();
-  });
+  // same create-on-save pattern for season, mirroring EditVideoModal.tsx.
+  // a pending new season is only created once (in handleSave), not once
+  // per selected video.
+  const [seasonInputValue, setSeasonInputValue] = createSignal("");
+  const [pendingNewSeason, setPendingNewSeason] = createSignal<{
+    season_number: number;
+    title: string | null;
+  } | null>(null);
+  const [formSeasonId, setFormSeasonId] = createSignal<string | null>(null);
+  const [isSaving, setIsSaving] = createSignal(false);
 
   const isValid = createMemo(
     () => seriesInputValue().trim().length > 0 || pendingNewSeriesName() !== null
@@ -116,15 +98,35 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
 
   const handleSeriesSelect = (selection: { id?: string; name: string; isNew: boolean }) => {
     setSeriesInputValue(selection.name);
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
+    setFormSeasonId(null);
     if (selection.isNew) {
       setPendingNewSeriesName(selection.name);
       setFormSeriesId(null);
-      setSeasonId("");
     } else {
       setPendingNewSeriesName(null);
       setFormSeriesId(selection.id ?? null);
-      setSeasonId("");
     }
+  };
+
+  const handleSeasonSelect = (selection: VideoSeasonSelection) => {
+    setSeasonInputValue(
+      `season ${selection.season_number}${selection.title ? ` - ${selection.title}` : ""}`
+    );
+    if (selection.isNew) {
+      setPendingNewSeason({ season_number: selection.season_number, title: selection.title });
+      setFormSeasonId(null);
+    } else {
+      setPendingNewSeason(null);
+      setFormSeasonId(selection.id ?? null);
+    }
+  };
+
+  const handleClearSeason = () => {
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
+    setFormSeasonId(null);
   };
 
   const handleSave = async () => {
@@ -144,11 +146,24 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
         seriesIdToApply = newSeries.id;
       }
 
+      // same for a new season - created once here, not once per selected
+      // video, then the resolved id is applied to all of them below.
+      let seasonIdToApply = formSeasonId();
+      const newSeason = pendingNewSeason();
+      if (newSeason && seriesIdToApply) {
+        const createdSeason = await createSeasonMutation.mutateAsync({
+          series_id: seriesIdToApply,
+          season_number: newSeason.season_number,
+          title: newSeason.title,
+        });
+        seasonIdToApply = createdSeason.id;
+      }
+
       const client = await getClientForRemote(remote);
       const result = await client.video.updateVideos({
         video_ids: props.videoIds,
         series_id: seriesIdToApply || null,
-        season_id: seasonId() || null,
+        season_id: seasonIdToApply || null,
       });
       if (!result.success) {
         toast.error("failed to update videos");
@@ -171,9 +186,18 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
     }
   };
 
+  // invalidate on close regardless of whether save was clicked —
+  // BulkVideoTaxonsEditor applies taxon edits immediately (no save step
+  // of its own), so a user who only edited taxons and closed still needs
+  // other views to pick up the change.
+  const handleClose = () => {
+    void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+    props.onClose();
+  };
+
   return (
     <Show when={props.isOpen}>
-      <Modal isOpen={true} onClose={props.onClose} title="edit videos" size="md">
+      <Modal isOpen={true} onClose={handleClose} title="edit videos" size="md">
         <div class="p-4 space-y-4">
           <div class="flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
             <span>
@@ -196,20 +220,29 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
 
           <Show when={formSeriesId()}>
             <div class="space-y-1">
-              <label class="text-sm text-[var(--color-text-secondary)] mb-1 block">season</label>
-              <Select
-                value={seasonId()}
-                onchange={(e) => setSeasonId(e.currentTarget.value)}
-                options={[
-                  { value: "", label: "(none)" },
-                  ...availableSeasons().map((s) => ({
-                    value: s.id,
-                    label: `season ${s.season_number}${s.title ? ` - ${s.title}` : ""}`,
-                  })),
-                ]}
-                placeholder="select a season…"
-                disabled={availableSeasons().length === 0}
+              <VideoSeasonAutocomplete
+                label="season"
+                seriesId={formSeriesId() ?? undefined}
+                value={seasonInputValue()}
+                onSelect={handleSeasonSelect}
+                placeholder="search or type season..."
+                hint={
+                  pendingNewSeason()
+                    ? `season ${pendingNewSeason()!.season_number}${
+                        pendingNewSeason()!.title ? ` - ${pendingNewSeason()!.title}` : ""
+                      } will be created on save`
+                    : undefined
+                }
               />
+              <Show when={seasonInputValue() || pendingNewSeason()}>
+                <button
+                  type="button"
+                  onClick={handleClearSeason}
+                  class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                >
+                  remove from season
+                </button>
+              </Show>
             </div>
           </Show>
 
@@ -221,7 +254,7 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
           </div>
 
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-[var(--color-border-subtle)]">
-            <Button variant="ghost" onClick={props.onClose} disabled={isSaving()}>
+            <Button variant="ghost" onClick={handleClose} disabled={isSaving()}>
               close
             </Button>
             <Button

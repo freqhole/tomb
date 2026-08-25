@@ -130,6 +130,70 @@ pub async fn remove_playlist_item(
     GrimoireResponse::success_unit("Playlist item removed successfully")
 }
 
+/// reorder every item in a playlist. `ordered_refs` must contain the
+/// complete set of (entity_type, entity_id) refs currently in the
+/// playlist, in the desired new order - position is assigned as
+/// `index + 1` for each. no `UNIQUE` constraint exists on
+/// `(playlist_id, position)` (only `(playlist_id, entity_type,
+/// entity_id)`), so a straightforward per-row update loop is safe
+/// without the negative-position dance `update_songs_position` needs
+/// for `playlist_songz`.
+pub async fn reorder_playlist_items(
+    playlist_id: &str,
+    ordered_refs: &[(VideoEntityType, String)],
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to begin transaction",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    for (index, (entity_type, entity_id)) in ordered_refs.iter().enumerate() {
+        let position = (index as i64) + 1;
+        let entity_type_str = entity_type.as_str();
+        if let Err(e) = sqlx::query!(
+            "UPDATE playlist_itemz
+             SET position = ?
+             WHERE playlist_id = ? AND entity_type = ? AND entity_id = ?",
+            position,
+            playlist_id,
+            entity_type_str,
+            entity_id
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to set playlist item position",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure(
+            "Failed to commit transaction",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success_unit("Playlist items reordered successfully")
+}
+
 /// list items in a playlist, ordered by position
 pub async fn list_playlist_items(playlist_id: &str) -> GrimoireResponse<Vec<PlaylistItem>> {
     let pool = match database::connect().await {

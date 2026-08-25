@@ -152,7 +152,7 @@ const VIEW_KEYS = [
   "radio",
 ] as const;
 
-export type RouteKey = (typeof VIEW_KEYS)[number];
+export type RouteKey = (typeof VIEW_KEYS)[number] | "series";
 
 /**
  * match a path to a known route key
@@ -167,6 +167,9 @@ export function matchRoute(path: string): RouteKey | null {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/shared")) return "shared";
   if (pathname.startsWith("/explore") || pathname.startsWith("/library")) return "explore";
+  // video series has its own filterable identity distinct from plain
+  // "video" (movie/episode) routes, even though both live under /video.
+  if (/\/video\/series(\/|$)/.test(pathname)) return "series";
 
   // check each view key - exact match or detail view (starts with route + /)
   for (const key of VIEW_KEYS) {

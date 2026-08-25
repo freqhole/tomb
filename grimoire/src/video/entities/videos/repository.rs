@@ -8,7 +8,9 @@
 use super::models::{CreateVideoRequest, UpdateVideoRequest, Video};
 use crate::database;
 use crate::error::{ErrorDetail, GrimoireError};
+use crate::music::crud::ImageMetadata;
 use crate::response::GrimoireResponse;
+use crate::JsonVec;
 
 /// create a new video
 pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
@@ -44,7 +46,8 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             deleted_at,
             created_by,
             updated_by,
-            deleted_by"#,
+            deleted_by,
+            '[]' as "images: JsonVec<ImageMetadata>""#,
         req.series_id,
         req.season_id,
         req.episode_number,
@@ -110,7 +113,11 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             deleted_at,
             created_by,
             updated_by,
-            deleted_by
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
          FROM videoz
          WHERE id = ? AND deleted_at IS NULL"#,
         id
@@ -172,6 +179,7 @@ pub async fn get_video_with_metadata(
         blob_metadata: String,
         created_by_username: Option<String>,
         updated_by_username: Option<String>,
+        images: String,
     }
 
     let result = sqlx::query_as::<_, QueryRow>(
@@ -197,7 +205,11 @@ pub async fn get_video_with_metadata(
             b.height as blob_height,
             COALESCE(b.metadata, '{}') as blob_metadata,
             cu.username as created_by_username,
-            uu.username as updated_by_username
+            uu.username as updated_by_username,
+            COALESCE((SELECT json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type))
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = v.id
+                   ORDER BY is_primary DESC, created_at DESC)), '[]') as images
          FROM videoz v
          LEFT JOIN media_blobz b ON v.media_blob_id = b.id
          LEFT JOIN userz cu ON v.created_by = cu.id
@@ -232,6 +244,8 @@ pub async fn get_video_with_metadata(
     let bitrate = metadata.get("bitrate").and_then(|b| b.as_i64());
     let frame_rate = metadata.get("frame_rate").and_then(|f| f.as_f64());
 
+    let images: Vec<ImageMetadata> = serde_json::from_str(&row.images).unwrap_or_default();
+
     let video = Video {
         id: row.video_id,
         series_id: row.series_id,
@@ -249,6 +263,7 @@ pub async fn get_video_with_metadata(
         created_by: row.created_by,
         updated_by: row.updated_by,
         deleted_by: row.deleted_by,
+        images: Some(JsonVec(images)),
     };
 
     let video_with_metadata = crate::video::VideoWithMetadata {
@@ -298,7 +313,11 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             deleted_at,
             created_by,
             updated_by,
-            deleted_by
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
          FROM videoz
          WHERE series_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
@@ -346,7 +365,11 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             deleted_at,
             created_by,
             updated_by,
-            deleted_by
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
          FROM videoz
          WHERE season_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
@@ -399,7 +422,11 @@ pub async fn list_videos_unattached(
             deleted_at,
             created_by,
             updated_by,
-            deleted_by
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
          FROM videoz
          WHERE series_id IS NULL AND deleted_at IS NULL
          ORDER BY created_at DESC
@@ -461,7 +488,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 deleted_at,
                 created_by,
                 updated_by,
-                deleted_by"#,
+                deleted_by,
+                '[]' as "images: JsonVec<ImageMetadata>""#,
         req.series_id,
         req.season_id,
         req.episode_number,

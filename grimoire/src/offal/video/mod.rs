@@ -52,6 +52,9 @@ pub async fn dispatch(
         "/api/video/videos/query" => Some(videos::query(caller, body.clone()).await),
         "/api/video/videos" => Some(videos::create(caller, body.clone()).await),
         "/api/video/videos/get" => Some(videos::get(caller, body.clone()).await),
+        "/api/video/videos/get-with-metadata" => {
+            Some(videos::get_with_metadata(caller, body.clone()).await)
+        }
         "/api/video/videos/list-by-series" => {
             Some(videos::list_by_series(caller, body.clone()).await)
         }

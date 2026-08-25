@@ -6,8 +6,11 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
-import { Select } from "../forms/Select";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
+import {
+  VideoSeasonAutocomplete,
+  type VideoSeasonSelection,
+} from "../forms/VideoSeasonAutocomplete";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { VideoTaxonsEditor, type VideoTaxonsEditorHandle } from "./VideoTaxonsEditor";
 import { EntityImages } from "../layout/EntityImages";
@@ -19,14 +22,29 @@ import {
   useVideoQuery,
   useVideoWithMetadataQuery,
 } from "../../video/queries/videos";
-import { useCreateVideoSeriesMutation } from "../../video/queries/series";
+import {
+  useCreateVideoSeriesMutation,
+  useCreateVideoSeasonMutation,
+} from "../../video/queries/series";
 import { getVideoDataSource } from "../../video/data";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote } from "../../music/data";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoRendition } from "@freqhole/api-client";
+import { queryClient } from "../../queryClient";
+import { videoQueryKeys } from "../../video/queries/queryKeys";
 import { Modal } from "./Modal";
+
+// broad invalidation so any other view (video grid tiles, series detail
+// episode rows, the player bar, etc.) picks up a changed poster/gallery
+// image or metadata — matches AlbumEditorModal.tsx's per-mutation
+// invalidateAlbumImageQueries pattern, plus is re-run once more on close
+// as a safety net in case some mutation above didn't trigger it directly.
+function invalidateVideoQueries(): void {
+  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+}
 import { Icon, IconNames } from "../icons/registry";
 import { formatDateTime } from "../../utils/dateTime";
 
@@ -62,6 +80,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const videoMetadataQuery = useVideoWithMetadataQuery(() => props.videoId);
   const updateMutation = useUpdateVideoMutation();
   const createSeriesMutation = useCreateVideoSeriesMutation();
+  const createSeasonMutation = useCreateVideoSeasonMutation();
 
   const [formData, setFormData] = createSignal<FormData>({
     title: "",
@@ -79,6 +98,14 @@ export function EditVideoModal(props: EditVideoModalProps) {
   // series is only actually created when the modal is saved).
   const [seriesInputValue, setSeriesInputValue] = createSignal("");
   const [pendingNewSeriesName, setPendingNewSeriesName] = createSignal<string | null>(null);
+
+  // same create-on-save pattern for season: typed text is only turned
+  // into a season row when the modal is saved.
+  const [seasonInputValue, setSeasonInputValue] = createSignal("");
+  const [pendingNewSeason, setPendingNewSeason] = createSignal<{
+    season_number: number;
+    title: string | null;
+  } | null>(null);
 
   // entity url links (admin-managed links, eg. wikipedia/imdb)
   const [entityUrls, setEntityUrls] = createSignal<EntityUrlFormItem[]>([]);
@@ -98,11 +125,6 @@ export function EditVideoModal(props: EditVideoModalProps) {
   // AlbumEditorModal.tsx's image handling
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
   const [imageProcessing, setImageProcessing] = createSignal<string | null>(null);
-
-  // seasons for the selected series
-  const [availableSeasons, setAvailableSeasons] = createSignal<
-    Array<{ id: string; title: string; season_number: number }>
-  >([]);
 
   // fetch renditions when modal opens
   createEffect(() => {
@@ -212,36 +234,6 @@ export function EditVideoModal(props: EditVideoModalProps) {
     }
   };
 
-  // fetch seasons when series changes
-  createEffect(async () => {
-    const seriesId = formData().series_id;
-    if (!seriesId) {
-      setAvailableSeasons([]);
-      return;
-    }
-
-    try {
-      const remote = getCurrentRemote();
-      if (!remote) return;
-      const client = await getClientForRemote(remote);
-      const result = await client.video.listVideoSeasons({ series_id: seriesId });
-      if (result.success) {
-        setAvailableSeasons(
-          result.data.map((s) => ({
-            id: s.id,
-            title: s.title ?? "",
-            season_number: s.season_number,
-          }))
-        );
-      } else {
-        setAvailableSeasons([]);
-      }
-    } catch (err) {
-      console.error("failed to fetch seasons:", err);
-      setAvailableSeasons([]);
-    }
-  });
-
   createEffect(() => {
     const video = videoQuery.data;
     if (video && loadedVideoId() !== props.videoId) {
@@ -256,9 +248,11 @@ export function EditVideoModal(props: EditVideoModalProps) {
       setFormData(data);
       setInitialData(data);
       setPendingNewSeriesName(null);
+      setPendingNewSeason(null);
       setLoadedVideoId(props.videoId);
       void fetchEntityUrls(props.videoId);
       void fetchSeriesTitle(video.series_id ?? null);
+      void fetchSeasonLabel(video.series_id ?? null, video.season_id ?? null);
       void fetchImages(props.videoId);
     }
   });
@@ -280,6 +274,30 @@ export function EditVideoModal(props: EditVideoModalProps) {
     } catch (err) {
       console.error("failed to fetch series title:", err);
       setSeriesInputValue("");
+    }
+  };
+
+  const fetchSeasonLabel = async (seriesId: string | null, seasonId: string | null) => {
+    if (!seriesId || !seasonId) {
+      setSeasonInputValue("");
+      return;
+    }
+    try {
+      const remote = getCurrentRemote();
+      if (!remote) {
+        setSeasonInputValue("");
+        return;
+      }
+      const client = await getClientForRemote(remote);
+      const result = await client.video.getVideoSeason({ id: seasonId });
+      setSeasonInputValue(
+        result.success
+          ? `season ${result.data.season_number}${result.data.title ? ` - ${result.data.title}` : ""}`
+          : ""
+      );
+    } catch (err) {
+      console.error("failed to fetch season label:", err);
+      setSeasonInputValue("");
     }
   };
 
@@ -369,6 +387,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       current.series_id !== initial.series_id ||
       current.season_id !== initial.season_id ||
       pendingNewSeriesName() !== null ||
+      pendingNewSeason() !== null ||
       urlsChanged() ||
       taxonsDirty()
     );
@@ -419,6 +438,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
       setImageProcessing(null);
       await fetchImages(props.videoId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to upload image:", err);
       toast.error("failed to upload image");
@@ -442,6 +462,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       const dataSource = getVideoDataSource();
       await dataSource.setPrimaryImage?.({ entityType: "video", entityId: props.videoId, blobId });
       await fetchImages(props.videoId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to update primary image:", err);
       toast.error("failed to update primary image");
@@ -464,6 +485,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       }
       await dataSource.removeImage({ entityType: "video", entityId: props.videoId, blobId });
       await fetchImages(props.videoId);
+      invalidateVideoQueries();
     } catch (err) {
       console.error("failed to remove image:", err);
       toast.error("failed to remove image");
@@ -472,6 +494,8 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
   const handleSeriesSelect = (selection: { id?: string; name: string; isNew: boolean }) => {
     setSeriesInputValue(selection.name);
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
     if (selection.isNew) {
       setPendingNewSeriesName(selection.name);
       setFormData((prev) => ({ ...prev, series_id: null, season_id: null }));
@@ -484,11 +508,28 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const handleClearSeries = () => {
     setSeriesInputValue("");
     setPendingNewSeriesName(null);
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
     setFormData((prev) => ({ ...prev, series_id: null, season_id: null }));
   };
 
-  const handleSeasonChange = (value: string) => {
-    setFormData((prev) => ({ ...prev, season_id: value === "" ? null : value }));
+  const handleSeasonSelect = (selection: VideoSeasonSelection) => {
+    setSeasonInputValue(
+      `season ${selection.season_number}${selection.title ? ` - ${selection.title}` : ""}`
+    );
+    if (selection.isNew) {
+      setPendingNewSeason({ season_number: selection.season_number, title: selection.title });
+      setFormData((prev) => ({ ...prev, season_id: null }));
+    } else {
+      setPendingNewSeason(null);
+      setFormData((prev) => ({ ...prev, season_id: selection.id ?? null }));
+    }
+  };
+
+  const handleClearSeason = () => {
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
+    setFormData((prev) => ({ ...prev, season_id: null }));
   };
 
   const handleSave = async () => {
@@ -501,6 +542,17 @@ export function EditVideoModal(props: EditVideoModalProps) {
         seriesId = newSeries.id;
       }
 
+      let seasonId = data.season_id;
+      const newSeason = pendingNewSeason();
+      if (newSeason && seriesId) {
+        const createdSeason = await createSeasonMutation.mutateAsync({
+          series_id: seriesId,
+          season_number: newSeason.season_number,
+          title: newSeason.title,
+        });
+        seasonId = createdSeason.id;
+      }
+
       await updateMutation.mutateAsync({
         video_id: props.videoId,
         title: data.title,
@@ -508,7 +560,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
         episode_number: data.episode_number,
         release_date: data.release_date || null,
         series_id: seriesId,
-        season_id: data.season_id,
+        season_id: seasonId,
       });
 
       if (urlsChanged()) {
@@ -525,6 +577,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       }
 
       setPendingNewSeriesName(null);
+      setPendingNewSeason(null);
       toast.success("video updated");
       props.onSave?.();
     } catch (err) {
@@ -533,8 +586,17 @@ export function EditVideoModal(props: EditVideoModalProps) {
     }
   };
 
+  // invalidate on close regardless of whether save was clicked — image
+  // uploads/removals/primary-toggles above apply immediately (not
+  // deferred to save), so a user who only touched images and hit
+  // cancel/close still needs other views to pick up the change.
+  const handleClose = () => {
+    invalidateVideoQueries();
+    props.onClose();
+  };
+
   return (
-    <Modal isOpen={true} onClose={props.onClose} title="edit video" size="lg" disableBackdropClose>
+    <Modal isOpen={true} onClose={handleClose} title="edit video" size="lg" disableBackdropClose>
       <Show
         when={initialData()}
         fallback={
@@ -649,20 +711,29 @@ export function EditVideoModal(props: EditVideoModalProps) {
 
             <Show when={formData().series_id}>
               <div>
-                <Select
+                <VideoSeasonAutocomplete
                   label="season"
-                  value={formData().season_id ?? ""}
-                  onchange={(e) => handleSeasonChange(e.currentTarget.value)}
-                  options={[
-                    { value: "", label: "(none)" },
-                    ...availableSeasons().map((s) => ({
-                      value: s.id,
-                      label: `season ${s.season_number}${s.title ? ` - ${s.title}` : ""}`,
-                    })),
-                  ]}
-                  placeholder="select a season..."
-                  disabled={availableSeasons().length === 0}
+                  seriesId={formData().series_id ?? undefined}
+                  value={seasonInputValue()}
+                  onSelect={handleSeasonSelect}
+                  placeholder="search or type season..."
+                  hint={
+                    pendingNewSeason()
+                      ? `season ${pendingNewSeason()!.season_number}${
+                          pendingNewSeason()!.title ? ` - ${pendingNewSeason()!.title}` : ""
+                        } will be created on save`
+                      : undefined
+                  }
                 />
+                <Show when={seasonInputValue() || pendingNewSeason()}>
+                  <button
+                    type="button"
+                    onClick={handleClearSeason}
+                    class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    remove from season
+                  </button>
+                </Show>
               </div>
             </Show>
           </div>
@@ -839,7 +910,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       </Show>
 
       <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
-        <Button onClick={props.onClose} variant="ghost">
+        <Button onClick={handleClose} variant="ghost">
           cancel
         </Button>
         <Show when={canUpdateVideo()}>

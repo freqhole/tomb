@@ -230,7 +230,12 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
 }
 
 /// check if source video already matches the target codec/container, allowing us to skip transcoding
-fn should_skip_transcode(
+///
+/// pub(crate) so the renditions-listing route (offal/video/videos.rs)
+/// can reuse this exact logic to report "skipped, already compatible"
+/// renditions the way this job actually decided to skip them, rather
+/// than re-deriving a parallel heuristic.
+pub(crate) fn should_skip_transcode(
     source_blob: &crate::media_blobz::MediaBlob,
     rendition: &crate::config::VideoRenditionConfig,
 ) -> bool {

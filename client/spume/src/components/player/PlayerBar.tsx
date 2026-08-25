@@ -21,6 +21,8 @@ export interface PlayerBarVideo {
   poster_blob_id?: string | null;
   poster_opfs_path?: string | null;
   remote_server_id?: string;
+  /** structured image metadata array (includes the waveform blob, if any) */
+  images?: ImageMetadata[];
 }
 
 export interface PlayerBarSong {
@@ -227,9 +229,13 @@ export function PlayerBar(props: PlayerBarProps) {
     onCleanup(() => window.removeEventListener("resize", handleResize));
   });
 
-  // get waveform image from current song
+  // get waveform image from current song/video (whichever media is active)
   const incomingWaveform = createMemo(() => {
-    return props.song ? getWaveformImage(props.song.images) : undefined;
+    return props.video
+      ? getWaveformImage(props.video.images)
+      : props.song
+        ? getWaveformImage(props.song.images)
+        : undefined;
   });
 
   // update display waveform when loading transitions to complete
