@@ -127,6 +127,8 @@ pub enum VideoAction {
         #[arg(long)]
         episode_number: Option<i64>,
         #[arg(long)]
+        content_type: Option<String>,
+        #[arg(long)]
         series_id: Option<String>,
         #[arg(long)]
         season_id: Option<String>,
@@ -278,6 +280,7 @@ pub async fn handle_command(action: VideoAction) -> CommandOutput<serde_json::Va
             title,
             description,
             episode_number,
+            content_type,
             series_id,
             season_id,
             poster_blob_id,
@@ -291,6 +294,7 @@ pub async fn handle_command(action: VideoAction) -> CommandOutput<serde_json::Va
                     "title": title,
                     "description": description,
                     "episode_number": episode_number,
+                    "content_type": content_type,
                     "series_id": series_id,
                     "season_id": season_id,
                     "poster_blob_id": poster_blob_id,

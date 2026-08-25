@@ -72,6 +72,7 @@ export class LocalVideoDataSource implements VideoDataSource {
         series_id: video.series_id,
         season_id: video.season_id,
         episode_number: video.episode_number,
+        content_type: video.content_type,
         title: video.title,
         description: video.description,
         media_blob_id: video.media_blob_id,
@@ -145,6 +146,7 @@ export class LocalVideoDataSource implements VideoDataSource {
     release_date?: string | null;
     series_id?: string | null;
     season_id?: string | null;
+    content_type?: string;
   }): Promise<void> {
     const { video_id, ...updates } = params;
     await updateLocalVideo(video_id, updates);

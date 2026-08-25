@@ -16,6 +16,7 @@ interface UseVideosQueryOptions {
   tagFilters?: () => TagFilter[];
   sortField?: () => VideoQueryParams["sort_by"];
   sortDirection?: () => VideoQueryParams["sort_direction"];
+  contentTypes?: () => string[] | undefined;
   pageSize?: number;
 }
 
@@ -25,24 +26,24 @@ export function useVideosQuery(options?: UseVideosQueryOptions) {
   const tagFilters = options?.tagFilters;
   const sortField = options?.sortField || (() => "added_at" as const);
   const sortDirection = options?.sortDirection || (() => "desc" as const);
+  const contentTypes = options?.contentTypes;
 
   return createInfiniteQuery(() => ({
-    queryKey: videoQueryKeys.videos.list(search?.(), tagFilters?.(), sortField(), sortDirection()),
+    queryKey: videoQueryKeys.videos.list(
+      search?.(),
+      tagFilters?.(),
+      sortField(),
+      sortDirection(),
+      undefined,
+      undefined,
+      contentTypes?.()
+    ),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getVideoDataSource();
       const currentTagFilters = tagFilters?.();
       const includeTags = currentTagFilters?.filter((f) => f.mode === "include").map((f) => f.tag);
       const excludeTags = currentTagFilters?.filter((f) => f.mode === "exclude").map((f) => f.tag);
-      // temporary diagnostic for the tauri tag-filter bug: confirm the
-      // signal-derived tag filters actually reach the query params.
-      console.info(
-        "[useVideosQuery] currentTagFilters=",
-        currentTagFilters,
-        "includeTags=",
-        includeTags,
-        "excludeTags=",
-        excludeTags
-      );
+      const currentContentTypes = contentTypes?.();
       return dataSource.getVideos({
         offset: pageParam,
         limit: pageSize,
@@ -51,6 +52,8 @@ export function useVideosQuery(options?: UseVideosQueryOptions) {
         sort_direction: sortDirection(),
         include_tags: includeTags && includeTags.length > 0 ? includeTags : undefined,
         exclude_tags: excludeTags && excludeTags.length > 0 ? excludeTags : undefined,
+        content_types:
+          currentContentTypes && currentContentTypes.length > 0 ? currentContentTypes : undefined,
       });
     },
     getNextPageParam: (lastPage, allPages) => {
@@ -105,6 +108,7 @@ export interface UpdateVideoMutationParams {
   release_date?: string | null;
   series_id?: string | null;
   season_id?: string | null;
+  content_type?: string;
 }
 
 export function useUpdateVideoMutation() {

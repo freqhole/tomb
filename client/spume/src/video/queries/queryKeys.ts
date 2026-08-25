@@ -18,7 +18,8 @@ export const videoQueryKeys = {
       sortField?: string,
       sortDirection?: string,
       seriesId?: string,
-      seasonId?: string
+      seasonId?: string,
+      contentTypes?: unknown
     ) =>
       [
         ...videoQueryKeys.videos.lists(),
@@ -28,6 +29,7 @@ export const videoQueryKeys = {
         sortDirection,
         seriesId,
         seasonId,
+        contentTypes,
       ] as const,
     detail: (id: string, remoteId?: string) =>
       remoteId

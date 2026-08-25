@@ -9,6 +9,7 @@ use zod_gen_derive::ZodSchema;
 use crate::database;
 use crate::error::ErrorDetail;
 use crate::music::crud::QueryParams;
+use crate::query_ordering::apply_clustered_order;
 use crate::response::GrimoireResponse;
 use crate::video::entities::seasons::{self, VideoSeason};
 use crate::video::entities::series::{self, VideoSeries};
@@ -106,18 +107,12 @@ enum VideozCol {
     SeriesId,
     #[iden = "season_id"]
     SeasonId,
-    #[iden = "episode_number"]
-    EpisodeNumber,
     #[iden = "title"]
     Title,
     #[iden = "description"]
     Description,
-    #[iden = "duration_seconds"]
-    DurationSeconds,
-    #[iden = "release_date"]
-    ReleaseDate,
-    #[iden = "created_at"]
-    CreatedAt,
+    #[iden = "content_type"]
+    ContentType,
     #[iden = "deleted_at"]
     DeletedAt,
 }
@@ -372,6 +367,23 @@ pub async fn query_videos(
                 )));
             }
         }
+
+        // content_types: show only videos whose content_type is one of these
+        // ("series"/"movie"/"clip") - a simple multi-select, not include/exclude
+        // like the tag filters above.
+        if let Some(content_types) = params
+            .filters
+            .get("content_types")
+            .and_then(|v| v.as_array())
+        {
+            let types: Vec<String> = content_types
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
+            if !types.is_empty() {
+                q.and_where(Expr::col(VideozCol::ContentType).is_in(types));
+            }
+        }
     };
 
     let mut count_q = Query::select();
@@ -401,27 +413,74 @@ pub async fn query_videos(
         Some("desc") => Order::Desc,
         _ => Order::Asc,
     };
-    match params.sort_by.as_deref() {
-        Some("title") => {
-            query.order_by(VideozCol::Title, sort_direction);
-        }
-        Some("release_date") => {
-            query.order_by(VideozCol::ReleaseDate, sort_direction);
-        }
-        Some("episode_number") => {
-            query.order_by(VideozCol::EpisodeNumber, sort_direction);
-        }
-        Some("duration") => {
-            query.order_by(VideozCol::DurationSeconds, sort_direction);
-        }
-        _ => {
-            let dir = match params.sort_direction.as_deref() {
+    // videos always cluster by series first (a whole series stays one
+    // contiguous block, ordered by whatever the chosen sort_by means at
+    // the series level), then season/episode number is the fixed
+    // tie-breaker within that series - mirrors query_songs' album+disc+
+    // track clustering (see grimoire::query_ordering) but without that
+    // function's duration/play_count/song_id exception: every sort_by
+    // option here clusters, per the video domain's own grouping rule.
+    let (primary_key, primary_dir) = match params.sort_by.as_deref() {
+        Some("release_date") | Some("year") => (
+            Expr::cust(
+                "COALESCE((SELECT MIN(release_date) FROM videoz v2 \
+                 WHERE v2.series_id = videoz.series_id AND v2.deleted_at IS NULL), \
+                 videoz.release_date)",
+            ),
+            sort_direction,
+        ),
+        Some("duration") => (
+            Expr::cust(
+                "COALESCE((SELECT SUM(duration_seconds) FROM videoz v2 \
+                 WHERE v2.series_id = videoz.series_id AND v2.deleted_at IS NULL), \
+                 videoz.duration_seconds)",
+            ),
+            sort_direction,
+        ),
+        Some("added_at") | None => (
+            Expr::cust(
+                "COALESCE((SELECT MAX(created_at) FROM videoz v2 \
+                 WHERE v2.series_id = videoz.series_id AND v2.deleted_at IS NULL), \
+                 videoz.created_at)",
+            ),
+            match params.sort_direction.as_deref() {
                 Some("asc") => Order::Asc,
                 _ => Order::Desc,
-            };
-            query.order_by(VideozCol::CreatedAt, dir);
-        }
-    }
+            },
+        ),
+        Some("title") => (
+            // the video's OWN title (not the series' metadata title) - a
+            // series still clusters as one block, positioned by its
+            // earliest-alphabetically episode title.
+            Expr::cust(
+                "COALESCE((SELECT MIN(title) FROM videoz v2 \
+                 WHERE v2.series_id = videoz.series_id AND v2.deleted_at IS NULL), \
+                 videoz.title)",
+            ),
+            sort_direction,
+        ),
+        // "series", "episode_number", and anything else fall back to
+        // clustering alphabetically by the series' own title metadata -
+        // episode_number in particular is already the intra-series
+        // tie-breaker below, so it has no separate series-level meaning.
+        _ => (
+            Expr::cust(
+                "COALESCE((SELECT title FROM video_seriez WHERE id = videoz.series_id), videoz.title)",
+            ),
+            sort_direction,
+        ),
+    };
+    apply_clustered_order(
+        &mut query,
+        (primary_key, primary_dir),
+        [
+            (
+                Expr::cust("(SELECT season_number FROM video_seasonz WHERE id = videoz.season_id)"),
+                Order::Asc,
+            ),
+            (Expr::cust("videoz.episode_number"), Order::Asc),
+        ],
+    );
     query.limit(limit as u64).offset(offset as u64);
 
     let (sql, values) = query.build(SqliteQueryBuilder);

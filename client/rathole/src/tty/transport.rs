@@ -329,6 +329,7 @@ impl Transport for LocalTransport {
             title: title.map(|s| s.to_string()),
             description: description.map(|s| s.to_string()),
             episode_number,
+            content_type: None,
             series_id: None,
             season_id: None,
             poster_blob_id: None,

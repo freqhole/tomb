@@ -131,6 +131,9 @@ function VideoRow(props: {
         {props.video.season_id ? (props.seasonLabel ?? "") : ""}
       </td>
       <td class="px-2 py-1 text-[var(--color-text-secondary)]">{episodeLabel()}</td>
+      <td class="px-2 py-1 text-[var(--color-text-muted)] whitespace-nowrap">
+        <MarqueeText text={props.video.release_date ?? ""} />
+      </td>
       <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px]">
         <MarqueeText text={(props.taxonLabels ?? []).join(", ")} />
       </td>
@@ -431,6 +434,7 @@ export function VideosTable(props: VideosTableProps) {
                 <th class="px-2 py-2 font-medium w-24">series</th>
                 <th class="px-2 py-2 font-medium w-24">season</th>
                 <th class="px-2 py-2 font-medium w-16">episode</th>
+                <th class="px-2 py-2 font-medium w-24">release date</th>
                 <th class="px-2 py-2 font-medium w-32">taxons</th>
                 <th class="px-2 py-2 font-medium w-28">tags</th>
                 <th class="px-2 py-2 font-medium w-20">duration</th>

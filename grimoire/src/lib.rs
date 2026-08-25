@@ -30,6 +30,7 @@ pub mod offal;
 pub mod paths;
 pub mod player;
 pub mod progress;
+pub mod query_ordering;
 pub mod radio;
 pub mod remotez;
 pub mod response;

@@ -24,17 +24,28 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         }
     };
 
+    // defaults content_type to "series" when series_id is set, else "movie",
+    // if the caller didn't specify one.
+    let content_type = req.content_type.clone().unwrap_or_else(|| {
+        if req.series_id.is_some() {
+            "series".to_string()
+        } else {
+            "movie".to_string()
+        }
+    });
+
     let video = match sqlx::query_as!(
         Video,
         r#"INSERT INTO videoz (
-            series_id, season_id, episode_number, title, description, media_blob_id,
+            series_id, season_id, episode_number, content_type, title, description, media_blob_id,
             poster_blob_id, duration_seconds, release_date, created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING
             id as "id!",
             series_id,
             season_id,
             episode_number,
+            content_type as "content_type!",
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
@@ -51,6 +62,7 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         req.series_id,
         req.season_id,
         req.episode_number,
+        content_type,
         req.title,
         req.description,
         req.media_blob_id,
@@ -102,6 +114,7 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             series_id,
             season_id,
             episode_number,
+            content_type as "content_type!",
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
@@ -161,6 +174,7 @@ pub async fn get_video_with_metadata(
         series_id: Option<String>,
         season_id: Option<String>,
         episode_number: Option<i64>,
+        content_type: String,
         video_title: String,
         description: Option<String>,
         media_blob_id: String,
@@ -188,6 +202,7 @@ pub async fn get_video_with_metadata(
             v.series_id,
             v.season_id,
             v.episode_number,
+            v.content_type,
             v.title as video_title,
             v.description,
             v.media_blob_id,
@@ -252,6 +267,7 @@ pub async fn get_video_with_metadata(
         series_id: row.series_id,
         season_id: row.season_id,
         episode_number: row.episode_number,
+        content_type: row.content_type,
         title: row.video_title,
         description: row.description,
         media_blob_id: row.media_blob_id,
@@ -303,6 +319,7 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             series_id,
             season_id,
             episode_number,
+            content_type as "content_type!",
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
@@ -321,7 +338,11 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
                    ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
          FROM videoz
          WHERE series_id = ? AND deleted_at IS NULL
-         ORDER BY episode_number ASC, created_at ASC"#,
+         ORDER BY
+           (SELECT season_number FROM video_seasonz WHERE id = videoz.season_id) IS NULL,
+           (SELECT season_number FROM video_seasonz WHERE id = videoz.season_id) ASC,
+           episode_number ASC,
+           created_at ASC"#,
         series_id
     )
     .fetch_all(&pool)
@@ -355,6 +376,7 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             series_id,
             season_id,
             episode_number,
+            content_type as "content_type!",
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
@@ -412,6 +434,7 @@ pub async fn list_videos_unattached(
             series_id,
             season_id,
             episode_number,
+            content_type as "content_type!",
             title as "title!",
             description,
             media_blob_id as "media_blob_id!",
@@ -465,6 +488,7 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
             SET series_id = COALESCE(?, series_id),
                 season_id = COALESCE(?, season_id),
                 episode_number = COALESCE(?, episode_number),
+                content_type = COALESCE(?, content_type),
                 title = COALESCE(?, title),
                 description = COALESCE(?, description),
                 poster_blob_id = COALESCE(?, poster_blob_id),
@@ -478,6 +502,7 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 series_id,
                 season_id,
                 episode_number,
+                content_type as "content_type!",
                 title as "title!",
                 description,
                 media_blob_id as "media_blob_id!",
@@ -494,6 +519,7 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         req.series_id,
         req.season_id,
         req.episode_number,
+        req.content_type,
         req.title,
         req.description,
         req.poster_blob_id,

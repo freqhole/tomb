@@ -6,6 +6,7 @@
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import type { StatusFilter } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
@@ -37,10 +38,22 @@ type VideoSortField = NonNullable<VideoQueryParams["sort_by"]>;
 
 const videoSortFields = [
   { value: "added_at", label: "date added", description: "sort by date added" },
-  { value: "title", label: "title", description: "sort by title" },
-  { value: "year", label: "year", description: "sort by release year" },
+  { value: "title", label: "title", description: "sort by video title" },
+  { value: "series", label: "series", description: "sort by series name" },
+  { value: "release_date", label: "release date", description: "sort by release date" },
   { value: "duration", label: "duration", description: "sort by duration" },
 ];
+
+// fixed, closed set of video content types - reuses pageInfo's generic
+// statusFilterOptions/selectedStatusFilters mechanism (built for the
+// library/table view's mb_lookup_status picker, styled identically to
+// the tag filter picker) rather than adding a brand new component.
+const contentTypeOptions = [
+  { value: "series", label: "series" },
+  { value: "movie", label: "movie" },
+  { value: "clip", label: "clip" },
+];
+const ALL_CONTENT_TYPES = contentTypeOptions.map((o) => o.value);
 
 export function VideosView(props: VideosViewProps) {
   const navigate = useNavigate();
@@ -80,11 +93,29 @@ export function VideosView(props: VideosViewProps) {
   const [tagFilters, setTagFilters] = useHistoryState<TagFilter[]>("videos.tagFilters", []);
   const tagsQuery = useVideoTagsQuery();
 
+  // content-type filter state (persisted in browser history) - reuses the
+  // same include/exclude `StatusFilter` shape as pageInfo's status filter
+  // slot; the set of types is fixed (series/movie/clip), so there's no
+  // query needed for "available" values.
+  const [contentTypeFilters, setContentTypeFilters] = useHistoryState<StatusFilter[]>(
+    "videos.contentTypeFilters",
+    []
+  );
+  const effectiveContentTypes = createMemo(() => {
+    const filters = contentTypeFilters();
+    if (filters.length === 0) return undefined;
+    const included = filters.filter((f) => f.mode === "include").map((f) => f.value);
+    const excluded = new Set(filters.filter((f) => f.mode === "exclude").map((f) => f.value));
+    const base = included.length > 0 ? included : ALL_CONTENT_TYPES;
+    return base.filter((t) => !excluded.has(t));
+  });
+
   const videosQuery = useVideosQuery({
     search: searchQuery,
     tagFilters: () => tagFilters(),
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
+    contentTypes: () => effectiveContentTypes(),
   });
 
   const availableTags = createMemo(() =>
@@ -111,10 +142,33 @@ export function VideosView(props: VideosViewProps) {
   };
   const handleClearAllTags = () => setTagFilters([]);
 
+  // content-type filter handlers - mirror the tag filter handlers above
+  const handleAddContentType = (value: string) => {
+    if (contentTypeFilters().some((f) => f.value === value)) return;
+    setContentTypeFilters([...contentTypeFilters(), { value, mode: "include" }]);
+  };
+  const handleRemoveContentType = (value: string) => {
+    setContentTypeFilters(contentTypeFilters().filter((f) => f.value !== value));
+  };
+  const handleToggleContentTypeMode = (value: string) => {
+    setContentTypeFilters(
+      contentTypeFilters().map((f) =>
+        f.value === value
+          ? {
+              value: f.value,
+              mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
+            }
+          : f
+      )
+    );
+  };
+  const handleClearContentTypeFilters = () => setContentTypeFilters([]);
+
   // reset virtual grid when sort or search query changes
   createEffect(
     on(
-      () => [searchQuery(), tagFilters(), sortField(), sortDirection()] as const,
+      () =>
+        [searchQuery(), tagFilters(), sortField(), sortDirection(), contentTypeFilters()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);
@@ -203,6 +257,13 @@ export function VideosView(props: VideosViewProps) {
       onRemoveTag: handleRemoveTag,
       onToggleTagMode: handleToggleTagMode,
       onClearAllTags: handleClearAllTags,
+      statusFilterOptions: contentTypeOptions,
+      selectedStatusFilters: contentTypeFilters(),
+      statusFilterLabel: "content type",
+      onAddStatusFilter: handleAddContentType,
+      onRemoveStatusFilter: handleRemoveContentType,
+      onToggleStatusFilterMode: handleToggleContentTypeMode,
+      onClearStatusFilters: handleClearContentTypeFilters,
     });
   });
 

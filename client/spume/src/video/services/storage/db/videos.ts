@@ -1,5 +1,5 @@
 // local video CRUD against the video domain's IndexedDB store
-import { getVideoDB, STORE_VIDEOS } from "./init";
+import { getVideoDB, STORE_VIDEOS, STORE_VIDEO_SERIES, STORE_VIDEO_SEASONS } from "./init";
 import { getEntityTags } from "./entityTags";
 import type { PaginatedVideos, VideoQueryParams, VideoSummary } from "../../../data/types";
 import type { ImageMetadata } from "../../../../music/services/storage/types";
@@ -36,6 +36,7 @@ export async function addLocalVideo(input: {
     series_id: null,
     season_id: null,
     episode_number: null,
+    content_type: "clip",
     title: input.title,
     description: null,
     // no server blob for a local/opfs-backed video; "" (not null) keeps
@@ -108,24 +109,101 @@ export async function getLocalVideos(params?: VideoQueryParams): Promise<Paginat
       .map(({ video }) => video);
   }
 
-  items.sort((a, b) => {
-    let cmp = 0;
+  // content_type filter: keep only videos whose content_type is one of
+  // the selected values ("series"/"movie"/"clip").
+  if (params?.content_types && params.content_types.length > 0) {
+    const allowedTypes = new Set(params.content_types);
+    items = items.filter((video) => allowedTypes.has(video.content_type));
+  }
+
+  // videos always cluster by series first (mirrors the server's
+  // query_videos rule: a whole series stays one contiguous block), then
+  // season/episode number is the fixed tie-breaker within that series -
+  // computed from the already-loaded `items` rather than re-querying, so
+  // no extra DB round trips per video are needed.
+  const seriesIds = [...new Set(items.map((v) => v.series_id).filter((id): id is string => !!id))];
+  const seriesTitleById = new Map(
+    (await Promise.all(seriesIds.map((id) => db.get(STORE_VIDEO_SERIES, id))))
+      .filter((s): s is NonNullable<typeof s> => !!s)
+      .map((s) => [s.id as string, s.title as string])
+  );
+
+  const seasonIds = [...new Set(items.map((v) => v.season_id).filter((id): id is string => !!id))];
+  const seasonNumberById = new Map(
+    (await Promise.all(seasonIds.map((id) => db.get(STORE_VIDEO_SEASONS, id))))
+      .filter((s): s is NonNullable<typeof s> => !!s)
+      .map((s) => [s.id as string, s.season_number as number])
+  );
+
+  const seriesGroupKey = new Map<string, number | string>();
+  for (const seriesId of seriesIds) {
+    const episodes = items.filter((v) => v.series_id === seriesId);
     switch (sortBy) {
-      case "title":
-        cmp = a.title.localeCompare(b.title);
+      case "release_date":
+        seriesGroupKey.set(
+          seriesId,
+          episodes.reduce<string>((min, v) => {
+            const d = v.release_date ?? "";
+            return min === "" || (d && d < min) ? d : min;
+          }, "")
+        );
         break;
       case "duration":
-        cmp = (a.duration_seconds ?? 0) - (b.duration_seconds ?? 0);
-        break;
-      case "year":
-        cmp = (a.release_date ?? "").localeCompare(b.release_date ?? "");
+        seriesGroupKey.set(
+          seriesId,
+          episodes.reduce((sum, v) => sum + (v.duration_seconds ?? 0), 0)
+        );
         break;
       case "added_at":
+        seriesGroupKey.set(seriesId, Math.max(...episodes.map((v) => v.added_at)));
+        break;
+      case "title":
+        // genuinely video-title-based (not series metadata): the
+        // alphabetically-earliest episode title within the series.
+        seriesGroupKey.set(
+          seriesId,
+          episodes.reduce<string>((min, v) => (min === "" || v.title < min ? v.title : min), "")
+        );
+        break;
+      // "series" and anything else fall back to clustering alphabetically
+      // by the series' own title metadata.
       default:
-        cmp = a.added_at - b.added_at;
+        seriesGroupKey.set(seriesId, seriesTitleById.get(seriesId) ?? "");
         break;
     }
-    return sortDirection === "asc" ? cmp : -cmp;
+  }
+
+  const primaryKeyFor = (v: VideoSummary): string | number => {
+    if (v.series_id && seriesGroupKey.has(v.series_id)) {
+      return seriesGroupKey.get(v.series_id)!;
+    }
+    switch (sortBy) {
+      case "release_date":
+        return v.release_date ?? "";
+      case "duration":
+        return v.duration_seconds ?? 0;
+      case "added_at":
+        return v.added_at;
+      default:
+        return v.title;
+    }
+  };
+
+  items.sort((a, b) => {
+    const aKey = primaryKeyFor(a);
+    const bKey = primaryKeyFor(b);
+    let cmp =
+      typeof aKey === "number" && typeof bKey === "number"
+        ? aKey - bKey
+        : String(aKey).localeCompare(String(bKey));
+    if (sortDirection !== "asc") cmp = -cmp;
+    if (cmp !== 0) return cmp;
+
+    // fixed tie-breaker within a series: season number then episode number
+    const aSeason = a.season_id ? (seasonNumberById.get(a.season_id) ?? 0) : 0;
+    const bSeason = b.season_id ? (seasonNumberById.get(b.season_id) ?? 0) : 0;
+    if (aSeason !== bSeason) return aSeason - bSeason;
+    return (a.episode_number ?? 0) - (b.episode_number ?? 0);
   });
 
   const total_count = items.length;
@@ -155,6 +233,7 @@ export async function updateLocalVideo(
     series_id?: string | null;
     season_id?: string | null;
     poster_blob_id?: string | null;
+    content_type?: string;
     images?: ImageMetadata[];
   }
 ): Promise<void> {

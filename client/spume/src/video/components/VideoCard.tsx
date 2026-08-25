@@ -2,7 +2,15 @@
 // components/cards/CollectionCard.tsx) but simplified for the video MVP:
 // poster thumbnail, title, duration, an "E{n}" episode badge when
 // available, a favorite toggle, and a right-click context menu.
-import { createEffect, createSignal, JSX, onCleanup, Show, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  JSX,
+  onCleanup,
+  Show,
+  type Accessor,
+} from "solid-js";
 import { PlayIcon } from "../../components/icons/registry";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
@@ -12,6 +20,9 @@ import { formatDuration } from "../../utils/formatDuration";
 import { appState } from "../../app/services/storage/db";
 import { readVideoPosterFromOPFS } from "../services/opfs/helpers";
 import { useVideoTaxonsQuery } from "../queries/taxons";
+import { useVideoSeriesListQuery, useVideoSeasonsQuery } from "../queries/series";
+import { useVideoEntityTagsQuery } from "../queries/tags";
+import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplete";
 import type { VideoSummary } from "../data/types";
 
 // video-only taxon kinds; music-only kinds (genre/mood/style/era/label)
@@ -69,6 +80,47 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
   );
 
   const taxonsQuery = useVideoTaxonsQuery(() => props.video.id);
+
+  // self-contained series/season/tag lookups - mirrors VideosTable's
+  // per-row pattern. `useVideoSeriesListQuery` fetches the whole (small)
+  // series list once and is shared/cached across every card instance via
+  // TanStack Query's queryKey deduping, so this doesn't cost one request
+  // per visible card.
+  const seriesListQuery = useVideoSeriesListQuery({ pageSize: 500 });
+  const seriesTitle = () => {
+    if (!props.video.series_id) return null;
+    const pages = seriesListQuery.data?.pages ?? [];
+    const series = pages.flatMap((p) => p.items).find((s) => s.id === props.video.series_id);
+    return series?.title ?? null;
+  };
+
+  const seasonsQuery = useVideoSeasonsQuery(() => props.video.series_id ?? undefined);
+  const seasonLabel = () => {
+    if (!props.video.season_id) return null;
+    const season = (seasonsQuery.data ?? []).find((s) => s.id === props.video.season_id);
+    return season ? formatSeasonLabel(season.season_number, season.title) : null;
+  };
+
+  const tagsQuery = useVideoEntityTagsQuery("video", () => props.video.id);
+
+  const contentTypeLabel = () => props.video.content_type || null;
+
+  // subtitle line: content type + series name (when this episode belongs
+  // to a series) - e.g. "series · Voyager"; standalone movies/clips just
+  // show their content type.
+  const subtitleLine = createMemo(() => {
+    const parts = [contentTypeLabel(), seriesTitle()].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  });
+
+  // season + episode line - e.g. "season 2 · episode 5"
+  const seasonEpisodeLine = createMemo(() => {
+    const parts: string[] = [];
+    const season = seasonLabel();
+    if (season) parts.push(season);
+    if (props.video.episode_number != null) parts.push(`episode ${props.video.episode_number}`);
+    return parts.length > 0 ? parts.join(" · ") : null;
+  });
 
   // grid/table thumbnails default to cropped-square (object-fit: cover);
   // user can switch to letterboxed/contain in settings.
@@ -174,23 +226,50 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
         </div>
       </div>
 
-      {/* title + duration + taxons */}
+      {/* title + subtitle + metadata + taxons + tags */}
       <div class="space-y-0.5 min-w-0">
         <MarqueeText
           text={props.video.title}
           class={`text-[var(--color-text-primary)] ${titleClass()} group-hover:text-[var(--color-accent-500)] transition-colors`}
         />
-        <Show when={props.video.duration_seconds != null}>
-          <div class={`text-[var(--color-text-tertiary)]/65 ${metaClass}`}>
-            {formatDuration(props.video.duration_seconds)}
-          </div>
+
+        {/* content type + series name */}
+        <Show when={subtitleLine()}>
+          <MarqueeText
+            text={subtitleLine()!}
+            class={`text-[var(--color-text-primary)]/75 ${metaClass} group-hover:text-[var(--color-text-primary)] transition-colors`}
+          />
         </Show>
+
+        {/* season/episode + duration + release date */}
+        <div class={`text-[var(--color-text-tertiary)]/65 ${metaClass}`}>
+          <div class="flex items-center gap-2 flex-wrap">
+            <Show when={seasonEpisodeLine()}>
+              <span>{seasonEpisodeLine()}</span>
+            </Show>
+            <Show when={props.video.duration_seconds != null}>
+              <span>{formatDuration(props.video.duration_seconds)}</span>
+            </Show>
+            <Show when={props.video.release_date}>
+              <span>{props.video.release_date}</span>
+            </Show>
+          </div>
+        </div>
+
         <Show when={(taxonsQuery.data?.length ?? 0) > 0}>
           <MarqueeText class={`${metaClass} text-[var(--color-text-tertiary)]`}>
             <div class="flex flex-nowrap gap-1 w-max">
               <TaxonChipList taxons={taxonsQuery.data} excludeKinds={VIDEO_EXCLUDED_TAXON_KINDS} />
             </div>
           </MarqueeText>
+        </Show>
+
+        {/* tags — single-row marquee, mirrors CollectionCard's tags row */}
+        <Show when={(tagsQuery.data?.length ?? 0) > 0}>
+          <MarqueeText
+            text={(tagsQuery.data ?? []).map((t) => `#${t}`).join(" • ")}
+            class={`${metaClass} text-[var(--color-text-tertiary)]/70 group-hover:text-[var(--color-primary)] transition-colors`}
+          />
         </Show>
       </div>
     </div>

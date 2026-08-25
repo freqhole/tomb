@@ -94,6 +94,9 @@ export class RemoteVideoDataSource implements VideoDataSource {
     if (params?.exclude_tags && params.exclude_tags.length > 0) {
       filters.exclude_tags = params.exclude_tags;
     }
+    if (params?.content_types && params.content_types.length > 0) {
+      filters.content_types = params.content_types;
+    }
     return {
       params: {
         q: params?.search ?? null,
@@ -235,6 +238,7 @@ export class RemoteVideoDataSource implements VideoDataSource {
     release_date?: string | null;
     series_id?: string | null;
     season_id?: string | null;
+    content_type?: string;
   }): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.updateVideos({
@@ -245,6 +249,7 @@ export class RemoteVideoDataSource implements VideoDataSource {
       release_date: params.release_date,
       series_id: params.series_id,
       season_id: params.season_id,
+      content_type: params.content_type,
     });
     if (!result.success) this.failRequest(result);
     if (result.data.videos_failed.length > 0) {

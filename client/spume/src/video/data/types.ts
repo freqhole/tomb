@@ -56,13 +56,14 @@ export interface VideoQueryParams {
   offset?: number;
   limit?: number;
   search?: string;
-  sort_by?: "added_at" | "title" | "year" | "duration";
+  sort_by?: "added_at" | "title" | "series" | "release_date" | "duration";
   sort_direction?: "asc" | "desc";
   series_id?: string;
   season_id?: string;
   unassigned?: boolean;
   include_tags?: string[];
   exclude_tags?: string[];
+  content_types?: string[];
 }
 
 export interface VideoDataSource {
@@ -98,6 +99,7 @@ export interface VideoDataSource {
     release_date?: string | null;
     series_id?: string | null;
     season_id?: string | null;
+    content_type?: string;
   }): Promise<void>;
   deleteVideo?(videoId: string): Promise<void>;
   createVideoSeries?(params: {

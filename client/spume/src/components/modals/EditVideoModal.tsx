@@ -74,6 +74,7 @@ interface FormData {
   release_date: string;
   series_id: string | null;
   season_id: string | null;
+  content_type: string;
 }
 
 export function EditVideoModal(props: EditVideoModalProps) {
@@ -103,6 +104,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
     release_date: "",
     series_id: null,
     season_id: null,
+    content_type: "clip",
   });
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedVideoId, setLoadedVideoId] = createSignal<string | null>(null);
@@ -258,6 +260,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
         release_date: video.release_date ?? "",
         series_id: video.series_id ?? null,
         season_id: video.season_id ?? null,
+        content_type: video.series_id ? "series" : video.content_type,
       };
       setFormData(data);
       setInitialData(data);
@@ -398,6 +401,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       current.release_date !== initial.release_date ||
       current.series_id !== initial.series_id ||
       current.season_id !== initial.season_id ||
+      current.content_type !== initial.content_type ||
       pendingNewSeriesName() !== null ||
       pendingNewSeason() !== null ||
       urlsChanged() ||
@@ -510,10 +514,20 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setPendingNewSeason(null);
     if (selection.isNew) {
       setPendingNewSeriesName(selection.name);
-      setFormData((prev) => ({ ...prev, series_id: null, season_id: null }));
+      setFormData((prev) => ({
+        ...prev,
+        series_id: null,
+        season_id: null,
+        content_type: "series",
+      }));
     } else {
       setPendingNewSeriesName(null);
-      setFormData((prev) => ({ ...prev, series_id: selection.id ?? null, season_id: null }));
+      setFormData((prev) => ({
+        ...prev,
+        series_id: selection.id ?? null,
+        season_id: null,
+        content_type: "series",
+      }));
     }
   };
 
@@ -540,6 +554,21 @@ export function EditVideoModal(props: EditVideoModalProps) {
     setSeasonInputValue("");
     setPendingNewSeason(null);
     setFormData((prev) => ({ ...prev, season_id: null }));
+  };
+
+  // switching to "movie"/"clip" clears any series/season assignment (they're
+  // hidden for standalone content); switching to "series" just reveals the
+  // series picker below and leaves series_id null until one is chosen.
+  const handleContentTypeChange = (value: "series" | "movie" | "clip") => {
+    if (value === "series") {
+      setFormData((prev) => ({ ...prev, content_type: value }));
+      return;
+    }
+    setSeriesInputValue("");
+    setPendingNewSeriesName(null);
+    setSeasonInputValue("");
+    setPendingNewSeason(null);
+    setFormData((prev) => ({ ...prev, content_type: value, series_id: null, season_id: null }));
   };
 
   const handleSave = async () => {
@@ -571,6 +600,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
         release_date: data.release_date || null,
         series_id: seriesId,
         season_id: seasonId,
+        content_type: seriesId ? "series" : data.content_type,
       });
 
       if (urlsChanged()) {
@@ -692,57 +722,76 @@ export function EditVideoModal(props: EditVideoModalProps) {
             </Show>
           </div>
 
-          {/* series and season assignment */}
+          {/* content type + series/season assignment */}
           <div class="space-y-4 border-t border-[var(--color-border-default)] pt-4">
-            <h3 class="text-sm font-medium text-[var(--color-text-primary)]">series & season</h3>
-
-            <div>
-              <VideoSeriesAutocomplete
-                label="series"
-                value={seriesInputValue()}
-                onSelect={handleSeriesSelect}
-                placeholder="search or type series title..."
-                hint={
-                  pendingNewSeriesName()
-                    ? `"${pendingNewSeriesName()}" will be created as a new series on save`
-                    : undefined
-                }
-              />
-              <Show when={seriesInputValue() || pendingNewSeriesName()}>
-                <button
-                  type="button"
-                  onClick={handleClearSeries}
-                  class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                >
-                  remove from series
-                </button>
-              </Show>
+            <h3 class="text-sm font-medium text-[var(--color-text-primary)]">content type</h3>
+            <div class="flex gap-2">
+              <For each={["series", "movie", "clip"] as const}>
+                {(type) => (
+                  <button
+                    type="button"
+                    onClick={() => handleContentTypeChange(type)}
+                    class={`px-3 py-1.5 text-sm rounded ${
+                      formData().content_type === type
+                        ? "bg-[var(--color-accent-500)] text-white"
+                        : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
+                    }`}
+                  >
+                    {type}
+                  </button>
+                )}
+              </For>
             </div>
 
-            <Show when={formData().series_id}>
+            <Show when={formData().content_type === "series"}>
               <div>
-                <VideoSeasonAutocomplete
-                  label="season"
-                  seriesId={formData().series_id ?? undefined}
-                  value={seasonInputValue()}
-                  onSelect={handleSeasonSelect}
-                  placeholder="search or type season..."
+                <VideoSeriesAutocomplete
+                  label="series"
+                  value={seriesInputValue()}
+                  onSelect={handleSeriesSelect}
+                  placeholder="search or type series title..."
                   hint={
-                    pendingNewSeason()
-                      ? `${formatSeasonLabel(pendingNewSeason()!.season_number, pendingNewSeason()!.title)} will be created on save`
+                    pendingNewSeriesName()
+                      ? `"${pendingNewSeriesName()}" will be created as a new series on save`
                       : undefined
                   }
                 />
-                <Show when={seasonInputValue() || pendingNewSeason()}>
+                <Show when={seriesInputValue() || pendingNewSeriesName()}>
                   <button
                     type="button"
-                    onClick={handleClearSeason}
+                    onClick={handleClearSeries}
                     class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
                   >
-                    remove from season
+                    remove from series
                   </button>
                 </Show>
               </div>
+
+              <Show when={formData().series_id || pendingNewSeriesName()}>
+                <div>
+                  <VideoSeasonAutocomplete
+                    label="season"
+                    seriesId={formData().series_id ?? undefined}
+                    value={seasonInputValue()}
+                    onSelect={handleSeasonSelect}
+                    placeholder="search or type season..."
+                    hint={
+                      pendingNewSeason()
+                        ? `${formatSeasonLabel(pendingNewSeason()!.season_number, pendingNewSeason()!.title)} will be created on save`
+                        : undefined
+                    }
+                  />
+                  <Show when={seasonInputValue() || pendingNewSeason()}>
+                    <button
+                      type="button"
+                      onClick={handleClearSeason}
+                      class="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                    >
+                      remove from season
+                    </button>
+                  </Show>
+                </div>
+              </Show>
             </Show>
           </div>
 
