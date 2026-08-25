@@ -1,10 +1,7 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
-import { togglePlayback } from "../../music/services/audio/player";
-import { appState } from "../../app/services/storage/db";
-import { mediaItemKey } from "../../app/services/storage/mediaItem";
-import { removeFromQueue } from "../../music/services/queue/queue";
+import { isPlaying, pause, togglePlayback } from "../../music/services/audio/player";
 import { pushModal, popModal } from "../../music/hooks/modals";
 
 // delay before a click's play/pause toggle fires, so a second click
@@ -19,6 +16,9 @@ export interface VideoMiniPlayerProps {
   /** the singleton `<video>` element owned by the video backend — moved
    * into this panel via DOM append (not recreated). */
   videoElement: HTMLVideoElement;
+  /** called when the user closes the panel - the panel itself is hidden
+   * by the caller (queue/playback is left untouched); see handleClose. */
+  onClose?: () => void;
 }
 
 /** floating mini video player — sits above the player bar, anchored to
@@ -70,12 +70,11 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     });
   };
 
-  // stop playback and drop the current video from the queue entirely
+  // pause (if playing) and hide the panel - does NOT touch the queue, so
+  // playback can resume from the player bar and the panel reopens then.
   const handleClose = () => {
-    const state = appState();
-    if (!state) return;
-    const index = state.queue.findIndex((item) => mediaItemKey(item) === state.current_sha256);
-    if (index >= 0) void removeFromQueue(index);
+    if (isPlaying()) pause();
+    props.onClose?.();
   };
 
   let clickTimer: ReturnType<typeof setTimeout> | null = null;

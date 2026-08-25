@@ -5,6 +5,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -182,6 +183,29 @@ export function AppLayout(props: AppLayoutProps) {
   const [currentSongData, setCurrentSongData] = createSignal<Song | null>(null);
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+
+  // mini video player's "closed" state - the x button pauses + hides the
+  // panel without touching the queue (see VideoMiniPlayer's onClose).
+  // reset whenever the current video changes so a new video always shows
+  // the panel, and re-opened as soon as playback resumes (e.g. the player
+  // bar's play button) so the user isn't stuck with a paused, invisible video.
+  const [videoMiniPlayerDismissed, setVideoMiniPlayerDismissed] = createSignal(false);
+  createEffect(
+    on(
+      () => currentVideoData()?.id,
+      () => setVideoMiniPlayerDismissed(false)
+    )
+  );
+  // scoped to `isPlaying` alone (via `on`) so this only reacts to real
+  // play/pause transitions, not to `videoMiniPlayerDismissed` itself
+  // changing - otherwise dismissing while the pause command is still
+  // in flight (isPlaying briefly stale-true) would immediately re-open
+  // the panel, requiring a second click to actually close it.
+  createEffect(
+    on(isPlaying, (playing) => {
+      if (playing && videoMiniPlayerDismissed()) setVideoMiniPlayerDismissed(false);
+    })
+  );
 
   // favorite status for the currently-playing video (video summary rows
   // don't carry is_favorite, so it's hydrated separately, same as
@@ -1625,8 +1649,20 @@ export function AppLayout(props: AppLayoutProps) {
 
           return (
             <>
-              <Show when={!isRadio() && currentVideoData() && getVideoElement()}>
-                {(el) => <VideoMiniPlayer videoElement={el()} />}
+              <Show
+                when={
+                  !videoMiniPlayerDismissed() &&
+                  !isRadio() &&
+                  currentVideoData() &&
+                  getVideoElement()
+                }
+              >
+                {(el) => (
+                  <VideoMiniPlayer
+                    videoElement={el()}
+                    onClose={() => setVideoMiniPlayerDismissed(true)}
+                  />
+                )}
               </Show>
               <PlayerBar
                 song={barSong()}
