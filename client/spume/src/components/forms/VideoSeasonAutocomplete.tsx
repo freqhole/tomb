@@ -41,8 +41,15 @@ interface SeasonOption {
   title: string | null;
 }
 
-function formatSeasonLabel(season_number: number, title: string | null | undefined): string {
-  return `season ${season_number}${title ? ` - ${title}` : ""}`;
+/** formats a season for display, e.g. "season 3 - finale". guards
+ *  against a title that's just a redundant restatement of the number
+ *  (eg. title "season 3" on season_number 3, from old input before this
+ *  parser understood a leading "season" word) so it isn't shown twice. */
+export function formatSeasonLabel(season_number: number, title: string | null | undefined): string {
+  const trimmedTitle = title?.trim();
+  const isRedundant =
+    !!trimmedTitle && trimmedTitle.toLowerCase().replace(/\s+/g, "") === `season${season_number}`;
+  return `season ${season_number}${trimmedTitle && !isRedundant ? ` - ${trimmedTitle}` : ""}`;
 }
 
 /** parse freeform "create new" input into a season_number/title pair.
@@ -55,7 +62,10 @@ function parseSeasonInput(
   existing: SeasonOption[]
 ): { season_number: number; title: string | null } {
   const trimmed = raw.trim();
-  const match = trimmed.match(/^(\d+)\s*[-:.]?\s*(.*)$/);
+  // an optional leading "season" word (as typed by a user echoing the
+  // displayed label back, eg. "season 3") must not be swallowed into
+  // the title - otherwise it duplicates as "season 3 - season 3".
+  const match = trimmed.match(/^(?:season\s*)?(\d+)\s*[-:.]?\s*(.*)$/i);
   if (match) {
     const season_number = parseInt(match[1], 10);
     const title = match[2].trim();

@@ -13,6 +13,14 @@ pub(in crate::ratcore::catalog) fn scan() -> AdminCommand {
         args: vec![
             path_arg("directory path to scan for import jobs"),
             ArgSpec {
+                name: "domain".to_string(),
+                kind: ArgKind::OneOf {
+                    choices: vec!["music".to_string(), "video".to_string()],
+                },
+                required: false,
+                help: Some("media pipeline to scan for (defaults to music)".to_string()),
+            },
+            ArgSpec {
                 name: "recursive".to_string(),
                 kind: ArgKind::Bool { default: true },
                 required: false,

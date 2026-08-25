@@ -1,5 +1,6 @@
 // local video CRUD against the video domain's IndexedDB store
 import { getVideoDB, STORE_VIDEOS } from "./init";
+import { getEntityTags } from "./entityTags";
 import type { PaginatedVideos, VideoQueryParams, VideoSummary } from "../../../data/types";
 import type { ImageMetadata } from "../../../../music/services/storage/types";
 
@@ -28,7 +29,7 @@ export async function addLocalVideo(input: {
   file_size: number;
   mime_type: string;
   duration_seconds?: number | null;
-}): Promise<VideoSummary> {
+}): Promise<LocalVideoRow> {
   const now = Date.now();
   const row: LocalVideoRow = {
     id: input.id,
@@ -80,6 +81,31 @@ export async function getLocalVideos(params?: VideoQueryParams): Promise<Paginat
   if (params?.search) {
     const searchLower = params.search.toLowerCase();
     items = items.filter((video) => video.title?.toLowerCase().includes(searchLower));
+  }
+
+  // tag filters — mirrors music's local getAlbums tag filtering:
+  // include_tags = keep videos with ANY of these tags, exclude_tags =
+  // drop videos with ANY of these tags. no bulk "tags for many videos"
+  // helper exists locally, so this fetches one entity_tags row-set per
+  // loaded video in parallel.
+  const includeTags = params?.include_tags ?? [];
+  const excludeTags = params?.exclude_tags ?? [];
+  if (includeTags.length > 0 || excludeTags.length > 0) {
+    const includeSet = new Set(includeTags);
+    const excludeSet = new Set(excludeTags);
+    const withTags = await Promise.all(
+      items.map(async (video) => ({
+        video,
+        names: (await getEntityTags("video", video.id)).map((t) => t.name),
+      }))
+    );
+    items = withTags
+      .filter(({ names }) => {
+        if (includeSet.size > 0 && !names.some((n) => includeSet.has(n))) return false;
+        if (excludeSet.size > 0 && names.some((n) => excludeSet.has(n))) return false;
+        return true;
+      })
+      .map(({ video }) => video);
   }
 
   items.sort((a, b) => {

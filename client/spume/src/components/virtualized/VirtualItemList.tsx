@@ -14,8 +14,14 @@ export interface ListItem {
   metadata?: string;
   images?: ImageMetadata[];
   thumbnailUrl?: string | null;
+  /** blob id + owning remote, for entities (e.g. video series/seasons)
+   *  whose poster isn't exposed via `images`/`thumbnailUrl` - resolves
+   *  through the same transport MediaImage's `remoteBlobId` prop uses. */
+  remoteBlobId?: string | null;
+  remoteServerId?: string | null;
   /** domain type for appropriate fallback icon */
-  domainType?: "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series";
+  domainType?:
+    "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series" | "video_season";
   /** custom fallback text when no image (e.g., artist abbreviation) */
   fallbackText?: string;
 }
@@ -209,7 +215,8 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
           const item = props.items[virtualRow.index];
           if (!item) return null;
 
-          const hasImage = item.images?.length || item.thumbnailUrl || !item.fallbackText;
+          const hasImage =
+            item.images?.length || item.thumbnailUrl || item.remoteBlobId || !item.fallbackText;
 
           const itemButton = (
             <button
@@ -235,6 +242,8 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                     <MediaImage
                       images={item.images}
                       imageUrl={item.thumbnailUrl || null}
+                      remoteBlobId={item.remoteBlobId}
+                      remoteServerId={item.remoteServerId}
                       alt={item.title}
                       class={`w-12 h-12 object-cover flex-shrink-0 ${item.domainType === "artist" ? "rounded-full" : "rounded"}`}
                       domainType={item.domainType || "playlist"}

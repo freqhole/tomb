@@ -87,11 +87,18 @@ export class RemoteVideoDataSource implements VideoDataSource {
   }
 
   private buildQueryVideosParams(params?: VideoQueryParams) {
+    const filters: Record<string, unknown> = {};
+    if (params?.include_tags && params.include_tags.length > 0) {
+      filters.include_tags = params.include_tags;
+    }
+    if (params?.exclude_tags && params.exclude_tags.length > 0) {
+      filters.exclude_tags = params.exclude_tags;
+    }
     return {
       params: {
         q: params?.search ?? null,
         search_fields: null,
-        filters: {},
+        filters,
         sort_by: params?.sort_by ?? null,
         sort_direction: params?.sort_direction ?? null,
         limit: params?.limit ?? null,
@@ -111,10 +118,13 @@ export class RemoteVideoDataSource implements VideoDataSource {
 
   async getVideos(params?: VideoQueryParams): Promise<PaginatedVideos> {
     const client = await this.getClient();
-    const result = await client.video.queryVideos(
-      this.buildQueryVideosParams(params),
-    );
+    const builtParams = this.buildQueryVideosParams(params);
+    const result = await client.video.queryVideos(builtParams);
     if (!result.success) this.failRequest(result);
+
+    // temporary diagnostic for the tauri tag-filter bug: confirm the
+    // sent filters actually changed the returned total_count.
+    console.info("[remoteSource.getVideos] filters=", builtParams.params.filters, "total_count=", result.data.total_count);
 
     return {
       items: result.data.items.map((v) => this.mapVideo(v)),
@@ -134,7 +144,12 @@ export class RemoteVideoDataSource implements VideoDataSource {
   async getVideoWithMetadata(id: string) {
     const client = await this.getClient();
     const result = await client.video.getVideoWithMetadata({ id });
-    if (!result.success) return null;
+    if (!result.success) {
+      // this used to silently return null - see FreqholeClient's new
+      // [API] ...failed console.warn for the actual server error.
+      console.warn("[remoteSource.getVideoWithMetadata] failed for", id, result.error);
+      return null;
+    }
     return result.data;
   }
 
@@ -162,7 +177,7 @@ export class RemoteVideoDataSource implements VideoDataSource {
     if (!result.success) this.failRequest(result);
 
     return {
-      items: result.data.items,
+      items: result.data.items.map((s) => ({ ...s, remote_server_id: this.remoteId })),
       total_count: result.data.total_count,
       has_more: result.data.has_more,
       offset: result.data.offset,
@@ -173,14 +188,14 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const client = await this.getClient();
     const result = await client.video.getVideoSeries({ id });
     if (!result.success) return null;
-    return result.data;
+    return { ...result.data, remote_server_id: this.remoteId };
   }
 
   async getVideoSeasons(seriesId: string): Promise<VideoSeason[]> {
     const client = await this.getClient();
     const result = await client.video.listVideoSeasons({ series_id: seriesId });
     if (!result.success) this.failRequest(result);
-    return result.data;
+    return result.data.map((s) => ({ ...s, remote_server_id: this.remoteId }));
   }
 
   async getVideosBySeason(seasonId: string): Promise<VideoSummary[]> {
@@ -202,9 +217,10 @@ export class RemoteVideoDataSource implements VideoDataSource {
     const result = await client.video.getVideoSeriesDetail({ id });
     if (!result.success) return null;
     return {
-      series: result.data.series,
+      series: { ...result.data.series, remote_server_id: this.remoteId },
       seasons: result.data.seasons.map((s) => ({
         ...s.season,
+        remote_server_id: this.remoteId,
         videos: s.videos.map((v) => this.mapVideo(v)),
       })),
       unassignedVideos: result.data.unassigned_videos.map((v) => this.mapVideo(v)),
@@ -368,6 +384,63 @@ export class RemoteVideoDataSource implements VideoDataSource {
       entity_type: params.entityType,
       entity_id: params.entityId,
       blob_id: params.blobId,
+    });
+    if (!result.success) this.failRequest(result);
+  }
+
+  // tag operations — video-scoped tag listing (only tags actually
+  // applied to at least one video, not the whole shared tagz vocabulary -
+  // reusing music's global list_tags here previously meant the video tag
+  // filter picker showed every tag in the system, including ones never
+  // applied to a video).
+  async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
+    const client = await this.getClient();
+    const result = await client.entities.listEntityTypeTags({ entity_type: "video" });
+    if (!result.success) this.failRequest(result);
+    return result.data.map((t) => ({
+      tag_id: t.tag_id,
+      name: t.tag_name,
+      created_at: t.tag_created_at,
+    }));
+  }
+
+  async getEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+  }): Promise<{ tag_id: string; tag_name: string; tag_created_at: number; count: number }[]> {
+    const client = await this.getClient();
+    const result = await client.entities.getEntitiesTags({
+      entity_type: params.entityType,
+      entity_ids: params.entityIds,
+    });
+    if (!result.success) this.failRequest(result);
+    return result.data;
+  }
+
+  async addEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+    tagNames: string[];
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.entities.addEntitiesTags({
+      entity_type: params.entityType,
+      entity_ids: params.entityIds,
+      tag_names: params.tagNames,
+    });
+    if (!result.success) this.failRequest(result);
+  }
+
+  async removeEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+    tagIds: string[];
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.entities.removeEntitiesTags({
+      entity_type: params.entityType,
+      entity_ids: params.entityIds,
+      tag_ids: params.tagIds,
     });
     if (!result.success) this.failRequest(result);
   }

@@ -40,6 +40,13 @@ export const AddAlbumsTagsRequestSchema = z.object({
 });
 export type AddAlbumsTagsRequest = z.infer<typeof AddAlbumsTagsRequestSchema>;
 
+export const AddEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string()),
+  tag_names: z.array(z.string())
+});
+export type AddEntitiesTagsRequest = z.infer<typeof AddEntitiesTagsRequestSchema>;
+
 export const AddEntityTaxonRequestSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string(),
@@ -1715,6 +1722,14 @@ export const EntityRefSchema = z.union([z.object({
 })]);
 export type EntityRef = z.infer<typeof EntityRefSchema>;
 
+export const EntityTagCountSchema = z.object({
+  tag_id: z.string(),
+  tag_name: z.string(),
+  tag_created_at: z.number(),
+  count: z.number()
+});
+export type EntityTagCount = z.infer<typeof EntityTagCountSchema>;
+
 export const EntityTaxonLinkSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string(),
@@ -2844,6 +2859,12 @@ export const GetEnrichmentProgressResponseSchema = z.object({
 });
 export type GetEnrichmentProgressResponse = z.infer<typeof GetEnrichmentProgressResponseSchema>;
 
+export const GetEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string())
+});
+export type GetEntitiesTagsRequest = z.infer<typeof GetEntitiesTagsRequestSchema>;
+
 export const GetEntityImagesRequestSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string()
@@ -3259,6 +3280,11 @@ export const ListBelovedResponseSchema = z.object({
   artist_ids: z.array(z.string())
 });
 export type ListBelovedResponse = z.infer<typeof ListBelovedResponseSchema>;
+
+export const ListEntityTypeTagsRequestSchema = z.object({
+  entity_type: z.string()
+});
+export type ListEntityTypeTagsRequest = z.infer<typeof ListEntityTypeTagsRequestSchema>;
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
@@ -5513,6 +5539,13 @@ export const RemoveAlbumsTagsRequestSchema = z.object({
   tag_ids: z.array(z.string())
 });
 export type RemoveAlbumsTagsRequest = z.infer<typeof RemoveAlbumsTagsRequestSchema>;
+
+export const RemoveEntitiesTagsRequestSchema = z.object({
+  entity_type: z.string(),
+  entity_ids: z.array(z.string()),
+  tag_ids: z.array(z.string())
+});
+export type RemoveEntitiesTagsRequest = z.infer<typeof RemoveEntitiesTagsRequestSchema>;
 
 export const RemoveEntityTaxonRequestSchema = z.object({
   entity_type: z.string(),

@@ -1,8 +1,8 @@
 //! delete + cross-cutting side-table cleanup for the video domain
 //!
 //! sqlite can't express a polymorphic FK on `(entity_type, entity_id)`, so
-//! `entity_taxonz`/`playlist_itemz`/`playback_progressz` have no
-//! `ON DELETE CASCADE` tied to `videoz`/`video_seasonz`/`video_seriez`.
+//! `entity_taxonz`/`entity_tagz`/`playlist_itemz`/`playback_progressz` have
+//! no `ON DELETE CASCADE` tied to `videoz`/`video_seasonz`/`video_seriez`.
 //! every delete path here explicitly cleans up its own rows in those
 //! tables (mirroring how `delete_album` already cleans up `entity_urlz`
 //! today), rather than relying on the db to do it.
@@ -26,10 +26,11 @@ pub struct BulkDeleteVideosResponse {
     pub failed_ids: Vec<String>,
 }
 
-/// remove every `entity_taxonz`/`playlist_itemz`/`playback_progressz` row
-/// for a single entity. best-effort per table - the first error is
-/// returned, but callers proceed with soft-deleting the entity itself
-/// regardless (matching `delete_album`'s existing cascade style).
+/// remove every `entity_taxonz`/`entity_tagz`/`playlist_itemz`/
+/// `playback_progressz` row for a single entity. best-effort per table -
+/// the first error is returned, but callers proceed with soft-deleting the
+/// entity itself regardless (matching `delete_album`'s existing cascade
+/// style).
 async fn cleanup_entity_side_tables(
     pool: &SqlitePool,
     entity_type: VideoEntityType,
@@ -39,6 +40,14 @@ async fn cleanup_entity_side_tables(
 
     sqlx::query!(
         "DELETE FROM entity_taxonz WHERE entity_type = ? AND entity_id = ?",
+        entity_type_str,
+        entity_id
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM entity_tagz WHERE entity_type = ? AND entity_id = ?",
         entity_type_str,
         entity_id
     )

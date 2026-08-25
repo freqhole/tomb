@@ -58,6 +58,7 @@ export function VideoSeriesAutocomplete(props: VideoSeriesAutocompleteProps) {
   const seriesQuery = useVideoSeriesListQuery({
     search: () => (debounced().length > 0 ? debounced() : undefined),
     pageSize: 15,
+    keyScope: "autocomplete",
   });
 
   const options = createMemo<SeriesOption[]>(() => {

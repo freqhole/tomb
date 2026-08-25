@@ -148,6 +148,10 @@ export class FreqholeClient {
         if (json.success === false) {
           const errorMessage = json.message || json.errors?.[0]?.detail || "request failed";
           const errorCode = json.errors?.[0]?.error_type;
+          // this used to be silent - a business-logic failure (e.g. "video
+          // not found") would just surface as `null` data to the caller
+          // with no trace anywhere, making it look like a data-wiring bug.
+          console.warn(`[API] ${domain}.${routeName} failed:`, errorMessage, json.errors);
           const issuePath: (string | number)[] = [];
           if (errorCode === "unauthorized") {
             issuePath.push(AUTH_ERROR_PATH);

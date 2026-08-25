@@ -68,7 +68,6 @@ pub struct UpdateVideoRequest {
 /// video with enriched metadata from the media blob (codec, container, bitrate, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct VideoWithMetadata {
-    #[serde(flatten)]
     pub video: Video,
     pub created_by_username: Option<String>,
     pub updated_by_username: Option<String>,

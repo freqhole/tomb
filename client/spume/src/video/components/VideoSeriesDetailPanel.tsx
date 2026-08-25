@@ -5,6 +5,7 @@
 // list + detail can live side-by-side like artists/albums do.
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { useQueryClient } from "@tanstack/solid-query";
 import { LoadingState } from "../../components/feedback";
 import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
@@ -12,24 +13,48 @@ import { Button } from "../../components/buttons/Button";
 import { Icon, IconNames, PlayIcon } from "../../components/icons/registry";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { MarqueeText } from "../../components/text/MarqueeText";
+import { TagChips } from "../../components/badges/TagChips";
+import { TaxonChips } from "../../components/badges/TaxonChips";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { useVideoSeriesDetailQuery } from "../queries/series";
+import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
+import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
+import { videoQueryKeys } from "../queries/queryKeys";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue } from "../services/videoQueueActions";
 import { showEditVideoSeries } from "../hooks/modals";
 import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { canUpdateVideo } from "../data/permissions";
+import { getVideoDataSource } from "../data";
+import {
+  formatImageCarouselTitle,
+  beginImageCarouselLoading,
+  endImageCarouselLoading,
+  openImageCarouselFromResolvers,
+  type ImageResolveResult,
+} from "../../music/hooks/modals";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../../music/services/storage/blobResolver";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoSeason, VideoSummary } from "../data/types";
 
 /** a single episode row - thumbnail (with a hover play button), title,
  * duration, and a right-click context menu. clicking the row itself
  * navigates to the episode's detail page; the thumbnail's play button
  * plays it directly (mirrors VideoCard's poster/hover-play split). */
-function EpisodeRow(props: { video: VideoSummary; index: number; onPlay: () => void }) {
+function EpisodeRow(props: {
+  video: VideoSummary;
+  index: number;
+  onPlay: () => void;
+  onTagsSaved?: () => void;
+}) {
   const navigate = useNavigate();
   const contextMenuActions = createMemo(() =>
-    useVideoContextMenu(props.video, { showPlayActions: true })
+    useVideoContextMenu(props.video, { showPlayActions: true, onSave: props.onTagsSaved })
   );
 
   return (
@@ -47,7 +72,7 @@ function EpisodeRow(props: { video: VideoSummary; index: number; onPlay: () => v
             remoteServerId={props.video.remote_server_id}
             alt={props.video.title}
             showFallback={true}
-            thumbnailSize={80}
+            thumbnailSize={50}
             objectFit="cover"
             class="w-full h-full"
           />
@@ -88,6 +113,86 @@ export interface VideoSeriesDetailPanelProps {
 
 export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
+  const queryClient = useQueryClient();
+
+  const handleTagsSaved = () => {
+    void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
+  };
+
+  // open image carousel with all of an entity's entity_imagez images,
+  // mirroring AlbumDetailView.tsx's handleAlbumImageClick /
+  // VideoDetailView.tsx's handleVideoImageClick. shared by the series
+  // header image and each season's thumbnail below.
+  const openEntityImageCarousel = async (
+    entityType: "video_series" | "video_season",
+    entityId: string,
+    title: string | null | undefined
+  ) => {
+    beginImageCarouselLoading();
+
+    const seen = new Set<string>();
+    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
+
+    const addImage = (img: ImageMetadata) => {
+      if (img.blob_type === "waveform") return;
+      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      imageItems.push({
+        blobId: img.remote_blob_id || img.local_blob_id,
+        url: img.remote_url,
+        serverId: img.remote_server_id,
+      });
+    };
+
+    try {
+      const dataSource = getVideoDataSource();
+      const images =
+        (await dataSource.getEntityImages?.({
+          entityType,
+          entityId,
+        })) ?? [];
+      for (const img of images) addImage(img);
+    } catch (err) {
+      console.error(`failed to fetch ${entityType} images:`, err);
+    }
+
+    if (imageItems.length === 0) {
+      endImageCarouselLoading();
+      return;
+    }
+
+    const firstWithServerId = imageItems.find((item) => item.serverId);
+    const needsResolution = firstWithServerId
+      ? await usesBlobResolver(firstWithServerId.serverId!)
+      : false;
+
+    const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
+      if (needsResolution && item.blobId && item.serverId) {
+        try {
+          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          return { url };
+        } catch {
+          return item.url ? { url: item.url } : null;
+        }
+      }
+      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+    };
+
+    await openImageCarouselFromResolvers(
+      imageItems.map((item) => () => resolveOne(item)),
+      {
+        title: formatImageCarouselTitle(title),
+        entityLabel: title ?? undefined,
+      }
+    );
+  };
+
+  const handleSeriesImageClick = () =>
+    openEntityImageCarousel("video_series", props.seriesId, detailQuery.data?.series.title);
+
+  const handleSeasonImageClick = (season: VideoSeason) =>
+    openEntityImageCarousel("video_season", season.id, seasonLabel(season));
 
   const seasons = createMemo((): (VideoSeason & { videos: VideoSummary[] })[] => {
     return detailQuery.data?.seasons ?? [];
@@ -104,6 +209,17 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     return [...seasons().flatMap((season) => season.videos), ...unassignedVideos()];
   });
 
+  // aggregate tags/taxons: the series' own tags/taxons plus the unique
+  // union of every episode's tags/taxons (episodes across all seasons +
+  // any season-less videos) - taxons remain remote-only for now (video
+  // taxons have no local/indexeddb storage yet, see useVideoTaxonsQuery).
+  const allVideoIds = createMemo(() => allVideos().map((v) => v.id));
+  const aggregateTagsQuery = useVideoSeriesAggregateTagsQuery(() => props.seriesId, allVideoIds);
+  const aggregateTaxonsQuery = useVideoSeriesAggregateTaxonsQuery(
+    () => props.seriesId,
+    allVideoIds
+  );
+
   // seasons expanded/collapsed by id - first season expanded by default.
   // reset whenever the selected series changes so a stale season id from
   // the previous series doesn't linger in the expanded set.
@@ -111,7 +227,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
 
   createEffect(() => {
     props.seriesId;
-    setExpandedSeasonIds(new Set());
+    setExpandedSeasonIds(new Set<string>());
   });
 
   createEffect(() => {
@@ -252,9 +368,14 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                   {/* header: poster + title + description */}
                   <div class="flex gap-4 wide:gap-6 p-4 wide:p-6">
                     <ContextMenu actions={seriesContextMenuActions()}>
-                      <div class="w-32 h-32 wide:w-64 wide:h-64 bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden">
+                      <div
+                        class="w-32 h-32 wide:w-64 wide:h-64 bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden cursor-pointer"
+                        title="view series images"
+                        onClick={handleSeriesImageClick}
+                      >
                         <MediaImage
-                          blobId={data().series.poster_blob_id}
+                          remoteBlobId={data().series.poster_blob_id}
+                          remoteServerId={data().series.remote_server_id}
                           alt={data().series.title}
                           showFallback={true}
                           thumbnailSize={200}
@@ -272,6 +393,14 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           {data().series.description}
                         </p>
                       </Show>
+
+                      <TaxonChips
+                        taxons={aggregateTaxonsQuery.data}
+                        class="mt-2"
+                        excludeKinds={["genre", "mood", "style", "era", "label"]}
+                      />
+
+                      <TagChips tags={aggregateTagsQuery.data} class="mt-2" />
 
                       <div class="mt-3 flex items-center gap-2">
                         <Button
@@ -322,13 +451,21 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                               class="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors text-left"
                             >
                               <Show when={season.poster_blob_id}>
-                                <div class="w-10 h-10 rounded overflow-hidden bg-[var(--color-bg-elevated)] flex-shrink-0">
+                                <div
+                                  class="w-10 h-10 rounded overflow-hidden bg-[var(--color-bg-elevated)] flex-shrink-0 cursor-pointer"
+                                  title="view season images"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleSeasonImageClick(season);
+                                  }}
+                                >
                                   <MediaImage
-                                    blobId={season.poster_blob_id}
+                                    remoteBlobId={season.poster_blob_id}
+                                    remoteServerId={season.remote_server_id}
                                     alt={seasonLabel(season)}
                                     showFallback={true}
-                                    thumbnailSize={80}
-                                    domainType="video_series"
+                                    thumbnailSize={50}
+                                    domainType="video_season"
                                     class="w-full h-full object-cover"
                                   />
                                 </div>
@@ -354,6 +491,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                       video={video}
                                       index={index()}
                                       onPlay={() => handleEpisodeClick(season, index())}
+                                      onTagsSaved={handleTagsSaved}
                                     />
                                   )}
                                 </For>
@@ -384,6 +522,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 video={video}
                                 index={index()}
                                 onPlay={() => handleUnassignedClick(index())}
+                                onTagsSaved={handleTagsSaved}
                               />
                             )}
                           </For>

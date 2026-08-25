@@ -12,10 +12,20 @@ import {
   updateLocalVideoSeries,
   type LocalVideoSeriesRow,
 } from "../../services/storage/db/series";
-import { getLocalVideoSeasons } from "../../services/storage/db/seasons";
+import {
+  getLocalVideoSeasons,
+  getOrCreateLocalVideoSeason,
+} from "../../services/storage/db/seasons";
 import { purgeVideoFromOPFS } from "../../services/opfs/helpers";
+import { getAllTags as getAllLocalVideoTags } from "../../services/storage/db/tags";
+import {
+  addEntitiesTags as addLocalEntitiesTags,
+  getEntitiesTagCounts as getLocalEntitiesTagCounts,
+  removeEntitiesTags as removeLocalEntitiesTags,
+} from "../../services/storage/db/entityTags";
 import { storeBlob } from "../../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../../music/services/storage/types";
+import { pickBestImage } from "../../../utils/images";
 import type {
   PaginatedVideoSeries,
   PaginatedVideos,
@@ -25,14 +35,14 @@ import type {
   VideoSeason,
   VideoSeries,
   VideoSummary,
+  VideoWithMetadata,
 } from "../types";
 
-/** first image marked primary, or the first image if none are — mirrors
- * the picking logic `pickBestImage()` (utils/images.ts) uses for display,
- * kept local here since we only need the blob id, not a resolved url. */
+/** primary/best image's local blob id, excluding waveforms (mirrors
+ * `pickBestImage()`'s ranking - a naive images[0] fallback could pick a
+ * non-primary waveform entry when poster extraction failed). */
 function primaryLocalBlobId(images: ImageMetadata[]): string | null {
-  if (images.length === 0) return null;
-  return (images.find((img) => img.is_primary) ?? images[0]).local_blob_id ?? null;
+  return pickBestImage(images)?.local_blob_id ?? null;
 }
 
 export class LocalVideoDataSource implements VideoDataSource {
@@ -42,6 +52,49 @@ export class LocalVideoDataSource implements VideoDataSource {
 
   async getVideoById(id: string): Promise<VideoSummary | null> {
     return getLocalVideoById(id);
+  }
+
+  // local rows have no server-extracted file metadata (codec/container/
+  // bitrate/frame_rate/blob dimensions) and no remote-account username to
+  // resolve, so this only synthesizes the created/updated + description
+  // fields the edit modal's metadata section can meaningfully show for a
+  // local/opfs-backed video - just enough to make that section render at
+  // all instead of staying permanently empty (`getVideoWithMetadata` was
+  // previously unimplemented here). local rows store created_at/updated_at
+  // in milliseconds (`Date.now()`); the server convention (and the edit
+  // modal's `* 1000` display code) is unix seconds, so these are converted.
+  async getVideoWithMetadata(id: string): Promise<VideoWithMetadata | null> {
+    const video = await getLocalVideoById(id);
+    if (!video) return null;
+    return {
+      video: {
+        id: video.id,
+        series_id: video.series_id,
+        season_id: video.season_id,
+        episode_number: video.episode_number,
+        title: video.title,
+        description: video.description,
+        media_blob_id: video.media_blob_id,
+        poster_blob_id: video.poster_blob_id,
+        duration_seconds: video.duration_seconds,
+        release_date: video.release_date,
+        created_at: Math.floor(video.created_at / 1000),
+        updated_at: Math.floor(video.updated_at / 1000),
+        deleted_at: video.deleted_at ? Math.floor(video.deleted_at / 1000) : null,
+        created_by: video.created_by,
+        updated_by: video.updated_by,
+        deleted_by: video.deleted_by,
+      },
+      created_by_username: null,
+      updated_by_username: null,
+      blob_size: null,
+      blob_width: null,
+      blob_height: null,
+      codec: null,
+      container: null,
+      bitrate: null,
+      frame_rate: null,
+    };
   }
 
   async getVideoSeriesList(params?: {
@@ -125,6 +178,15 @@ export class LocalVideoDataSource implements VideoDataSource {
   }): Promise<void> {
     const { series_id, ...updates } = params;
     await updateLocalVideoSeries(series_id, updates);
+  }
+
+  async createVideoSeason(params: {
+    series_id: string;
+    season_number: number;
+    title?: string | null;
+    description?: string | null;
+  }): Promise<VideoSeason> {
+    return getOrCreateLocalVideoSeason(params);
   }
 
   // image operations — local storage using OPFS, mirroring
@@ -254,6 +316,36 @@ export class LocalVideoDataSource implements VideoDataSource {
         poster_blob_id: primaryLocalBlobId(images),
       });
     }
+  }
+
+  // tag operations - local storage using the video domain's own
+  // entity_tags/tags indexeddb stores (mirrors music's local
+  // getAlbumTags/addTagsToAlbum find-or-create pattern).
+  async getTags(): Promise<{ tag_id: string; name: string; created_at: number }[]> {
+    return getAllLocalVideoTags();
+  }
+
+  async getEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+  }): Promise<{ tag_id: string; tag_name: string; tag_created_at: number; count: number }[]> {
+    return getLocalEntitiesTagCounts(params.entityType, params.entityIds);
+  }
+
+  async addEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+    tagNames: string[];
+  }): Promise<void> {
+    await addLocalEntitiesTags(params.entityType, params.entityIds, params.tagNames);
+  }
+
+  async removeEntitiesTags(params: {
+    entityType: VideoImageEntityType;
+    entityIds: string[];
+    tagIds: string[];
+  }): Promise<void> {
+    await removeLocalEntitiesTags(params.entityType, params.entityIds, params.tagIds);
   }
 }
 

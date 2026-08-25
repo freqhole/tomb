@@ -90,7 +90,6 @@ pub struct VideoRendition {
 /// standalone (unattached) videos
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct QueryVideosRequest {
-    #[serde(flatten)]
     pub params: QueryParams,
     pub series_id: Option<String>,
     pub season_id: Option<String>,
@@ -364,6 +363,14 @@ pub async fn query(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
             )
         }
     };
+
+    tracing::info!(
+        "query_videos: filters={:?}, series_id={:?}, season_id={:?}, unassigned={:?}",
+        req.params.filters,
+        req.series_id,
+        req.season_id,
+        req.unassigned
+    );
 
     let response =
         grimoire_query_videos(req.params, req.series_id, req.season_id, req.unassigned).await;

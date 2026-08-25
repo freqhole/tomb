@@ -57,7 +57,8 @@ interface MediaImageProps {
   class?: string;
   enableAlbumHover?: boolean;
   showFallback?: boolean;
-  domainType?: "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series";
+  domainType?:
+    "song" | "album" | "artist" | "genre" | "playlist" | "video" | "video_series" | "video_season";
   /** object-fit mode for the resolved image. defaults to "cover" (the
    *  previous, always-on behavior). use "contain" to letterbox instead of
    *  cropping — e.g. a video poster shown at something close to its real
@@ -371,6 +372,7 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
         return <Icon name="playlist" {...iconProps} />;
       case "video":
       case "video_series":
+      case "video_season":
         return <Icon name="video" {...iconProps} />;
       default:
         return <Icon name="music" {...iconProps} />;

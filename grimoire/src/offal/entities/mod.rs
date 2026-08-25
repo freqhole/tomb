@@ -16,6 +16,7 @@ pub mod favorites;
 pub mod image_links;
 pub mod playlist_items;
 pub mod ratings;
+pub mod tag_links;
 pub mod taxon_links;
 pub mod url_links;
 
@@ -29,6 +30,7 @@ use serde_json::Value as JsonValue;
 pub fn routes() -> Vec<RouteInfo> {
     let mut all = Vec::new();
     all.extend_from_slice(taxon_links::ROUTES);
+    all.extend_from_slice(tag_links::ROUTES);
     all.extend_from_slice(url_links::ROUTES);
     all.extend_from_slice(image_links::ROUTES);
     all.extend_from_slice(playlist_items::ROUTES);
@@ -50,6 +52,13 @@ pub async fn dispatch(
         "/api/entities/taxons/get" => Some(taxon_links::get(caller, body.clone()).await),
         "/api/entities/taxons/add" => Some(taxon_links::add(caller, body.clone()).await),
         "/api/entities/taxons/remove" => Some(taxon_links::remove(caller, body.clone()).await),
+
+        "/api/entities/tags/get" => Some(tag_links::get(caller, body.clone()).await),
+        "/api/entities/tags/list-by-type" => {
+            Some(tag_links::list_by_type(caller, body.clone()).await)
+        }
+        "/api/entities/tags/add" => Some(tag_links::add(caller, body.clone()).await),
+        "/api/entities/tags/remove" => Some(tag_links::remove(caller, body.clone()).await),
 
         "/api/entities/urls/get" => Some(url_links::get(caller, body.clone()).await),
         "/api/entities/urls/add" => Some(url_links::add(caller, body.clone()).await),

@@ -46,13 +46,13 @@ function handleGlobalEscape(e: KeyboardEvent) {
   if (e.key === "Escape" && modalStack.length > 0) {
     // immediately pop the modal from the stack before calling onClose
     const topModal = modalStack.pop()!;
-    
+
     // remove global listener if no more modals
     if (modalStack.length === 0 && escapeListenerInstalled) {
       window.removeEventListener("keydown", handleGlobalEscape);
       escapeListenerInstalled = false;
     }
-    
+
     // now call the close handler
     topModal.onClose();
   }
@@ -60,7 +60,7 @@ function handleGlobalEscape(e: KeyboardEvent) {
 
 export function pushModal(modalId: string, onClose: () => void) {
   modalStack.push({ id: modalId, onClose });
-  
+
   // install global escape listener once
   if (!escapeListenerInstalled) {
     window.addEventListener("keydown", handleGlobalEscape);
@@ -69,11 +69,11 @@ export function pushModal(modalId: string, onClose: () => void) {
 }
 
 export function popModal(modalId: string) {
-  const index = modalStack.findIndex(m => m.id === modalId);
+  const index = modalStack.findIndex((m) => m.id === modalId);
   if (index !== -1) {
     modalStack.splice(index, 1);
   }
-  
+
   // remove global listener when no modals are open
   if (modalStack.length === 0 && escapeListenerInstalled) {
     window.removeEventListener("keydown", handleGlobalEscape);
@@ -134,8 +134,7 @@ interface AlbumEditorOptions {
 }
 
 // song editor
-const [songEditorState, setSongEditorState] =
-  createSignal<SongEditorOptions | null>(null);
+const [songEditorState, setSongEditorState] = createSignal<SongEditorOptions | null>(null);
 
 export function showSongEditor(options: SongEditorOptions) {
   setSongEditorState(options);
@@ -151,8 +150,7 @@ export function useSongEditorState() {
 }
 
 // artist editor
-const [artistEditorState, setArtistEditorState] =
-  createSignal<ArtistEditorOptions | null>(null);
+const [artistEditorState, setArtistEditorState] = createSignal<ArtistEditorOptions | null>(null);
 
 export function showArtistEditor(options: ArtistEditorOptions) {
   setArtistEditorState(options);
@@ -168,8 +166,7 @@ export function useArtistEditorState() {
 }
 
 // album editor
-const [albumEditorState, setAlbumEditorState] =
-  createSignal<AlbumEditorOptions | null>(null);
+const [albumEditorState, setAlbumEditorState] = createSignal<AlbumEditorOptions | null>(null);
 
 export function showAlbumEditor(options: AlbumEditorOptions) {
   setAlbumEditorState(options);
@@ -215,8 +212,7 @@ interface ImageCarouselOptions {
   sessionId?: number;
 }
 
-const [imageCarouselState, setImageCarouselState] =
-  createSignal<ImageCarouselOptions | null>(null);
+const [imageCarouselState, setImageCarouselState] = createSignal<ImageCarouselOptions | null>(null);
 
 export function showImageCarousel(options: ImageCarouselOptions) {
   setImageCarouselState(options);
@@ -230,7 +226,7 @@ export function showImageCarousel(options: ImageCarouselOptions) {
 // change; callers can still pass it but it has no effect.
 export function formatImageCarouselTitle(
   name: string | null | undefined,
-  _count?: number,
+  _count?: number
 ): string | undefined {
   const n = (name ?? "").trim();
   return n || undefined;
@@ -289,7 +285,7 @@ let carouselSessionCounter = 0;
  */
 export async function openImageCarouselFromResolvers(
   resolvers: Array<() => Promise<ImageResolveResult>>,
-  opts: { title?: string; initialIndex?: number; entityLabel?: string } = {},
+  opts: { title?: string; initialIndex?: number; entityLabel?: string } = {}
 ): Promise<void> {
   if (resolvers.length === 0) return;
 
@@ -329,7 +325,7 @@ export async function openImageCarouselFromResolvers(
       } else {
         setSlot(index, { url: null, thumbnailUrl: null, failed: true });
       }
-    }),
+    })
   );
 
   // a slower/newer carousel-open call may have superseded this one while
@@ -341,40 +337,21 @@ export async function openImageCarouselFromResolvers(
       opts.entityLabel
         ? `couldn't load any images for ${opts.entityLabel}`
         : "couldn't load any images",
-      { title: "image carousel" },
+      { title: "image carousel" }
     );
   }
 }
 
-
-// tag selector
-interface TagSelectorOptions {
-  albumIds: string[];
-  albumTitle?: string;
-  /** when set, the modal queries/mutates tags on this remote rather
-   *  than the globally-active data source. */
-  remote?: Remote;
-  onSave?: () => void;
-}
-
-const [tagSelectorState, setTagSelectorState] =
-  createSignal<TagSelectorOptions | null>(null);
-
-export function showTagSelector(
-  albumIds: string[],
-  albumTitle?: string,
-  remote?: Remote,
-) {
-  setTagSelectorState({ albumIds, albumTitle, remote });
-}
-
-export function hideTagSelector() {
-  setTagSelectorState(null);
-}
-
-export function useTagSelectorState() {
-  return tagSelectorState;
-}
+// tag selector — moved to a domain-neutral home (app/state/tagSelectorState.ts)
+// so video (and any future domain) can reuse the same modal/adapter
+// machinery; re-exported here since existing callers still import from
+// this module.
+export {
+  showTagSelector,
+  hideTagSelector,
+  useTagSelectorState,
+  type TagSelectorOptions,
+} from "../../app/state/tagSelectorState";
 
 // add music modal
 const [addMusicOpen, setAddMusicOpen] = createSignal(false);
@@ -410,8 +387,7 @@ export interface ShareModalOptions {
   webHost?: string;
 }
 
-const [shareModalState, setShareModalState] =
-  createSignal<ShareModalOptions | null>(null);
+const [shareModalState, setShareModalState] = createSignal<ShareModalOptions | null>(null);
 
 export function showShareModal(options: ShareModalOptions) {
   setShareModalState(options);

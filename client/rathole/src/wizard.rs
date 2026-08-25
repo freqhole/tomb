@@ -160,6 +160,8 @@ struct ScanHandle {
 /// etc.) are music-flavored, the values are really "items completed".
 struct VideoScanState {
     video_dir: String,
+    tags_csv: String,
+    selected_path: bool, // true = path field selected, false = tags field
     /// background scan in flight (Some = scanning, None = not yet started or done)
     handle: Option<ScanHandle>,
     progress: Option<ProgressSnapshot>,
@@ -173,6 +175,8 @@ impl VideoScanState {
     fn new() -> Self {
         Self {
             video_dir: String::new(),
+            tags_csv: String::new(),
+            selected_path: true,
             handle: None,
             progress: None,
             completion: None,
@@ -951,20 +955,36 @@ async fn handle_key_video_scan(app: &mut WizardApp, code: KeyCode) {
         KeyCode::Esc => {
             app.phase = Phase::Done;
         }
+        KeyCode::Up | KeyCode::Down | KeyCode::BackTab => {
+            scan.selected_path = !scan.selected_path;
+            scan.path_cycle = None;
+        }
         KeyCode::Tab => {
-            cycle_path(&mut scan.video_dir, &mut scan.path_cycle);
+            if scan.selected_path {
+                cycle_path(&mut scan.video_dir, &mut scan.path_cycle);
+            } else {
+                scan.selected_path = true;
+            }
         }
         KeyCode::Enter => {
             // enter always starts the scan (only one meaningful action here)
             start_video_scan(scan).await;
         }
         KeyCode::Backspace => {
-            scan.video_dir.pop();
+            if scan.selected_path {
+                scan.video_dir.pop();
+            } else {
+                scan.tags_csv.pop();
+            }
             scan.path_cycle = None;
         }
         KeyCode::Char(c) => {
-            scan.video_dir.push(c);
-            scan.path_cycle = None;
+            if scan.selected_path {
+                scan.video_dir.push(c);
+                scan.path_cycle = None;
+            } else {
+                scan.tags_csv.push(c);
+            }
         }
         _ => {}
     }
@@ -982,6 +1002,12 @@ async fn start_video_scan(scan: &mut VideoScanState) {
         scan.error = Some(format!("not a directory: {path}"));
         return;
     }
+    let tags: Vec<String> = scan
+        .tags_csv
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     scan.error = None;
     let cancel = CancellationToken::new();
     let enqueue: Arc<Mutex<Option<std::result::Result<DirectoryScanOutcome, String>>>> =
@@ -1005,6 +1031,18 @@ async fn start_video_scan(scan: &mut VideoScanState) {
             return;
         }
     };
+
+    if !tags.is_empty() {
+        let tag_res =
+            jobs::add_directory_tags(&path, tags.clone(), Some("wizard-scan".to_string())).await;
+        if !tag_res.success {
+            scan.error = Some(format!(
+                "failed to apply directory tags: {}",
+                tag_res.message
+            ));
+            return;
+        }
+    }
 
     // spawn the job processor (consumes pending jobs as they appear).
     let proc_token = cancel.clone();
@@ -1552,14 +1590,14 @@ fn draw_scan(f: &mut Frame, area: Rect, scan: &ScanState, app: &WizardApp) {
 fn draw_video_scan(f: &mut Frame, area: Rect, scan: &VideoScanState, app: &WizardApp) {
     use Constraint::*;
     let chunks = Layout::vertical([
-        Length(4), // input
+        Length(6), // inputs
         Length(4), // progress
         Min(3),    // info
     ])
     .split(area);
 
     // video dir input
-    let path_sel = scan.handle.is_none() && scan.finished.is_none();
+    let path_sel = scan.selected_path && scan.handle.is_none() && scan.finished.is_none();
     let label_style = if path_sel {
         Style::new().fg(Color::Black).bg(Color::Magenta).bold()
     } else {
@@ -1582,6 +1620,24 @@ fn draw_video_scan(f: &mut Frame, area: Rect, scan: &VideoScanState, app: &Wizar
             Span::raw(scan.video_dir.clone()),
             cursor_span,
             hint,
+        ]),
+        Line::from(vec![
+            Span::styled(
+                " tags ",
+                if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                    Style::new().fg(Color::Black).bg(Color::Magenta).bold()
+                } else {
+                    Style::new().dim()
+                },
+            ),
+            Span::raw(" "),
+            Span::raw(scan.tags_csv.clone()),
+            if !scan.selected_path && scan.handle.is_none() && scan.finished.is_none() {
+                Span::styled("█", Style::new().fg(Color::Magenta))
+            } else {
+                Span::raw(" ")
+            },
+            Span::styled("  [comma-separated optional tags]", Style::new().dim()),
         ]),
         Line::from(""),
     ];
@@ -1647,6 +1703,7 @@ fn draw_video_scan(f: &mut Frame, area: Rect, scan: &VideoScanState, app: &Wizar
     } else {
         let mut s = String::from(
             "point at a directory of video files to scan + import.\n\
+             optional tags are applied to that directory before scan.\n\
              leave blank or edit, then press enter to scan.\n\
              press esc to skip and finish setup.\n\n",
         );

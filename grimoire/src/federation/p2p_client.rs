@@ -170,7 +170,9 @@ async fn connect_to_peer(
         .connect(addr.clone(), FREQHOLE_ALPN)
         .await
         .map_err(|e| {
-            warn!(
+            // routine/expected for an offline peer (hello-ping loop retries
+            // this constantly) - debug, not warn, to keep logs readable.
+            debug!(
                 peer = %node_id_short,
                 error = %e,
                 "[p2p] connect to peer failed"

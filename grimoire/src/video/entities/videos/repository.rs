@@ -212,8 +212,8 @@ pub async fn get_video_with_metadata(
                    ORDER BY is_primary DESC, created_at DESC)), '[]') as images
          FROM videoz v
          LEFT JOIN media_blobz b ON v.media_blob_id = b.id
-         LEFT JOIN userz cu ON v.created_by = cu.id
-         LEFT JOIN userz uu ON v.updated_by = uu.id
+         LEFT JOIN user_accountz cu ON v.created_by = cu.id
+         LEFT JOIN user_accountz uu ON v.updated_by = uu.id
          WHERE v.id = ? AND v.deleted_at IS NULL"#,
     )
     .bind(id)
@@ -227,7 +227,8 @@ pub async fn get_video_with_metadata(
             return GrimoireResponse::failure("Video not found", vec![ErrorDetail::from(&err)]);
         }
         Err(e) => {
-            return GrimoireResponse::failure("Failed to get video", vec![ErrorDetail::from(e)])
+            tracing::error!(video_id = %id, error = %e, "get_video_with_metadata: query failed");
+            return GrimoireResponse::failure("Failed to get video", vec![ErrorDetail::from(e)]);
         }
     };
 

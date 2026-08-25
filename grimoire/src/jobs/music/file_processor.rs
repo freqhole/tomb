@@ -178,6 +178,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             file_path,
             None,
             job.created_by.clone(),
+            Some(job),
         )
         .await?;
 

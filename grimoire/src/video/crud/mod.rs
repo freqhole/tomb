@@ -4,6 +4,7 @@
 
 pub mod delete;
 pub mod entity_imagez;
+pub mod entity_tagz;
 pub mod entity_taxonz;
 pub mod entity_urlz;
 pub mod playback_progressz;

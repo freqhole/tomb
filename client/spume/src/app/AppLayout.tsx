@@ -34,7 +34,7 @@ import {
   topNavSearchExpanded,
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
-import { PlayerBar } from "../components/player/PlayerBar";
+import { PlayerBar, type PlayerBarVideo } from "../components/player/PlayerBar";
 import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
@@ -917,6 +917,7 @@ export function AppLayout(props: AppLayoutProps) {
       { label: "playlists", path: `${prefix}/playlists` },
       { label: "favorites", path: `${prefix}/favorites` },
       { label: "videos", path: `${prefix}/video` },
+      { label: "series", path: `${prefix}/video/series` },
     ];
     // feed is only available for remote sources
     if (!routeContext.isLocal()) {
@@ -1418,6 +1419,29 @@ export function AppLayout(props: AppLayoutProps) {
             };
           };
 
+          // map the currently playing video's raw codegen `images` shape
+          // (`blob_id`/`is_primary: number`) to the bar's `ImageMetadata`
+          // shape (`remote_blob_id`/`is_primary: boolean`) — mirrors the
+          // same mapping done for queued video rows in QueueSidebar.tsx.
+          const barVideo = (): PlayerBarVideo | null => {
+            const cv = currentVideoData();
+            if (!cv) return null;
+            return {
+              id: cv.id,
+              title: cv.title,
+              source_type: cv.source_type,
+              poster_blob_id: cv.poster_blob_id,
+              poster_opfs_path: cv.poster_opfs_path,
+              remote_server_id: cv.remote_server_id,
+              images: cv.images?.map((img) => ({
+                remote_blob_id: img.blob_id,
+                remote_server_id: cv.remote_server_id,
+                is_primary: !!img.is_primary,
+                blob_type: img.blob_type,
+              })),
+            };
+          };
+
           const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
           const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
           const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
@@ -1635,7 +1659,7 @@ export function AppLayout(props: AppLayoutProps) {
                 onExternalStorageIconClick={() => navigate("/storage-overview")}
                 isVideoActive={!isRadio() && !!currentVideoData()}
                 videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
-                video={!isRadio() ? currentVideoData() : null}
+                video={!isRadio() ? barVideo() : null}
                 isVideoFavorite={isCurrentVideoFavorite()}
                 onVideoFavoriteToggle={handleVideoFavoriteToggle}
               />

@@ -1413,8 +1413,10 @@ export function App() {
       <Show when={useTagSelectorState()()}>
         {(state) => (
           <TagSelectorModal
-            albumIds={state().albumIds}
-            albumTitle={state().albumTitle}
+            entityIds={state().entityIds}
+            entityTitle={state().entityTitle}
+            entityKindLabel={state().entityKindLabel}
+            adapter={state().adapter}
             remote={state().remote}
             onClose={hideTagSelector}
             onSave={() => {

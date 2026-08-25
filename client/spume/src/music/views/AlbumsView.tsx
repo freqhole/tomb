@@ -28,6 +28,7 @@ import { AlbumBulkActionBar } from "../../library/components/AlbumBulkActionBar"
 import { MbProgressStrip } from "../../library/components/MbProgressStrip";
 import { BulkEditAlbumsModal } from "../../components/modals/BulkEditAlbumsModal";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import {
   useAlbumSelectionLifecycle,
   useSelectedAlbumIds,
@@ -606,7 +607,9 @@ export function AlbumsView(props: AlbumsViewProps) {
 
       <Show when={showTagSelectorModal() && !!currentRemote() && tagSelectorAlbumIds().length > 0}>
         <TagSelectorModal
-          albumIds={tagSelectorAlbumIds()}
+          entityIds={tagSelectorAlbumIds()}
+          entityKindLabel="albums"
+          adapter={albumTagAdapter}
           remote={currentRemote()!}
           onClose={() => {
             setShowTagSelectorModal(false);

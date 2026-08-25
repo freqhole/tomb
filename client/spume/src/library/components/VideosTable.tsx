@@ -8,20 +8,39 @@
 // and the taxon column's data are owned locally by this table since
 // nothing outside it needs them (unlike the album table's selection,
 // which is also read by a page-level bulk action bar).
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { ContextMenu as KobalteContextMenu } from "@kobalte/core/context-menu";
+import { useQueryClient } from "@tanstack/solid-query";
 import { MediaImage } from "../../components/media/MediaImage";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
+import { Rating } from "../../components/ratings/Rating";
 import { Icon } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { formatDuration } from "../../utils/formatDuration";
+import { formatRelativeTime } from "../../utils/dateTime";
 import { appState } from "../../app/services/storage/db";
 import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
 import type { VideoSummary } from "../../video/data/types";
+import { getVideoDataSource } from "../../video/data";
+import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplete";
 import { getClientForRemote } from "../../app/api/client";
 import { getCurrentRemote, type CurrentRemoteInfo } from "../../music/data/currentState";
 import { BulkEditVideosModal } from "../../components/modals/BulkEditVideosModal";
+import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { createVideoTagAdapter } from "../../components/modals/tagAdapters/videoTagAdapter";
+import { useVideoSeriesListQuery } from "../../video/queries/series";
+import { useVideoEntityTagsQuery } from "../../video/queries/tags";
+import { videoQueryKeys } from "../../video/queries/queryKeys";
 
 export interface VideosTableProps {
   videos: VideoSummary[];
@@ -31,6 +50,9 @@ export interface VideosTableProps {
   /** ids of favorited videos (omit to hide the favorite column) */
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
+  /** the caller's own rating per video id (omit to hide the rating column) */
+  videoRatings?: Map<string, number>;
+  onVideoRatingChange?: (videoId: string, rating: number) => void;
   class?: string;
 }
 
@@ -41,9 +63,13 @@ function VideoRow(props: {
   getContextMenuActions?: (video: VideoSummary) => MenuAction[];
   favoriteVideoIds?: Set<string>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
+  videoRatings?: Map<string, number>;
+  onVideoRatingChange?: (videoId: string, rating: number) => void;
   isSelected?: boolean;
   onRowClick?: (videoId: string, index: number, event: MouseEvent) => void;
   taxonLabels?: string[];
+  seriesTitle?: string;
+  seasonLabel?: string;
 }) {
   const localPosterUrl = useLocalVideoPosterUrl(() =>
     props.video.source_type === "local" ? props.video.poster_opfs_path : null
@@ -51,13 +77,20 @@ function VideoRow(props: {
 
   const croppedSquare = () => appState()?.cropped_square_thumbnails ?? true;
 
-  const seriesLabel = () =>
-    props.video.episode_number != null ? `E${props.video.episode_number}` : "—";
+  // self-contained per-row tag fetch (works uniformly for local + remote
+  // videos via the datasource abstraction, unlike the taxon loader below
+  // which is remote-only) - mirrors useVideoContextMenu's per-row usage.
+  const tagsQuery = useVideoEntityTagsQuery("video", () => props.video.id);
+
+  const seriesLabel = () => (props.video.series_id ? (props.seriesTitle ?? "") : "");
+
+  const episodeLabel = () =>
+    props.video.episode_number != null ? String(props.video.episode_number) : "";
 
   const addedLabel = () => {
     const ts = props.video.added_at;
     if (!ts) return "";
-    return new Date(ts * 1000).toLocaleDateString();
+    return formatRelativeTime(ts * 1000);
   };
 
   const menuActions = () => props.getContextMenuActions?.(props.video) ?? [];
@@ -94,13 +127,29 @@ function VideoRow(props: {
         <MarqueeText text={props.video.title} />
       </td>
       <td class="px-2 py-1 text-[var(--color-text-secondary)]">{seriesLabel()}</td>
+      <td class="px-2 py-1 text-[var(--color-text-secondary)]">
+        {props.video.season_id ? (props.seasonLabel ?? "") : ""}
+      </td>
+      <td class="px-2 py-1 text-[var(--color-text-secondary)]">{episodeLabel()}</td>
       <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[200px]">
         <MarqueeText text={(props.taxonLabels ?? []).join(", ")} />
+      </td>
+      <td class="px-2 py-1 text-[var(--color-text-muted)] max-w-[160px]">
+        <MarqueeText text={(tagsQuery.data ?? []).join(", ")} />
       </td>
       <td class="px-2 py-1 text-[var(--color-text-muted)]">
         {formatDuration(props.video.duration_seconds)}
       </td>
-      <td class="px-2 py-1 text-[var(--color-text-muted)]">{addedLabel()}</td>
+      <td class="px-2 py-1 text-[var(--color-text-muted)] whitespace-nowrap">{addedLabel()}</td>
+      <Show when={props.onVideoRatingChange}>
+        <td class="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+          <Rating
+            rating={props.videoRatings?.get(props.video.id) ?? 0}
+            size="sm"
+            onRatingChange={(rating) => props.onVideoRatingChange?.(props.video.id, rating)}
+          />
+        </td>
+      </Show>
       <Show when={props.favoriteVideoIds}>
         <td class="px-2 py-1" onClick={(e) => e.stopPropagation()}>
           <FavoriteHeart
@@ -176,6 +225,45 @@ export function VideosTable(props: VideosTableProps) {
   const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = createSignal<number | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = createSignal(false);
+  const [tagSelectorOpen, setTagSelectorOpen] = createSignal(false);
+  const videoTagAdapter = createVideoTagAdapter("video");
+  const queryClient = useQueryClient();
+
+  // series id -> title lookup for the series column (self-contained,
+  // mirrors the taxon-loading block below's "own its data" pattern).
+  const seriesListQuery = useVideoSeriesListQuery({ pageSize: 500 });
+  const seriesTitleById = createMemo(() => {
+    const map = new Map<string, string>();
+    for (const page of seriesListQuery.data?.pages ?? []) {
+      for (const series of page.items) map.set(series.id, series.title);
+    }
+    return map;
+  });
+
+  // season id -> label lookup for the season column. seasons are only
+  // fetchable per-series (no "list all seasons" route), so fetch every
+  // series' seasons in parallel once the series list is known - the
+  // series count is small enough (mirrors seriesTitleById's own
+  // pageSize:500 "fetch them all" assumption) that this stays cheap.
+  const seriesIds = createMemo(() => {
+    const ids = new Set<string>();
+    for (const page of seriesListQuery.data?.pages ?? []) {
+      for (const series of page.items) ids.add(series.id);
+    }
+    return Array.from(ids).sort();
+  });
+  const [seasonsBySeriesId] = createResource(seriesIds, async (ids) => {
+    if (ids.length === 0) return new Map<string, string>();
+    const dataSource = getVideoDataSource();
+    const seasonLists = await Promise.all(ids.map((id) => dataSource.getVideoSeasons(id)));
+    const map = new Map<string, string>();
+    for (const seasons of seasonLists) {
+      for (const season of seasons) {
+        map.set(season.id, formatSeasonLabel(season.season_number, season.title));
+      }
+    }
+    return map;
+  });
 
   // drop selected ids that scroll out of the loaded list (e.g. a sort
   // change reset the query) so the toolbar never references stale rows.
@@ -340,10 +428,16 @@ export function VideosTable(props: VideosTableProps) {
               <tr class="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-subtle)]">
                 <th class="px-2 py-2 w-10"></th>
                 <th class="px-2 py-2 font-medium">title</th>
-                <th class="px-2 py-2 font-medium w-16">series</th>
+                <th class="px-2 py-2 font-medium w-24">series</th>
+                <th class="px-2 py-2 font-medium w-24">season</th>
+                <th class="px-2 py-2 font-medium w-16">episode</th>
                 <th class="px-2 py-2 font-medium w-32">taxons</th>
+                <th class="px-2 py-2 font-medium w-28">tags</th>
                 <th class="px-2 py-2 font-medium w-20">duration</th>
                 <th class="px-2 py-2 font-medium w-24">added</th>
+                <Show when={props.onVideoRatingChange}>
+                  <th class="px-2 py-2 font-medium w-24">rating</th>
+                </Show>
                 <Show when={props.favoriteVideoIds}>
                   <th class="px-2 py-2 font-medium w-10"></th>
                 </Show>
@@ -359,9 +453,17 @@ export function VideosTable(props: VideosTableProps) {
                     getContextMenuActions={props.getContextMenuActions}
                     favoriteVideoIds={props.favoriteVideoIds}
                     onVideoFavoriteToggle={props.onVideoFavoriteToggle}
+                    videoRatings={props.videoRatings}
+                    onVideoRatingChange={props.onVideoRatingChange}
                     isSelected={selectedIds().has(video.id)}
                     onRowClick={handleRowClick}
                     taxonLabels={videoTaxonLabels().get(video.id)}
+                    seriesTitle={
+                      video.series_id ? seriesTitleById().get(video.series_id) : undefined
+                    }
+                    seasonLabel={
+                      video.season_id ? seasonsBySeriesId()?.get(video.season_id) : undefined
+                    }
                   />
                 )}
               </For>
@@ -385,6 +487,14 @@ export function VideosTable(props: VideosTableProps) {
           </button>
           <button
             type="button"
+            onClick={() => setTagSelectorOpen(true)}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer bg-transparent whitespace-nowrap"
+          >
+            <Icon name="tag" size={11} />
+            tags
+          </button>
+          <button
+            type="button"
             onClick={clearSelection}
             class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] cursor-pointer bg-transparent whitespace-nowrap"
           >
@@ -403,6 +513,20 @@ export function VideosTable(props: VideosTableProps) {
           clearSelection();
         }}
       />
+
+      <Show when={tagSelectorOpen()}>
+        <TagSelectorModal
+          entityIds={Array.from(selectedIds())}
+          entityKindLabel="videos"
+          adapter={videoTagAdapter}
+          onClose={() => setTagSelectorOpen(false)}
+          onSave={() => {
+            setTagSelectorOpen(false);
+            clearSelection();
+            void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
+          }}
+        />
+      </Show>
     </div>
   );
 }

@@ -345,7 +345,7 @@ pub mod type_registry {
     use crate::music::crud::{EntityUrl, ImageMetadata};
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
-        CreateVideoSeriesRequest, EntityTaxonLink, PlaybackProgress, PlaylistItem,
+        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, PlaybackProgress, PlaylistItem,
         SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
         UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries,
@@ -360,6 +360,10 @@ pub mod type_registry {
         RemovePlaylistItemRequest, ReorderPlaylistItemsRequest,
     };
     use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
+    use crate::offal::entities::tag_links::{
+        AddEntitiesTagsRequest, GetEntitiesTagsRequest, ListEntityTypeTagsRequest,
+        RemoveEntitiesTagsRequest,
+    };
     use crate::offal::entities::taxon_links::{
         AddEntityTaxonRequest, GetEntityTaxonsRequest, RemoveEntityTaxonRequest,
     };
@@ -845,6 +849,8 @@ pub mod type_registry {
 
         gen.add_schema::<EntityTaxonLink>("EntityTaxonLink");
         registered.insert("EntityTaxonLink".to_string());
+        gen.add_schema::<EntityTagCount>("EntityTagCount");
+        registered.insert("EntityTagCount".to_string());
         gen.add_schema::<EntityUrl>("EntityUrl");
         registered.insert("EntityUrl".to_string());
         gen.add_schema::<ImageMetadata>("ImageMetadata");
@@ -902,6 +908,15 @@ pub mod type_registry {
         registered.insert("AddEntityTaxonRequest".to_string());
         gen.add_schema::<RemoveEntityTaxonRequest>("RemoveEntityTaxonRequest");
         registered.insert("RemoveEntityTaxonRequest".to_string());
+
+        gen.add_schema::<GetEntitiesTagsRequest>("GetEntitiesTagsRequest");
+        registered.insert("GetEntitiesTagsRequest".to_string());
+        gen.add_schema::<ListEntityTypeTagsRequest>("ListEntityTypeTagsRequest");
+        registered.insert("ListEntityTypeTagsRequest".to_string());
+        gen.add_schema::<AddEntitiesTagsRequest>("AddEntitiesTagsRequest");
+        registered.insert("AddEntitiesTagsRequest".to_string());
+        gen.add_schema::<RemoveEntitiesTagsRequest>("RemoveEntitiesTagsRequest");
+        registered.insert("RemoveEntitiesTagsRequest".to_string());
 
         gen.add_schema::<GetEntityUrlsRequest>("GetEntityUrlsRequest");
         registered.insert("GetEntityUrlsRequest".to_string());

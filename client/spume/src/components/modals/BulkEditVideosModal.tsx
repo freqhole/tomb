@@ -15,6 +15,7 @@ import { Button } from "../buttons/Button";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import {
   VideoSeasonAutocomplete,
+  formatSeasonLabel,
   type VideoSeasonSelection,
 } from "../forms/VideoSeasonAutocomplete";
 import { toast } from "../feedback/Toast";
@@ -111,9 +112,7 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
   };
 
   const handleSeasonSelect = (selection: VideoSeasonSelection) => {
-    setSeasonInputValue(
-      `season ${selection.season_number}${selection.title ? ` - ${selection.title}` : ""}`
-    );
+    setSeasonInputValue(formatSeasonLabel(selection.season_number, selection.title));
     if (selection.isNew) {
       setPendingNewSeason({ season_number: selection.season_number, title: selection.title });
       setFormSeasonId(null);
@@ -228,9 +227,7 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
                 placeholder="search or type season..."
                 hint={
                   pendingNewSeason()
-                    ? `season ${pendingNewSeason()!.season_number}${
-                        pendingNewSeason()!.title ? ` - ${pendingNewSeason()!.title}` : ""
-                      } will be created on save`
+                    ? `${formatSeasonLabel(pendingNewSeason()!.season_number, pendingNewSeason()!.title)} will be created on save`
                     : undefined
                 }
               />

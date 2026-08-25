@@ -6,6 +6,8 @@ import { IconNames } from "../../components/icons/registry";
 import type { MenuAction } from "../../components/overlays/ContextMenu";
 import { createFavoriteMenuAction } from "../../music/hooks/contextMenu";
 import { showPlaylistSelectorForVideos } from "../../music/hooks/playlistSelectorState";
+import { showTagSelector } from "../../music/hooks/modals";
+import { createVideoTagAdapter } from "../../components/modals/tagAdapters/videoTagAdapter";
 import { buildRoute } from "../../music/utils/routing";
 import { confirm } from "../../app/services/confirmState";
 import { toast } from "../../components/feedback/Toast";
@@ -89,6 +91,16 @@ export function useVideoContextMenu(
     },
   });
 
+  if (video.series_id) {
+    actions.push({
+      label: "view series",
+      icon: IconNames.list,
+      onClick: () => {
+        navigate(buildRoute(`/video/series/${video.series_id}`));
+      },
+    });
+  }
+
   actions.push(createFavoriteMenuAction("video", video.id, options.isFavorite ?? false));
 
   actions.push({
@@ -126,6 +138,20 @@ export function useVideoContextMenu(
       icon: IconNames.edit,
       onClick: () => {
         showEditVideo({ videoId: video.id, onSave: options.onSave });
+      },
+    });
+
+    actions.push({
+      label: "tags",
+      icon: IconNames.tag,
+      onClick: () => {
+        showTagSelector({
+          entityIds: [video.id],
+          entityTitle: video.title,
+          entityKindLabel: "videos",
+          adapter: createVideoTagAdapter("video"),
+          onSave: options.onSave,
+        });
       },
     });
 

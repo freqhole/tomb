@@ -10,6 +10,7 @@ import { confirm } from "../../app/services/confirmState";
 import { showPlaylistSelector } from "./playlistSelectorState";
 import { showStationSelector } from "./stationSelectorState";
 import { showTagSelector, showShareModal } from "./modals";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import { getDataSource, getCurrentRemote, getRemoteClient } from "../data";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
@@ -346,7 +347,13 @@ export function useSongContextMenu(song: Song, options: ContextMenuOptions = {})
       icon: IconNames.tag,
       onClick: async () => {
         const remote = await resolveSongRemote();
-        showTagSelector([song.album_id!], song.album_title, remote);
+        showTagSelector({
+          entityIds: [song.album_id!],
+          entityTitle: song.album_title,
+          entityKindLabel: "albums",
+          adapter: albumTagAdapter,
+          remote,
+        });
       },
     });
   }
@@ -732,7 +739,12 @@ export function useAlbumContextMenu(
       label: "tags",
       icon: IconNames.tag,
       onClick: () => {
-        showTagSelector([album.id], album.title);
+        showTagSelector({
+          entityIds: [album.id],
+          entityTitle: album.title,
+          entityKindLabel: "albums",
+          adapter: albumTagAdapter,
+        });
       },
     });
   }

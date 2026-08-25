@@ -28,6 +28,10 @@ export interface VideoUploadJob {
   errorFull?: string;
   /** latest concise stage message from the server */
   stage?: string;
+  /** non-fatal warning surfaced after completion (e.g. poster/waveform
+   * extraction failed but the import itself succeeded) - kept separate
+   * from `stage` so it isn't overwritten by the terminal "done" text. */
+  warning?: string;
   /** timestamp when job was created */
   createdAt: number;
   /** remote id this job ran against */
@@ -92,6 +96,25 @@ function updateJobStage(id: string, stage: string | undefined) {
   );
 }
 
+// poster/waveform extraction failures are reported as "stage" events too
+// (see grimoire's import_video_file), but they're soft failures that
+// happen right before the job completes - if routed through the normal
+// `stage` field they'd be overwritten by the terminal "done"/"failed"
+// text a moment later. route these into a separate field the UI can
+// still show after completion.
+function isWarningStage(stage: string | undefined): boolean {
+  return !!stage && stage.endsWith("_warning");
+}
+
+function updateJobWarning(id: string, message: string | undefined) {
+  setVideoUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.warning = message;
+    })
+  );
+}
+
 // turn a raw server failure into a short, user-friendly line; full detail
 // stays available via errorFull for a tooltip.
 function humanizeJobError(message: string | undefined): { short: string; full: string } {
@@ -140,7 +163,10 @@ export async function uploadVideoFilesToRemote(
         updateJobStatus(trackId, "polling", { jobId });
 
         const pollResult = await poller.waitForJob(jobId, 120_000, {
-          onStage: (_stage, message) => updateJobStage(trackId, message),
+          onStage: (stage, message) =>
+            isWarningStage(stage)
+              ? updateJobWarning(trackId, message)
+              : updateJobStage(trackId, message),
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
@@ -200,7 +226,10 @@ export async function uploadVideoPathsToRemote(
         updateJobStatus(trackId, "polling", { jobId });
 
         const pollResult = await poller.waitForJob(jobId, 120_000, {
-          onStage: (_stage, message) => updateJobStage(trackId, message),
+          onStage: (stage, message) =>
+            isWarningStage(stage)
+              ? updateJobWarning(trackId, message)
+              : updateJobStage(trackId, message),
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");

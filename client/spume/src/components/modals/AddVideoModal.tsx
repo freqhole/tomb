@@ -209,6 +209,8 @@ export function AddVideoModal(props: AddVideoModalProps) {
                           <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
                             {job.status === "uploading" || job.status === "polling" ? (
                               <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                            ) : job.status === "completed" && job.warning ? (
+                              <Icon name="recent" size={14} color="var(--color-warning, #f59e0b)" />
                             ) : job.status === "completed" ? (
                               <Icon name="check" size={14} color="var(--color-success)" />
                             ) : job.status === "timeout" ? (
@@ -222,8 +224,11 @@ export function AddVideoModal(props: AddVideoModalProps) {
                             classList={{
                               "text-[var(--color-text-secondary)]":
                                 job.status === "uploading" || job.status === "polling",
-                              "text-[var(--color-text-tertiary)]": job.status === "completed",
-                              "text-amber-400": job.status === "timeout",
+                              "text-[var(--color-text-tertiary)]":
+                                job.status === "completed" && !job.warning,
+                              "text-amber-400":
+                                job.status === "timeout" ||
+                                (job.status === "completed" && !!job.warning),
                               "text-red-400": job.status === "failed",
                             }}
                           >
@@ -234,9 +239,11 @@ export function AddVideoModal(props: AddVideoModalProps) {
                             title={
                               job.status === "failed"
                                 ? (job.errorFull ?? job.error ?? "failed")
-                                : job.status === "polling" && job.stage
-                                  ? job.stage
-                                  : undefined
+                                : job.status === "completed" && job.warning
+                                  ? job.warning
+                                  : job.status === "polling" && job.stage
+                                    ? job.stage
+                                    : undefined
                             }
                           >
                             {job.status === "uploading"
@@ -244,7 +251,9 @@ export function AddVideoModal(props: AddVideoModalProps) {
                               : job.status === "polling"
                                 ? (job.stage ?? "processing...")
                                 : job.status === "completed"
-                                  ? "done"
+                                  ? job.warning
+                                    ? `done - ${job.warning}`
+                                    : "done"
                                   : job.status === "timeout"
                                     ? "queued, check back later"
                                     : (job.error ?? "failed")}

@@ -212,14 +212,17 @@ pub async fn p2p_api_call(
     path: String,
     body: Option<String>,
 ) -> Result<P2pResponse, String> {
-    tracing::info!(peer = %peer_addr, method = %method, path = %path, "p2p api request");
+    // routine background peer-presence ping, fires every ~30s per known
+    // peer regardless of whether it's actually reachable - demoted to
+    // debug to keep logz.txt readable for feature debugging.
+    tracing::debug!(peer = %peer_addr, method = %method, path = %path, "p2p api request");
 
     let response =
         grimoire::federation::p2p_client::api_request(&peer_addr, &method, &path, body)
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
+                tracing::debug!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
                 // emit peer-offline event for connection failures
                 if is_connection_error(&error_msg) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
@@ -283,7 +286,7 @@ pub async fn p2p_fetch_blob_verified_by_id(
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
-    tracing::info!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
+    tracing::debug!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
 
     let (data, blake3) =
         grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)

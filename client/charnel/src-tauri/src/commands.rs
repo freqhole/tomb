@@ -1832,6 +1832,12 @@ pub async fn api_call(
 ) -> Result<serde_json::Value, String> {
     ensure_initialized(&app_handle).await?;
 
+    // temporary diagnostic for the tauri tag-filter bug - confirm the body
+    // tauri's IPC layer actually delivers matches what the JS side sent.
+    if path.contains("/query") {
+        tracing::info!("api_call: path={} body={}", path, body);
+    }
+
     // get caller from app config admin user
     let caller = get_caller_from_app_config(&app_handle)?;
 

@@ -9,6 +9,7 @@ import { TextInput } from "../forms/TextInput";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import {
   VideoSeasonAutocomplete,
+  formatSeasonLabel,
   type VideoSeasonSelection,
 } from "../forms/VideoSeasonAutocomplete";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
@@ -81,6 +82,19 @@ export function EditVideoModal(props: EditVideoModalProps) {
   const updateMutation = useUpdateVideoMutation();
   const createSeriesMutation = useCreateVideoSeriesMutation();
   const createSeasonMutation = useCreateVideoSeasonMutation();
+
+  // temporary diagnostic: the metadata section sometimes renders blank
+  // even though the db has metadata for the video - log the raw query
+  // result to see whether it's a data-fetch problem or a render problem.
+  createEffect(() => {
+    console.info("[EditVideoModal] videoMetadataQuery", {
+      videoId: props.videoId,
+      status: videoMetadataQuery.status,
+      isLoading: videoMetadataQuery.isLoading,
+      error: videoMetadataQuery.error,
+      data: videoMetadataQuery.data,
+    });
+  });
 
   const [formData, setFormData] = createSignal<FormData>({
     title: "",
@@ -291,9 +305,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
       const client = await getClientForRemote(remote);
       const result = await client.video.getVideoSeason({ id: seasonId });
       setSeasonInputValue(
-        result.success
-          ? `season ${result.data.season_number}${result.data.title ? ` - ${result.data.title}` : ""}`
-          : ""
+        result.success ? formatSeasonLabel(result.data.season_number, result.data.title) : ""
       );
     } catch (err) {
       console.error("failed to fetch season label:", err);
@@ -514,9 +526,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
   };
 
   const handleSeasonSelect = (selection: VideoSeasonSelection) => {
-    setSeasonInputValue(
-      `season ${selection.season_number}${selection.title ? ` - ${selection.title}` : ""}`
-    );
+    setSeasonInputValue(formatSeasonLabel(selection.season_number, selection.title));
     if (selection.isNew) {
       setPendingNewSeason({ season_number: selection.season_number, title: selection.title });
       setFormData((prev) => ({ ...prev, season_id: null }));
@@ -719,9 +729,7 @@ export function EditVideoModal(props: EditVideoModalProps) {
                   placeholder="search or type season..."
                   hint={
                     pendingNewSeason()
-                      ? `season ${pendingNewSeason()!.season_number}${
-                          pendingNewSeason()!.title ? ` - ${pendingNewSeason()!.title}` : ""
-                        } will be created on save`
+                      ? `${formatSeasonLabel(pendingNewSeason()!.season_number, pendingNewSeason()!.title)} will be created on save`
                       : undefined
                   }
                 />

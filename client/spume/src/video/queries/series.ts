@@ -13,21 +13,30 @@ import { videoQueryKeys } from "./queryKeys";
 interface UseVideoSeriesListQueryOptions {
   search?: () => string | undefined;
   pageSize?: number;
+  // "autocomplete" isolates this query's cache key from the master
+  // "browse all series" list — required for any small/typeahead usage
+  // (see videoQueryKeys.series.autocomplete for why sharing a key is unsafe).
+  keyScope?: "list" | "autocomplete";
 }
 
 export function useVideoSeriesListQuery(options?: UseVideoSeriesListQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const search = options?.search;
+  const keyScope = options?.keyScope ?? "list";
 
   return createInfiniteQuery(() => ({
-    queryKey: videoQueryKeys.series.list(search?.()),
+    queryKey:
+      keyScope === "autocomplete"
+        ? videoQueryKeys.series.autocomplete(search?.())
+        : videoQueryKeys.series.list(search?.()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getVideoDataSource();
-      return dataSource.getVideoSeriesList({
+      const result = await dataSource.getVideoSeriesList({
         offset: pageParam,
         limit: pageSize,
         search: search?.(),
       });
+      return result;
     },
     getNextPageParam: (lastPage, allPages) => {
       if (!lastPage.has_more) return undefined;

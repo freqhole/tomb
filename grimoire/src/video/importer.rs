@@ -12,12 +12,44 @@
 //! 5. enqueues a `TranscodeVideo` job
 
 use crate::config::{get_config, GrimoireConfig};
-use crate::jobs::{CreateJobRequest, JobError, JobType, TranscodeVideoParams};
+use crate::jobs::{CreateJobRequest, Job, JobError, JobType, TranscodeVideoParams};
 use crate::media_blobz::ffmpeg_runner::run_ffmpeg;
 use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
 use crate::video::{create_video, CreateVideoRequest};
 use std::path::Path;
 use tracing::{debug, info, warn};
+
+/// turn a raw ffmpeg/ffprobe stderr blob into a short, human-readable
+/// summary suitable for surfacing in the client's job-progress UI (mirrors
+/// the client's own `humanizeJobError` in `video/import/remoteImport.ts`,
+/// which does the same cleanup for job-failure messages generally - this
+/// covers the ffmpeg-specific soft-failure case, where the raw text is
+/// often a multi-line tool banner plus a single relevant error line).
+fn humanize_ffmpeg_error(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "unknown ffmpeg error".to_string();
+    }
+    // ffmpeg's actual error is usually the last non-empty line (banner/
+    // codec-list/config noise comes first) - prefer it over the raw blob.
+    let last_line = trimmed.lines().rev().find(|l| !l.trim().is_empty());
+    let candidate = last_line.unwrap_or(trimmed).trim();
+    let lower = candidate.to_lowercase();
+    if lower.contains("no such file or directory") {
+        return "input file not found".to_string();
+    }
+    if lower.contains("invalid data found when processing input") {
+        return "unrecognized or corrupt video file".to_string();
+    }
+    if lower.contains("does not contain any stream") || lower.contains("stream map") {
+        return "no matching audio/video stream found".to_string();
+    }
+    if candidate.len() > 160 {
+        format!("{}\u{2026}", &candidate[..157])
+    } else {
+        candidate.to_string()
+    }
+}
 
 /// result of importing a single video file
 #[derive(Debug, Clone)]
@@ -50,6 +82,7 @@ pub async fn import_video_file(
     file_path: &Path,
     original_filename: Option<&str>,
     created_by: Option<String>,
+    job: Option<&Job>,
 ) -> Result<VideoImportResult, JobError> {
     let config = get_config();
 
@@ -70,9 +103,26 @@ pub async fn import_video_file(
     }
 
     let props = probe_video_properties(file_path, &config).await;
+    info!(
+        "probed video properties for {}: duration={:?}, codec={:?}, container={:?}, bitrate={:?}, dimensions={:?}x{:?}, frame_rate={:?}, has_audio={}",
+        media_blob_id,
+        props.duration_seconds,
+        props.codec_name,
+        props.container_format,
+        props.bit_rate,
+        props.width,
+        props.height,
+        props.frame_rate,
+        props.has_audio_stream
+    );
 
     // update the media blob with video metadata (codec, container, bitrate, framerate, dimensions)
-    let _ = update_media_blob_with_video_metadata(media_blob_id, &props).await;
+    if let Err(e) = update_media_blob_with_video_metadata(media_blob_id, &props).await {
+        warn!(
+            "failed to update media blob {} with video metadata: {}",
+            media_blob_id, e
+        );
+    }
 
     // prefer the caller-supplied original filename (e.g. the name the user
     // uploaded/picked) over `file_path`'s basename - on the upload path,
@@ -130,6 +180,25 @@ pub async fn import_video_file(
         }
     };
 
+    // apply any directory tag rules (set up via `jobs::add_directory_tags`,
+    // e.g. from the scan-directory tags field) that match this file's path -
+    // mirrors music's `apply_directory_tags_for_file` call in
+    // `create_or_update.rs`, but writes into `entity_tagz` instead of
+    // `album_tagz`.
+    let tag_apply_resp = crate::video::apply_directory_tags_for_entity_file(
+        crate::video::VideoEntityType::Video,
+        &video.id,
+        &file_path.to_string_lossy(),
+        created_by.clone(),
+    )
+    .await;
+    if !tag_apply_resp.success {
+        warn!(
+            "failed to apply directory tags to video {}: {}",
+            video.id, tag_apply_resp.message
+        );
+    }
+
     // inline poster extraction (best-effort - a failed poster grab
     // shouldn't fail the whole import, mirrors music's "no album art
     // found" being a soft failure).
@@ -182,7 +251,15 @@ pub async fn import_video_file(
             Some(blob_id)
         }
         Err(e) => {
+            let msg = humanize_ffmpeg_error(&e.to_string());
             warn!("poster extraction failed for {}: {}", video.id, e);
+            if let Some(job) = job {
+                crate::jobs::job_events::emit_stage_from_job(
+                    job,
+                    "poster_warning",
+                    Some(&format!("imported, but poster extraction failed: {msg}")),
+                );
+            }
             None
         }
     };
@@ -245,6 +322,14 @@ pub async fn import_video_file(
                     "waveform generation failed for video {}: {}",
                     video.id, error_msg
                 );
+                if let Some(job) = job {
+                    let msg = humanize_ffmpeg_error(&error_msg);
+                    crate::jobs::job_events::emit_stage_from_job(
+                        job,
+                        "waveform_warning",
+                        Some(&format!("imported, but waveform generation failed: {msg}")),
+                    );
+                }
             }
         }
     }
@@ -341,6 +426,8 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
         }
     };
 
+    info!("running ffprobe: {} {}", ffprobe_bin, args.join(" "));
+
     let output = match tokio::process::Command::new(&ffprobe_bin)
         .args(&args)
         .output()
@@ -355,9 +442,10 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
 
     if !output.status.success() {
         warn!(
-            "ffprobe exited with {:?} for {}",
+            "ffprobe exited with {:?} for {}: stderr={}",
             output.status.code(),
-            input
+            input,
+            String::from_utf8_lossy(&output.stderr).trim()
         );
         return VideoProperties::default();
     }
@@ -366,7 +454,11 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
     let json: serde_json::Value = match serde_json::from_str(&stdout) {
         Ok(v) => v,
         Err(e) => {
-            warn!("failed to parse ffprobe json output: {}", e);
+            warn!(
+                "failed to parse ffprobe json output: {} (stdout: {})",
+                e,
+                stdout.chars().take(500).collect::<String>()
+            );
             return VideoProperties::default();
         }
     };
@@ -511,7 +603,7 @@ async fn update_media_blob_with_video_metadata(
 
 /// extract a single poster frame and store it as a `Thumbnail` blob.
 async fn extract_video_poster(
-    media_blob_id: &str,
+    _media_blob_id: &str,
     file_path: &Path,
     duration_seconds: Option<f64>,
     config: &GrimoireConfig,
@@ -580,7 +672,12 @@ async fn extract_video_poster(
         source_client_id: None,
         local_path: None,
         filename: Some("poster.webp".to_string()),
-        parent_blob_id: Some(media_blob_id.to_string()),
+        // standalone image, no parent (mirrors create_album_art_blob) -
+        // the CHECK constraint on media_blobz requires Original blobs to
+        // have a NULL parent_blob_id; the poster's relationship to its
+        // source video is tracked via entity_imagez/videoz.poster_blob_id
+        // instead, not via this column.
+        parent_blob_id: None,
         // Original (not Thumbnail) - matches music's create_album_art_blob
         // pattern: only Original/Waveform parents are eligible for the
         // server's on-demand /thumb/:size generation pipeline (a Thumbnail

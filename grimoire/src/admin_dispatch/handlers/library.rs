@@ -80,6 +80,25 @@ pub(in crate::admin_dispatch) async fn scan(
     }
     let recursive = opt_bool(&args, "recursive").unwrap_or(true);
 
+    // which media pipeline to scan for - defaults to music so existing
+    // callers that don't pass `domain` yet keep today's behavior.
+    let domain: crate::MediaDomain = match opt_str(&args, "domain") {
+        Some(s) => match s.parse() {
+            Ok(d) => d,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    format!("invalid domain: {e}"),
+                    vec![crate::ErrorDetail::new(
+                        "invalid_domain",
+                        "invalid domain",
+                        e,
+                    )],
+                )
+            }
+        },
+        None => crate::MediaDomain::Music,
+    };
+
     // optional tag list to apply to the directory
     let tags: Vec<String> = match args.get("tags") {
         Some(serde_json::Value::Array(arr)) => arr
@@ -120,7 +139,14 @@ pub(in crate::admin_dispatch) async fn scan(
             .await;
     }
 
-    let resp = crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await;
+    let resp = match domain {
+        crate::MediaDomain::Music => {
+            crate::music::scan_directory(&path, &session_id, recursive, None, None, false).await
+        }
+        crate::MediaDomain::Video => {
+            crate::video::scan_directory(&path, &session_id, recursive, None, None, false).await
+        }
+    };
 
     let outcome = resp.data.unwrap_or_default();
     if outcome.file_count > 0 {

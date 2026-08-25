@@ -97,6 +97,60 @@ export function createEntitiesMethods(call: CallFn) {
       );
     },
 
+    // entity tags (bulk-first; a single-entity call is just a 1-element
+    // entity_ids array)
+    getEntitiesTags: (params: s.GetEntitiesTagsRequest) => {
+      return call(
+        "entities",
+        "get_entities_tags",
+        routes.entities.get_entities_tags.resp,
+        routes.entities.get_entities_tags.req,
+        routes.entities.get_entities_tags.method,
+        routes.entities.get_entities_tags.path,
+        params,
+      );
+    },
+
+    // every tag used by at least one entity of a given type (unlike
+    // getEntitiesTags, not scoped to a specific set of entity ids) —
+    // used to drive per-domain tag filter pickers without showing tags
+    // that belong to a different domain / have zero matching entities.
+    listEntityTypeTags: (params: s.ListEntityTypeTagsRequest) => {
+      return call(
+        "entities",
+        "list_entity_type_tags",
+        routes.entities.list_entity_type_tags.resp,
+        routes.entities.list_entity_type_tags.req,
+        routes.entities.list_entity_type_tags.method,
+        routes.entities.list_entity_type_tags.path,
+        params,
+      );
+    },
+
+    addEntitiesTags: (params: s.AddEntitiesTagsRequest) => {
+      return call(
+        "entities",
+        "add_entities_tags",
+        routes.entities.add_entities_tags.resp,
+        routes.entities.add_entities_tags.req,
+        routes.entities.add_entities_tags.method,
+        routes.entities.add_entities_tags.path,
+        params,
+      );
+    },
+
+    removeEntitiesTags: (params: s.RemoveEntitiesTagsRequest) => {
+      return call(
+        "entities",
+        "remove_entities_tags",
+        routes.entities.remove_entities_tags.resp,
+        routes.entities.remove_entities_tags.req,
+        routes.entities.remove_entities_tags.method,
+        routes.entities.remove_entities_tags.path,
+        params,
+      );
+    },
+
     // playlist items
     listPlaylistItems: (params: s.ListPlaylistItemsRequest) => {
       return call(

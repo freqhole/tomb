@@ -3,11 +3,13 @@
 import { openDB, type IDBPDatabase } from "idb";
 
 export const VIDEO_DB_NAME = "freqhole-video";
-export const VIDEO_DB_VERSION = 1;
+export const VIDEO_DB_VERSION = 2;
 
 export const STORE_VIDEOS = "videos";
 export const STORE_VIDEO_SERIES = "video_series";
 export const STORE_VIDEO_SEASONS = "video_seasons";
+export const STORE_TAGS = "tags";
+export const STORE_ENTITY_TAGS = "entity_tags";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -43,6 +45,29 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
         });
         seasonsStore.createIndex("by_series_id", "series_id");
         seasonsStore.createIndex("by_season_number", "season_number");
+      }
+
+      // global tag vocabulary — own copy, own store (mirrors
+      // music/services/storage/db/init.ts's STORE_TAGS, kept separate
+      // per the video domain's isolation rule).
+      if (!db.objectStoreNames.contains(STORE_TAGS)) {
+        const tagsStore = db.createObjectStore(STORE_TAGS, {
+          keyPath: "tag_id",
+        });
+        tagsStore.createIndex("by_name", "name", { unique: true });
+        tagsStore.createIndex("by_created_at", "created_at");
+      }
+
+      // entity_tags junction — generalized over entity_type (mirrors
+      // the server's entity_tagz table), unlike music's album-only
+      // STORE_ALBUM_TAGS, so the same store serves both "video" and
+      // "video_series" entities.
+      if (!db.objectStoreNames.contains(STORE_ENTITY_TAGS)) {
+        const entityTagsStore = db.createObjectStore(STORE_ENTITY_TAGS, {
+          keyPath: ["entity_type", "entity_id", "tag_id"],
+        });
+        entityTagsStore.createIndex("by_entity", ["entity_type", "entity_id"]);
+        entityTagsStore.createIndex("by_tag_id", "tag_id");
       }
     },
   });

@@ -50,6 +50,11 @@ pub use crud::query::{
 pub use crud::entity_imagez::{
     add_entity_image, list_entity_images, remove_entity_image, set_primary_entity_image,
 };
+pub use crud::entity_tagz::{
+    add_entities_tags, add_entity_tag, apply_directory_tags_for_entity_file, get_entities_tags,
+    list_entity_tags, list_entity_type_tags, remove_entities_tags, remove_entity_tag,
+    EntityTagCount, EntityTagLink,
+};
 pub use crud::entity_taxonz::{
     add_entity_taxon, list_entity_taxons, remove_entity_taxon, EntityTaxonLink, VideoEntityType,
 };

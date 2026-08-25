@@ -18,10 +18,9 @@ use crate::response::GrimoireResponse;
 
 use super::entity_taxonz::VideoEntityType;
 
-/// keep `videoz`/`video_seriez`.poster_blob_id in sync with whichever
-/// image is currently primary for that entity (or clear it when there
-/// isn't one). no-op for `VideoSeason` today (seasons don't render a
-/// poster anywhere that reads this column yet).
+/// keep `videoz`/`video_seriez`/`video_seasonz`.poster_blob_id in sync
+/// with whichever image is currently primary for that entity (or clear
+/// it when there isn't one).
 async fn sync_poster_blob_id(
     pool: &sqlx::SqlitePool,
     entity_type: VideoEntityType,
@@ -47,7 +46,15 @@ async fn sync_poster_blob_id(
             .execute(pool)
             .await?;
         }
-        VideoEntityType::VideoSeason => {}
+        VideoEntityType::VideoSeason => {
+            sqlx::query!(
+                "UPDATE video_seasonz SET poster_blob_id = ? WHERE id = ?",
+                poster_blob_id,
+                entity_id
+            )
+            .execute(pool)
+            .await?;
+        }
     }
     Ok(())
 }
@@ -237,9 +244,11 @@ pub async fn remove_entity_image(
     }
 
     if removed_was_primary {
+        // exclude waveform entries - they're not valid poster/thumbnail
+        // candidates, even though they share this same gallery table.
         let replacement = sqlx::query_scalar!(
             "SELECT media_blob_id FROM entity_imagez
-             WHERE entity_type = ? AND entity_id = ?
+             WHERE entity_type = ? AND entity_id = ? AND blob_type != 'waveform'
              ORDER BY created_at DESC LIMIT 1",
             entity_type_str,
             entity_id

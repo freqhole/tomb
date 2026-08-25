@@ -40,10 +40,6 @@ import { LOCAL_TAXON_REMOTE_ID } from "../storage/types";
 type ShimResult<T> = { success: true; data: T } | { success: false; error: Error };
 
 const ok = <T>(data: T): ShimResult<T> => ({ success: true, data });
-const fail = <T = never>(message: string): ShimResult<T> => ({
-  success: false,
-  error: new Error(message),
-});
 
 // ---- response shapes (subset of freqhole-api-client codegen) ----
 

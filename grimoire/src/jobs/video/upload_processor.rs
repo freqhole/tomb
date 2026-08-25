@@ -62,8 +62,14 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
 
     crate::jobs::job_events::emit_stage_from_job(job, "importing", Some("importing video"));
 
-    let import_result =
-        import_video_file(&blob_id, file_path, filename, job.created_by.clone()).await?;
+    let import_result = import_video_file(
+        &blob_id,
+        file_path,
+        filename,
+        job.created_by.clone(),
+        Some(job),
+    )
+    .await?;
 
     info!(
         "successfully imported video: video_id={}, is_duplicate={}",

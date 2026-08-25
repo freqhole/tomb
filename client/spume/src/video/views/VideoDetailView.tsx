@@ -15,8 +15,12 @@ import { Rating } from "../../components/ratings/Rating";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
+import { TagChips } from "../../components/badges/TagChips";
 import { useVideoQuery } from "../queries/videos";
 import { useVideoTaxonsQuery } from "../queries/taxons";
+import { useVideoEntityTagsQuery } from "../queries/tags";
+import { videoQueryKeys } from "../queries/queryKeys";
+import { useQueryClient } from "@tanstack/solid-query";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideoToQueue } from "../services/videoQueueActions";
 import { useLocalVideoPosterUrl } from "../components/VideoCard";
@@ -27,6 +31,20 @@ import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
 import { showEditVideo } from "../hooks/modals";
 import { canUpdateVideo } from "../data/permissions";
+import { getVideoDataSource } from "../data";
+import {
+  formatImageCarouselTitle,
+  beginImageCarouselLoading,
+  endImageCarouselLoading,
+  openImageCarouselFromResolvers,
+  type ImageResolveResult,
+} from "../../music/hooks/modals";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  withThumbSuffix,
+} from "../../music/services/storage/blobResolver";
+import type { ImageMetadata } from "../../music/services/storage/types";
 
 export function VideoDetailView() {
   const params = useParams<{ videoId: string }>();
@@ -34,6 +52,72 @@ export function VideoDetailView() {
 
   const videoQuery = useVideoQuery(() => params.videoId);
   const taxonsQuery = useVideoTaxonsQuery(() => params.videoId);
+  const tagsQuery = useVideoEntityTagsQuery("video", () => params.videoId);
+  const queryClient = useQueryClient();
+
+  // open image carousel with all of this video's entity_imagez images
+  // (poster + any additional gallery images), mirroring
+  // AlbumDetailView.tsx's handleAlbumImageClick.
+  const handleVideoImageClick = async () => {
+    beginImageCarouselLoading();
+
+    const seen = new Set<string>();
+    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
+
+    const addImage = (img: ImageMetadata) => {
+      if (img.blob_type === "waveform") return;
+      const key = img.remote_blob_id || img.local_blob_id || img.remote_url;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      imageItems.push({
+        blobId: img.remote_blob_id || img.local_blob_id,
+        url: img.remote_url,
+        serverId: img.remote_server_id,
+      });
+    };
+
+    try {
+      const dataSource = getVideoDataSource();
+      const images =
+        (await dataSource.getEntityImages?.({
+          entityType: "video",
+          entityId: params.videoId,
+        })) ?? [];
+      for (const img of images) addImage(img);
+    } catch (err) {
+      console.error("failed to fetch video images:", err);
+    }
+
+    if (imageItems.length === 0) {
+      endImageCarouselLoading();
+      return;
+    }
+
+    const firstWithServerId = imageItems.find((item) => item.serverId);
+    const needsResolution = firstWithServerId
+      ? await usesBlobResolver(firstWithServerId.serverId!)
+      : false;
+
+    const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
+      if (needsResolution && item.blobId && item.serverId) {
+        try {
+          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          return { url };
+        } catch {
+          return item.url ? { url: item.url } : null;
+        }
+      }
+      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+    };
+
+    await openImageCarouselFromResolvers(
+      imageItems.map((item) => () => resolveOne(item)),
+      {
+        title: formatImageCarouselTitle(videoQuery.data?.title),
+        entityLabel: videoQuery.data?.title,
+      }
+    );
+  };
 
   const [playPending, setPlayPending] = createSignal(false);
   const [queuePending, setQueuePending] = createSignal(false);
@@ -133,6 +217,9 @@ export function VideoDetailView() {
       isFavorite: isFavorite(),
       showPlayActions: true,
       onDeleted: () => navigate(buildRoute("/video")),
+      onSave: () => {
+        void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
+      },
     });
   });
 
@@ -167,6 +254,8 @@ export function VideoDetailView() {
                   class="mt-2"
                   excludeKinds={["genre", "mood", "style", "era", "label"]}
                 />
+
+                <TagChips tags={tagsQuery.data} class="mt-2" />
 
                 <Show when={video().description}>
                   <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">
@@ -225,7 +314,11 @@ export function VideoDetailView() {
 
               {/* poster */}
               <ContextMenu actions={videoContextMenuActions()}>
-                <div class="w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0">
+                <div
+                  class="w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 cursor-pointer"
+                  title="view video images"
+                  onClick={handleVideoImageClick}
+                >
                   <Show
                     when={video().source_type === "remote"}
                     fallback={

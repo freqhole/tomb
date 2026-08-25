@@ -8,10 +8,12 @@ import {
 } from "@tanstack/solid-query";
 import { getVideoDataSource } from "../data";
 import type { VideoQueryParams } from "../data/types";
+import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { videoQueryKeys } from "./queryKeys";
 
 interface UseVideosQueryOptions {
   search?: () => string | undefined;
+  tagFilters?: () => TagFilter[];
   sortField?: () => VideoQueryParams["sort_by"];
   sortDirection?: () => VideoQueryParams["sort_direction"];
   pageSize?: number;
@@ -20,19 +22,35 @@ interface UseVideosQueryOptions {
 export function useVideosQuery(options?: UseVideosQueryOptions) {
   const pageSize = options?.pageSize || 100;
   const search = options?.search;
+  const tagFilters = options?.tagFilters;
   const sortField = options?.sortField || (() => "added_at" as const);
   const sortDirection = options?.sortDirection || (() => "desc" as const);
 
   return createInfiniteQuery(() => ({
-    queryKey: videoQueryKeys.videos.list(search?.(), sortField(), sortDirection()),
+    queryKey: videoQueryKeys.videos.list(search?.(), tagFilters?.(), sortField(), sortDirection()),
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = getVideoDataSource();
+      const currentTagFilters = tagFilters?.();
+      const includeTags = currentTagFilters?.filter((f) => f.mode === "include").map((f) => f.tag);
+      const excludeTags = currentTagFilters?.filter((f) => f.mode === "exclude").map((f) => f.tag);
+      // temporary diagnostic for the tauri tag-filter bug: confirm the
+      // signal-derived tag filters actually reach the query params.
+      console.info(
+        "[useVideosQuery] currentTagFilters=",
+        currentTagFilters,
+        "includeTags=",
+        includeTags,
+        "excludeTags=",
+        excludeTags
+      );
       return dataSource.getVideos({
         offset: pageParam,
         limit: pageSize,
         search: search?.(),
         sort_by: sortField(),
         sort_direction: sortDirection(),
+        include_tags: includeTags && includeTags.length > 0 ? includeTags : undefined,
+        exclude_tags: excludeTags && excludeTags.length > 0 ? excludeTags : undefined,
       });
     },
     getNextPageParam: (lastPage, allPages) => {

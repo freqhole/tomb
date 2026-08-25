@@ -585,8 +585,20 @@ export function QueueSidebar(props: QueueSidebarProps) {
               <For each={props.videos}>
                 {(entry) => {
                   // get waveform URL - check local blob first, then P2P/remote
-                  // (mirrors the song row's waveformUrl resolution below)
-                  const waveformImg = () => getWaveformImage(entry.video.images);
+                  // (mirrors the song row's waveformUrl resolution below).
+                  // `entry.video.images` is the raw codegen `Video` shape
+                  // (`blob_id`/`is_primary: number`) — map to `ImageMetadata`
+                  // (`remote_blob_id`/`is_primary: boolean`) before handing
+                  // it to `getWaveformImage`.
+                  const waveformImg = () =>
+                    getWaveformImage(
+                      entry.video.images?.map((img) => ({
+                        remote_blob_id: img.blob_id,
+                        remote_server_id: entry.video.remote_server_id,
+                        is_primary: !!img.is_primary,
+                        blob_type: img.blob_type,
+                      }))
+                    );
 
                   const resolvedP2PWaveformUrl = useResolvedP2PImageUrl(() => {
                     const img = waveformImg();

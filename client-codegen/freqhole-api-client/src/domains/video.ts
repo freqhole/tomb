@@ -59,6 +59,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    getVideoWithMetadata: (params: s.GetVideoRequest) => {
+      return call(
+        "video",
+        "get_video_with_metadata",
+        routes.video.get_video_with_metadata.resp,
+        routes.video.get_video_with_metadata.req,
+        routes.video.get_video_with_metadata.method,
+        routes.video.get_video_with_metadata.path,
+        params,
+      );
+    },
+
     listVideosBySeries: (params: s.ListVideosBySeriesRequest) => {
       return call(
         "video",

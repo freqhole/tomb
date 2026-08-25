@@ -468,6 +468,7 @@ export default function LibraryView() {
         ? await admin.dispatchOrThrow<ScanResult>("library_scan", {
             path,
             tags,
+            domain,
             recursive: true,
           })
         : await invoke<ScanResult>("scan_directory", { path, tags, domain });

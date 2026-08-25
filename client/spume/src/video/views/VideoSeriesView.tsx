@@ -4,7 +4,7 @@
 // difference: nothing auto-selects on load — the right column shows a
 // grid of all (filtered) series until one is actually picked, instead of
 // ArtistsView's auto-select-first + plain empty-state message.
-import { A, useNavigate, useParams, useSearchParams } from "@solidjs/router";
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
@@ -145,6 +145,8 @@ export function VideoSeriesView() {
       id: series.id,
       title: series.title,
       subtitle: series.description ?? undefined,
+      remoteBlobId: series.poster_blob_id,
+      remoteServerId: series.remote_server_id,
       domainType: "video_series" as const,
     }));
   });
@@ -291,7 +293,8 @@ export function VideoSeriesView() {
                     >
                       <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg mb-2 overflow-hidden">
                         <MediaImage
-                          blobId={series.poster_blob_id}
+                          remoteBlobId={series.poster_blob_id}
+                          remoteServerId={series.remote_server_id}
                           alt={series.title}
                           showFallback={true}
                           thumbnailSize={200}
@@ -341,19 +344,6 @@ export function VideoSeriesView() {
 
   return (
     <div class="flex flex-col" style={{ height: `${listHeight()}px` }}>
-      {/* tabs: all videos / series */}
-      <div class="flex items-center gap-4 border-b border-[var(--color-border-default)] px-4 wide:px-6 flex-shrink-0">
-        <A
-          href={buildRoute("/video")}
-          class="px-1 pb-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
-        >
-          all videos
-        </A>
-        <span class="px-1 pb-2 text-sm text-[var(--color-text-primary)] font-medium border-b-2 border-[var(--color-accent-500)]">
-          series
-        </span>
-      </div>
-
       <div class="flex-1 overflow-hidden">
         <TwoColumnLayout
           leftColumn={leftColumn}

@@ -1,7 +1,8 @@
 // videos view - simple clone of AlbumsView.tsx's grid/table shape for
 // videos (see music/views/AlbumsView.tsx). deliberately minimal per
-// docs/video-domain-plan.md's MVP scope: no tag filtering, no bulk
-// select/edit, no musicbrainz-style enrichment.
+// docs/video-domain-plan.md's MVP scope: no bulk select/edit,
+// no musicbrainz-style enrichment. tag filtering mirrors AlbumsView's
+// topnav TagFilterPicker wiring.
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
@@ -14,12 +15,18 @@ import { VideosTable } from "../../library/components/VideosTable";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { useVideosQuery } from "../queries/videos";
+import { useVideoTagsQuery } from "../queries/tags";
+import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { buildRoute } from "../../music/utils/routing";
 import { Icon } from "../../components/icons/registry";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
+import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
+import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
+import { useQueryClient } from "@tanstack/solid-query";
+import { videoQueryKeys } from "../queries/queryKeys";
 import type { VideoQueryParams, VideoSummary } from "../data/types";
 
 export interface VideosViewProps {
@@ -68,16 +75,46 @@ export function VideosView(props: VideosViewProps) {
     return Array.isArray(q) ? q[0] : q;
   };
 
+  // tag filtering state (persisted in browser history) + available tags.
+  // declared before `videosQuery` since its options reference `tagFilters()`.
+  const [tagFilters, setTagFilters] = useHistoryState<TagFilter[]>("videos.tagFilters", []);
+  const tagsQuery = useVideoTagsQuery();
+
   const videosQuery = useVideosQuery({
     search: searchQuery,
+    tagFilters: () => tagFilters(),
     sortField: () => sortField(),
     sortDirection: () => sortDirection(),
   });
 
+  const availableTags = createMemo(() =>
+    (tagsQuery.data || []).map((tag) => ({ value: tag.name, label: tag.name }))
+  );
+
+  const handleAddTag = (tag: string) => {
+    setTagFilters([...tagFilters(), { tag, mode: "include" }]);
+  };
+  const handleRemoveTag = (tag: string) => {
+    setTagFilters(tagFilters().filter((f) => f.tag !== tag));
+  };
+  const handleToggleTagMode = (tag: string) => {
+    setTagFilters(
+      tagFilters().map((f) =>
+        f.tag === tag
+          ? {
+              tag: f.tag,
+              mode: (f.mode === "include" ? "exclude" : "include") as "include" | "exclude",
+            }
+          : f
+      )
+    );
+  };
+  const handleClearAllTags = () => setTagFilters([]);
+
   // reset virtual grid when sort or search query changes
   createEffect(
     on(
-      () => [searchQuery(), sortField(), sortDirection()] as const,
+      () => [searchQuery(), tagFilters(), sortField(), sortDirection()] as const,
       () => {
         setIsResetting(true);
         setTimeout(() => setIsResetting(false), 0);
@@ -117,6 +154,17 @@ export function VideosView(props: VideosViewProps) {
     });
   };
 
+  // fetch the caller's own rating for all visible videos (mirrors the
+  // favorites wiring above) so the table's rating column can render it.
+  const ratingStatusesQuery = useVideoRatingStatuses(videoIds);
+  const videoRatings = createMemo(() => ratingStatusesQuery.data ?? new Map<string, number>());
+  const setRatingMutation = useSetRatingMutation();
+  const handleVideoRatingChange = (videoId: string, rating: number) => {
+    setRatingMutation.mutate({ targetType: "video", targetId: videoId, rating });
+  };
+
+  const queryClient = useQueryClient();
+
   // context menu actions for a video — mirrors AlbumsView's
   // getContextMenuActions, passed down to the grid/table which render
   // the actual menu via the shared ContextMenu component.
@@ -124,6 +172,13 @@ export function VideosView(props: VideosViewProps) {
     return useVideoContextMenu(video, {
       showPlayActions: true,
       isFavorite: favoriteVideoIds().has(video.id),
+      onSave: () => {
+        // a context-menu "tags"/"edit info" save may have added a brand
+        // new tag or changed this video's own tags - invalidate so the
+        // top-nav tag filter picker's available-tags list (and any
+        // per-video tag displays) pick up the change.
+        void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
+      },
     });
   };
 
@@ -141,6 +196,13 @@ export function VideosView(props: VideosViewProps) {
         setSortField(field as VideoSortField);
         setSortDirection(direction);
       },
+      availableTags: availableTags(),
+      selectedTagFilters: tagFilters(),
+      tagsLoading: tagsQuery.isLoading,
+      onAddTag: handleAddTag,
+      onRemoveTag: handleRemoveTag,
+      onToggleTagMode: handleToggleTagMode,
+      onClearAllTags: handleClearAllTags,
     });
   });
 
@@ -199,30 +261,7 @@ export function VideosView(props: VideosViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* in-page tab row: "all videos" (this view) vs "series" (drill-down flow) */}
-      <div class="flex items-center justify-between gap-3 px-4 pt-3 pb-2 flex-wrap">
-        <div
-          class="inline-flex items-center gap-1 p-1 rounded-md bg-[var(--color-bg-elevated)] border border-[var(--color-border-subtle)]"
-          role="tablist"
-          aria-label="video library sections"
-        >
-          <span
-            role="tab"
-            aria-selected="true"
-            class="px-2.5 py-1 text-xs rounded bg-[var(--color-accent-500)]/15 text-[var(--color-accent-500)]"
-          >
-            all videos
-          </span>
-          <button
-            type="button"
-            role="tab"
-            aria-selected="false"
-            class="px-2.5 py-1 text-xs rounded border-none cursor-pointer bg-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-            onClick={() => navigate(buildRoute("/video/series"))}
-          >
-            series
-          </button>
-        </div>
+      <div class="flex items-center justify-end gap-3 px-4 pt-3 pb-2 flex-wrap">
         {viewModeSwitcher()}
       </div>
 
@@ -237,6 +276,8 @@ export function VideosView(props: VideosViewProps) {
               getContextMenuActions={getContextMenuActions}
               favoriteVideoIds={favoriteVideoIds()}
               onVideoFavoriteToggle={handleVideoFavoriteToggle}
+              videoRatings={videoRatings()}
+              onVideoRatingChange={handleVideoRatingChange}
             />
           }
         >

@@ -13,6 +13,7 @@ import type { TagFilter } from "../../components/forms/TagFilterPicker";
 import { SelectionActionBar } from "../../components/layout/SelectionActionBar";
 import { BulkEditSongsModal } from "../../components/modals/BulkEditSongsModal";
 import { TagSelectorModal } from "../../components/modals/TagSelectorModal";
+import { albumTagAdapter } from "../../components/modals/tagAdapters/albumTagAdapter";
 import {
   VirtualSongList,
   type SortField,
@@ -492,7 +493,9 @@ export function SongsView(props: SongsViewProps) {
       {/* tag selector modal */}
       <Show when={showTagSelectorModal()}>
         <TagSelectorModal
-          albumIds={selectedAlbumIds()}
+          entityIds={selectedAlbumIds()}
+          entityKindLabel="albums"
+          adapter={albumTagAdapter}
           onClose={() => setShowTagSelectorModal(false)}
           onSave={() => {
             clearSelection();

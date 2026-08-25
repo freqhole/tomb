@@ -196,7 +196,9 @@ pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQ
     };
 
     let mut count_q = Query::select();
-    count_q.expr(Expr::cust("COUNT(*)")).from(VideoSeriezCol::Table);
+    count_q
+        .expr(Expr::cust("COUNT(*)"))
+        .from(VideoSeriezCol::Table);
     apply_filters(&mut count_q);
     let (count_sql, count_values) = count_q.build(SqliteQueryBuilder);
     let total_count = bind_values(sqlx::query_as::<_, (i64,)>(&count_sql), count_values)
@@ -206,7 +208,9 @@ pub async fn query_video_seriez(params: QueryParams) -> GrimoireResponse<SeriesQ
         .unwrap_or(0);
 
     let mut query = Query::select();
-    query.column(sea_query::Asterisk).from(VideoSeriezCol::Table);
+    query
+        .column(sea_query::Asterisk)
+        .from(VideoSeriezCol::Table);
     apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {
@@ -314,6 +318,60 @@ pub async fn query_videos(
                 )));
             }
         }
+
+        // tag filters (mirrors music's include_tags/exclude_tags in
+        // grimoire/src/music/crud/query.rs, but against the generic
+        // entity_tagz junction table rather than a denormalized JSON
+        // column - video has no such column).
+        // include_tags: show only videos that have ANY of these tags (OR logic)
+        if let Some(include_tags) = params
+            .filters
+            .get("include_tags")
+            .and_then(|v| v.as_array())
+        {
+            let tag_names: Vec<String> = include_tags
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.replace('\'', "''")))
+                .collect();
+            if !tag_names.is_empty() {
+                let quoted = tag_names
+                    .iter()
+                    .map(|n| format!("'{n}'"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                q.and_where(Expr::cust(format!(
+                    "EXISTS (SELECT 1 FROM entity_tagz et_inc \
+                     JOIN tagz t_inc ON t_inc.id = et_inc.tag_id \
+                     WHERE et_inc.entity_type = 'video' AND et_inc.entity_id = videoz.id \
+                     AND t_inc.deleted_at IS NULL AND t_inc.name IN ({quoted}))"
+                )));
+            }
+        }
+
+        // exclude_tags: show only videos that have NONE of these tags
+        if let Some(exclude_tags) = params
+            .filters
+            .get("exclude_tags")
+            .and_then(|v| v.as_array())
+        {
+            let tag_names: Vec<String> = exclude_tags
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.replace('\'', "''")))
+                .collect();
+            if !tag_names.is_empty() {
+                let quoted = tag_names
+                    .iter()
+                    .map(|n| format!("'{n}'"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                q.and_where(Expr::cust(format!(
+                    "NOT EXISTS (SELECT 1 FROM entity_tagz et_exc \
+                     JOIN tagz t_exc ON t_exc.id = et_exc.tag_id \
+                     WHERE et_exc.entity_type = 'video' AND et_exc.entity_id = videoz.id \
+                     AND t_exc.deleted_at IS NULL AND t_exc.name IN ({quoted}))"
+                )));
+            }
+        }
     };
 
     let mut count_q = Query::select();
@@ -389,4 +447,3 @@ pub async fn query_videos(
         },
     )
 }
-
