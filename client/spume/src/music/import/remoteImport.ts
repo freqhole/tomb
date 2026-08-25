@@ -7,6 +7,11 @@ import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../data";
 import { warn as logWarn } from "../../utils/logger";
+import {
+  humanizeJobError as humanizeJobErrorShared,
+  type FriendlyError,
+} from "../../utils/humanizeJobError";
+export type { FriendlyError };
 
 // known error types from the server for structured error handling
 const ERROR_TYPE = {
@@ -270,36 +275,14 @@ function formatStage(stage: string, message: string | undefined): string | undef
 
 // turn a raw server failure into a short, user-friendly line. the full
 // detail is kept available via the `fullError` field for tooltip / debug.
-export interface FriendlyError {
-  short: string;
-  full: string;
-}
 function humanizeJobError(
   message: string | undefined,
   errorType: string | undefined
 ): FriendlyError {
-  const full = message?.trim() || errorType || "failed";
   if (errorType === ERROR_TYPE.DUPLICATE_SONG) {
-    return { short: "song already exists", full };
+    return { short: "song already exists", full: message?.trim() || errorType };
   }
-  const m = (message ?? "").toLowerCase();
-  if (m.startsWith("file does not exist") || m.includes("downloaded file"))
-    return { short: "downloaded file vanished before processing", full };
-  if (m.includes("no files were downloaded") || m.includes("nothing downloaded"))
-    return { short: "source returned no files", full };
-  if (m.includes("invalid url") || m.includes("unsupported url"))
-    return { short: "unsupported or invalid URL", full };
-  if (m.includes("connection") || m.includes("network") || m.includes("dns"))
-    return { short: "network error", full };
-  if (m.includes("permission denied") || m.includes("forbidden"))
-    return { short: "permission denied", full };
-  if (m.includes("timeout") || m.includes("timed out")) return { short: "timed out", full };
-  if (m.includes("unsupported format") || m.includes("unknown format"))
-    return { short: "unsupported audio format", full };
-  // short message: keep as-is. long message: truncate.
-  const cleaned = full.replace(/\s+/g, " ");
-  const short = cleaned.length > 80 ? cleaned.slice(0, 77) + "\u2026" : cleaned;
-  return { short, full };
+  return humanizeJobErrorShared(message, errorType, "audio");
 }
 
 // ============================================================================

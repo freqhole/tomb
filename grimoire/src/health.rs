@@ -47,4 +47,6 @@ pub struct ServerInfoResponse {
     pub passkey_p2p_enabled: Option<bool>,
     /// whether url fetch pre-check is available (yt-dlp precheck_command configured)
     pub fetch_precheck_enabled: Option<bool>,
+    /// whether video url fetching is enabled and fully configured (fetch_video)
+    pub fetch_video_enabled: Option<bool>,
 }

@@ -28,6 +28,36 @@ pub trait FetchProgress: Send + Sync {
     fn postprocess(&self, content_id: &str);
 }
 
+// marks an error message as deterministic (config problem, or a download
+// source that will never succeed) so callers can skip retrying instead of
+// wasting the job's retry budget. kept as a plain string prefix rather than
+// a richer error type since download_media()'s `?`-heavy body already
+// returns bare `String` for every other (genuinely transient) failure.
+const NOT_RETRYABLE_PREFIX: &str = "[not_retryable:";
+const NOT_RETRYABLE_SUFFIX: &str = "] ";
+
+/// error is caused by missing/disabled/invalid fetch config - fixable by
+/// the server admin, never by retrying.
+pub const FETCH_ERROR_CONFIG: &str = "fetch_not_configured";
+
+fn not_retryable(category: &str, msg: impl std::fmt::Display) -> String {
+    format!("{NOT_RETRYABLE_PREFIX}{category}{NOT_RETRYABLE_SUFFIX}{msg}")
+}
+
+/// split a `download_media`/`extract_metadata` error message back into
+/// (detail, retryable, category). `category` is one of the `FETCH_ERROR_*`
+/// constants above when non-retryable, `None` for ordinary transient errors.
+pub fn classify_fetch_error(msg: &str) -> (&str, bool, Option<&str>) {
+    if let Some(rest) = msg.strip_prefix(NOT_RETRYABLE_PREFIX) {
+        if let Some(idx) = rest.find(NOT_RETRYABLE_SUFFIX) {
+            let category = &rest[..idx];
+            let detail = &rest[idx + NOT_RETRYABLE_SUFFIX.len()..];
+            return (detail, false, Some(category));
+        }
+    }
+    (msg, true, None)
+}
+
 /// no-op progress callback for non-job callers
 pub struct NoopFetchProgress;
 
@@ -177,24 +207,37 @@ pub async fn download_media(
         crate::media_domain::MediaDomain::Music => {
             let fc = server
                 .and_then(|s| s.fetch_music.as_ref())
-                .ok_or("fetch_music not configured")?;
-            (fc.enabled, fc.output_dir.as_ref(), fc.fetch_command.as_ref())
+                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_music not configured"))?;
+            (
+                fc.enabled,
+                fc.output_dir.as_ref(),
+                fc.fetch_command.as_ref(),
+            )
         }
         crate::media_domain::MediaDomain::Video => {
             let fc = server
                 .and_then(|s| s.fetch_video.as_ref())
-                .ok_or("fetch_video not configured")?;
-            (fc.enabled, fc.output_dir.as_ref(), fc.fetch_command.as_ref())
+                .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_video not configured"))?;
+            (
+                fc.enabled,
+                fc.output_dir.as_ref(),
+                fc.fetch_command.as_ref(),
+            )
         }
     };
 
     if !fetch_enabled {
-        return Err(format!("fetch_{} is not enabled", domain));
+        return Err(not_retryable(
+            FETCH_ERROR_CONFIG,
+            format!("fetch_{} is not enabled", domain),
+        ));
     }
 
-    let fetch_cmd = fetch_cmd_template.ok_or("fetch_command not configured")?;
+    let fetch_cmd = fetch_cmd_template
+        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "fetch_command not configured"))?;
 
-    let base_output_dir = fetch_output_dir.ok_or("output_dir not configured")?;
+    let base_output_dir = fetch_output_dir
+        .ok_or_else(|| not_retryable(FETCH_ERROR_CONFIG, "output_dir not configured"))?;
 
     // create job-specific subdirectory
     let output_dir = format!("{}/{}", base_output_dir, job_id);
@@ -207,11 +250,15 @@ pub async fn download_media(
     info!("downloading media from URL: {} to {}", url, output_dir);
 
     // parse command and args using shell-words for proper quoting support
-    let parts = shell_words::split(fetch_cmd)
-        .map_err(|e| format!("invalid fetch_command shell syntax: {}", e))?;
+    let parts = shell_words::split(fetch_cmd).map_err(|e| {
+        not_retryable(
+            FETCH_ERROR_CONFIG,
+            format!("invalid fetch_command shell syntax: {}", e),
+        )
+    })?;
 
     if parts.is_empty() {
-        return Err("fetch_command is empty".to_string());
+        return Err(not_retryable(FETCH_ERROR_CONFIG, "fetch_command is empty"));
     }
 
     let (cmd, args) = parts.split_first().unwrap();
@@ -232,13 +279,20 @@ pub async fn download_media(
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("failed to capture stderr")?;
 
-    // spawn task to drain stderr (log warnings)
+    // spawn task to drain stderr (log warnings), keeping a copy of the
+    // lines around so a "no files downloaded" failure can be classified
+    // as retryable/not based on what yt-dlp actually said.
+    let stderr_lines: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+    let stderr_lines_for_task = stderr_lines.clone();
     let stderr_task = tokio::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if !line.trim().is_empty() {
                 warn!("yt-dlp stderr: {}", line);
+                if let Ok(mut buf) = stderr_lines_for_task.lock() {
+                    buf.push(line);
+                }
             }
         }
     });
@@ -348,7 +402,67 @@ pub async fn download_media(
     // partial success is still a success. check if any files were downloaded instead.
 
     if file_paths.is_empty() {
-        return Err("no files were downloaded".to_string());
+        let stderr_tail = stderr_lines
+            .lock()
+            .map(|lines| lines.join(" | "))
+            .unwrap_or_default();
+        let stderr_lower = stderr_tail.to_lowercase();
+
+        // these yt-dlp failures mean the source will never succeed no
+        // matter how many times we retry (removed/private/age-gated
+        // content, or the platform blocking the request outright) - treat
+        // as deterministic instead of burning the job's retry budget, and
+        // give each one its own error_type + human reason instead of a
+        // single generic "source unavailable" bucket, so the frontend (and
+        // this log line) says specifically what went wrong.
+        const UNRECOVERABLE_PATTERNS: &[(&str, &str, &str)] = &[
+            (
+                "http error 403",
+                "fetch_forbidden",
+                "source blocked the download (403 forbidden) - it may require login/cookies, or the platform is blocking this server's requests",
+            ),
+            (
+                "http error 404",
+                "fetch_not_found",
+                "source returned 404 not found - the video may have been deleted, or the url is wrong",
+            ),
+            (
+                "video unavailable",
+                "fetch_video_unavailable",
+                "video is unavailable",
+            ),
+            (
+                "private video",
+                "fetch_private_video",
+                "video is private",
+            ),
+            (
+                "no longer available",
+                "fetch_video_removed",
+                "video is no longer available",
+            ),
+            (
+                "content isn't available",
+                "fetch_content_unavailable",
+                "content isn't available (may be region-locked)",
+            ),
+            (
+                "sign in to confirm",
+                "fetch_login_required",
+                "site requires sign-in to confirm you're not a bot - fetch_video can't complete without cookies configured",
+            ),
+        ];
+        let matched = UNRECOVERABLE_PATTERNS
+            .iter()
+            .find(|(pattern, _, _)| !stderr_lower.is_empty() && stderr_lower.contains(pattern));
+
+        return Err(match matched {
+            Some((_, category, reason)) => {
+                not_retryable(category, format!("{} ({})", reason, stderr_tail))
+            }
+            None if stderr_tail.is_empty() => "no files were downloaded".to_string(),
+            None => format!("no files were downloaded: {}", stderr_tail),
+        });
     }
 
     info!("downloaded {} file(s) from URL: {}", file_paths.len(), url);

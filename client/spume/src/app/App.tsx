@@ -123,6 +123,7 @@ import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
 import { useFetchPrecheckEnabledQuery } from "../music/hooks/useFetchPrecheckEnabled";
+import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
 import { ImportReviewModal } from "../components/modals/ImportReviewModal";
 import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
@@ -167,6 +168,9 @@ export function App() {
   const fetchPrecheckEnabledQuery = useFetchPrecheckEnabledQuery(
     () => getCurrentRemote() ?? undefined
   );
+
+  // query whether the current remote has video url fetching (fetch_video) configured
+  const fetchVideoEnabledQuery = useFetchVideoEnabledQuery(() => getCurrentRemote() ?? undefined);
 
   // import review - keyed to the captured remote for the session, not getCurrentRemote()
   const importReview = useImportReview(
@@ -1247,6 +1251,7 @@ export function App() {
         useCharnelDialog={isCharnelMode()}
         uploadJobs={getVideoUploadJobs()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
+        fetchVideoEnabled={fetchVideoEnabledQuery.data ?? false}
       />
 
       <Show when={useEditVideoState()()}>

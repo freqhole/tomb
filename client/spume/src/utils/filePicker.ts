@@ -180,6 +180,27 @@ async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
 }
 
 /**
+ * canonicalize a path returned by the native file/directory dialog via
+ * charnel's `resolve_path` command.
+ *
+ * on Linux Flatpak, the dialog hands back ephemeral document-portal paths
+ * like `/run/user/1000/doc/666aaa99/song.mp3` instead of the real
+ * filesystem path — those work for an immediate `readFile()` in the same
+ * process, but break once handed off elsewhere (P2P remote upload,
+ * iroh-blobs FsStore, another process after restart). falls back to the
+ * original path if resolution isn't available (non-tauri/non-desktop) or
+ * fails, mirroring `resolve_path`'s own fallback behavior server-side.
+ */
+async function resolveTauriPath(path: string): Promise<string> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("resolve_path", { path });
+  } catch {
+    return path;
+  }
+}
+
+/**
  * read a tauri filesystem path into a real `File` object (desktop tauri
  * only). used by upload flows that were handed a bare path (tauri's native
  * file dialog never returns a `File`) but need actual bytes because the
@@ -273,7 +294,11 @@ async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]>
   const fs = mustRead ? await loadFs() : null;
 
   const out: PickedFile[] = [];
-  for (const entry of entries) {
+  for (const rawEntry of entries) {
+    // resolve before use: a raw Flatpak document-portal path can still be
+    // read here (same process), but must not be the one we hand off to
+    // callers that persist it or forward it elsewhere.
+    const entry = android ? rawEntry : await resolveTauriPath(rawEntry);
     const name = nameFromPathOrUri(entry);
     const picked: PickedFile = { name };
     if (android) {
@@ -340,7 +365,7 @@ export async function pickDirectory(title = "select folder"): Promise<string | n
   try {
     const dialog = await loadDialog();
     const selected = await dialog.open({ multiple: false, directory: true, title });
-    if (selected && typeof selected === "string") return selected;
+    if (selected && typeof selected === "string") return resolveTauriPath(selected);
     return null;
   } catch (err) {
     debug("filePicker", "pickDirectory failed:", err);

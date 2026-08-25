@@ -17,6 +17,6 @@ pub use models::{
     PreCheckFetchResponse,
 };
 pub use service::{
-    check_existing_content, download_media, extract_metadata, fetch_media, FetchProgress,
-    NoopFetchProgress,
+    check_existing_content, classify_fetch_error, download_media, extract_metadata, fetch_media,
+    FetchProgress, NoopFetchProgress,
 };

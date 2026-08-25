@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { Transport, BlobData } from "./transport.js";
 import { HttpTransport } from "./transport.js";
+import { AUTH_ERROR_PATH, toZodError } from "./errors.js";
 import { createAdminMethods } from "./domains/admin.js";
 import { createAppMethods } from "./domains/app.js";
 import { createAuthMethods } from "./domains/auth.js";
@@ -18,9 +19,6 @@ import type { CallFn, SafeParseResult } from "./domains/types.js";
 
 // re-export types for consumers
 export type { SafeParseResult } from "./domains/types.js";
-
-// sentinel for 401 detection
-const AUTH_ERROR_PATH = "__auth_expired__";
 
 // ============================================================================
 // FreqholeClient
@@ -98,42 +96,7 @@ export class FreqholeClient {
 
         // handle errors: status >= 400 OR status 0 (IPC/network failure)
         if (response.status >= 400 || response.status === 0) {
-          // try to extract error details
-          let errorMessage = response.status === 0 ? "connection error" : `HTTP ${response.status}`;
-          let errorCode: string | undefined;
-          try {
-            const errorBody = JSON.parse(response.body);
-            if (errorBody?.error) {
-              errorMessage =
-                response.status === 0
-                  ? errorBody.error
-                  : `HTTP ${response.status}: ${errorBody.error}`;
-            }
-            if (errorBody?.message) {
-              errorMessage =
-                response.status === 0
-                  ? errorBody.message
-                  : `HTTP ${response.status}: ${errorBody.message}`;
-            }
-            if (errorBody?.code) {
-              errorCode = errorBody.code;
-            }
-          } catch {
-            // body wasn't JSON
-          }
-
-          const issuePath: (string | number)[] = [];
-          if (response.status === 401) {
-            issuePath.push(AUTH_ERROR_PATH);
-          }
-          if (errorCode) {
-            issuePath.push(errorCode);
-          }
-
-          return {
-            success: false,
-            error: new z.ZodError([{ code: "custom", path: issuePath, message: errorMessage }]),
-          };
+          return { success: false, error: toZodError(response.body, response.status) };
         }
 
         // no response schema (e.g., blob streaming)
@@ -146,23 +109,11 @@ export class FreqholeClient {
 
         // check for GrimoireResponse failure (success: false with errors)
         if (json.success === false) {
-          const errorMessage = json.message || json.errors?.[0]?.detail || "request failed";
-          const errorCode = json.errors?.[0]?.error_type;
           // this used to be silent - a business-logic failure (e.g. "video
           // not found") would just surface as `null` data to the caller
           // with no trace anywhere, making it look like a data-wiring bug.
-          console.warn(`[API] ${domain}.${routeName} failed:`, errorMessage, json.errors);
-          const issuePath: (string | number)[] = [];
-          if (errorCode === "unauthorized") {
-            issuePath.push(AUTH_ERROR_PATH);
-          }
-          if (errorCode) {
-            issuePath.push(errorCode);
-          }
-          return {
-            success: false,
-            error: new z.ZodError([{ code: "custom", path: issuePath, message: errorMessage }]),
-          };
+          console.warn(`[API] ${domain}.${routeName} failed:`, json.message, json.errors);
+          return { success: false, error: toZodError(response.body, response.status) };
         }
 
         const data = json.data ?? json;

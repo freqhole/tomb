@@ -107,6 +107,12 @@ pub enum GrimoireError {
     #[error("thumbnail generation failed: {reason}")]
     ThumbnailGeneration { reason: String },
 
+    #[error("ffmpeg failed: {reason}")]
+    FfmpegFailed { reason: String },
+
+    #[error("could not process image: {reason}")]
+    ImageDecodeFailed { reason: String },
+
     #[error("validation error: {field} - {message}")]
     Validation { field: String, message: String },
 
@@ -248,6 +254,8 @@ impl GrimoireError {
             GrimoireError::SetupFailed { .. } => false,
             GrimoireError::MusicBrainzConfig(_) => false,
             GrimoireError::MusicBrainzNoResults => false,
+            GrimoireError::FfmpegFailed { .. } => false,
+            GrimoireError::ImageDecodeFailed { .. } => false,
             // transient errors - might succeed on retry
             GrimoireError::Database(_) => true,
             GrimoireError::Io(_) => true,
@@ -289,6 +297,8 @@ impl GrimoireError {
             GrimoireError::Serialization(_) => 400,
             GrimoireError::InvalidEntityType { .. } => 400,
             GrimoireError::NotARendition { .. } => 400,
+            GrimoireError::FfmpegFailed { .. } => 422,
+            GrimoireError::ImageDecodeFailed { .. } => 422,
             // not found errors
             GrimoireError::SongNotFound { .. }
             | GrimoireError::AlbumNotFound { .. }

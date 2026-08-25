@@ -52,6 +52,8 @@ export interface AddVideoModalProps {
   uploadJobs?: VideoUploadJob[];
   /** whether the remote has url precheck (yt-dlp) configured */
   fetchPrecheckEnabled?: boolean;
+  /** whether the remote has video url fetching (fetch_video) enabled and configured */
+  fetchVideoEnabled?: boolean;
   /** additional classes */
   class?: string;
 }
@@ -67,6 +69,14 @@ export function AddVideoModal(props: AddVideoModalProps) {
     const id = "add-video-modal";
     pushModal(id, () => props.onClose());
     onCleanup(() => popModal(id));
+  });
+
+  // fall back to the files tab if urls becomes unavailable (config
+  // disabled) while it's the active tab
+  createEffect(() => {
+    if (uploadMode() === "urls" && !props.fetchVideoEnabled) {
+      setUploadMode("files");
+    }
   });
 
   // aliases to module-level signals so the rest of the component reads normally
@@ -328,7 +338,9 @@ export function AddVideoModal(props: AddVideoModalProps) {
               <Tabs activeTab={uploadMode()} onTabChange={setUploadMode}>
                 <TabList class="justify-center">
                   <Tab id="files" label="upload files" />
-                  <Tab id="urls" label="download urls" />
+                  <Show when={props.fetchVideoEnabled}>
+                    <Tab id="urls" label="download urls" />
+                  </Show>
                 </TabList>
 
                 <div class="py-6">

@@ -357,6 +357,15 @@ pub enum JobError {
     #[error("job processing failed: {reason}")]
     ProcessingFailed { reason: String },
 
+    /// same as ProcessingFailed, but for deterministic failures that will
+    /// never succeed on retry (e.g. fetch not configured/enabled, or a
+    /// download source that reported an unrecoverable error like a 403/404).
+    /// `error_type` is a specific snake_case tag (e.g. `fetch_not_configured`,
+    /// `fetch_source_unavailable`) so the frontend can show a targeted
+    /// message instead of falling back to the generic `processing_failed`.
+    #[error("job processing failed: {reason}")]
+    ProcessingFailedFinal { reason: String, error_type: String },
+
     #[error("job cancelled by user")]
     Cancelled,
 
@@ -399,6 +408,7 @@ impl JobError {
             JobError::JobNotFound { .. } => "job_not_found".to_string(),
             JobError::SessionNotFound { .. } => "session_not_found".to_string(),
             JobError::ProcessingFailed { .. } => "processing_failed".to_string(),
+            JobError::ProcessingFailedFinal { error_type, .. } => error_type.clone(),
             JobError::Cancelled => "job_cancelled".to_string(),
             JobError::Timeout => "job_timeout".to_string(),
             JobError::MaxRetriesExceeded => "max_retries_exceeded".to_string(),
@@ -426,6 +436,7 @@ impl JobError {
             JobError::JobNotFound { .. } => false,
             JobError::SessionNotFound { .. } => false,
             JobError::ProcessingFailed { .. } => true, // generic, might be transient
+            JobError::ProcessingFailedFinal { .. } => false,
             JobError::Cancelled => false,
             JobError::Timeout => true, // might succeed with more time
             JobError::MaxRetriesExceeded => false,

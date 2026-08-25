@@ -234,8 +234,8 @@ async fn extract_album_art_to_webp(
 
     // Build command from config - parse args first, then replace placeholders
     let mut args = shell_words::split(&config.media.extract_album_art_args).map_err(|e| {
-        GrimoireError::ProcessingFailed {
-            message: format!("Failed to parse ffmpeg args: {}", e),
+        GrimoireError::FfmpegFailed {
+            reason: format!("failed to parse ffmpeg args: {}", e),
         }
     })?;
 
@@ -254,18 +254,18 @@ async fn extract_album_art_to_webp(
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(30), cmd.output())
         .await
-        .map_err(|_| GrimoireError::ProcessingFailed {
-            message: "Album art extraction timed out".to_string(),
+        .map_err(|_| GrimoireError::FfmpegFailed {
+            reason: "album art extraction timed out".to_string(),
         })?
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to run ffmpeg: {}", e),
+        .map_err(|e| GrimoireError::FfmpegFailed {
+            reason: format!("failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "ffmpeg failed to extract album art. Exit code: {:?}. Error: {}",
+        return Err(GrimoireError::FfmpegFailed {
+            reason: format!(
+                "ffmpeg failed to extract album art (exit code {:?}): {}",
                 output.status.code(),
                 stderr
             ),
@@ -383,8 +383,8 @@ async fn generate_waveform_to_webp(
 
     // Build command from config - parse args first, then replace placeholders
     let mut args = shell_words::split(&config.media.generate_waveform_args).map_err(|e| {
-        GrimoireError::ProcessingFailed {
-            message: format!("Failed to parse ffmpeg args: {}", e),
+        GrimoireError::FfmpegFailed {
+            reason: format!("failed to parse ffmpeg args: {}", e),
         }
     })?;
 
@@ -403,18 +403,18 @@ async fn generate_waveform_to_webp(
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
         .await
-        .map_err(|_| GrimoireError::ProcessingFailed {
-            message: "Waveform generation timed out".to_string(),
+        .map_err(|_| GrimoireError::FfmpegFailed {
+            reason: "waveform generation timed out".to_string(),
         })?
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to run ffmpeg: {}", e),
+        .map_err(|e| GrimoireError::FfmpegFailed {
+            reason: format!("failed to run ffmpeg: {}", e),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "ffmpeg failed to generate waveform. Exit code: {:?}. Error: {}",
+        return Err(GrimoireError::FfmpegFailed {
+            reason: format!(
+                "ffmpeg failed to generate waveform (exit code {:?}): {}",
                 output.status.code(),
                 stderr
             ),
@@ -439,9 +439,10 @@ async fn generate_waveform_to_webp(
 /// convert any image format to webp
 pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     // Try to detect and load the image
-    let img = image::load_from_memory(image_data).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("Failed to decode image: {}", e),
-    })?;
+    let img =
+        image::load_from_memory(image_data).map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to decode image: {}", e),
+        })?;
 
     // convert to 8-bit RGBA — ImageMagick can produce 16-bit PNGs (e.g. from PDF
     // rendering) and the WebP encoder only supports 8-bit color types
@@ -452,8 +453,8 @@ pub fn convert_to_webp(image_data: &[u8]) -> Result<Vec<u8>, GrimoireError> {
     let mut cursor = Cursor::new(&mut webp_data);
 
     img.write_to(&mut cursor, ImageOutputFormat::WebP)
-        .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("Failed to convert to WebP: {}", e),
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: format!("failed to convert to webp: {}", e),
         })?;
 
     Ok(webp_data)

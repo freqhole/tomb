@@ -12,6 +12,7 @@ import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
+import { humanizeJobError as humanizeJobErrorShared } from "../../utils/humanizeJobError";
 
 export interface VideoUploadJob {
   /** unique client-side id */
@@ -117,19 +118,11 @@ function updateJobWarning(id: string, message: string | undefined) {
 
 // turn a raw server failure into a short, user-friendly line; full detail
 // stays available via errorFull for a tooltip.
-function humanizeJobError(message: string | undefined): { short: string; full: string } {
-  const full = message?.trim() || "failed";
-  const m = full.toLowerCase();
-  if (m.includes("connection") || m.includes("network") || m.includes("dns"))
-    return { short: "network error", full };
-  if (m.includes("permission denied") || m.includes("forbidden"))
-    return { short: "permission denied", full };
-  if (m.includes("timeout") || m.includes("timed out")) return { short: "timed out", full };
-  if (m.includes("unsupported format") || m.includes("unknown format"))
-    return { short: "unsupported video format", full };
-  const cleaned = full.replace(/\s+/g, " ");
-  const short = cleaned.length > 80 ? cleaned.slice(0, 77) + "\u2026" : cleaned;
-  return { short, full };
+function humanizeJobError(
+  message: string | undefined,
+  errorType: string | undefined
+): { short: string; full: string } {
+  return humanizeJobErrorShared(message, errorType, "video");
 }
 
 /**
@@ -178,7 +171,10 @@ export async function uploadVideoFilesToRemote(
             title: "processing queued",
           });
         } else {
-          const friendly = humanizeJobError(pollResult.errorMessage);
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
+          );
           updateJobStatus(trackId, "failed", {
             error: friendly.short,
             errorFull: friendly.full,
@@ -187,7 +183,7 @@ export async function uploadVideoFilesToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg);
+        const friendly = humanizeJobError(msg, undefined);
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -241,7 +237,10 @@ export async function uploadVideoPathsToRemote(
             title: "processing queued",
           });
         } else {
-          const friendly = humanizeJobError(pollResult.errorMessage);
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
+          );
           updateJobStatus(trackId, "failed", {
             error: friendly.short,
             errorFull: friendly.full,
@@ -250,7 +249,7 @@ export async function uploadVideoPathsToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg);
+        const friendly = humanizeJobError(msg, undefined);
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -339,13 +338,16 @@ export async function fetchVideoUrlsOnRemote(
             title: "processing queued",
           });
         } else {
-          const friendly = humanizeJobError(pollResult.errorMessage);
+          const friendly = humanizeJobError(
+            pollResult.errorMessage,
+            pollResult.errors?.[0]?.error_type
+          );
           updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           onJobComplete?.();
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg);
+        const friendly = humanizeJobError(msg, undefined);
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();

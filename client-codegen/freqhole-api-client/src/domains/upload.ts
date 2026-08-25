@@ -11,6 +11,7 @@ import {
 } from "../codegen/schema.js";
 import type { Transport } from "../transport.js";
 import type { SafeParseResult } from "./types.js";
+import { toZodError } from "../errors.js";
 
 // helper to parse response and validate with schema
 function parseResponse<T>(
@@ -19,19 +20,7 @@ function parseResponse<T>(
   schema: z.ZodType<T>,
 ): SafeParseResult<T> {
   if (status >= 400) {
-    let errorMessage = `HTTP ${status}`;
-    try {
-      const errorBody = JSON.parse(responseBody);
-      if (errorBody?.error) {
-        errorMessage = `HTTP ${status}: ${errorBody.error}`;
-      }
-    } catch {
-      // body wasn't JSON
-    }
-    return {
-      success: false,
-      error: new z.ZodError([{ code: "custom", path: [], message: errorMessage }]),
-    };
+    return { success: false, error: toZodError(responseBody, status) };
   }
 
   try {
