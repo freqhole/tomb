@@ -6,16 +6,60 @@
 //! per-purpose ffmpeg invocations (album art / waveform extraction), just
 //! factored out for video's new call sites (poster/subtitle extraction,
 //! transcoding). the existing audio/radio call sites are left as-is.
+//!
+//! stderr cleanup (`humanize_ffmpeg_error`) is centralized here so every
+//! caller of `run_ffmpeg` gets a short, readable error message instead of
+//! a raw 10-50KB ffmpeg banner/codec-list dump - callers don't need to
+//! remember to humanize the result themselves.
 
 use crate::error::GrimoireError;
 use std::process::Stdio;
 use std::time::Duration;
 
+/// shared per-operation timeout. not yet configurable per-call (transcode
+/// vs poster/waveform/subtitle extraction all share this one value) - a
+/// legitimate large/4k transcode can be slow, so this is generous, but a
+/// future pass could plumb a per-operation override through if that turns
+/// out to matter in practice.
+const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// turn a raw ffmpeg/ffprobe stderr blob into a short, human-readable
+/// summary suitable for surfacing in the client's job-progress UI. the raw
+/// text is often a multi-line tool banner plus a single relevant error line.
+pub fn humanize_ffmpeg_error(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "unknown ffmpeg error".to_string();
+    }
+    // ffmpeg's actual error is usually the last non-empty line (banner/
+    // codec-list/config noise comes first) - prefer it over the raw blob.
+    let last_line = trimmed.lines().rev().find(|l| !l.trim().is_empty());
+    let candidate = last_line.unwrap_or(trimmed).trim();
+    let lower = candidate.to_lowercase();
+    if lower.contains("no such file or directory") {
+        return "input file not found".to_string();
+    }
+    if lower.contains("invalid data found when processing input") {
+        return "unrecognized or corrupt video file".to_string();
+    }
+    if lower.contains("does not contain any stream") || lower.contains("stream map") {
+        return "no matching audio/video stream found".to_string();
+    }
+    if candidate.len() > 160 {
+        format!("{}\u{2026}", &candidate[..157])
+    } else {
+        candidate.to_string()
+    }
+}
+
 /// run ffmpeg with `args_template`, substituting every `(placeholder, value)`
 /// pair in `substitutions` before splitting into argv. returns an error if
 /// the args can't be parsed, the process can't be spawned, it times out, or
-/// it exits non-zero.
+/// it exits non-zero. `operation` is a short human label (e.g. "poster
+/// extraction", "transcode rendition 720p") included in any error message
+/// so failures/timeouts are identifiable without needing to correlate logs.
 pub async fn run_ffmpeg(
+    operation: &str,
     args_template: &str,
     substitutions: &[(&str, &str)],
     ffmpeg_path: &str,
@@ -43,23 +87,23 @@ pub async fn run_ffmpeg(
     let mut cmd = tokio::process::Command::new(ffmpeg_path);
     cmd.args(&args).stdout(Stdio::null()).stderr(Stdio::piped());
 
-    let output = tokio::time::timeout(Duration::from_secs(1800), cmd.output())
+    let output = tokio::time::timeout(FFMPEG_TIMEOUT, cmd.output())
         .await
         .map_err(|_| GrimoireError::ProcessingFailed {
-            message: "ffmpeg command timed out".to_string(),
+            message: format!(
+                "{} timed out after {} minutes",
+                operation,
+                FFMPEG_TIMEOUT.as_secs() / 60
+            ),
         })?
         .map_err(|e| GrimoireError::ProcessingFailed {
-            message: format!("failed to run ffmpeg: {}", e),
+            message: format!("failed to run ffmpeg for {}: {}", operation, e),
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(GrimoireError::ProcessingFailed {
-            message: format!(
-                "ffmpeg failed. exit code: {:?}. error: {}",
-                output.status.code(),
-                stderr
-            ),
+            message: format!("{} failed: {}", operation, humanize_ffmpeg_error(&stderr)),
         });
     }
 

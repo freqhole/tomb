@@ -49,26 +49,35 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
 
     let file_path = Path::new(&params.file_path);
 
-    // verify file exists
-    if !file_path.exists() {
-        // don't leak the full local path into the broadcast error.
-        let basename = file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("<unknown>");
-        return Err(JobError::ProcessingFailed {
-            reason: format!("file does not exist: {}", basename),
-        });
-    }
+    // don't leak the full local path into the broadcast error.
+    let basename = file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("<unknown>");
 
+    // a single metadata read distinguishes "does not exist" from "exists but
+    // unreadable" (permission denied, broken symlink) - `.exists()` alone
+    // can't tell these apart, so a permission error used to look identical
+    // to a missing file and burn a retryable `ProcessingFailed` on what is
+    // actually a deterministic permission problem.
     info!("processing file: {}", params.file_path);
 
-    // read file metadata
     let metadata = match fs::metadata(file_path) {
         Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(JobError::ProcessingFailed {
+                reason: format!("file does not exist: {}", basename),
+            });
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            return Err(JobError::ProcessingFailedFinal {
+                reason: format!("permission denied reading file: {} ({})", basename, e),
+                error_type: "file_permission_denied".to_string(),
+            });
+        }
         Err(e) => {
             return Err(JobError::ProcessingFailed {
-                reason: format!("failed to read file metadata: {}", e),
+                reason: format!("failed to read file metadata for {}: {}", basename, e),
             })
         }
     };
@@ -495,7 +504,14 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                warn!("image collection failed: {}", error_msg);
+                // job still reports success below (images_collected stays false) - there's
+                // no partial-failure field on ProcessFileResult yet (see
+                // docs/error-handling-tasks.md's P0-C section), so this log is the only
+                // signal that art collection broke vs. the file genuinely having no art.
+                warn!(
+                    "image collection failed for blob {} ({}): {}",
+                    media_blob_id, params.file_path, error_msg
+                );
             }
         }
     }
@@ -520,7 +536,10 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                     true
                 }
                 None => {
-                    warn!("waveform generation failed: no data returned");
+                    warn!(
+                        "waveform generation failed for blob {} ({}): no data returned",
+                        media_blob_id, params.file_path
+                    );
                     false
                 }
             },
@@ -530,7 +549,13 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
                 } else {
                     response.message
                 };
-                warn!("waveform generation failed: {}", error_msg);
+                // same as image collection above: no partial-failure field on
+                // ProcessFileResult yet, so the job reports waveform_generated=false
+                // with only this log to explain why.
+                warn!(
+                    "waveform generation failed for blob {} ({}): {}",
+                    media_blob_id, params.file_path, error_msg
+                );
                 false
             }
         }

@@ -177,13 +177,47 @@ async fn connect_to_peer(
                 error = %e,
                 "[p2p] connect to peer failed"
             );
-            GrimoireError::FederationApiError {
-                message: format!("failed to connect to peer {}: {}", node_id_short, e),
-            }
+            classify_connect_error(node_id_short, &e)
         })?;
 
     debug!("connected to peer {}", node_id_short);
     Ok(PeerConnection::new(conn, peer_id))
+}
+
+/// classify an iroh `ConnectError` into a transient (retryable) vs
+/// permanent (not retryable) grimoire error.
+///
+/// ALPN mismatch (peer doesn't speak the freqhole protocol at all) and TLS
+/// handshake failure are protocol-level incompatibilities that won't fix
+/// themselves on retry; everything else (address lookup failures, timeouts,
+/// resets, relay issues) is treated as a transient connection problem, same
+/// as before.
+fn classify_connect_error(node_id_short: &str, e: &iroh::endpoint::ConnectError) -> GrimoireError {
+    use iroh::endpoint::{ConnectError, ConnectWithOptsError, ConnectingError};
+
+    match e {
+        ConnectError::Connect {
+            source: ConnectWithOptsError::InvalidAlpn { .. },
+            ..
+        } => GrimoireError::PeerProtocolMismatch {
+            reason: format!(
+                "peer {} does not support the freqhole protocol (ALPN mismatch)",
+                node_id_short
+            ),
+        },
+        ConnectError::Connecting {
+            source: ConnectingError::HandshakeFailure { .. },
+            ..
+        } => GrimoireError::PeerProtocolMismatch {
+            reason: format!(
+                "tls handshake with peer {} failed: {}",
+                node_id_short, e
+            ),
+        },
+        _ => GrimoireError::FederationApiError {
+            message: format!("failed to connect to peer {}: {}", node_id_short, e),
+        },
+    }
 }
 
 /// send an API request to a remote peer

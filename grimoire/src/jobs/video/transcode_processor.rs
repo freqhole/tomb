@@ -70,6 +70,12 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
 
     let mut rendition_blob_ids = Vec::new();
     let total = renditions.len();
+    // TODO: all five warn!-and-continue sites below (ffmpeg failure, stat
+    // failure, hash failure, blake3 failure, blob-creation failure) silently
+    // drop a rendition while the job still reports overall success. a
+    // `partial_failures`/`warnings` field on the job result is the proper
+    // fix but is a cross-cutting design decision shared with the music-side
+    // processors - see docs/error-handling-tasks.md's P0-C track.
     for (i, rendition) in renditions.iter().enumerate() {
         job_events::emit_stage_from_job(
             job,
@@ -114,6 +120,7 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             .to_string();
 
         if let Err(e) = run_ffmpeg(
+            &format!("transcode rendition '{}'", rendition.label),
             &rendition.args,
             &[
                 ("{input}", input_path.as_str()),
@@ -124,8 +131,8 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         .await
         {
             warn!(
-                "transcode failed for video {} rendition {}: {}",
-                params.video_id, rendition.label, e
+                "transcode failed for video {} rendition {} (output path {}): {}",
+                params.video_id, rendition.label, output_path, e
             );
             let _ = tokio::fs::remove_file(&output_path).await;
             continue;
@@ -139,8 +146,8 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             Ok(m) => m.len(),
             Err(e) => {
                 warn!(
-                    "failed to stat transcode output for video {} rendition {}: {}",
-                    params.video_id, rendition.label, e
+                    "failed to stat transcode output for video {} rendition {} at {}: {}",
+                    params.video_id, rendition.label, output_path, e
                 );
                 continue;
             }
@@ -159,8 +166,10 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             Ok(hash) => hash,
             Err(e) => {
                 warn!(
-                    "failed to hash transcode output for video {} rendition {}: {}",
-                    params.video_id, rendition.label, e
+                    "failed to hash transcode output for video {} rendition {}: {} \
+                     (output file left orphaned on disk at {} - next attempt will \
+                     re-transcode from scratch rather than reuse it)",
+                    params.video_id, rendition.label, e, output_path
                 );
                 continue;
             }
@@ -173,8 +182,9 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             Ok(hash) => Some(hash),
             Err(e) => {
                 warn!(
-                    "failed to compute blake3 for transcode output {}: {}",
-                    output_path, e
+                    "failed to compute blake3 for transcode output {} (video {} rendition {}): {} \
+                     - future p2p transfer verification for this rendition is disabled until backfilled",
+                    output_path, params.video_id, rendition.label, e
                 );
                 None
             }
@@ -207,8 +217,8 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         {
             Ok(blob) => rendition_blob_ids.push(blob.id),
             Err(e) => warn!(
-                "failed to create rendition blob for video {} rendition {}: {}",
-                params.video_id, rendition.label, e
+                "failed to create rendition blob for video {} rendition {} (output path {}): {}",
+                params.video_id, rendition.label, output_path, e
             ),
         }
     }

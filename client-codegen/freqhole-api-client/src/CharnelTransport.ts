@@ -4,12 +4,7 @@
 // app iroh endpoint. no WASM needed.
 
 import type { BlobData, Transport, TransportResponse } from "./transport.js";
-import type {
-  CloseReason,
-  EventFilter,
-  JobEvent,
-  JobStateSnapshot,
-} from "./codegen/schema.js";
+import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 
 // tauri invoke function type
@@ -19,6 +14,86 @@ type InvokeFn = (cmd: string, args?: unknown) => Promise<unknown>;
 // wrap bare blobIds with a synthetic URL prefix.
 function cacheKey(blobId: string): string {
   return `https://blob.local/${blobId}`;
+}
+
+/**
+ * error thrown by request()/upload methods when a tauri IPC call fails.
+ * mirrors sendToRemote.ts's `EnvelopeError` shape so callers can
+ * consistently check `.errorType` regardless of which transport produced
+ * the failure. `step` distinguishes which part of a two-step upload
+ * (local import vs. telling the remote peer to pull) failed.
+ */
+export class TransportError extends Error {
+  readonly errorType?: string;
+  readonly step?: "import" | "remote_trigger";
+  constructor(message: string, opts?: { errorType?: string; step?: "import" | "remote_trigger" }) {
+    super(message);
+    this.name = "TransportError";
+    this.errorType = opts?.errorType;
+    this.step = opts?.step;
+  }
+}
+
+/**
+ * extract a best-effort `error_type` out of a caught tauri IPC
+ * rejection. tauri rejections are sometimes a plain string, sometimes an
+ * `Error`, and (once the rust side lands the convention - see
+ * docs/error-handling-tasks.md track P0-D) sometimes a short
+ * machine-parseable prefix like `"file_not_found: could not open file"`,
+ * or a JSON-encoded structured error body forwarded from a remote peer's
+ * response. this parses either shape, falling back to the raw message
+ * when neither is present - never matches on natural-language message
+ * text (the prefix regex only matches a single snake_case token
+ * immediately before the colon, so an ordinary sentence like "failed to
+ * open file: permission denied" is left alone).
+ */
+function extractErrorType(err: unknown): { message: string; errorType?: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  const trimmed = message.trim();
+
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const firstError =
+        Array.isArray(parsed.errors) && parsed.errors.length > 0
+          ? (parsed.errors[0] as Record<string, unknown>)
+          : undefined;
+      const errorType =
+        (typeof firstError?.error_type === "string" && firstError.error_type) ||
+        (typeof parsed.error_type === "string" && parsed.error_type) ||
+        undefined;
+      if (errorType) {
+        const detail =
+          (typeof firstError?.detail === "string" && firstError.detail) ||
+          (typeof parsed.message === "string" && parsed.message) ||
+          message;
+        return { message: detail, errorType };
+      }
+    } catch {
+      // not valid json, fall through to prefix-token parsing below
+    }
+  }
+
+  const prefixMatch = /^([a-z][a-z0-9_]*):\s*(.+)$/s.exec(message);
+  if (prefixMatch) {
+    return { message: prefixMatch[2], errorType: prefixMatch[1] };
+  }
+
+  return { message };
+}
+
+/** run `fn`, retagging any thrown error with which upload step failed. */
+async function tagStep<T>(step: "import" | "remote_trigger", fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof TransportError) {
+      throw new TransportError(e.message, { errorType: e.errorType, step });
+    }
+    const { message, errorType } = extractErrorType(e);
+    const stepLabel = step === "import" ? "local import" : "remote trigger";
+    throw new TransportError(`${stepLabel} failed: ${message}`, { errorType, step });
+  }
 }
 
 // tauri invoke is dynamically imported to avoid bundling in browser builds
@@ -120,11 +195,7 @@ export class CharnelTransport implements Transport {
   /**
    * make an API request via P2P
    */
-  async request(
-    method: string,
-    path: string,
-    body?: string,
-  ): Promise<TransportResponse> {
+  async request(method: string, path: string, body?: string): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
     // intentionally no per-error debug log here: the underlying
@@ -133,14 +204,19 @@ export class CharnelTransport implements Transport {
     // whether to surface the error. logging at this layer fires once
     // per request per failed peer and drowns the console for any
     // peer that's temporarily unreachable.
-    const result = (await inv("p2p_api_call", {
-      peerAddr: this.peerAddr,
-      method,
-      path,
-      body: body ?? null,
-    })) as { status: number; body: string };
+    try {
+      const result = (await inv("p2p_api_call", {
+        peerAddr: this.peerAddr,
+        method,
+        path,
+        body: body ?? null,
+      })) as { status: number; body: string };
 
-    return result;
+      return result;
+    } catch (e) {
+      const { message, errorType } = extractErrorType(e);
+      throw new TransportError(`p2p request failed: ${message}`, { errorType });
+    }
   }
 
   /**
@@ -199,22 +275,22 @@ export class CharnelTransport implements Transport {
     if (path === "/api/upload/music") {
       console.debug("[P2P] uploadByPath: importing blob from", filePath);
       // import file into local FsStore -> get blake3 hash
-      const blake3 = (await inv("p2p_import_blob", { filePath })) as string;
+      const blake3 = await tagStep(
+        "import",
+        async () => (await inv("p2p_import_blob", { filePath })) as string,
+      );
       console.debug("[P2P] uploadByPath: imported blob, blake3 =", blake3);
 
       // build request body for the remote peer
       const body: Record<string, unknown> = {
         blake3,
-        filename:
-          filePath.split("/").pop() || filePath.split("\\").pop() || "music",
+        filename: filePath.split("/").pop() || filePath.split("\\").pop() || "music",
         ...metadata,
       };
 
       // tell the remote peer to pull the blob from us
-      return this.request(
-        "POST",
-        "/api/upload/music-by-blake3",
-        JSON.stringify(body),
+      return tagStep("remote_trigger", () =>
+        this.request("POST", "/api/upload/music-by-blake3", JSON.stringify(body)),
       );
     }
 
@@ -267,9 +343,7 @@ export class CharnelTransport implements Transport {
    * webview; it also keeps memory bounded on both sides (the receiver
    * accumulates chunks in a temp file on disk, not in memory).
    */
-  private async uploadMusicViaBytes(
-    file: File,
-  ): Promise<TransportResponse> {
+  private async uploadMusicViaBytes(file: File): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
     console.debug("[P2P] uploadMusicViaBytes: streaming file", file.name, file.size, "bytes");
@@ -277,34 +351,34 @@ export class CharnelTransport implements Transport {
     // ~4MB raw per chunk -> ~5.5MB base64 per IPC call, well within limits.
     const CHUNK_SIZE = 4 * 1024 * 1024;
 
-    const uploadId = (await inv("p2p_import_begin")) as string;
-    try {
-      for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
-        const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
-        const chunkBytes = new Uint8Array(await slice.arrayBuffer());
-        const b64 = bytesToBase64(chunkBytes);
-        await inv("p2p_import_chunk", { uploadId, data: b64 });
-      }
-    } catch (err) {
-      // best-effort cleanup of the partial temp file on the receiver side.
+    const blake3 = await tagStep("import", async () => {
+      const uploadId = (await inv("p2p_import_begin")) as string;
       try {
-        await inv("p2p_import_abort", { uploadId });
-      } catch {
-        // ignore abort failures
+        for (let offset = 0; offset < file.size; offset += CHUNK_SIZE) {
+          const slice = file.slice(offset, Math.min(offset + CHUNK_SIZE, file.size));
+          const chunkBytes = new Uint8Array(await slice.arrayBuffer());
+          const b64 = bytesToBase64(chunkBytes);
+          await inv("p2p_import_chunk", { uploadId, data: b64 });
+        }
+      } catch (err) {
+        // best-effort cleanup of the partial temp file on the receiver side.
+        try {
+          await inv("p2p_import_abort", { uploadId });
+        } catch {
+          // ignore abort failures
+        }
+        throw err;
       }
-      throw err;
-    }
 
-    // finalize: import accumulated temp file into the blobs store -> blake3.
-    const blake3 = (await inv("p2p_import_finish", { uploadId })) as string;
+      // finalize: import accumulated temp file into the blobs store -> blake3.
+      return (await inv("p2p_import_finish", { uploadId })) as string;
+    });
     console.debug("[P2P] uploadMusicViaBytes: imported blob, blake3 =", blake3);
 
     // tell the remote peer to pull the blob from us
     const body = { blake3, filename: file.name };
-    return this.request(
-      "POST",
-      "/api/upload/music-by-blake3",
-      JSON.stringify(body),
+    return tagStep("remote_trigger", () =>
+      this.request("POST", "/api/upload/music-by-blake3", JSON.stringify(body)),
     );
   }
 
@@ -476,19 +550,14 @@ export class CharnelTransport implements Transport {
     return out;
   }
 
-  subscribeJobEvents(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent> {
+  subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return charnelRemoteJobEventsIterable(this.peerAddr, filter, signal);
   }
 }
 
 // frame shape emitted by the rust-side `JobsEventsFrame` — mirrors
 // `CharnelLocalTransport.ts`.
-type JobsEventsFrame =
-  | { kind: "event"; evt: JobEvent }
-  | { kind: "closed"; reason: CloseReason };
+type JobsEventsFrame = { kind: "event"; evt: JobEvent } | { kind: "closed"; reason: CloseReason };
 
 async function* charnelRemoteJobEventsIterable(
   peerAddr: string,

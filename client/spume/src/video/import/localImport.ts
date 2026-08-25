@@ -144,7 +144,17 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       imported++;
       debug("video/localImport", `added: ${file.name}`);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "unknown error";
+      // DOMException names are standard and stable enough to branch on
+      // (unlike free-text error messages) - quota-exceeded is common and
+      // actionable, so give it a specific, helpful message; other OPFS
+      // errors (security/not-found) stay generic since there's nothing
+      // more useful to tell the user.
+      const msg =
+        error instanceof DOMException && error.name === "QuotaExceededError"
+          ? "not enough storage space in this browser - try clearing browser storage/cache and try again"
+          : error instanceof Error
+            ? error.message
+            : "unknown error";
       warn("video/localImport", `failed to import ${file.name}:`, error);
       errors.push(`${file.name}: ${msg}`);
     }

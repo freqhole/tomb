@@ -40,6 +40,12 @@ const NOT_RETRYABLE_SUFFIX: &str = "] ";
 /// the server admin, never by retrying.
 pub const FETCH_ERROR_CONFIG: &str = "fetch_not_configured";
 
+/// output directory couldn't be created (base dir missing, no permission,
+/// read-only mount) - a config/environment problem, identical on every
+/// retry, so treated as its own non-retryable category rather than folded
+/// into the generic `fetch_not_configured`.
+pub const FETCH_ERROR_OUTPUT_DIR: &str = "fetch_output_dir_creation_failed";
+
 fn not_retryable(category: &str, msg: impl std::fmt::Display) -> String {
     format!("{NOT_RETRYABLE_PREFIX}{category}{NOT_RETRYABLE_SUFFIX}{msg}")
 }
@@ -245,7 +251,15 @@ pub async fn download_media(
     // ensure output directory exists
     tokio::fs::create_dir_all(&output_dir)
         .await
-        .map_err(|e| format!("failed to create output directory: {}", e))?;
+        .map_err(|e| {
+            // base output dir missing/no permission is a config problem that
+            // will fail identically on every retry - don't burn the job's
+            // retry budget on it.
+            not_retryable(
+                FETCH_ERROR_OUTPUT_DIR,
+                format!("failed to create output directory {}: {}", output_dir, e),
+            )
+        })?;
 
     info!("downloading media from URL: {} to {}", url, output_dir);
 
@@ -274,7 +288,13 @@ pub async fn download_media(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("failed to execute fetch command: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "failed to execute fetch command '{}': {} - check that the configured \
+                 fetch_command binary exists and is executable",
+                cmd, e
+            )
+        })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("failed to capture stderr")?;
@@ -290,8 +310,18 @@ pub async fn download_media(
         while let Ok(Some(line)) = lines.next_line().await {
             if !line.trim().is_empty() {
                 warn!("yt-dlp stderr: {}", line);
-                if let Ok(mut buf) = stderr_lines_for_task.lock() {
-                    buf.push(line);
+                match stderr_lines_for_task.lock() {
+                    Ok(mut buf) => buf.push(line),
+                    Err(_) => {
+                        // poisoned lock: a line is silently dropped here, which can
+                        // then cause the downstream "no files downloaded" classifier
+                        // to see incomplete stderr and misclassify the failure - not
+                        // fatal, but worth a visible warning instead of staying silent.
+                        warn!(
+                            "fetch: stderr_lines mutex poisoned, dropping stderr line for classification: {}",
+                            line
+                        );
+                    }
                 }
             }
         }

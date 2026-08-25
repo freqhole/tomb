@@ -36,23 +36,24 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
         .server
         .as_ref()
         .and_then(|s| s.fetch_music.as_ref())
-        .ok_or_else(|| JobError::ProcessingFailed {
+        .ok_or_else(|| JobError::ProcessingFailedFinal {
             reason: "fetch_music not configured".to_string(),
+            error_type: "fetch_not_configured".to_string(),
         })?;
 
     if !fetch_config.enabled {
-        return Err(JobError::ProcessingFailed {
+        return Err(JobError::ProcessingFailedFinal {
             reason: "fetch_music is not enabled".to_string(),
+            error_type: "fetch_not_enabled".to_string(),
         });
     }
 
-    let precheck_cmd =
-        fetch_config
-            .precheck_command
-            .as_ref()
-            .ok_or_else(|| JobError::ProcessingFailed {
-                reason: "precheck_command not configured".to_string(),
-            })?;
+    let precheck_cmd = fetch_config.precheck_command.as_ref().ok_or_else(|| {
+        JobError::ProcessingFailedFinal {
+            reason: "precheck_command not configured".to_string(),
+            error_type: "fetch_precheck_command_not_configured".to_string(),
+        }
+    })?;
 
     let parts: Vec<&str> = precheck_cmd.split_whitespace().collect();
     if parts.is_empty() {

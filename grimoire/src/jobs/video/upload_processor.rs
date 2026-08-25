@@ -44,10 +44,46 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
     );
 
     let file_path = Path::new(local_path_str);
-    if !file_path.exists() {
-        return Err(JobError::ProcessingFailed {
-            reason: format!("file not found at path: {}", local_path_str),
-        });
+    // check readability, not just existence - a permission-denied or
+    // broken-symlink path passes `.exists()` fine and only fails later
+    // with a generic error. keep the local path out of the user-facing
+    // message (it's an internal storage detail); log it instead.
+    match tokio::fs::metadata(file_path).await {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                tracing::warn!(
+                    "upload path is not a regular file: {}",
+                    local_path_str
+                );
+                return Err(JobError::ProcessingFailedFinal {
+                    reason: "uploaded file is not a regular file".to_string(),
+                    error_type: "file_not_found".to_string(),
+                });
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            tracing::warn!(
+                "permission denied reading upload path {}: {}",
+                local_path_str, e
+            );
+            return Err(JobError::ProcessingFailedFinal {
+                reason: "the server does not have permission to read this file".to_string(),
+                error_type: "file_permission_denied".to_string(),
+            });
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            tracing::warn!("upload file not found at {}: {}", local_path_str, e);
+            return Err(JobError::ProcessingFailedFinal {
+                reason: "file not found".to_string(),
+                error_type: "file_not_found".to_string(),
+            });
+        }
+        Err(e) => {
+            tracing::warn!("failed to read metadata for upload path {}: {}", local_path_str, e);
+            return Err(JobError::ProcessingFailed {
+                reason: "failed to read file metadata".to_string(),
+            });
+        }
     }
 
     if let Err(e) =

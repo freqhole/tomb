@@ -31,17 +31,47 @@ pub async fn clear_federation_endpoint_handle() {
     }
 }
 
-/// check if an error message indicates a connection failure (peer likely offline)
-fn is_connection_error(error_msg: &str) -> bool {
+/// known-fragile text-pattern fallback for classifying a p2p failure as
+/// "peer is unreachable" vs a permanent rejection - depends entirely on the
+/// exact wording of whatever underlying library (iroh, std::io, etc.)
+/// produced the message, and WILL silently stop matching if that wording
+/// changes upstream. kept only as a last resort for errors that haven't
+/// been given a real, structured `GrimoireError` variant yet (see
+/// `is_connection_error` below, and docs/error-handling-tasks.md track
+/// P0-D/P1-B for the ongoing structural replacement).
+const CONNECTION_ERROR_SUBSTRINGS: &[&str] = &[
+    "failed to connect",
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "timed out",
+    "timeout",
+    "unreachable",
+    "no route",
+];
+
+/// text-pattern fallback - see `CONNECTION_ERROR_SUBSTRINGS` doc comment.
+fn is_connection_error_text_fallback(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
-    lower.contains("failed to connect")
-        || lower.contains("connection refused")
-        || lower.contains("connection reset")
-        || lower.contains("connection closed")
-        || lower.contains("timed out")
-        || lower.contains("timeout")
-        || lower.contains("unreachable")
-        || lower.contains("no route")
+    CONNECTION_ERROR_SUBSTRINGS.iter().any(|s| lower.contains(s))
+}
+
+/// check if a p2p failure indicates a connection failure (peer likely
+/// offline), used to decide whether to fire the peer-offline event.
+///
+/// prefers a structural check on the `GrimoireError` variant - transient
+/// connection/timeout failures (`FederationApiError`) are "peer offline",
+/// while permanent rejections (`PeerRejected`, `PeerProtocolMismatch`) are
+/// not - and only falls back to the fragile text-pattern heuristic above
+/// for errors that haven't been classified into one of those p2p variants
+/// yet (e.g. failures raised before the federation endpoint exists at all).
+fn is_connection_error(err: &grimoire::GrimoireError) -> bool {
+    use grimoire::GrimoireError;
+    match err {
+        GrimoireError::FederationApiError { .. } => true,
+        GrimoireError::PeerRejected { .. } | GrimoireError::PeerProtocolMismatch { .. } => false,
+        _ => is_connection_error_text_fallback(&err.to_string()),
+    }
 }
 
 /// response from p2p_api_call
@@ -224,7 +254,7 @@ pub async fn p2p_api_call(
                 let error_msg = e.to_string();
                 tracing::debug!(peer = %peer_addr, method = %method, path = %path, error = %error_msg, "p2p api request failed");
                 // emit peer-offline event for connection failures
-                if is_connection_error(&error_msg) {
+                if is_connection_error(&e) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
                 error_msg
@@ -260,7 +290,7 @@ pub async fn p2p_fetch_blob_verified(
             .map_err(|e| {
                 let error_msg = e.to_string();
                 tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
-                if is_connection_error(&error_msg) {
+                if is_connection_error(&e) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
                 error_msg
@@ -294,7 +324,7 @@ pub async fn p2p_fetch_blob_verified_by_id(
             .map_err(|e| {
                 let error_msg = e.to_string();
                 tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
-                if is_connection_error(&error_msg) {
+                if is_connection_error(&e) {
                     let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
                 }
                 error_msg
@@ -326,7 +356,7 @@ pub async fn p2p_fetch_hello_image(
         .map_err(|e| {
             let error_msg = e.to_string();
             tracing::warn!(peer = %peer_addr, error = %error_msg, "fetch hello image failed");
-            if is_connection_error(&error_msg) {
+            if is_connection_error(&e) {
                 let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
             }
             error_msg
@@ -377,14 +407,14 @@ pub async fn p2p_import_blob(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
 
     if !path.exists() {
-        return Err(format!("file not found: {}", file_path));
+        return Err(format!("file_not_found: file not found: {}", file_path));
     }
 
     tracing::info!("importing file into blobs store: {}", file_path);
 
     let hash = grimoire::blobz::add_file_to_store(path)
         .await
-        .map_err(|e| format!("failed to import blob: {}", e))?;
+        .map_err(|e| format!("{}: failed to import blob: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("imported blob: {} -> {}", file_path, &blake3[..16]);
@@ -402,12 +432,12 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
     use base64::Engine;
     let data = base64::engine::general_purpose::STANDARD
         .decode(&data)
-        .map_err(|e| format!("failed to decode base64: {}", e))?;
+        .map_err(|e| format!("invalid_base64: failed to decode base64: {}", e))?;
     tracing::info!("importing {} bytes into blobs store", data.len());
 
     let hash = grimoire::blobz::add_bytes_to_store(&data)
         .await
-        .map_err(|e| format!("failed to import blob bytes: {}", e))?;
+        .map_err(|e| format!("{}: failed to import blob bytes: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("imported blob bytes: {} -> {}", data.len(), &blake3[..16]);
@@ -426,7 +456,7 @@ pub async fn p2p_import_blob_bytes(data: String) -> Result<String, String> {
 pub async fn p2p_import_begin() -> Result<String, String> {
     grimoire::blobz::begin_chunked_import()
         .await
-        .map_err(|e| format!("failed to begin chunked import: {}", e))
+        .map_err(|e| format!("{}: failed to begin chunked import: {}", e.error_type(), e))
 }
 
 /// append a base64-encoded chunk to an in-flight chunked import.
@@ -436,11 +466,11 @@ pub async fn p2p_import_chunk(upload_id: String, data: String) -> Result<u64, St
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
-        .map_err(|e| format!("failed to decode base64 chunk: {}", e))?;
+        .map_err(|e| format!("invalid_base64: failed to decode base64 chunk: {}", e))?;
 
     grimoire::blobz::append_chunk(&upload_id, &bytes)
         .await
-        .map_err(|e| format!("failed to append chunk: {}", e))
+        .map_err(|e| format!("{}: failed to append chunk: {}", e.error_type(), e))
 }
 
 /// finish a chunked import: import the accumulated temp file into the blobs
@@ -449,7 +479,7 @@ pub async fn p2p_import_chunk(upload_id: String, data: String) -> Result<u64, St
 pub async fn p2p_import_finish(upload_id: String) -> Result<String, String> {
     let hash = grimoire::blobz::finish_chunked_import(&upload_id)
         .await
-        .map_err(|e| format!("failed to finish chunked import: {}", e))?;
+        .map_err(|e| format!("{}: failed to finish chunked import: {}", e.error_type(), e))?;
 
     let blake3 = hash.to_hex().to_string();
     tracing::info!("finished chunked import {} -> {}", upload_id, &blake3[..16]);
@@ -461,5 +491,5 @@ pub async fn p2p_import_finish(upload_id: String) -> Result<String, String> {
 pub async fn p2p_import_abort(upload_id: String) -> Result<(), String> {
     grimoire::blobz::abort_chunked_import(&upload_id)
         .await
-        .map_err(|e| format!("failed to abort chunked import: {}", e))
+        .map_err(|e| format!("{}: failed to abort chunked import: {}", e.error_type(), e))
 }

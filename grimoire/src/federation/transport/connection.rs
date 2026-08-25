@@ -94,15 +94,11 @@ impl PeerConnection {
                 body,
             } => {
                 if resp_id != id {
-                    return Err(GrimoireError::FederationApiError {
-                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
-                    });
+                    return Err(response_id_mismatch(id, resp_id));
                 }
                 Ok(ApiResponse { status, body })
             }
-            _ => Err(GrimoireError::FederationApiError {
-                message: "unexpected response type for api request".to_string(),
-            }),
+            _ => Err(unexpected_response("api request")),
         }
     }
 
@@ -124,10 +120,7 @@ impl PeerConnection {
 
         // send hello image request
         let msg = PeerMessage::HelloImageRequest { id };
-        let msg_bytes =
-            serde_json::to_vec(&msg).map_err(|e| GrimoireError::FederationApiError {
-                message: format!("failed to serialize request: {}", e),
-            })?;
+        let msg_bytes = serde_json::to_vec(&msg).map_err(GrimoireError::Serialization)?;
 
         send.write_all(&msg_bytes)
             .await
@@ -149,8 +142,10 @@ impl PeerConnection {
         let len = u32::from_be_bytes(len_bytes) as usize;
 
         if len > 64 * 1024 {
-            return Err(GrimoireError::FederationApiError {
-                message: format!("hello image header too large: {} bytes", len),
+            // an oversized length prefix means the peer's framing is broken
+            // or malicious - not something a retry of the same stream fixes.
+            return Err(GrimoireError::PeerProtocolMismatch {
+                reason: format!("hello image header too large: {} bytes", len),
             });
         }
 
@@ -162,9 +157,7 @@ impl PeerConnection {
             })?;
 
         let response: PeerMessage =
-            serde_json::from_slice(&resp_bytes).map_err(|e| GrimoireError::FederationApiError {
-                message: format!("failed to parse response: {}", e),
-            })?;
+            serde_json::from_slice(&resp_bytes).map_err(GrimoireError::Serialization)?;
 
         match response {
             PeerMessage::HelloImageResponse {
@@ -172,15 +165,17 @@ impl PeerConnection {
                 size,
                 content_type,
                 error,
+                error_type: _,
             } => {
                 if resp_id != id {
-                    return Err(GrimoireError::FederationApiError {
-                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
-                    });
+                    return Err(response_id_mismatch(id, resp_id));
                 }
                 if let Some(err) = error {
-                    return Err(GrimoireError::FederationApiError {
-                        message: format!("hello image error: {}", err),
+                    // peer explicitly told us it can't serve a hello image -
+                    // permanent for this peer, not a network hiccup.
+                    return Err(GrimoireError::PeerRejected {
+                        peer_id: self.peer_id.to_string(),
+                        reason: format!("hello image error: {}", err),
                     });
                 }
                 let info = BlobStreamInfo {
@@ -191,9 +186,7 @@ impl PeerConnection {
                 // remaining bytes come from recv stream
                 Ok((info, recv))
             }
-            _ => Err(GrimoireError::FederationApiError {
-                message: "unexpected response type for hello image".to_string(),
-            }),
+            _ => Err(unexpected_response("hello image")),
         }
     }
 
@@ -221,11 +214,10 @@ impl PeerConnection {
                 id: resp_id,
                 available,
                 error,
+                error_type,
             } => {
                 if resp_id != id {
-                    return Err(GrimoireError::FederationApiError {
-                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
-                    });
+                    return Err(response_id_mismatch(id, resp_id));
                 }
                 if let Some(err) = error {
                     debug!(
@@ -233,11 +225,18 @@ impl PeerConnection {
                         &blake3_hash[..16.min(blake3_hash.len())],
                         err
                     );
-                    // distinguish "unauthorized" so the caller can knock.
-                    // source returns literal "unauthorized: peer not registered".
-                    if err.starts_with("unauthorized") {
+                    // distinguish "unauthorized" so the caller can knock. checks
+                    // the structured error_type field (populated by handler.rs)
+                    // instead of sniffing the human-readable error message.
+                    if error_type.as_deref() == Some("unauthorized") {
                         return Ok(EnsureBlobOutcome::Unauthorized);
                     }
+                    // NOTE: everything else still collapses to NotAvailable
+                    // here - splitting "peer never had this blob" from "peer
+                    // had it but the local file is missing" requires
+                    // blobz::ensure_blob_by_blake3 (grimoire/src/blobz/blake3.rs)
+                    // to return more than a bare bool, which is out of scope
+                    // for this pass (see docs/error-handling-tasks.md).
                     return Ok(EnsureBlobOutcome::NotAvailable);
                 }
                 Ok(if available {
@@ -246,9 +245,7 @@ impl PeerConnection {
                     EnsureBlobOutcome::NotAvailable
                 })
             }
-            _ => Err(GrimoireError::FederationApiError {
-                message: "unexpected response type for ensure blob".to_string(),
-            }),
+            _ => Err(unexpected_response("ensure blob")),
         }
     }
 
@@ -273,11 +270,10 @@ impl PeerConnection {
                 id: resp_id,
                 blake3,
                 error,
+                error_type: _,
             } => {
                 if resp_id != id {
-                    return Err(GrimoireError::FederationApiError {
-                        message: format!("response id mismatch: expected {}, got {}", id, resp_id),
-                    });
+                    return Err(response_id_mismatch(id, resp_id));
                 }
                 if let Some(err) = error {
                     debug!(
@@ -289,9 +285,7 @@ impl PeerConnection {
                 }
                 Ok(blake3)
             }
-            _ => Err(GrimoireError::FederationApiError {
-                message: "unexpected response type for compute blake3".to_string(),
-            }),
+            _ => Err(unexpected_response("compute blake3")),
         }
     }
 
@@ -305,10 +299,9 @@ impl PeerConnection {
                     message: format!("failed to open stream: {}", e),
                 })?;
 
-        // serialize and send
-        let msg_bytes = serde_json::to_vec(msg).map_err(|e| GrimoireError::FederationApiError {
-            message: format!("failed to serialize message: {}", e),
-        })?;
+        // serialize and send - a failure here is a bug in our own outgoing
+        // data, not a network issue, so it's not retryable.
+        let msg_bytes = serde_json::to_vec(msg).map_err(GrimoireError::Serialization)?;
 
         debug!("sending {} bytes to {}", msg_bytes.len(), self.peer_id);
 
@@ -337,10 +330,10 @@ impl PeerConnection {
 
         debug!("received {} bytes from {}", resp_bytes.len(), self.peer_id);
 
+        // a malformed response means the peer sent us something our
+        // protocol can't understand - not retryable by resending.
         let response: PeerMessage =
-            serde_json::from_slice(&resp_bytes).map_err(|e| GrimoireError::FederationApiError {
-                message: format!("failed to parse response: {}", e),
-            })?;
+            serde_json::from_slice(&resp_bytes).map_err(GrimoireError::Serialization)?;
 
         Ok(response)
     }
@@ -348,5 +341,21 @@ impl PeerConnection {
     /// close the connection
     pub fn close(&self, error_code: u32, reason: &str) {
         self.conn.close(error_code.into(), reason.as_bytes());
+    }
+}
+
+/// a peer responded with a request id that doesn't match ours - a protocol
+/// violation, not a network blip. permanent, not retryable.
+fn response_id_mismatch(expected: u64, got: u64) -> GrimoireError {
+    GrimoireError::PeerProtocolMismatch {
+        reason: format!("response id mismatch: expected {}, got {}", expected, got),
+    }
+}
+
+/// a peer responded with a `PeerMessage` variant we didn't ask for - a
+/// protocol violation, not a network blip. permanent, not retryable.
+fn unexpected_response(request_kind: &str) -> GrimoireError {
+    GrimoireError::PeerProtocolMismatch {
+        reason: format!("unexpected response type for {}", request_kind),
     }
 }

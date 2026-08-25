@@ -115,13 +115,35 @@ async fn handle_stream(
         .map(|f| f.max_message_size_bytes())
         .unwrap_or(10 * 1024 * 1024);
     // read the full message as JSON
-    let msg_bytes = recv
-        .read_to_end(max_size)
-        .await
-        .map_err(|e| format!("failed to read message: {}", e))?;
+    let msg_bytes = match recv.read_to_end(max_size).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let error = format!("failed to read message: {}", e);
+            let resp = PeerMessage::ErrorResponse {
+                id: None,
+                error: error.clone(),
+                error_type: Some("stream_read_failed".to_string()),
+            };
+            // best-effort: the send side may itself be broken, in which case
+            // this is a no-op and the caller still sees the original error.
+            let _ = send_response(&mut send, &resp).await;
+            return Err(error);
+        }
+    };
 
-    let msg: PeerMessage = serde_json::from_slice(&msg_bytes)
-        .map_err(|e| format!("failed to parse message: {}", e))?;
+    let msg: PeerMessage = match serde_json::from_slice(&msg_bytes) {
+        Ok(m) => m,
+        Err(e) => {
+            let error = format!("failed to parse message: {}", e);
+            let resp = PeerMessage::ErrorResponse {
+                id: None,
+                error: error.clone(),
+                error_type: Some("message_parse_failed".to_string()),
+            };
+            let _ = send_response(&mut send, &resp).await;
+            return Err(error);
+        }
+    };
 
     match msg {
         PeerMessage::ApiRequest {
@@ -261,6 +283,7 @@ async fn handle_stream(
                                     size: Some(bytes.len() as u64),
                                     content_type: blob.mime.clone(),
                                     error: None,
+                                    error_type: None,
                                 };
                                 send_length_prefixed(&mut send, &resp).await?;
                                 send.write_all(&bytes)
@@ -280,14 +303,17 @@ async fn handle_stream(
                     size: None,
                     content_type: None,
                     error: Some("server image not configured".to_string()),
+                    error_type: Some("hello_image_not_configured".to_string()),
                 };
                 send_length_prefixed(&mut send, &resp).await?;
             } else {
+                let error_type = response.errors.first().map(|e| e.error_type.clone());
                 let resp = PeerMessage::HelloImageResponse {
                     id,
                     size: None,
                     content_type: None,
                     error: Some(response.message),
+                    error_type,
                 };
                 send_length_prefixed(&mut send, &resp).await?;
             }
@@ -313,6 +339,7 @@ async fn handle_stream(
                         id,
                         available: false,
                         error: Some("unauthorized: peer not registered".to_string()),
+                        error_type: Some("unauthorized".to_string()),
                     };
                     send_response(&mut send, &resp).await?;
                     return Ok(());
@@ -332,6 +359,7 @@ async fn handle_stream(
                         id,
                         available,
                         error: None,
+                        error_type: None,
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -346,6 +374,7 @@ async fn handle_stream(
                         id,
                         available: false,
                         error: Some(format!("failed to ensure blob: {}", e)),
+                        error_type: Some(e.error_type()),
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -367,6 +396,7 @@ async fn handle_stream(
                         id,
                         blake3: None,
                         error: Some("unauthorized: peer not registered".to_string()),
+                        error_type: Some("unauthorized".to_string()),
                     };
                     send_response(&mut send, &resp).await?;
                     return Ok(());
@@ -385,6 +415,7 @@ async fn handle_stream(
                         id,
                         blake3: Some(blake3),
                         error: None,
+                        error_type: None,
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -394,10 +425,12 @@ async fn handle_stream(
                         blob_id,
                         e
                     );
+                    let error_type = Some(e.error_type());
                     let resp = PeerMessage::ComputeBlake3Response {
                         id,
                         blake3: None,
                         error: Some(format!("failed to compute blake3: {}", e)),
+                        error_type,
                     };
                     send_response(&mut send, &resp).await?;
                 }
@@ -408,7 +441,8 @@ async fn handle_stream(
         PeerMessage::ApiResponse { .. }
         | PeerMessage::HelloImageResponse { .. }
         | PeerMessage::EnsureBlobResponse { .. }
-        | PeerMessage::ComputeBlake3Response { .. } => {
+        | PeerMessage::ComputeBlake3Response { .. }
+        | PeerMessage::ErrorResponse { .. } => {
             debug!("unexpected response message from {}", node_id_short);
         }
     }

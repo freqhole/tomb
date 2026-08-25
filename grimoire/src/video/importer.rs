@@ -13,43 +13,11 @@
 
 use crate::config::{get_config, GrimoireConfig};
 use crate::jobs::{CreateJobRequest, Job, JobError, JobType, TranscodeVideoParams};
-use crate::media_blobz::ffmpeg_runner::run_ffmpeg;
+use crate::media_blobz::ffmpeg_runner::{humanize_ffmpeg_error, run_ffmpeg};
 use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
 use crate::video::{create_video, CreateVideoRequest};
 use std::path::Path;
 use tracing::{debug, info, warn};
-
-/// turn a raw ffmpeg/ffprobe stderr blob into a short, human-readable
-/// summary suitable for surfacing in the client's job-progress UI (mirrors
-/// the client's own `humanizeJobError` in `video/import/remoteImport.ts`,
-/// which does the same cleanup for job-failure messages generally - this
-/// covers the ffmpeg-specific soft-failure case, where the raw text is
-/// often a multi-line tool banner plus a single relevant error line).
-fn humanize_ffmpeg_error(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return "unknown ffmpeg error".to_string();
-    }
-    // ffmpeg's actual error is usually the last non-empty line (banner/
-    // codec-list/config noise comes first) - prefer it over the raw blob.
-    let last_line = trimmed.lines().rev().find(|l| !l.trim().is_empty());
-    let candidate = last_line.unwrap_or(trimmed).trim();
-    let lower = candidate.to_lowercase();
-    if lower.contains("no such file or directory") {
-        return "input file not found".to_string();
-    }
-    if lower.contains("invalid data found when processing input") {
-        return "unrecognized or corrupt video file".to_string();
-    }
-    if lower.contains("does not contain any stream") || lower.contains("stream map") {
-        return "no matching audio/video stream found".to_string();
-    }
-    if candidate.len() > 160 {
-        format!("{}\u{2026}", &candidate[..157])
-    } else {
-        candidate.to_string()
-    }
-}
 
 /// result of importing a single video file
 #[derive(Debug, Clone)]
@@ -195,9 +163,21 @@ pub async fn import_video_file(
     .await;
     if !tag_apply_resp.success {
         warn!(
-            "failed to apply directory tags to video {}: {}",
-            video.id, tag_apply_resp.message
+            "directory tag rules did not get applied to video {} (file: {}): {}",
+            video.id,
+            file_path.display(),
+            tag_apply_resp.message
         );
+        if let Some(job) = job {
+            crate::jobs::job_events::emit_stage_from_job(
+                job,
+                "tag_warning",
+                Some(&format!(
+                    "imported, but directory tag rules failed to apply: {}",
+                    tag_apply_resp.message
+                )),
+            );
+        }
     }
 
     // inline poster extraction (best-effort - a failed poster grab
@@ -349,10 +329,22 @@ pub async fn import_video_file(
         .await
         {
             Ok(blob_id) => subtitle_blob_ids.push(blob_id),
-            Err(e) => warn!(
-                "subtitle extraction failed for track {} of {}: {}",
-                stream_index, video.id, e
-            ),
+            Err(e) => {
+                warn!(
+                    "subtitle extraction failed for track {} of {}: {}",
+                    stream_index, video.id, e
+                );
+                if let Some(job) = job {
+                    crate::jobs::job_events::emit_stage_from_job(
+                        job,
+                        "subtitle_warning",
+                        Some(&format!(
+                            "imported, but subtitle track {} extraction failed: {}",
+                            stream_index, e
+                        )),
+                    );
+                }
+            }
         }
     }
 
@@ -444,10 +436,10 @@ async fn probe_video_properties(file_path: &Path, config: &GrimoireConfig) -> Vi
 
     if !output.status.success() {
         warn!(
-            "ffprobe exited with {:?} for {}: stderr={}",
+            "ffprobe exited with {:?} for {}: {}",
             output.status.code(),
             input,
-            String::from_utf8_lossy(&output.stderr).trim()
+            humanize_ffmpeg_error(&String::from_utf8_lossy(&output.stderr))
         );
         return VideoProperties::default();
     }
@@ -637,6 +629,7 @@ async fn extract_video_poster(
     let seek = format!("{:.2}", seek_seconds);
 
     run_ffmpeg(
+        "poster extraction",
         &config.media.extract_video_poster_args,
         &[
             ("{input}", input.as_str()),
@@ -741,6 +734,7 @@ async fn extract_subtitle_track(
     let map_arg = format!("0:{}", stream_index);
 
     run_ffmpeg(
+        &format!("subtitle extraction (stream {})", stream_index),
         "-i {input} -map {map} -c:s srt -y {output}",
         &[
             ("{input}", input.as_str()),

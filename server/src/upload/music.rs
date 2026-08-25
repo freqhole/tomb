@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use grimoire::blobz::compute_blake3_from_bytes;
+use grimoire::error::GrimoireError;
 use grimoire::jobs::{create_job, CreateJobRequest, JobType};
 use grimoire::media_blobz::CreateMediaBlobRequest;
 use grimoire::media_blobz::{create_media_blob, BlobType};
@@ -105,13 +106,55 @@ pub async fn upload_music_handler(
 
     let ext = detect_extension(&mime_type, &filename);
 
-    // create media blob first (to get id) - with deduplication
+    // get output directory from config (fetch_music.output_dir or fallback to data_dir/fetch)
+    let output_dir = state
+        .config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.as_ref())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.config.data_dir.join("fetch"));
+
+    // path is keyed by content hash (sha256), not the media blob id, so the file
+    // can be written to disk BEFORE the blob row is created. previously the blob
+    // row (and its sha256 dedup key) was created first and the path used blob.id -
+    // if the write below then failed, the row was left orphaned with no local_path,
+    // and a retry saw the existing dedup key and silently no-op'd instead of
+    // re-attempting the write, so the user believed the upload had succeeded.
+    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, hash, ext);
+    let full_path = output_dir.join(&rel_path);
+
+    // real dedup skip: only treat the file as already-uploaded if it actually
+    // exists on disk with the right size, not just because a db row exists.
+    let already_on_disk = tokio::fs::metadata(&full_path)
+        .await
+        .map(|m| m.len() == size as u64)
+        .unwrap_or(false);
+
+    if !already_on_disk {
+        // ensure directory exists
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(GrimoireError::Io)?;
+        }
+
+        // write file to disk
+        tokio::fs::write(&full_path, &data)
+            .await
+            .map_err(GrimoireError::Io)?;
+    }
+
+    // create media blob (with dedup by sha256) - only now that the file is
+    // confirmed on disk, so a write failure above never leaves an orphaned
+    // blob row pointing at a file that doesn't exist.
     let blob = create_media_blob(CreateMediaBlobRequest {
         sha256: hash.clone(),
         size: Some(size),
         mime: Some(mime_type.clone()),
         source_client_id: None,
-        local_path: None, // will update after saving file
+        local_path: Some(full_path.to_string_lossy().to_string()),
         filename: Some(filename.to_string()),
         parent_blob_id: None,
         blob_type: Some(BlobType::Original),
@@ -124,38 +167,10 @@ pub async fn upload_music_handler(
         height: None,
         blake3: Some(blake3_hash), // computed at ingest for P2P streaming
     })
-    .await
-    .map_err(|e| ApiError::Internal(format!("failed to create blob: {}", e)))?;
+    .await?;
 
     // check if this was a deduplicated blob
     let existing = blob.created_at < (time::OffsetDateTime::now_utc().unix_timestamp() - 1);
-
-    // get output directory from config (fetch_music.output_dir or fallback to data_dir/fetch)
-    let output_dir = state
-        .config
-        .server
-        .as_ref()
-        .and_then(|s| s.fetch_music.as_ref())
-        .and_then(|f| f.output_dir.as_ref())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| state.config.data_dir.join("fetch"));
-
-    // generate path with date-based subdirectory and blob id
-    let rel_path = format!("{:04}/{:02}/{}.{}", year, month, blob.id, ext);
-    let full_path = output_dir.join(&rel_path);
-
-    // ensure directory exists
-    if let Some(parent) = full_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| ApiError::Internal(format!("failed to create directory: {}", e)))?;
-    }
-
-    // write file to disk (even if deduplicated, we still save it for now)
-    // TODO: could optimize by checking if local_path already exists
-    tokio::fs::write(&full_path, &data)
-        .await
-        .map_err(|e| ApiError::Internal(format!("failed to write file: {}", e)))?;
 
     // create import job
     let job_payload = json!({

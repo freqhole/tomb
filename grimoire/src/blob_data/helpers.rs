@@ -118,7 +118,16 @@ pub async fn create_media_blob_from_file(
                 vec![ErrorDetail::new(
                     "file_hash_error",
                     "File Hash Error",
-                    format!("Failed to hash file {}: {}", file_path, e),
+                    // preserve the underlying io error's kind + message (file disappeared
+                    // mid-stream, disk read error, permission denied, etc) so this is
+                    // diagnosable later - one error_type covers every cause on purpose,
+                    // but the detail text still tells them apart.
+                    format!(
+                        "Failed to hash file {}: {} ({:?})",
+                        file_path,
+                        e,
+                        e.kind()
+                    ),
                 )],
             )
         }
@@ -128,10 +137,23 @@ pub async fn create_media_blob_from_file(
     let blake3 = match compute_blake3_hash(Path::new(file_path)).await {
         Ok(hash) => Some(hash),
         Err(e) => {
-            tracing::warn!("failed to compute blake3 for {}: {}", file_path, e);
+            // non-fatal today (blake3 can be backfilled on-demand later), but a
+            // future p2p/iroh-blobs transfer of this blob will fail with zero
+            // connection back to "blake3 was never computed because X" - kept as
+            // log-only for now (no partial_failures field on this response type
+            // to surface it through, see docs/error-handling-tasks.md's P0-C
+            // section for the coordinated schema fix this needs).
+            // TODO: give blake3 computation its own recoverable retry step
+            // instead of silently giving up, per P0-A in error-handling-tasks.md.
+            tracing::warn!(
+                "failed to compute blake3 for {}: {} - blob will have no blake3 until backfilled on next upload/rescan",
+                file_path,
+                e
+            );
             None // non-fatal, can compute on-demand later
         }
     };
+
 
     let request = CreateMediaBlobRequest {
         sha256,

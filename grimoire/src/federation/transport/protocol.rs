@@ -53,6 +53,10 @@ pub enum PeerMessage {
         content_type: Option<String>,
         /// error message if image not configured
         error: Option<String>,
+        /// snake_case error_type (see GrimoireError::error_type) for the
+        /// error above, when the sender knows one. None for call sites not
+        /// yet wired through a classified error.
+        error_type: Option<String>,
     },
 
     /// request to ensure a blob is loaded into FsStore by blake3 hash
@@ -72,6 +76,10 @@ pub enum PeerMessage {
         available: bool,
         /// error message if lookup/load failed
         error: Option<String>,
+        /// snake_case error_type (see GrimoireError::error_type) for the
+        /// error above, when the sender knows one. None for call sites not
+        /// yet wired through a classified error.
+        error_type: Option<String>,
     },
 
     /// request to compute blake3 hash for a blob (by blob_id/sha256)
@@ -91,6 +99,24 @@ pub enum PeerMessage {
         blake3: Option<String>,
         /// error message if computation failed
         error: Option<String>,
+        /// snake_case error_type (see GrimoireError::error_type) for the
+        /// error above, when the sender knows one. None for call sites not
+        /// yet wired through a classified error.
+        error_type: Option<String>,
+    },
+
+    /// generic error response for transport-level failures that can't be
+    /// tied to a specific request's response shape (e.g. the inbound message
+    /// itself failed to read/parse, so we don't know which request variant
+    /// to answer with). `id` is None when the request id couldn't be
+    /// recovered (e.g. the message never parsed at all).
+    ErrorResponse {
+        /// request id for correlation, if it could be recovered
+        id: Option<u64>,
+        /// human-readable error message
+        error: String,
+        /// snake_case error_type (see GrimoireError::error_type), when known
+        error_type: Option<String>,
     },
 }
 

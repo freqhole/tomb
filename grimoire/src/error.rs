@@ -162,8 +162,21 @@ pub enum GrimoireError {
     #[error("federation token refresh failed: {message}")]
     FederationTokenRefreshFailed { message: String },
 
+    /// transient p2p failure (connection/timeout related) - safe to retry.
     #[error("federation api error: {message}")]
     FederationApiError { message: String },
+
+    /// peer explicitly refused the request (not an auth issue, not a timeout) -
+    /// e.g. the peer's own service-side check said no. permanent, not retryable.
+    #[error("peer {peer_id} rejected request: {reason}")]
+    PeerRejected { peer_id: String, reason: String },
+
+    /// the peer responded, but not in a shape our protocol expects (response id
+    /// mismatch, unexpected response variant, ALPN/handshake incompatibility).
+    /// permanent, not retryable - a different peer version won't fix itself by
+    /// retrying the same request.
+    #[error("peer protocol mismatch: {reason}")]
+    PeerProtocolMismatch { reason: String },
 
     #[error("peer {peer} unauthorized to access blob {blake3}")]
     PeerUnauthorized { peer: String, blake3: String },
@@ -269,6 +282,8 @@ impl GrimoireError {
             GrimoireError::FederationAuthFailed { .. } => false, // bad credentials
             GrimoireError::FederationTokenRefreshFailed { .. } => true, // token may have expired
             GrimoireError::FederationApiError { .. } => true,    // network issues
+            GrimoireError::PeerRejected { .. } => false,         // peer said no - permanent
+            GrimoireError::PeerProtocolMismatch { .. } => false, // incompatible peer - permanent
             GrimoireError::PeerUnauthorized { .. } => false,     // needs knock, not retry
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
@@ -314,6 +329,8 @@ impl GrimoireError {
             | GrimoireError::FileNotFound { .. } => 404,
             // peer auth — client can react by showing knock message
             GrimoireError::PeerUnauthorized { .. } => 403,
+            GrimoireError::PeerRejected { .. } => 409,
+            GrimoireError::PeerProtocolMismatch { .. } => 400,
             // everything else is internal error
             _ => 500,
         }
