@@ -310,7 +310,7 @@ export const getJobsStatusRequest: s.GetJobsStatusRequest = {
 // Fetch
 export const fetchMediaParams: s.FetchMediaParams = {
   url: "https://example.com/video",
-  domain: "Music",
+  domain: "music",
   user_id: null,
 };
 

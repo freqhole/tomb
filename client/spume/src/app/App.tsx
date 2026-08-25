@@ -66,6 +66,7 @@ import {
 import { importVideoFiles } from "../video/import/localImport";
 import {
   clearCompletedVideoJobs,
+  fetchVideoUrlsOnRemote,
   getVideoUploadJobs,
   uploadVideoFilesToRemote,
   uploadVideoPathsToRemote,
@@ -1049,6 +1050,20 @@ export function App() {
     });
   };
 
+  const handleVideoUrlsSubmitted = async (urls: string[]) => {
+    const remote = getCurrentRemote();
+
+    if (!remote) {
+      toast.warning("url downloads are only supported with a remote server", {
+        title: "not supported",
+      });
+      return;
+    }
+
+    // fire-and-forget, jobs are tracked reactively
+    await fetchVideoUrlsOnRemote(urls, onRemoteVideoJobComplete);
+  };
+
   const handleVideoFilesSelected = async (files: FileList) => {
     const remote = getCurrentRemote();
 
@@ -1227,9 +1242,11 @@ export function App() {
         onClose={handleCloseAddVideo}
         onFilesSelected={handleVideoFilesSelected}
         onPathsSelected={handleVideoPathsSelected}
+        onUrlsSubmitted={handleVideoUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
         useCharnelDialog={isCharnelMode()}
         uploadJobs={getVideoUploadJobs()}
+        fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
       />
 
       <Show when={useEditVideoState()()}>

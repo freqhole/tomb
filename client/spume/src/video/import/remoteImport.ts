@@ -10,7 +10,7 @@ import { createStore, produce } from "solid-js/store";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
-import { getCurrentRemote } from "../../music/data";
+import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
 
 export interface VideoUploadJob {
@@ -246,6 +246,101 @@ export async function uploadVideoPathsToRemote(
             error: friendly.short,
             errorFull: friendly.full,
           });
+          onJobComplete?.();
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "unknown error";
+        const friendly = humanizeJobError(msg);
+        updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
+      }
+    })();
+  }
+}
+
+// translate a server `Stage` event into a short human-readable line -
+// mirrors music/import/remoteImport.ts's private `formatStage` (fetch jobs
+// emit the same stage names regardless of media domain).
+function formatStage(stage: string, message: string | undefined): string | undefined {
+  switch (stage) {
+    case "precheck_started":
+      return "checking source\u2026";
+    case "item_started":
+      return message ? `downloading ${message}` : "downloading\u2026";
+    case "item_complete":
+      return message ? `downloaded ${message}` : "downloaded";
+    case "postprocess":
+      return message ?? "converting\u2026";
+    default:
+      return message;
+  }
+}
+
+/**
+ * fetch video urls (yt-dlp) on the active remote server. mirrors
+ * `fetchUrlsOnRemote` in music/import/remoteImport.ts, but requests the
+ * "video" media domain so the server keeps the full video instead of
+ * extracting audio - reuses the same generic `/api/music/fetch*` job
+ * routes (the backend's fetch/job infrastructure is domain-agnostic, see
+ * `FetchMediaParams.domain`; only the route names are music-namespaced).
+ * fires off jobs and polls them in the background - returns immediately
+ * after all urls have been submitted (not after jobs complete).
+ */
+export async function fetchVideoUrlsOnRemote(
+  urls: string[],
+  onJobComplete?: () => void
+): Promise<void> {
+  const remote = getCurrentRemote();
+  if (!remote) throw new Error("no active remote");
+
+  const userId = getCurrentUser()?.userId;
+  const poller = new JobPoller(remote, 3000);
+
+  for (const url of urls) {
+    let label: string;
+    try {
+      const parsed = new URL(url);
+      label =
+        parsed.hostname +
+        (parsed.pathname.length > 30 ? "..." + parsed.pathname.slice(-27) : parsed.pathname);
+    } catch {
+      label = url.length > 50 ? url.slice(0, 47) + "..." : url;
+    }
+
+    const trackId = addTrackedJob(label, remote.remote_id);
+
+    (async () => {
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.music.createFetchJob({
+          url,
+          user_id: userId ?? null,
+          domain: "video",
+        });
+        if (!result.success) {
+          const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";
+          updateJobStatus(trackId, "failed", { error: errMsg });
+          return;
+        }
+
+        const jobId = result.data.id;
+        updateJobStatus(trackId, "polling", { jobId });
+
+        // register with batch poller (5 min timeout for fetches)
+        const pollResult = await poller.waitForJob(jobId, 300_000, {
+          onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
+        });
+        if (pollResult.status === "completed") {
+          updateJobStatus(trackId, "completed");
+          onJobComplete?.();
+        } else if (pollResult.status === "timeout") {
+          updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
+          onJobComplete?.();
+          toast.info(`download is still processing — check back later`, {
+            title: "processing queued",
+          });
+        } else {
+          const friendly = humanizeJobError(pollResult.errorMessage);
+          updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           onJobComplete?.();
         }
       } catch (error) {

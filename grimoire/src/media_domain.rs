@@ -7,13 +7,25 @@
 
 use crate::config::GrimoireConfig;
 use serde::{Deserialize, Serialize};
-use zod_gen_derive::ZodSchema;
+use zod_gen::ZodSchema as ZodSchemaTrait;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ZodSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaDomain {
     Music,
     Video,
+}
+
+// `zod_gen_derive`'s `#[derive(ZodSchema)]` doesn't respect `#[serde(rename_all
+// = "snake_case")]` on enums - it emits the raw (PascalCase) variant names,
+// which would generate `z.literal('Music')`/`z.literal('Video')` while serde
+// actually serializes/deserializes lowercase `"music"`/`"video"` on the wire.
+// hand-roll the impl instead, matching the same workaround already used by
+// `SearchField`/`SuggestionType` in `search/models.rs`.
+impl ZodSchemaTrait for MediaDomain {
+    fn zod_schema() -> String {
+        r#"z.union([z.literal("music"), z.literal("video")])"#.to_string()
+    }
 }
 
 impl MediaDomain {

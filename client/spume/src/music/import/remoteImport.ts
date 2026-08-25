@@ -678,7 +678,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         const result = await client.music.createFetchJob({
           url,
           user_id: userId ?? null,
-          domain: "Music",
+          domain: "music",
         });
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "failed to create fetch job";

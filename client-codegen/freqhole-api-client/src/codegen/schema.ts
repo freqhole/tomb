@@ -2664,7 +2664,7 @@ export type FeedResponse = z.infer<typeof FeedResponseSchema>;
 export const FetchMediaParamsSchema = z.object({
   url: z.string(),
   user_id: z.string().nullish(),
-  domain: z.union([z.literal('Music'), z.literal('Video')])
+  domain: z.union([z.literal("music"), z.literal("video")])
 });
 export type FetchMediaParams = z.infer<typeof FetchMediaParamsSchema>;
 
