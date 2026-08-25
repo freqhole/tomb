@@ -42,10 +42,15 @@ interface ModalEntry {
 const modalStack: ModalEntry[] = [];
 let escapeListenerInstalled = false;
 
+// reactive mirror of modalStack.length - lets components (e.g. the video
+// mini player) react to any modal opening/closing without polling.
+const [modalStackSize, setModalStackSize] = createSignal(0);
+
 function handleGlobalEscape(e: KeyboardEvent) {
   if (e.key === "Escape" && modalStack.length > 0) {
     // immediately pop the modal from the stack before calling onClose
     const topModal = modalStack.pop()!;
+    setModalStackSize(modalStack.length);
 
     // remove global listener if no more modals
     if (modalStack.length === 0 && escapeListenerInstalled) {
@@ -60,6 +65,7 @@ function handleGlobalEscape(e: KeyboardEvent) {
 
 export function pushModal(modalId: string, onClose: () => void) {
   modalStack.push({ id: modalId, onClose });
+  setModalStackSize(modalStack.length);
 
   // install global escape listener once
   if (!escapeListenerInstalled) {
@@ -73,6 +79,7 @@ export function popModal(modalId: string) {
   if (index !== -1) {
     modalStack.splice(index, 1);
   }
+  setModalStackSize(modalStack.length);
 
   // remove global listener when no modals are open
   if (modalStack.length === 0 && escapeListenerInstalled) {
@@ -86,6 +93,13 @@ export function popModal(modalId: string) {
  *  modal is already going to consume the keystroke. */
 export function isAnyModalOpen(): boolean {
   return modalStack.length > 0;
+}
+
+/** reactive version of `isAnyModalOpen` - true while any modal is on the
+ *  global stack. used to auto-dismiss the video mini player when a modal
+ *  opens over it. */
+export function useIsAnyModalOpen(): () => boolean {
+  return () => modalStackSize() > 0;
 }
 
 interface SongEditorOptions {

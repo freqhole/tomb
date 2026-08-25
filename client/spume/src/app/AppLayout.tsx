@@ -49,6 +49,7 @@ import {
   getVideoElement,
   isLoading,
   isPlaying,
+  pause,
   pendingUpNextSha256,
   playMediaItem,
   playNext,
@@ -104,7 +105,7 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { openAddMusic, showShareModal } from "../music/hooks/modals";
+import { openAddMusic, showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
 import { openAddVideo } from "../video/hooks/modals";
 import {
   appState,
@@ -206,6 +207,18 @@ export function AppLayout(props: AppLayoutProps) {
       if (playing && videoMiniPlayerDismissed()) setVideoMiniPlayerDismissed(false);
     })
   );
+
+  // the mini player floats above everything, including modals - hide it
+  // (pausing playback first) whenever any modal opens so it doesn't sit
+  // on top of the modal. reuses the same dismiss/reopen mechanism as the
+  // panel's own close button.
+  const isAnyModalOpenReactive = useIsAnyModalOpen();
+  createEffect(() => {
+    if (isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
+      if (isPlaying()) pause();
+      setVideoMiniPlayerDismissed(true);
+    }
+  });
 
   // favorite status for the currently-playing video (video summary rows
   // don't carry is_favorite, so it's hydrated separately, same as
