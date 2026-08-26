@@ -21,6 +21,7 @@ import {
 } from "../../music/services/storage/playlists";
 import { getVideoDataSource } from "../data";
 import type { VideoSummary } from "../data/types";
+import { PlaylistItemDuplicateError } from "../../music/data/types";
 import { videoQueryKeys } from "./queryKeys";
 
 export interface PlaylistVideoItem {
@@ -32,6 +33,15 @@ export interface PlaylistVideoItem {
 
 function errorMessage(error: { issues?: { message?: string }[]; message?: string }): string {
   return error.issues?.[0]?.message || error.message || "request failed";
+}
+
+// the error_type is encoded as a path entry in the ZodError issues (see
+// @freqhole/api-client's buildErrorIssue) - mirrors the same lookup
+// UserProfileView.tsx already uses for `user_already_exists`.
+function errorType(error: { issues?: { path?: unknown[] }[] }): string | undefined {
+  return error.issues?.[0]?.path?.find(
+    (p): p is string => typeof p === "string" && p !== "__auth_expired__"
+  );
 }
 
 /** every video-typed item in a playlist, resolved to full video metadata
@@ -118,7 +128,13 @@ export function useAddVideoToPlaylistMutation() {
         entity_id: params.videoId,
         position: null,
       });
-      if (!result.success) throw new Error(errorMessage(result.error));
+      if (!result.success) {
+        const message = errorMessage(result.error);
+        if (errorType(result.error) === "duplicate_playlist_item") {
+          throw new PlaylistItemDuplicateError(message);
+        }
+        throw new Error(message);
+      }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({

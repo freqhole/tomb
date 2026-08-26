@@ -1,6 +1,7 @@
 // entity URL list editor - manages a collection of name/url pairs for any entity
 import { createSignal, For, Index, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
+import { withUrlProtocol } from "../../utils/urls";
 
 // form item type - extends domain EntityUrl with edit state tracking
 export interface EntityUrlFormItem {
@@ -33,13 +34,16 @@ function UrlEditor(props: {
   const [localName, setLocalName] = createSignal(props.url.name);
   const [localUrl, setLocalUrl] = createSignal(props.url.url);
 
-  // sync to parent on blur or done
+  // sync to parent on blur or done - normalize the url so a bare
+  // "freqhole.net" (no scheme) doesn't later render as a relative link
   const syncChanges = () => {
     if (localName() !== props.url.name) {
       props.onUpdate(props.index, "name", localName());
     }
-    if (localUrl() !== props.url.url) {
-      props.onUpdate(props.index, "url", localUrl());
+    const normalizedUrl = withUrlProtocol(localUrl());
+    if (normalizedUrl !== props.url.url) {
+      setLocalUrl(normalizedUrl);
+      props.onUpdate(props.index, "url", normalizedUrl);
     }
   };
 
@@ -186,7 +190,7 @@ export function EntityUrlz(props: EntityUrlzProps) {
                             {url().name || "(unnamed)"}
                           </div>
                           <a
-                            href={url().url}
+                            href={withUrlProtocol(url().url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             class="text-xs text-[var(--color-accent-500)] hover:underline truncate block"

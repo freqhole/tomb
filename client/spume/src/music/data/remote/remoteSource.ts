@@ -25,6 +25,7 @@ import type {
   SearchResponse,
   SuggestionsResponse,
 } from "../types";
+import { PlaylistItemDuplicateError } from "../types";
 import { adaptSongFromAPI, adaptApiImage, adaptApiUrls, type RemoteSong } from "./adapters";
 import { setRemoteNeedsAuth } from "./authState";
 import { markRemoteOffline, markRemoteOnline, getRemoteById } from "../../../app/services/remotes/remoteManager";
@@ -710,9 +711,19 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       await this.handleFailedRequest(result);
       console.error("add songs to playlist failed:", result);
-      throw new Error(
-        "failed to add songs to playlist - check console for details",
+      // the error_type is encoded as a path entry in the ZodError issues
+      // (see @freqhole/api-client's buildErrorIssue) - mirrors the same
+      // lookup UserProfileView.tsx uses for `user_already_exists`.
+      const errType = result.error?.issues?.[0]?.path?.find(
+        (p): p is string => typeof p === "string" && p !== "__auth_expired__",
       );
+      const message =
+        result.error?.issues?.[0]?.message ??
+        "failed to add songs to playlist - check console for details";
+      if (errType === "duplicate_playlist_item") {
+        throw new PlaylistItemDuplicateError(message);
+      }
+      throw new Error(message);
     }
   }
 

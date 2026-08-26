@@ -8,6 +8,7 @@ import {
   mediaItemQueueEntryId,
   songsOnly,
   songToMediaItem,
+  toMediaItems,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
 import { evictCachedBlob } from "../cache/blobCache";
@@ -22,6 +23,7 @@ import {
 } from "../audio/player";
 import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
+import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
   activeHistoryEntryId,
   resumeTracking,
@@ -130,13 +132,35 @@ function assertCloneable(songs: Song[], context: string): void {
 
 // --- queue manipulation ---
 
+// unwrap solid-proxy-wrapped song/video objects across a mixed `MediaItem[]`
+// (required for Tauri IPC/IndexedDB structured-clone) — dispatches to the
+// existing per-kind unwrap helpers (`unwrapSongs`/`unwrapVideos`) while
+// preserving order.
+function unwrapMediaItems(items: MediaItem[]): MediaItem[] {
+  const unwrappedSongs = unwrapSongs(items.filter((i) => i.kind === "song").map((i) => i.song));
+  const unwrappedVideos = unwrapVideos(items.filter((i) => i.kind === "video").map((i) => i.video));
+  let songIdx = 0;
+  let videoIdx = 0;
+  return items.map((item) =>
+    item.kind === "song"
+      ? { kind: "song", song: unwrappedSongs[songIdx++] }
+      : { kind: "video", video: unwrappedVideos[videoIdx++] }
+  );
+}
+
+// normalize + unwrap a queue-input array (legacy `Song[]` callers or newer
+// mixed `MediaItem[]` callers) into a ready-to-queue `MediaItem[]`
+function prepareMediaItems(items: Array<Song | MediaItem>): MediaItem[] {
+  return unwrapMediaItems(toMediaItems(items));
+}
+
 // add songs to queue and play from a specific index
 // used for "play all", "shuffle all", "play from here", etc.
 // inserts songs after current position (preserves existing queue)
 // plays songs[startIndex] (default 0) after adding to queue
 // if songs exceed limit, truncates to fit (preserving startIndex)
 export async function playQueue(
-  songs: Song[],
+  songs: Array<Song | MediaItem>,
   options?: {
     startIndex?: number;
     source?: QueueSourceContext;
@@ -152,41 +176,48 @@ export async function playQueue(
   if (songs.length === 0) return;
 
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
-  const unwrappedSongs = unwrapSongs(songs);
-  assertCloneable(unwrappedSongs, "playQueue");
+  const unwrappedItems = prepareMediaItems(songs);
+  assertCloneable(songsOnly(unwrappedItems), "playQueue");
 
   let startIndex = options?.startIndex ?? 0;
-  let finalSongs = unwrappedSongs;
+  let finalItems = unwrappedItems;
 
-  // truncate incoming songs if they exceed the limit (before any queue logic)
+  // truncate incoming items if they exceed the limit (before any queue logic)
   const queueSizeLimit = getQueueSizeLimit();
-  if (unwrappedSongs.length > queueSizeLimit) {
+  if (unwrappedItems.length > queueSizeLimit) {
     if (startIndex < queueSizeLimit) {
-      // startIndex is within limit - take first N songs
-      finalSongs = unwrappedSongs.slice(0, queueSizeLimit);
+      // startIndex is within limit - take first N items
+      finalItems = unwrappedItems.slice(0, queueSizeLimit);
     } else {
       // startIndex is beyond limit - center window around it
       const start = startIndex - Math.floor(queueSizeLimit / 2);
-      const adjustedStart = Math.max(0, Math.min(start, unwrappedSongs.length - queueSizeLimit));
-      finalSongs = unwrappedSongs.slice(adjustedStart, adjustedStart + queueSizeLimit);
+      const adjustedStart = Math.max(0, Math.min(start, unwrappedItems.length - queueSizeLimit));
+      finalItems = unwrappedItems.slice(adjustedStart, adjustedStart + queueSizeLimit);
       startIndex = startIndex - adjustedStart;
     }
     debug(
       "queue",
-      `playQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimit})`
+      `playQueue: truncated to ${finalItems.length}/${unwrappedItems.length} (limit=${queueSizeLimit})`
     );
   }
 
   // mark songs from playlist source to skip album feed events when syncing
+  // (video items have no equivalent flag yet - feed events are song-only)
   if (options?.source?.type === "playlist") {
-    finalSongs = finalSongs.map((s) => ({ ...s, skip_feed_events: true }));
+    finalItems = finalItems.map((item) =>
+      item.kind === "song" ? { kind: "song", song: { ...item.song, skip_feed_events: true } } : item
+    );
   }
-
-  const finalItems: MediaItem[] = finalSongs.map(songToMediaItem);
 
   const state = appState();
   const currentQueue: MediaItem[] = state?.queue || [];
   const currentId = state?.current_sha256;
+
+  // song-only side systems (history, server sessions, pre-cache, local
+  // sync) still operate on the song subset only - video items ride along
+  // in the queue itself but aren't tracked by these yet (see phase 5 of
+  // docs/playlist-unification-plan.md for full parity plans).
+  const finalSongs = songsOnly(finalItems);
 
   // sync playlist to local storage (fires in background, non-blocking)
   if (options?.source) {
@@ -196,8 +227,11 @@ export async function playQueue(
   // if queue is empty, just set and play
   if (currentQueue.length === 0) {
     await setQueue(finalItems);
-    await playSong(finalSongs[startIndex], { userInitiated: true });
-    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+    const startItem = finalItems[startIndex];
+    await playMediaItem(startItem, { userInitiated: true });
+    if (startItem.kind === "song") {
+      void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
+    }
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -235,8 +269,11 @@ export async function playQueue(
     clearPendingUpNext();
 
     await setQueue(finalItems);
-    await playSong(finalSongs[startIndex], { userInitiated: true });
-    void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+    const startItem = finalItems[startIndex];
+    await playMediaItem(startItem, { userInitiated: true });
+    if (startItem.kind === "song") {
+      void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
+    }
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -258,11 +295,11 @@ export async function playQueue(
     return;
   }
 
-  // queue has songs - insert after current position (don't replace)
+  // queue has items - insert after current position (don't replace)
   // check if adding would exceed limit
   const queueSizeLimitForPlay = getQueueSizeLimit();
   if (currentQueue.length + finalItems.length > queueSizeLimitForPlay) {
-    const choice = await showQueueFullModal(finalSongs, currentQueue.length);
+    const choice = await showQueueFullModal(finalItems, currentQueue.length);
 
     if (choice === "cancel") {
       return;
@@ -271,8 +308,11 @@ export async function playQueue(
     if (choice === "clear-all") {
       // user explicitly cleared - replace queue entirely
       await setQueue(finalItems);
-      await playSong(finalSongs[startIndex], { userInitiated: true });
-      void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+      const startItem = finalItems[startIndex];
+      await playMediaItem(startItem, { userInitiated: true });
+      if (startItem.kind === "song") {
+        void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
+      }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -293,8 +333,11 @@ export async function playQueue(
     if (removeCount > removableSongCount) {
       // can't remove enough - fall back to clear behavior
       await setQueue(finalItems);
-      await playSong(finalSongs[startIndex], { userInitiated: true });
-      void preCacheNextP2PSongs(finalSongs[startIndex].sha256, finalSongs);
+      const startItem = finalItems[startIndex];
+      await playMediaItem(startItem, { userInitiated: true });
+      if (startItem.kind === "song") {
+        void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
+      }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -305,7 +348,7 @@ export async function playQueue(
       return;
     }
 
-    // trim songs from start of queue and continue
+    // trim items from start of queue and continue
     const trimmedQueue = currentQueue.slice(removeCount);
     return playQueueInternal(finalItems, trimmedQueue, currentId, startIndex, options);
   }
@@ -385,7 +428,7 @@ async function playQueueInternal(
 // if songs exceed limit, truncates to first 150
 // shows modal if adding would exceed queue limit
 export async function addToQueue(
-  songs: Song[],
+  songs: Array<Song | MediaItem>,
   options?: {
     startPlaying?: boolean;
     position?: "end" | "next";
@@ -395,26 +438,27 @@ export async function addToQueue(
   if (songs.length === 0) return;
 
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
-  const unwrappedSongs = unwrapSongs(songs);
-  assertCloneable(unwrappedSongs, "addToQueue");
+  const unwrappedItems = prepareMediaItems(songs);
+  assertCloneable(songsOnly(unwrappedItems), "addToQueue");
 
-  // truncate incoming songs if they exceed the limit
-  let finalSongs = unwrappedSongs;
+  // truncate incoming items if they exceed the limit
+  let finalItems = unwrappedItems;
   const queueSizeLimitForAdd = getQueueSizeLimit();
-  if (unwrappedSongs.length > queueSizeLimitForAdd) {
-    finalSongs = unwrappedSongs.slice(0, queueSizeLimitForAdd);
+  if (unwrappedItems.length > queueSizeLimitForAdd) {
+    finalItems = unwrappedItems.slice(0, queueSizeLimitForAdd);
     debug(
       "queue",
-      `addToQueue: truncated to ${finalSongs.length}/${unwrappedSongs.length} (limit=${queueSizeLimitForAdd})`
+      `addToQueue: truncated to ${finalItems.length}/${unwrappedItems.length} (limit=${queueSizeLimitForAdd})`
     );
   }
 
   // mark songs from playlist source to skip album feed events when syncing
+  // (video items have no equivalent flag yet - feed events are song-only)
   if (options?.source?.type === "playlist") {
-    finalSongs = finalSongs.map((s) => ({ ...s, skip_feed_events: true }));
+    finalItems = finalItems.map((item) =>
+      item.kind === "song" ? { kind: "song", song: { ...item.song, skip_feed_events: true } } : item
+    );
   }
-
-  const finalItems: MediaItem[] = finalSongs.map(songToMediaItem);
 
   const startPlaying = options?.startPlaying ?? false;
   const position = options?.position ?? "end";
@@ -423,6 +467,11 @@ export async function addToQueue(
   const currentQueue: MediaItem[] = state?.queue || [];
   const currentId = state?.current_sha256;
 
+  // song-only side systems (history, server sessions, local sync) still
+  // operate on the song subset only - see phase 5 of
+  // docs/playlist-unification-plan.md for full video parity plans.
+  const finalSongs = songsOnly(finalItems);
+
   // sync playlist to local storage (fires in background, non-blocking)
   if (options?.source) {
     void syncPlaylistToLocalFromQueue(finalSongs, options.source);
@@ -430,17 +479,17 @@ export async function addToQueue(
 
   // check if adding would exceed limit
   if (currentQueue.length + finalItems.length > queueSizeLimitForAdd) {
-    const choice = await showQueueFullModal(finalSongs, currentQueue.length);
+    const choice = await showQueueFullModal(finalItems, currentQueue.length);
 
     if (choice === "cancel") {
       return; // user cancelled, don't add anything
     }
 
     if (choice === "clear-all") {
-      // clear queue and add new songs via playQueue (will handle empty queue path)
+      // clear queue and add new items via playQueue (will handle empty queue path)
       await setQueue(finalItems);
       if (startPlaying || !currentId) {
-        await playSong(finalSongs[0], { userInitiated: true });
+        await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
@@ -450,7 +499,7 @@ export async function addToQueue(
       return;
     }
 
-    // choice === "remove-from-start": remove oldest songs to make room
+    // choice === "remove-from-start": remove oldest items to make room
     const removeCount = currentQueue.length + finalItems.length - queueSizeLimitForAdd;
     const currentIdx = currentId
       ? currentQueue.findIndex((i) => mediaItemKey(i) === currentId)
@@ -458,11 +507,11 @@ export async function addToQueue(
     const removableSongCount = currentIdx > 0 ? currentIdx : currentQueue.length;
 
     if (removeCount > removableSongCount) {
-      // can't remove enough songs without affecting currently playing
+      // can't remove enough items without affecting currently playing
       // fall back to clear-all behavior
       await setQueue(finalItems);
       if (startPlaying || !currentId) {
-        await playSong(finalSongs[0], { userInitiated: true });
+        await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
@@ -472,7 +521,7 @@ export async function addToQueue(
       return;
     }
 
-    // remove songs from start (before currently playing)
+    // remove items from start (before currently playing)
     const trimmedQueue = currentQueue.slice(removeCount);
     return addToQueueInternal(
       finalItems,

@@ -2,7 +2,13 @@
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router";
 import { useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import { playQueue, addToQueue } from "../services/queue/queue";
+import {
+  songToMediaItem,
+  videoToMediaItem,
+  type MediaItem,
+} from "../../app/services/storage/mediaItem";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
@@ -16,7 +22,11 @@ import { LoadingState } from "../../components/feedback";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { MarqueeText } from "../../components/text/MarqueeText";
-import { DraggableRow, DraggableRowSongContent } from "../../components/lists/DraggableRow";
+import {
+  DraggableRow,
+  DraggableRowSongContent,
+  DraggableRowVideoContent,
+} from "../../components/lists/DraggableRow";
 import {
   ContextMenu,
   ClickDropdownMenu,
@@ -25,15 +35,11 @@ import {
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { formatRelativeTime } from "../../utils/dateTime";
-import { formatDuration, formatHumanDuration } from "../../utils/formatDuration";
+import { formatHumanDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../utils/routing";
 import { getCurrentRemote, getDataSource, getRemoteClient, RemoteOfflineError } from "../data";
-import type { Song } from "../data/types";
-import {
-  usePlaylistSongsQuery,
-  usePlaylistsQuery,
-  useReorderPlaylistSongsMutation,
-} from "../queries/playlists";
+import type { Song, EntityUrl } from "../data/types";
+import { usePlaylistSongsQuery, usePlaylistsQuery } from "../queries/playlists";
 import { useToggleFavoriteMutation } from "../queries/favorites";
 import { usePlaylistContextMenu, useSongContextMenu } from "../hooks/contextMenu";
 import { getBlobObjectURL } from "../services/storage/blobs";
@@ -44,6 +50,7 @@ import {
   withThumbSuffix,
 } from "../services/storage/blobResolver";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import { EntityLinks } from "../../components/media/EntityLinks";
 import { showStationSelector } from "../hooks/stationSelectorState";
 import { showShareModal, type CarouselSlide } from "../hooks/modals";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
@@ -62,13 +69,17 @@ import { debug, error as errorLog } from "../../utils/logger";
 import { isCharnelMode } from "../../app/services/charnel";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { isTouchDevice } from "../../utils/isMobile";
-import { MediaImage } from "../../components/media/MediaImage";
-import { playVideoQueue } from "../../video/services/queue/playVideoQueue";
 import {
   usePlaylistVideoItemsQuery,
   useRemoveVideoFromPlaylistMutation,
+  useReorderPlaylistItemsMutation,
   type PlaylistVideoItem,
 } from "../../video/queries/playlistItems";
+import { useVideoSeriesListQuery, useVideoSeasonsQuery } from "../../video/queries/series";
+import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplete";
+import { useVideoContextMenu } from "../../video/hooks/contextMenu";
+import { useVideoFavoriteStatuses } from "../../video/hooks/useVideoFavoriteStatuses";
+import { useLocalVideoPosterUrl } from "../../video/components/VideoCard";
 
 export interface PlaylistsViewProps {
   onAddMusic: () => void;
@@ -127,13 +138,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // true while handleOpenImageCarousel is still resolving image urls —
   // shows a spinner on the trigger button instead of an unresponsive click.
   const [carouselLoading, setCarouselLoading] = createSignal(false);
-  const [draggedSongId, setDraggedSongId] = createSignal<string | null>(null);
+  // dragged item's merged-list key (`${entity_type}:${entity_id}` - see
+  // mergedPlaylistItems below) - covers both songs and videos so drag
+  // reorder can operate across the one shared position space.
+  const [draggedItemKey, setDraggedItemKey] = createSignal<string | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
 
   // pointer-based drag state for Tauri and touch devices
-  const [pointerDragSongId, setPointerDragSongId] = createSignal<string | null>(null);
+  const [pointerDragItemKey, setPointerDragItemKey] = createSignal<string | null>(null);
   let pendingPointerDrag: {
-    songId: string;
+    itemKey: string;
     startY: number;
     pointerId: number;
     target: HTMLElement;
@@ -155,7 +169,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
     // global dragend cleanup for webkit/tauri compatibility
     const handleGlobalDragEnd = () => {
-      setDraggedSongId(null);
+      setDraggedItemKey(null);
       setDropTargetIndex(null);
     };
     document.addEventListener("dragend", handleGlobalDragEnd);
@@ -169,30 +183,30 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       if (pendingPointerDrag !== null) {
         const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
         if (deltaY >= DRAG_THRESHOLD) {
-          setPointerDragSongId(pendingPointerDrag.songId);
+          setPointerDragItemKey(pendingPointerDrag.itemKey);
           pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
           pendingPointerDrag = null;
         }
         return;
       }
 
-      const dragId = pointerDragSongId();
-      if (!dragId) return;
+      const dragKey = pointerDragItemKey();
+      if (!dragKey) return;
 
       // prevent page scroll during active drag on touch
       e.preventDefault();
 
       // find target index based on Y position (68px per row, account for scroll)
-      const songs = playlistSongs();
-      const container = document.querySelector("[data-playlist-songs]");
+      const items = mergedPlaylistItems();
+      const container = document.querySelector("[data-playlist-items]");
       const rect = container?.getBoundingClientRect();
       if (!rect) return;
 
       const scrollTop = songListScrollRef?.scrollTop ?? 0;
       const relativeY = e.clientY - rect.top + scrollTop;
       const targetIndex = Math.floor(relativeY / 68);
-      const clampedTarget = Math.max(0, Math.min(targetIndex, songs.length - 1));
-      const currentIndex = songs.findIndex((s) => s.id === dragId);
+      const clampedTarget = Math.max(0, Math.min(targetIndex, items.length - 1));
+      const currentIndex = items.findIndex((i) => i.key === dragKey);
 
       if (clampedTarget !== currentIndex) {
         setDropTargetIndex(clampedTarget);
@@ -205,30 +219,14 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
       if (!isCharnelMode() && !isTouch) return;
       pendingPointerDrag = null;
 
-      const dragId = pointerDragSongId();
+      const dragKey = pointerDragItemKey();
       const toIndex = dropTargetIndex();
 
-      if (dragId && toIndex !== null) {
-        const songs = playlistSongs();
-        const fromIndex = songs.findIndex((s) => s.id === dragId);
-        if (fromIndex !== -1 && fromIndex !== toIndex) {
-          const playlist = selectedPlaylist();
-          if (playlist) {
-            const newPosition = toIndex + 1;
-            try {
-              await reorderSongsMutation.mutateAsync({
-                playlistId: playlist.playlist_id,
-                songIds: [dragId],
-                newPosition,
-              });
-            } catch {
-              // error handled by mutation
-            }
-          }
-        }
+      if (dragKey && toIndex !== null) {
+        await commitReorder(dragKey, toIndex);
       }
 
-      setPointerDragSongId(null);
+      setPointerDragItemKey(null);
       setDropTargetIndex(null);
     };
 
@@ -289,7 +287,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   });
 
   // mutations for updating playlist
-  const reorderSongsMutation = useReorderPlaylistSongsMutation();
+  const reorderItemsMutation = useReorderPlaylistItemsMutation();
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
   // query client for invalidation
@@ -350,14 +348,97 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   });
 
   // fetch video-typed items for the selected playlist (domain-generic
-  // playlist_itemz table, separate from the song-only playlist_songz
-  // table above — see video/queries/playlistItems.ts). remote-only for
-  // now, resolves to an empty list when viewing a local playlist.
+  // playlist_itemz table remotely, unified local indexeddb junction
+  // store otherwise — see video/queries/playlistItems.ts). works for
+  // both local and remote playlists, sharing one position space with
+  // songs (see mergedPlaylistItems below).
   const playlistVideoItemsQuery = usePlaylistVideoItemsQuery(
     () => selectedPlaylistId() ?? undefined
   );
   const playlistVideoItems = createMemo(() => playlistVideoItemsQuery.data ?? []);
   const removeVideoMutation = useRemoveVideoFromPlaylistMutation();
+
+  // series list lookup for the video-metadata subtitle shown in playlist
+  // rows (content type + series/season/episode) - mirrors VideoCard.tsx's
+  // pattern. fetches the whole (small) series list once and is
+  // shared/cached across every row via TanStack Query's queryKey
+  // deduping, so this doesn't cost one request per row. season lookups
+  // are per-row (see rowRenderers.video below) since each row's video may
+  // belong to a different series.
+  const videoSeriesListQuery = useVideoSeriesListQuery({ pageSize: 500 });
+
+  // favorite status for every video currently in the playlist - one bulk
+  // call (like videoSeriesListQuery above), not one query per row.
+  const playlistVideoIds = createMemo(() => playlistVideoItems().map((i) => i.video.id));
+  const videoFavoriteStatusesQuery = useVideoFavoriteStatuses(playlistVideoIds);
+  const favoriteVideoIds = createMemo(() => videoFavoriteStatusesQuery.data ?? new Set<string>());
+
+  // a merged item shared by both song and video playlist rows, sorted
+  // into the one shared position space `playlist_itemz` gives every item
+  // regardless of entity_type - used for interleaved rendering and for
+  // cross-type drag reorder (which needs a single ordered index space).
+  type MergedPlaylistItem =
+    | { kind: "song"; key: string; position: number; entityId: string; song: Song }
+    | {
+        kind: "video";
+        key: string;
+        position: number;
+        entityId: string;
+        videoItem: PlaylistVideoItem;
+      };
+  const mergedPlaylistItems = createMemo((): MergedPlaylistItem[] => {
+    const songs = playlistSongs().map((song, index): MergedPlaylistItem => ({
+      kind: "song",
+      key: `song:${song.id}`,
+      position: song.playlist_item_position ?? index,
+      entityId: song.id,
+      song,
+    }));
+    const videos = playlistVideoItems().map((videoItem): MergedPlaylistItem => ({
+      kind: "video",
+      key: `video:${videoItem.video.id}`,
+      position: videoItem.position,
+      entityId: videoItem.video.id,
+      videoItem,
+    }));
+    return [...songs, ...videos].sort((a, b) => a.position - b.position);
+  });
+
+  // convert a merged playlist row back into the queue's domain-agnostic
+  // `MediaItem` shape - lets play/queue/shuffle/double-click actions feed
+  // one mixed song+video queue via `playQueue`/`addToQueue` (phase 4a).
+  const mergedItemToMediaItem = (item: MergedPlaylistItem): MediaItem =>
+    item.kind === "song" ? songToMediaItem(item.song) : videoToMediaItem(item.videoItem.video);
+
+  // reorder every item currently in the playlist (songs AND videos) by
+  // moving the item at `fromKey` to `toIndex` within the merged list,
+  // then submitting the FULL resulting ordered list - the backend's
+  // reorder_playlist_items route requires every item, not a delta (see
+  // ReorderPlaylistItemsRequest's doc comment).
+  const commitReorder = async (fromKey: string, toIndex: number) => {
+    const items = mergedPlaylistItems();
+    const fromIndex = items.findIndex((i) => i.key === fromKey);
+    if (fromIndex === -1 || fromIndex === toIndex) return;
+
+    const playlist = selectedPlaylist();
+    if (!playlist) return;
+
+    const reordered = [...items];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    try {
+      await reorderItemsMutation.mutateAsync({
+        playlistId: playlist.playlist_id,
+        orderedItems: reordered.map((i) => ({
+          entity_type: i.kind,
+          entity_id: i.entityId,
+        })),
+      });
+    } catch (error) {
+      errorLog("failed to reorder playlist items:", error);
+    }
+  };
 
   // current remote (full Remote record) — used as the source for "send to remote".
   const currentRemoteFull = createCurrentRemoteFull();
@@ -469,12 +550,14 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     setShowingDetailOnNarrow(false);
   };
 
-  // handle song double-click (play song)
-  const handleSongDoubleClick = async (song: Song) => {
-    const songs = playlistSongs();
-    const startIndex = songs.findIndex((s) => s.sha256 === song.sha256);
+  // play a playlist row (song or video) - queues every item in the
+  // playlist (mixed song+video queue, phase 4a) starting at the clicked
+  // row's position, so playback continues into whatever kind comes next.
+  const handleItemDoubleClick = async (item: MergedPlaylistItem) => {
+    const items = mergedPlaylistItems();
+    const startIndex = items.findIndex((i) => i.key === item.key);
     const playlist = selectedPlaylist();
-    await playQueue(songs, {
+    await playQueue(items.map(mergedItemToMediaItem), {
       startIndex: Math.max(0, startIndex),
       source: {
         type: "playlist",
@@ -494,23 +577,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     if (!dataSource.removeSongsFromPlaylist) return;
     await dataSource.removeSongsFromPlaylist(playlistId, [song.id]);
     await queryClient.invalidateQueries({ queryKey: ["playlists"] });
-  };
-
-  // play a video-typed playlist item (double-click / play button) —
-  // queues every video item in the playlist, starting at the clicked one.
-  const handleVideoItemDoubleClick = async (item: PlaylistVideoItem) => {
-    const items = playlistVideoItems();
-    const startIndex = items.findIndex((i) => i.itemId === item.itemId);
-    const playlist = selectedPlaylist();
-    await playVideoQueue(
-      items.map((i) => i.video),
-      Math.max(0, startIndex),
-      {
-        type: "playlist",
-        label: playlist?.title ?? "playlist",
-        entity_id: playlist?.playlist_id,
-      }
-    );
   };
 
   const handleRemoveVideoFromPlaylist = (item: PlaylistVideoItem) => {
@@ -628,10 +694,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   });
 
-  // calculate total duration
+  // calculate total duration (songs + videos - one combined playlist runtime)
   const totalDuration = createMemo(() => {
-    const songs = playlistSongs();
-    return songs.reduce((sum, song) => sum + (song.duration_seconds || 0), 0);
+    const songSeconds = playlistSongs().reduce(
+      (sum, song) => sum + (song.duration_seconds || 0),
+      0
+    );
+    const videoSeconds = playlistVideoItems().reduce(
+      (sum, item) => sum + (item.video.duration_seconds || 0),
+      0
+    );
+    return songSeconds + videoSeconds;
   });
 
   // send the current playlist to a radio station as a `playlist` filter.
@@ -781,15 +854,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
-  // play all songs in selected playlist
+  // play every item (songs + videos) in selected playlist, in playlist
+  // order - true mixed-queue playback (phase 4a).
   const handlePlayAll = async () => {
     if (playlistActionPending()) return;
-    const songs = playlistSongs();
-    if (songs.length > 0) {
+    const items = mergedPlaylistItems();
+    if (items.length > 0) {
       setPlaylistActionPending("play");
       try {
         const playlist = selectedPlaylist();
-        await playQueue(songs, {
+        await playQueue(items.map(mergedItemToMediaItem), {
           source: {
             type: "playlist",
             label: playlist?.title ?? "playlist",
@@ -814,15 +888,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
-  // add all songs to queue
+  // add every item (songs + videos) to the queue
   const handleAddToQueue = async () => {
     if (playlistActionPending()) return;
-    const songs = playlistSongs();
-    if (songs.length > 0) {
+    const items = mergedPlaylistItems();
+    if (items.length > 0) {
       setPlaylistActionPending("queue");
       try {
         const playlist = selectedPlaylist();
-        await addToQueue(songs, {
+        await addToQueue(items.map(mergedItemToMediaItem), {
           source: {
             type: "playlist",
             label: playlist?.title ?? "playlist",
@@ -836,16 +910,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     }
   };
 
-  // shuffle all songs and replace the current queue. uses fisher-yates
-  // for an unbiased shuffle and tags the source as "shuffle" so playQueue
-  // wipes the existing queue (same behavior as picking an album/playlist).
+  // shuffle every item (songs + videos) and replace the current queue.
+  // uses fisher-yates for an unbiased shuffle and tags the source as
+  // "shuffle" so playQueue wipes the existing queue (same behavior as
+  // picking an album/playlist).
   const handleShuffleAll = async () => {
     if (playlistActionPending()) return;
-    const songs = playlistSongs();
-    if (songs.length === 0) return;
+    const items = mergedPlaylistItems();
+    if (items.length === 0) return;
     setPlaylistActionPending("shuffle");
     try {
-      const shuffled = songs.slice();
+      const shuffled = items.map(mergedItemToMediaItem);
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -932,16 +1007,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     return actions;
   };
 
-  // combined dragged song id (pointer drag for charnel/touch, HTML5 drag otherwise)
-  const effectiveDraggedSongId = () =>
-    isCharnelMode() || isTouch ? pointerDragSongId() : draggedSongId();
+  // combined dragged item key (pointer drag for charnel/touch, HTML5 drag otherwise)
+  const effectiveDraggedItemKey = () =>
+    isCharnelMode() || isTouch ? pointerDragItemKey() : draggedItemKey();
 
   // handle drag start
-  const handleDragStart = (songId: string) => (e: DragEvent) => {
-    setDraggedSongId(songId);
+  const handleDragStart = (itemKey: string) => (e: DragEvent) => {
+    setDraggedItemKey(itemKey);
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", songId);
+      e.dataTransfer.setData("text/plain", itemKey);
       // Safari has issues with drag images on transformed elements
       const target = e.currentTarget as HTMLElement;
       const clone = target.cloneNode(true) as HTMLElement;
@@ -976,12 +1051,12 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // handle drag end
   const handleDragEnd = () => {
-    setDraggedSongId(null);
+    setDraggedItemKey(null);
     setDropTargetIndex(null);
   };
 
   // handle pointer down for pointer-based drag (Tauri and touch)
-  const handlePointerDown = (songId: string) => (e: PointerEvent) => {
+  const handlePointerDown = (itemKey: string) => (e: PointerEvent) => {
     if (!isCharnelMode() && !isTouch) return;
     if (e.button !== 0) return;
     // on touch, only initiate drag when the touch starts on the drag handle
@@ -989,7 +1064,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     const target = e.target as HTMLElement;
     if (isTouch && !target.closest("[data-drag-handle]")) return;
     pendingPointerDrag = {
-      songId,
+      itemKey,
       startY: e.clientY,
       pointerId: e.pointerId,
       target: e.currentTarget as HTMLElement,
@@ -998,36 +1073,13 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
 
   // handle drop
   const handleDrop = async (targetIndex: number) => {
-    const draggedId = draggedSongId();
-    if (!draggedId) return;
-
-    const playlist = selectedPlaylist();
-    if (!playlist) return;
-
-    const songs = playlistSongs();
-    const draggedIndex = songs.findIndex((s) => s.id === draggedId);
-    if (draggedIndex === -1) return;
-
-    // don't do anything if dropped on same position
-    if (draggedIndex === targetIndex) {
-      setDraggedSongId(null);
-      setDropTargetIndex(null);
-      return;
-    }
-
-    // calculate new position (1-based)
-    const newPosition = targetIndex + 1;
+    const draggedKey = draggedItemKey();
+    if (!draggedKey) return;
 
     try {
-      await reorderSongsMutation.mutateAsync({
-        playlistId: playlist.playlist_id,
-        songIds: [draggedId],
-        newPosition,
-      });
-    } catch (error) {
-      errorLog("failed to reorder songs:", error);
+      await commitReorder(draggedKey, targetIndex);
     } finally {
-      setDraggedSongId(null);
+      setDraggedItemKey(null);
       setDropTargetIndex(null);
     }
   };
@@ -1296,6 +1348,16 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                         : " times"}
                                     </p>
                                   </Show>
+
+                                  {/* entity links — independently collapsible row */}
+                                  <Show when={(selectedPlaylist()?.urls?.length ?? 0) > 0}>
+                                    <div class="mb-3">
+                                      <EntityLinks
+                                        urls={selectedPlaylist()?.urls as EntityUrl[] | undefined}
+                                        collapsible
+                                      />
+                                    </div>
+                                  </Show>
                                 </>
                               }
                             >
@@ -1307,12 +1369,30 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                               />
                             </Show>
 
-                            <Show when={!playlistSongsQuery.isLoading}>
+                            <Show
+                              when={
+                                !playlistSongsQuery.isLoading && !playlistVideoItemsQuery.isLoading
+                              }
+                            >
                               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
-                                <span>
-                                  {playlistSongs().length}{" "}
-                                  {playlistSongs().length === 1 ? "song" : "songs"}
-                                </span>
+                                <Show when={mergedPlaylistItems().length > 0}>
+                                  <span>
+                                    {mergedPlaylistItems().length}{" "}
+                                    {mergedPlaylistItems().length === 1 ? "item" : "items"}
+                                  </span>
+                                </Show>
+                                <Show when={playlistSongs().length > 0}>
+                                  <span>
+                                    {playlistSongs().length}{" "}
+                                    {playlistSongs().length === 1 ? "song" : "songs"}
+                                  </span>
+                                </Show>
+                                <Show when={playlistVideoItems().length > 0}>
+                                  <span>
+                                    {playlistVideoItems().length}{" "}
+                                    {playlistVideoItems().length === 1 ? "video" : "videos"}
+                                  </span>
+                                </Show>
                                 <Show when={totalDuration() > 0}>
                                   <span>{formatHumanDuration(totalDuration())}</span>
                                 </Show>
@@ -1474,10 +1554,18 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                           </div>
                         </Show>
 
-                        {/* songs list */}
+                        {/* playlist items - songs and videos interleaved in one
+                            shared position space (see mergedPlaylistItems),
+                            sharing the same drag-reorder machinery. video rows
+                            have no context menu yet (favorite/rating hydration
+                            for video rows is still a video-domain wrap-up item)
+                            so they render without the ContextMenu/dropdown
+                            wrapping song rows get - matches prior behavior. */}
                         <div class={`relative z-10 ${isNarrow() ? "" : "flex-1 overflow-hidden"}`}>
                           <Show
-                            when={!playlistSongsQuery.isLoading}
+                            when={
+                              !playlistSongsQuery.isLoading && !playlistVideoItemsQuery.isLoading
+                            }
                             fallback={
                               <div class="flex items-center justify-center h-full">
                                 <div class="text-[var(--color-text-secondary)]">
@@ -1487,7 +1575,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             }
                           >
                             <Show
-                              when={playlistSongs().length > 0}
+                              when={mergedPlaylistItems().length > 0}
                               fallback={
                                 <div class="flex items-center justify-center h-full">
                                   <p class="text-[var(--color-text-secondary)]">
@@ -1500,108 +1588,300 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                                 class={`${isNarrow() ? "" : "overflow-auto h-full"}`}
                                 ref={(el) => (songListScrollRef = el)}
                               >
-                                <div class="space-y-1" data-playlist-songs>
-                                  <For each={playlistSongs()}>
-                                    {(song, index) => {
-                                      const contextMenuActions = useSongContextMenu(song, {
-                                        showPlayActions: true,
-                                        showRemoveFromPlaylist: true,
-                                        playlistId: selectedPlaylistId()!,
-                                        isFavorite: song.is_favorite ?? false,
-                                      });
+                                <div class="space-y-1" data-playlist-items>
+                                  <For each={mergedPlaylistItems()}>
+                                    {(item, index) => {
+                                      // entity-type-keyed render registry (not an
+                                      // if/else chain) - a third playlist item
+                                      // kind slots in here as a new entry.
+                                      const rowRenderers: Record<
+                                        MergedPlaylistItem["kind"],
+                                        () => JSX.Element
+                                      > = {
+                                        video: () => {
+                                          const videoItem = (
+                                            item as Extract<MergedPlaylistItem, { kind: "video" }>
+                                          ).videoItem;
 
-                                      const songRow = (
-                                        <DraggableRow
-                                          id={song.id}
-                                          index={index()}
-                                          isDragging={effectiveDraggedSongId() === song.id}
-                                          isDropTarget={dropTargetIndex() === index()}
-                                          isPlaying={appState()?.current_sha256 === song.sha256}
-                                          onDragStart={handleDragStart(song.id)}
-                                          onDragOver={handleDragOver(index())}
-                                          onDragLeave={handleDragLeave}
-                                          onDrop={() => handleDrop(index())}
-                                          onDragEnd={handleDragEnd}
-                                          onPointerDown={handlePointerDown(song.id)}
-                                          onDoubleClick={() => handleSongDoubleClick(song)}
-                                          onPlayClick={() => handleSongDoubleClick(song)}
-                                          images={[
-                                            ...(song.images || []),
-                                            ...(song.album_images || []),
-                                          ]}
-                                          disabled={isCharnelMode()}
-                                          showDragHandle={isTouch && editMode()}
-                                        >
-                                          <DraggableRowSongContent
-                                            title={song.title}
-                                            artist={song.artist_name}
-                                            album={song.album_title}
-                                            durationSeconds={song.duration_seconds}
-                                            playCount={song.play_count ?? null}
-                                            isFavorite={song.is_favorite}
-                                            songId={song.id}
-                                            sha256={song.sha256}
-                                            alwaysShowActions={isTouch}
-                                            compact={isNarrow()}
-                                            onFavoriteToggle={(songId, isFavorite) => {
-                                              toggleFavoriteMutation.mutate({
-                                                targetType: "song",
-                                                targetId: songId,
-                                                sha256: song.sha256,
-                                                isFavorite,
-                                              });
-                                            }}
-                                            actions={
-                                              <>
-                                                <Show
-                                                  when={isTouch && contextMenuActions.length > 0}
-                                                >
-                                                  <ClickDropdownMenu
-                                                    trigger={
+                                          // OPFS-backed local poster (no remote_blob_id) -
+                                          // MediaThumbnail's `images` prop only understands
+                                          // local_blob_id/remote_blob_id/remote_url, not
+                                          // OPFS paths, so a purely-local video's poster
+                                          // is resolved separately and passed as a plain
+                                          // thumbnailUrl (mirrors VideoCard.tsx's pattern).
+                                          const localPosterUrl = useLocalVideoPosterUrl(() =>
+                                            videoItem.video.source_type === "local"
+                                              ? videoItem.video.poster_opfs_path
+                                              : null
+                                          );
+
+                                          const contextMenuActions = useVideoContextMenu(
+                                            videoItem.video,
+                                            {
+                                              showPlayActions: true,
+                                              showRemoveFromPlaylist: true,
+                                              playlistId: selectedPlaylistId()!,
+                                              isFavorite: favoriteVideoIds().has(
+                                                videoItem.video.id
+                                              ),
+                                            }
+                                          );
+
+                                          // content-type/series/season/episode
+                                          // subtitle line, e.g. "series ·
+                                          // Voyager" or "season 2 · episode 5"
+                                          // - mirrors VideoCard.tsx's pattern.
+                                          const seasonsQuery = useVideoSeasonsQuery(
+                                            () => videoItem.video.series_id ?? undefined
+                                          );
+                                          const subtitle = createMemo(() => {
+                                            const video = videoItem.video;
+                                            const pages = videoSeriesListQuery.data?.pages ?? [];
+                                            const series = video.series_id
+                                              ? pages
+                                                  .flatMap((p) => p.items)
+                                                  .find((s) => s.id === video.series_id)
+                                              : undefined;
+
+                                            const season = video.season_id
+                                              ? (seasonsQuery.data ?? []).find(
+                                                  (s) => s.id === video.season_id
+                                                )
+                                              : undefined;
+                                            const seasonLabel = season
+                                              ? formatSeasonLabel(
+                                                  season.season_number,
+                                                  season.title
+                                                )
+                                              : null;
+
+                                            const parts = [
+                                              video.content_type || null,
+                                              series?.title ?? null,
+                                            ].filter(Boolean) as string[];
+                                            if (seasonLabel) parts.push(seasonLabel);
+                                            if (video.episode_number != null) {
+                                              parts.push(`episode ${video.episode_number}`);
+                                            }
+                                            return parts.length > 0 ? parts.join(" · ") : null;
+                                          });
+
+                                          const videoRow = (
+                                            <DraggableRow
+                                              id={item.key}
+                                              index={index()}
+                                              isDragging={effectiveDraggedItemKey() === item.key}
+                                              isDropTarget={dropTargetIndex() === index()}
+                                              isPlaying={
+                                                appState()?.current_sha256 === videoItem.video.id
+                                              }
+                                              onDragStart={handleDragStart(item.key)}
+                                              onDragOver={handleDragOver(index())}
+                                              onDragLeave={handleDragLeave}
+                                              onDrop={() => handleDrop(index())}
+                                              onDragEnd={handleDragEnd}
+                                              onPointerDown={handlePointerDown(item.key)}
+                                              onDoubleClick={() => void handleItemDoubleClick(item)}
+                                              onPlayClick={() => void handleItemDoubleClick(item)}
+                                              fallbackIcon="video"
+                                              cornerBadgeIcon="video"
+                                              images={
+                                                videoItem.video.poster_blob_id
+                                                  ? [
+                                                      {
+                                                        remote_blob_id:
+                                                          videoItem.video.poster_blob_id,
+                                                        remote_server_id:
+                                                          videoItem.video.remote_server_id ??
+                                                          undefined,
+                                                        is_primary: true,
+                                                        blob_type: "thumbnail",
+                                                      },
+                                                    ]
+                                                  : []
+                                              }
+                                              thumbnailUrl={
+                                                videoItem.video.source_type === "local"
+                                                  ? (localPosterUrl() ?? undefined)
+                                                  : undefined
+                                              }
+                                              disabled={isCharnelMode()}
+                                              showDragHandle={isTouch && editMode()}
+                                            >
+                                              <DraggableRowVideoContent
+                                                title={videoItem.video.title}
+                                                subtitle={subtitle()}
+                                                durationSeconds={
+                                                  videoItem.video.duration_seconds ?? undefined
+                                                }
+                                                isFavorite={favoriteVideoIds().has(
+                                                  videoItem.video.id
+                                                )}
+                                                videoId={videoItem.video.id}
+                                                onFavoriteToggle={(videoId, isFavorite) => {
+                                                  toggleFavoriteMutation.mutate({
+                                                    targetType: "video",
+                                                    targetId: videoId,
+                                                    isFavorite,
+                                                  });
+                                                }}
+                                                alwaysShowActions={isTouch}
+                                                compact={isNarrow()}
+                                                actions={
+                                                  <>
+                                                    <Show
+                                                      when={
+                                                        isTouch && contextMenuActions.length > 0
+                                                      }
+                                                    >
+                                                      <ClickDropdownMenu
+                                                        trigger={
+                                                          <IconButton
+                                                            icon="more"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            aria-label="video actions"
+                                                            data-testid="btn-more-video"
+                                                          />
+                                                        }
+                                                        actions={contextMenuActions}
+                                                      />
+                                                    </Show>
+                                                    <Show when={!isNarrow()} fallback={null}>
                                                       <IconButton
-                                                        icon="more"
+                                                        icon="close"
                                                         size="sm"
                                                         variant="ghost"
-                                                        aria-label="song actions"
-                                                        data-testid="btn-more-song"
+                                                        onClick={(e: MouseEvent) => {
+                                                          e.stopPropagation();
+                                                          handleRemoveVideoFromPlaylist(videoItem);
+                                                        }}
+                                                        aria-label="remove from playlist"
                                                       />
-                                                    }
-                                                    actions={contextMenuActions}
-                                                  />
-                                                </Show>
-                                                <Show
-                                                  when={
-                                                    !isNarrow() &&
-                                                    canRemoveSongsFromPlaylist(
-                                                      selectedPlaylist()?.created_by_id ?? null
-                                                    )
-                                                  }
-                                                  fallback={null}
-                                                >
-                                                  <IconButton
-                                                    icon="close"
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={(e: MouseEvent) => {
-                                                      e.stopPropagation();
-                                                      void handleRemoveSongFromPlaylist(song);
-                                                    }}
-                                                    aria-label="remove from playlist"
-                                                  />
-                                                </Show>
-                                              </>
-                                            }
-                                          />
-                                        </DraggableRow>
-                                      );
+                                                    </Show>
+                                                  </>
+                                                }
+                                              />
+                                            </DraggableRow>
+                                          );
 
-                                      return isTouch ? (
-                                        songRow
-                                      ) : (
-                                        <ContextMenu actions={contextMenuActions}>
-                                          {songRow}
-                                        </ContextMenu>
-                                      );
+                                          return isTouch ? (
+                                            videoRow
+                                          ) : (
+                                            <ContextMenu actions={contextMenuActions}>
+                                              {videoRow}
+                                            </ContextMenu>
+                                          );
+                                        },
+                                        song: () => {
+                                          const song = (
+                                            item as Extract<MergedPlaylistItem, { kind: "song" }>
+                                          ).song;
+                                          const contextMenuActions = useSongContextMenu(song, {
+                                            showPlayActions: true,
+                                            showRemoveFromPlaylist: true,
+                                            playlistId: selectedPlaylistId()!,
+                                            isFavorite: song.is_favorite ?? false,
+                                          });
+
+                                          const songRow = (
+                                            <DraggableRow
+                                              id={item.key}
+                                              index={index()}
+                                              isDragging={effectiveDraggedItemKey() === item.key}
+                                              isDropTarget={dropTargetIndex() === index()}
+                                              isPlaying={appState()?.current_sha256 === song.sha256}
+                                              onDragStart={handleDragStart(item.key)}
+                                              onDragOver={handleDragOver(index())}
+                                              onDragLeave={handleDragLeave}
+                                              onDrop={() => handleDrop(index())}
+                                              onDragEnd={handleDragEnd}
+                                              onPointerDown={handlePointerDown(item.key)}
+                                              onDoubleClick={() => void handleItemDoubleClick(item)}
+                                              onPlayClick={() => void handleItemDoubleClick(item)}
+                                              images={[
+                                                ...(song.images || []),
+                                                ...(song.album_images || []),
+                                              ]}
+                                              disabled={isCharnelMode()}
+                                              showDragHandle={isTouch && editMode()}
+                                            >
+                                              <DraggableRowSongContent
+                                                title={song.title}
+                                                artist={song.artist_name}
+                                                album={song.album_title}
+                                                durationSeconds={song.duration_seconds}
+                                                playCount={song.play_count ?? null}
+                                                isFavorite={song.is_favorite}
+                                                songId={song.id}
+                                                sha256={song.sha256}
+                                                alwaysShowActions={isTouch}
+                                                compact={isNarrow()}
+                                                onFavoriteToggle={(songId, isFavorite) => {
+                                                  toggleFavoriteMutation.mutate({
+                                                    targetType: "song",
+                                                    targetId: songId,
+                                                    sha256: song.sha256,
+                                                    isFavorite,
+                                                  });
+                                                }}
+                                                actions={
+                                                  <>
+                                                    <Show
+                                                      when={
+                                                        isTouch && contextMenuActions.length > 0
+                                                      }
+                                                    >
+                                                      <ClickDropdownMenu
+                                                        trigger={
+                                                          <IconButton
+                                                            icon="more"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            aria-label="song actions"
+                                                            data-testid="btn-more-song"
+                                                          />
+                                                        }
+                                                        actions={contextMenuActions}
+                                                      />
+                                                    </Show>
+                                                    <Show
+                                                      when={
+                                                        !isNarrow() &&
+                                                        canRemoveSongsFromPlaylist(
+                                                          selectedPlaylist()?.created_by_id ?? null
+                                                        )
+                                                      }
+                                                      fallback={null}
+                                                    >
+                                                      <IconButton
+                                                        icon="close"
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={(e: MouseEvent) => {
+                                                          e.stopPropagation();
+                                                          void handleRemoveSongFromPlaylist(song);
+                                                        }}
+                                                        aria-label="remove from playlist"
+                                                      />
+                                                    </Show>
+                                                  </>
+                                                }
+                                              />
+                                            </DraggableRow>
+                                          );
+
+                                          return isTouch ? (
+                                            songRow
+                                          ) : (
+                                            <ContextMenu actions={contextMenuActions}>
+                                              {songRow}
+                                            </ContextMenu>
+                                          );
+                                        },
+                                      };
+
+                                      return rowRenderers[item.kind]();
                                     }}
                                   </For>
                                 </div>
@@ -1609,57 +1889,6 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                             </Show>
                           </Show>
                         </div>
-
-                        {/* video-typed playlist items (domain-generic playlist_itemz
-                            table when a remote is active, local indexeddb junction
-                            table otherwise - see music/services/storage/playlists.ts)
-                            - kept as a separate, simple list rather than interleaved
-                            into the song list's drag-reorder machinery above; see
-                            docs/video-domain-round2-plan.md's "gap agent D" section
-                            for why. */}
-                        <Show when={playlistVideoItems().length > 0}>
-                          <div class="mt-2 border-t border-[var(--color-border)] pt-2">
-                            <div class="px-2 pb-1 text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">
-                              videos
-                            </div>
-                            <div class="space-y-1">
-                              <For each={playlistVideoItems()}>
-                                {(item) => (
-                                  <div
-                                    onDblClick={() => void handleVideoItemDoubleClick(item)}
-                                    class="flex items-center gap-3 px-2 py-2 rounded cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors group"
-                                  >
-                                    <MediaImage
-                                      remoteBlobId={item.video.poster_blob_id}
-                                      remoteServerId={item.video.remote_server_id}
-                                      alt={item.video.title}
-                                      size="sm"
-                                      thumbnailSize={50}
-                                      domainType="video"
-                                      class="w-8 h-8 rounded flex-shrink-0"
-                                    />
-                                    <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
-                                      {item.video.title}
-                                    </span>
-                                    <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
-                                      {formatDuration(item.video.duration_seconds)}
-                                    </span>
-                                    <IconButton
-                                      icon="close"
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e: MouseEvent) => {
-                                        e.stopPropagation();
-                                        handleRemoveVideoFromPlaylist(item);
-                                      }}
-                                      aria-label="remove from playlist"
-                                    />
-                                  </div>
-                                )}
-                              </For>
-                            </div>
-                          </div>
-                        </Show>
                       </div>
                     </Show>
                   }

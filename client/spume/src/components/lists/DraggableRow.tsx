@@ -4,7 +4,7 @@ import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { getPlayingIndicatorClasses } from "../../design-system/colors";
 import { formatDuration } from "../../utils/formatDuration";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { Icon } from "../icons/registry";
+import { Icon, type IconName } from "../icons/registry";
 
 export interface DraggableRowProps {
   /** unique identifier for the row */
@@ -47,6 +47,11 @@ export interface DraggableRowProps {
   thumbnailBlobId?: string;
   /** thumbnail url (legacy, fallback for remote) */
   thumbnailUrl?: string;
+  /** icon shown when there's no thumbnail image (default: "music") */
+  fallbackIcon?: IconName;
+  /** small icon badge pinned to the bottom-right corner of the thumbnail,
+   *  e.g. "video" to mark video rows in a mixed song+video list */
+  cornerBadgeIcon?: IconName;
   /** callback when thumbnail/play button is clicked */
   onPlayClick?: () => void;
   /** additional classes */
@@ -78,6 +83,8 @@ export function DraggableRow(props: DraggableRowProps) {
     "images",
     "thumbnailBlobId",
     "thumbnailUrl",
+    "fallbackIcon",
+    "cornerBadgeIcon",
     "onPlayClick",
     "class",
     "children",
@@ -154,6 +161,8 @@ export function DraggableRow(props: DraggableRowProps) {
         images={local.images}
         thumbnailBlobId={local.thumbnailBlobId}
         thumbnailUrl={local.thumbnailUrl}
+        fallbackIcon={local.fallbackIcon}
+        cornerBadgeIcon={local.cornerBadgeIcon}
         index={local.index}
         hideIndex={isHovered()}
         onPlayClick={local.onPlayClick}
@@ -234,6 +243,80 @@ export function DraggableRowSongContent(props: DraggableRowSongContentProps) {
           <FavoriteHeart
             isFavorite={props.isFavorite ?? false}
             onToggle={(isFavorite) => props.onFavoriteToggle?.(props.songId!, isFavorite)}
+            size="sm"
+          />
+        </div>
+      </Show>
+
+      {/* duration */}
+      <Show when={props.durationSeconds !== undefined}>
+        <div
+          class={`text-[var(--color-accent-500)] text-xs font-mono flex-shrink-0 text-right bg-black/20 group-hover:bg-transparent rounded ${
+            props.compact ? "px-1 py-0.5" : "p-1"
+          }`}
+        >
+          {formatDuration(props.durationSeconds!)}
+        </div>
+      </Show>
+
+      {/* actions */}
+      <Show when={props.actions}>
+        <div
+          class={`flex items-center gap-1 transition-opacity flex-shrink-0 ${
+            props.alwaysShowActions ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {props.actions}
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+// draggable row content for video-typed playlist items
+export interface DraggableRowVideoContentProps {
+  /** video title */
+  title: string;
+  /** duration in seconds */
+  durationSeconds?: number;
+  /** content-type/series/season/episode line, e.g. "movie" or
+   *  "series · Voyager · season 2 · episode 5" - omit to hide */
+  subtitle?: string | null;
+  /** whether video is favorited - omit to hide the favorite toggle */
+  isFavorite?: boolean;
+  /** video id for favorite toggle */
+  videoId?: string;
+  /** callback when favorite is toggled */
+  onFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
+  /** additional actions (buttons, icons, etc) */
+  actions?: JSX.Element;
+  /** when true, actions are always visible (not just on hover - use on touch devices) */
+  alwaysShowActions?: boolean;
+  /** tighter spacing - use on narrow/mobile rows, mirrors DraggableRowSongContent's compact */
+  compact?: boolean;
+  /** additional classes */
+  class?: string;
+}
+
+// video content for draggable rows - mirrors DraggableRowSongContent's shape
+export function DraggableRowVideoContent(props: DraggableRowVideoContentProps) {
+  return (
+    <div class={`flex items-center ${props.compact ? "gap-2" : "gap-4"} ${props.class || ""}`}>
+      <div class="flex-1 min-w-0">
+        <div class="text-[var(--color-text-primary)] font-medium text-sm truncate group-hover:text-[var(--color-accent-400)] transition-colors">
+          {props.title}
+        </div>
+        <Show when={props.subtitle}>
+          <div class="text-[var(--color-text-secondary)] text-xs truncate">{props.subtitle}</div>
+        </Show>
+      </div>
+
+      {/* favorite */}
+      <Show when={props.isFavorite !== undefined && props.videoId}>
+        <div class={`flex-shrink-0 ${props.compact ? "p-1 bg-black/20 rounded" : ""}`}>
+          <FavoriteHeart
+            isFavorite={props.isFavorite ?? false}
+            onToggle={(isFavorite) => props.onFavoriteToggle?.(props.videoId!, isFavorite)}
             size="sm"
           />
         </div>

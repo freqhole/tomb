@@ -27,6 +27,7 @@ import { appState } from "../../../app/services/storage/db";
 import { currentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { mediaItemKey, type QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { getVideoDataSource } from "../../../video/data";
+import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomplete";
 import { debug } from "../../../utils/logger";
 import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
@@ -415,7 +416,20 @@ async function refreshMetadata(): Promise<void> {
         // series lookup is best-effort — metadata still shows without it.
       }
     }
-    if (v.episode_number != null) album = `Episode ${v.episode_number}`;
+    // secondary line: "season N · episode M" — mirrors VideoCard's
+    // seasonEpisodeLine, since the lock-screen has no dedicated fields.
+    const albumParts: string[] = [];
+    if (v.season_id && v.series_id) {
+      try {
+        const seasons = await getVideoDataSource().getVideoSeasons(v.series_id);
+        const season = seasons.find((s) => s.id === v.season_id);
+        if (season) albumParts.push(formatSeasonLabel(season.season_number, season.title));
+      } catch {
+        // season lookup is best-effort — metadata still shows without it.
+      }
+    }
+    if (v.episode_number != null) albumParts.push(`episode ${v.episode_number}`);
+    if (albumParts.length > 0) album = albumParts.join(" · ");
     artwork = await getMediaSessionArtworkForVideo(v);
   }
 

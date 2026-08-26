@@ -10,7 +10,7 @@ import {
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
 import { isCharnelAvailable } from "../../app/api/client";
-import { Icon } from "../icons/registry";
+import { Icon, type IconName } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { warn } from "../../utils/logger";
@@ -110,6 +110,12 @@ export interface MediaThumbnailProps {
   showPlayIcon?: boolean;
   /** size of the thumbnail in pixels (default: 48) */
   size?: number;
+  /** icon shown when there's no image to display (default: "music") */
+  fallbackIcon?: IconName;
+  /** small icon badge pinned to the bottom-right corner (e.g. "video" to
+   *  mark video items among mixed-kind rows - mirrors VideoQueueRow.tsx's
+   *  corner badge) - omit for no badge */
+  cornerBadgeIcon?: IconName;
   /** additional classes */
   class?: string;
 }
@@ -207,7 +213,7 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
           when={imageUrl()}
           fallback={
             <Icon
-              name="music"
+              name={props.fallbackIcon ?? "music"}
               size={(size() ?? 48) > 40 ? 32 : 24}
               color="var(--color-text-disabled)"
             />
@@ -266,6 +272,13 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
       <Show when={showPlayIcon()}>
         <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumbnail:opacity-100 transition-opacity bg-black/40 pointer-events-none">
           <Icon name="play" size={24} color="white" />
+        </div>
+      </Show>
+
+      {/* corner badge - e.g. marks a row as video among mixed-kind lists */}
+      <Show when={props.cornerBadgeIcon}>
+        <div class="absolute bottom-0.5 right-0.5 bg-black/70 rounded px-0.5 pointer-events-none">
+          <Icon name={props.cornerBadgeIcon!} size={10} color="white" />
         </div>
       </Show>
     </div>

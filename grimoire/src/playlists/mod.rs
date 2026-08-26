@@ -65,6 +65,23 @@ pub async fn add_playlist_item(
     .execute(&pool)
     .await
     {
+        // detect the UNIQUE(playlist_id, entity_type, entity_id) constraint -
+        // this just means the item is already in the playlist, which callers
+        // should treat as a soft/expected condition (a friendly warning, not
+        // a hard error) rather than string-matching the raw sqlite message
+        // themselves (see .github/copilot-instructions.md's error-handling
+        // conventions).
+        let err_str = e.to_string();
+        if err_str.contains("UNIQUE constraint failed: playlist_itemz.playlist_id") {
+            return GrimoireResponse::failure(
+                "item already in playlist",
+                vec![ErrorDetail::new(
+                    "duplicate_playlist_item",
+                    "Already in Playlist",
+                    "this item is already in the playlist",
+                )],
+            );
+        }
         return GrimoireResponse::failure(
             "Failed to add playlist item",
             vec![ErrorDetail::from(e)],

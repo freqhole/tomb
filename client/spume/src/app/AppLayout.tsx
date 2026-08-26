@@ -84,6 +84,7 @@ import {
   reorderQueue,
 } from "../music/services/queue/queue";
 import { useSongContextMenu } from "../music/hooks/contextMenu";
+import { useVideoContextMenu } from "../video/hooks/contextMenu";
 import {
   getAllRemotes,
   getRemoteById,
@@ -92,7 +93,12 @@ import {
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
-import { mediaItemKey, songsOnly, type QueuedVideo } from "./services/storage/mediaItem";
+import {
+  mediaItemKey,
+  songsOnly,
+  findMediaItemIndex,
+  type QueuedVideo,
+} from "./services/storage/mediaItem";
 import {
   type Remote,
   type QueueHistoryEntry,
@@ -215,11 +221,7 @@ export function AppLayout(props: AppLayoutProps) {
   // hide, so opening a modal shouldn't pause music playback).
   const isAnyModalOpenReactive = useIsAnyModalOpen();
   createEffect(() => {
-    if (
-      currentVideoData() &&
-      isAnyModalOpenReactive() &&
-      !videoMiniPlayerDismissed()
-    ) {
+    if (currentVideoData() && isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
       if (isPlaying()) pause();
       setVideoMiniPlayerDismissed(true);
     }
@@ -237,6 +239,17 @@ export function AppLayout(props: AppLayoutProps) {
     const id = currentVideoData()?.id;
     return id ? (currentVideoFavoriteQuery.data?.has(id) ?? false) : false;
   });
+
+  // favorite status for videos currently in the queue - hoisted to setup
+  // level (not built inline inside QueueSidebar's JSX) so `<QueueSidebar>`
+  // itself is only constructed once; wrapping it in a reactive IIFE that
+  // reads appState()/currentTime()/etc. would re-invoke the component on
+  // every progress tick, remounting it and resetting its local state
+  // (e.g. the queue/history tab selection).
+  const queueVideoIds = createMemo(() =>
+    (appState()?.queue ?? []).filter((i) => i.kind === "video").map((i) => i.video.id)
+  );
+  const queueVideoFavoriteQuery = useVideoFavoriteStatuses(queueVideoIds);
 
   // background image config (reactive)
   const bgConfig = () => getBackgroundConfig();
@@ -1151,182 +1164,142 @@ export function AppLayout(props: AppLayoutProps) {
         <div class="flex-1 overflow-hidden">{props.children}</div>
 
         {/* queue sidebar - overlay drawer on narrow, inline sidebar on wide.
-            the virtualized song list's indices are local to the song-only
-            subset, so its handlers map back to the real index in the mixed
-            MediaItem queue via `songIndexMap`. video rows are rendered
-            separately (see `VideoQueueRow`/`videoIndexMap`) since they're a
-            simple, non-virtualized block rather than interleaved into the
-            song virtualizer - see docs/video-domain-plan.md. */}
-        {(() => {
-          const songIndexMap = () => {
-            const fullQueue = appState()?.queue || [];
-            const pairs: { song: Song; fullIndex: number }[] = [];
-            fullQueue.forEach((item, fullIndex) => {
-              if (item.kind === "song") pairs.push({ song: item.song, fullIndex });
+            operates directly on the real, ordered `MediaItem[]` queue
+            (phase 4b) - QueueSidebar now renders one unified, interleaved
+            virtualized list, so no more song-only/video-only index-mapping
+            is needed. */}
+        <QueueSidebar
+          isOpen={queueOpen()}
+          variant={isNarrow() ? "overlay" : "inline"}
+          items={appState()?.queue ?? []}
+          currentIndex={findMediaItemIndex(appState()?.queue ?? [], appState()?.current_sha256)}
+          upNextIndex={
+            pendingUpNextSha256()
+              ? findMediaItemIndex(appState()?.queue ?? [], pendingUpNextSha256())
+              : undefined
+          }
+          currentTime={currentTime()}
+          duration={duration()}
+          progressMap={progressMap()}
+          loadingSongIds={loadingSongIds()}
+          onClose={() => void setQueueOpen(false)}
+          onItemClick={(index) => {
+            const item = appState()?.queue[index];
+            if (item) void playMediaItem(item, { userInitiated: true });
+          }}
+          onItemDoubleClick={(index) => {
+            const item = appState()?.queue[index];
+            if (item) void playMediaItem(item, { userInitiated: true });
+          }}
+          onRemoveItem={(index) => void removeFromQueue(index)}
+          onReorder={(fromIndex, toIndex) => void reorderQueue(fromIndex, toIndex)}
+          onClearAll={() => {
+            void clearQueue();
+          }}
+          onRadioQueueEntryClick={(station) => {
+            void tuneIntoRadio(station.peer_addr, {
+              stationId: station.station_id,
+              stationName: station.station_name,
+              isLocal: station.is_local,
             });
-            return pairs;
-          };
-          const toFullIndex = (songOnlyIndex: number) =>
-            songIndexMap()[songOnlyIndex]?.fullIndex ?? -1;
+          }}
+          getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
+          onResumeDownloads={() => {
+            resumeAutoDownload();
+          }}
+          pendingDownloadCount={getPendingDownloadCount()}
+          getContextMenuActions={(index, item) => {
+            const queueLength = appState()?.queue.length ?? 0;
 
-          const videoIndexMap = () => {
-            const fullQueue = appState()?.queue || [];
-            const pairs: { video: QueuedVideo; fullIndex: number }[] = [];
-            fullQueue.forEach((item, fullIndex) => {
-              if (item.kind === "video") pairs.push({ video: item.video, fullIndex });
-            });
-            return pairs;
-          };
+            if (item.kind === "video") {
+              return useVideoContextMenu(item.video, {
+                showPlayActions: false,
+                isFavorite: queueVideoFavoriteQuery.data?.has(item.video.id) ?? false,
+                showRemoveFromQueue: true,
+                queueIndex: index,
+                onRemoveFromQueue: () => void removeFromQueue(index),
+                showClearAbove: index > 0,
+                onClearAbove: () => void clearSongsAbove(index),
+                showClearBelow: index < queueLength - 1,
+                onClearBelow: () => void clearSongsBelow(index),
+              });
+            }
 
-          return (
-            <QueueSidebar
-              isOpen={queueOpen()}
-              variant={isNarrow() ? "overlay" : "inline"}
-              songs={songIndexMap().map((p) => p.song)}
-              videos={videoIndexMap()}
-              currentVideoId={appState()?.current_sha256 ?? null}
-              onVideoClick={(fullIndex) => {
-                const item = appState()?.queue[fullIndex];
-                if (item) void playMediaItem(item, { userInitiated: true });
-              }}
-              onRemoveVideo={(fullIndex) => void removeFromQueue(fullIndex)}
-              currentIndex={
-                appState()?.current_sha256
-                  ? songIndexMap().findIndex((p) => p.song.sha256 === appState()!.current_sha256)
-                  : -1
-              }
-              upNextIndex={
-                pendingUpNextSha256()
-                  ? (songIndexMap().findIndex((p) => p.song.sha256 === pendingUpNextSha256()) ??
-                    undefined)
-                  : undefined
-              }
-              currentTime={currentTime()}
-              duration={duration()}
-              progressMap={progressMap()}
-              loadingSongIds={loadingSongIds()}
-              onClose={() => void setQueueOpen(false)}
-              onSongClick={(index) => {
-                const state = appState();
-                const fullIndex = toFullIndex(index);
-                const item = fullIndex >= 0 ? state?.queue[fullIndex] : undefined;
-                if (item) void playMediaItem(item, { userInitiated: true });
-              }}
-              onSongDoubleClick={(index) => {
-                const state = appState();
-                const fullIndex = toFullIndex(index);
-                const item = fullIndex >= 0 ? state?.queue[fullIndex] : undefined;
-                if (item) void playMediaItem(item, { userInitiated: true });
-              }}
-              onRemoveSong={(index) => {
-                const fullIndex = toFullIndex(index);
-                if (fullIndex >= 0) void removeFromQueue(fullIndex);
-              }}
-              onReorder={(fromIndex, toIndex) => {
-                const fullFrom = toFullIndex(fromIndex);
-                const fullTo = toFullIndex(toIndex);
-                if (fullFrom >= 0 && fullTo >= 0) void reorderQueue(fullFrom, fullTo);
-              }}
-              onClearAll={() => {
-                void clearQueue();
-              }}
-              onRadioQueueEntryClick={(station) => {
-                void tuneIntoRadio(station.peer_addr, {
-                  stationId: station.station_id,
-                  stationName: station.station_name,
-                  isLocal: station.is_local,
+            const song = item.song;
+            const isSynced = isSongSyncedLocally(song.sha256);
+            return useSongContextMenu(song, {
+              showPlayActions: false,
+              isFavorite: song.is_favorite || false,
+              showRemoveFromQueue: true,
+              queueIndex: index,
+              onRemoveFromQueue: () => void removeFromQueue(index),
+              showClearAbove: index > 0,
+              onClearAbove: () => void clearSongsAbove(index),
+              showClearBelow: index < queueLength - 1,
+              onClearBelow: () => void clearSongsBelow(index),
+              showDeleteFromLocal: isSynced,
+              onDeleteFromLocal: async () => {
+                const result = await deleteSongFromLocal(song.id, {
+                  remoteServerId: song.remote_server_id,
+                  sha256: song.sha256,
                 });
-              }}
-              getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
-              onResumeDownloads={() => {
-                resumeAutoDownload();
-              }}
-              pendingDownloadCount={getPendingDownloadCount()}
-              getContextMenuActions={(index, _queueSong) => {
-                const fullIndex = toFullIndex(index);
-                const state = appState();
-                if (fullIndex < 0 || !state?.queue[fullIndex]) return [];
-                const item = state.queue[fullIndex];
-                if (item.kind !== "song") return [];
-
-                const fullSong = item.song;
-                const queueLength = songIndexMap().length;
-                const isSynced = isSongSyncedLocally(fullSong.sha256);
-                return useSongContextMenu(fullSong, {
-                  showPlayActions: false,
-                  isFavorite: fullSong.is_favorite || false,
-                  showRemoveFromQueue: true,
-                  queueIndex: fullIndex,
-                  onRemoveFromQueue: () => void removeFromQueue(fullIndex),
-                  showClearAbove: index > 0,
-                  onClearAbove: () => void clearSongsAbove(fullIndex),
-                  showClearBelow: index < queueLength - 1,
-                  onClearBelow: () => void clearSongsBelow(fullIndex),
-                  showDeleteFromLocal: isSynced,
-                  onDeleteFromLocal: async () => {
-                    const result = await deleteSongFromLocal(fullSong.id, {
-                      remoteServerId: fullSong.remote_server_id,
-                      sha256: fullSong.sha256,
-                    });
-                    if (result.success) {
-                      // also remove from queue after deletion
-                      await removeFromQueue(fullIndex);
-                      toast.success("removed from local library");
-                    } else {
-                      toast.error(result.error || "failed to delete");
-                    }
-                  },
-                });
-              }}
-              historyEntries={queueHistory()}
-              onReplayHistoryEntry={(entry) => {
-                if (entry.type === "radio_station" && entry.radio_station_ref) {
-                  const ref = entry.radio_station_ref;
-                  void tuneIntoRadio(ref.peer_addr, {
-                    stationId: ref.station_id,
-                    stationName: ref.station_name,
-                    isLocal: ref.is_local,
-                  });
-                  return;
-                }
-                const hasProgress = (entry.listened_seconds || 0) > 0;
-                if (hasProgress) {
-                  // resume from where we left off
-                  void resumeHistoryEntry(entry);
+                if (result.success) {
+                  // also remove from queue after deletion
+                  await removeFromQueue(index);
+                  toast.success("removed from local library");
                 } else {
-                  // play from the beginning
-                  void addToQueue(entry.songs, {
-                    startPlaying: true,
-                    source: {
-                      type: entry.type,
-                      label: entry.label,
-                      entity_id: entry.entity_id,
-                      image: entry.image,
-                    },
-                  });
+                  toast.error(result.error || "failed to delete");
                 }
-              }}
-              onRemoveHistoryEntry={(id) => {
-                void removeHistoryEntry(id);
-              }}
-              onClearHistory={async () => {
-                const confirmed = await confirm({
-                  title: "clear history",
-                  message: "are you sure you want to clear all queue history?",
-                  confirmText: "clear",
-                  variant: "danger",
-                });
-                if (confirmed) {
-                  void clearQueueHistory();
-                }
-              }}
-              getHistoryContextMenuActions={getHistoryContextMenuActions}
-              currentRadioStation={currentRadioStation()}
-              currentRadioRemoteName={currentRadioRemoteName()}
-              currentRadioRemoteImage={currentRadioRemoteImage()}
-            />
-          );
-        })()}
+              },
+            });
+          }}
+          historyEntries={queueHistory()}
+          onReplayHistoryEntry={(entry) => {
+            if (entry.type === "radio_station" && entry.radio_station_ref) {
+              const ref = entry.radio_station_ref;
+              void tuneIntoRadio(ref.peer_addr, {
+                stationId: ref.station_id,
+                stationName: ref.station_name,
+                isLocal: ref.is_local,
+              });
+              return;
+            }
+            const hasProgress = (entry.listened_seconds || 0) > 0;
+            if (hasProgress) {
+              // resume from where we left off
+              void resumeHistoryEntry(entry);
+            } else {
+              // play from the beginning
+              void addToQueue(entry.songs, {
+                startPlaying: true,
+                source: {
+                  type: entry.type,
+                  label: entry.label,
+                  entity_id: entry.entity_id,
+                  image: entry.image,
+                },
+              });
+            }
+          }}
+          onRemoveHistoryEntry={(id) => {
+            void removeHistoryEntry(id);
+          }}
+          onClearHistory={async () => {
+            const confirmed = await confirm({
+              title: "clear history",
+              message: "are you sure you want to clear all queue history?",
+              confirmText: "clear",
+              variant: "danger",
+            });
+            if (confirmed) {
+              void clearQueueHistory();
+            }
+          }}
+          getHistoryContextMenuActions={getHistoryContextMenuActions}
+          currentRadioStation={currentRadioStation()}
+          currentRadioRemoteName={currentRadioRemoteName()}
+          currentRadioRemoteImage={currentRadioRemoteImage()}
+        />
       </div>
 
       {/* unified player bar — handles both music (queue) and radio modes.

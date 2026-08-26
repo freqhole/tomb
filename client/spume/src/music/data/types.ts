@@ -6,6 +6,12 @@ import type { Song, ImageMetadata } from "../services/storage/types";
 // re-export for convenience
 export type { Song, ImageMetadata };
 
+/** thrown when an add-to-playlist mutation fails because the item is
+ * already in the playlist - a soft/expected condition callers should
+ * surface as a warning, not a hard error (shared by both the song and
+ * video add-to-playlist paths - see PlaylistSelectorModal.tsx). */
+export class PlaylistItemDuplicateError extends Error {}
+
 // query parameters for listing/filtering
 export interface QueryParams {
   // pagination

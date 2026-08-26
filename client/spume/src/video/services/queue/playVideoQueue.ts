@@ -6,7 +6,11 @@
 // (a separate, much-less-frequent mechanism — see videoListenProgress.ts).
 import { setQueue } from "../../../app/services/storage/db";
 import { playMediaItem } from "../../../music/services/audio/player";
-import { videoToMediaItem, videosOnly } from "../../../app/services/storage/mediaItem";
+import {
+  videoToMediaItem,
+  videosOnly,
+  type QueuedVideo,
+} from "../../../app/services/storage/mediaItem";
 import type {
   VideoQueueHistoryEntry,
   VideoQueueSourceContext,
@@ -17,7 +21,7 @@ import { startVideoRemoteSync } from "./videoServerProgressSync";
 import type { VideoSummary } from "../../data/types";
 
 export async function playVideoQueue(
-  videos: VideoSummary[],
+  videos: (VideoSummary | QueuedVideo)[],
   startIndex = 0,
   source?: VideoQueueSourceContext
 ): Promise<void> {

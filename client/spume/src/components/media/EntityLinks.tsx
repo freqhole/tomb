@@ -2,6 +2,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import type { EntityUrl } from "../../music/data/types";
+import { withUrlProtocol } from "../../utils/urls";
 
 interface EntityLinksProps {
   urls?: EntityUrl[] | null;
@@ -15,7 +16,7 @@ interface EntityLinksProps {
 function getLinkLabel(entityUrl: EntityUrl): string {
   if (entityUrl.name) return entityUrl.name;
   try {
-    const hostname = new URL(entityUrl.url).hostname.replace(/^www\./, "");
+    const hostname = new URL(withUrlProtocol(entityUrl.url)).hostname.replace(/^www\./, "");
     return hostname;
   } catch {
     return entityUrl.url;
@@ -35,7 +36,7 @@ export function EntityLinks(props: EntityLinksProps) {
             <For each={props.urls!}>
               {(entityUrl) => (
                 <a
-                  href={entityUrl.url}
+                  href={withUrlProtocol(entityUrl.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="inline-flex items-center gap-1 px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
@@ -68,7 +69,7 @@ export function EntityLinks(props: EntityLinksProps) {
             <For each={props.urls!}>
               {(entityUrl) => (
                 <a
-                  href={entityUrl.url}
+                  href={withUrlProtocol(entityUrl.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="inline-flex items-center gap-1 px-2 py-0.5 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-full text-xs transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"

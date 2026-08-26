@@ -816,6 +816,21 @@ pub async fn add_songs_to_playlist(
         .execute(&pool)
         .await
         {
+            // same UNIQUE(playlist_id, entity_type, entity_id) constraint
+            // as crate::playlists::add_playlist_item - surface it as the
+            // same structured error_type so the client can show a soft
+            // warning ("already in playlist") instead of a raw db error.
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed: playlist_itemz.playlist_id") {
+                return GrimoireResponse::failure(
+                    "item already in playlist",
+                    vec![ErrorDetail::new(
+                        "duplicate_playlist_item",
+                        "Already in Playlist",
+                        "this item is already in the playlist",
+                    )],
+                );
+            }
             return GrimoireResponse::failure(
                 "Failed to add song to playlist",
                 vec![ErrorDetail::from(e)],

@@ -410,6 +410,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           description: playlist.description,
           is_public: playlist.is_public,
           images: adaptDatabaseImages(playlist.images),
+          urls: playlist.urls,
           song_count: songCount,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
@@ -543,6 +544,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description?: string | null;
       is_public?: boolean | null;
       images?: ImageMetadata[] | null;
+      entity_urls?: Array<{ id?: string | null; name?: string | null; url: string }> | null;
     },
   ): Promise<PlaylistSummary> {
     const db = await initMusicDB();
@@ -565,6 +567,13 @@ export class LocalMusicDataSource implements MusicDataSource {
     if (params.images !== undefined) {
       playlist.images = params.images || undefined;
     }
+    if (params.entity_urls !== undefined) {
+      playlist.urls = (params.entity_urls || []).map((u) => ({
+        id: u.id || generateUUID(),
+        name: u.name || undefined,
+        url: u.url,
+      }));
+    }
 
     playlist.updated_at = Date.now();
 
@@ -579,6 +588,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description: playlist.description,
       is_public: playlist.is_public,
       images: playlist.images,
+      urls: playlist.urls,
       song_count: songCount,
       created_at: playlist.created_at,
       updated_at: playlist.updated_at,

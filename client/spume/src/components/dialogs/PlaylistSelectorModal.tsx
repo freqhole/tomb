@@ -10,6 +10,7 @@ import {
   useRecentPlaylistsQuery,
 } from "../../music/queries/playlists";
 import { queryKeys } from "../../music/queries/queryKeys";
+import { PlaylistItemDuplicateError } from "../../music/data/types";
 import { useAddVideoToPlaylistMutation } from "../../video/queries/playlistItems";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
@@ -100,6 +101,13 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
       props.onClose();
     } catch (error) {
+      if (error instanceof PlaylistItemDuplicateError) {
+        // already-in-playlist is a soft/expected condition, not a real
+        // error - a friendly warning reads better than an error toast.
+        toast.warning(`already in "${playlist.title}"`, { title: "already added" });
+        props.onClose();
+        return;
+      }
       console.error(`failed to add ${itemLabel()} to playlist:`, error);
       const errorMessage = error instanceof Error ? error.message : "unknown error";
       toast.error(`failed to add ${itemLabel()}: ${errorMessage}`, {

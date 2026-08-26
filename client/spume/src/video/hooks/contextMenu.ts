@@ -19,6 +19,7 @@ import { useDeleteVideoMutation } from "../queries/videos";
 import { useDeleteVideoSeriesMutation } from "../queries/series";
 import { useRemoveVideoFromPlaylistMutation } from "../queries/playlistItems";
 import type { VideoSeries, VideoSummary } from "../data/types";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 
 export interface VideoContextMenuOptions {
   /** whether the video is currently favorited */
@@ -36,18 +37,66 @@ export interface VideoContextMenuOptions {
   playlistId?: string;
   /** callback after a successful "remove from playlist" (e.g. refresh the list) */
   onRemovedFromPlaylist?: () => void;
+  /** whether to show "remove from queue" action (queue view only) */
+  showRemoveFromQueue?: boolean;
+  /** queue index for remove action */
+  queueIndex?: number;
+  /** callback when remove from queue is clicked */
+  onRemoveFromQueue?: () => void;
+  /** whether to show "clear queue above" action (queue view only) */
+  showClearAbove?: boolean;
+  /** callback when clear queue above is clicked */
+  onClearAbove?: () => void;
+  /** whether to show "clear queue below" action (queue view only) */
+  showClearBelow?: boolean;
+  /** callback when clear queue below is clicked */
+  onClearBelow?: () => void;
   /** custom actions to append */
   customActions?: MenuAction[];
 }
 
 export function useVideoContextMenu(
-  video: VideoSummary,
+  video: VideoSummary | QueuedVideo,
   options: VideoContextMenuOptions = {}
 ): MenuAction[] {
   const navigate = useNavigate();
   const deleteMutation = useDeleteVideoMutation();
   const removeFromPlaylistMutation = useRemoveVideoFromPlaylistMutation();
   const actions: MenuAction[] = [];
+
+  // queue management actions FIRST (when in queue context) — mirrors
+  // useSongContextMenu's queue-action ordering.
+  if (options.showRemoveFromQueue && options.queueIndex !== undefined) {
+    actions.push({
+      label: "remove from queue",
+      icon: IconNames.close,
+      onClick: () => {
+        options.onRemoveFromQueue?.();
+      },
+    });
+
+    if (options.showClearAbove && options.queueIndex > 0) {
+      actions.push({
+        label: "clear queue before",
+        icon: IconNames.chevronUp,
+        onClick: () => {
+          options.onClearAbove?.();
+        },
+      });
+    }
+
+    if (options.showClearBelow) {
+      actions.push({
+        label: "clear queue after",
+        icon: IconNames.chevronDown,
+        onClick: () => {
+          options.onClearBelow?.();
+        },
+      });
+    }
+
+    actions.push({ type: "separator" });
+  }
 
   if (options.showPlayActions !== false) {
     actions.push({

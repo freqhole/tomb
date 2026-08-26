@@ -42,6 +42,7 @@ export const ERROR_TYPE_MESSAGES: Record<string, string> = {
   route_not_found: "that server doesn't support this feature (server may need an update)",
   duplicate_song: "this song already exists in the library",
   duplicate_video: "this video already exists in the library",
+  duplicate_playlist_item: "this item is already in the playlist",
   video_previously_deleted:
     "this video was already deleted from the library - an admin needs to run a maintenance cleanup before it can be added back",
   fetch_not_configured: "downloading from urls isn't set up on this server",

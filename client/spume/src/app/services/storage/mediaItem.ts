@@ -103,3 +103,16 @@ export function findMediaItemIndex(items: MediaItem[], key: string | null | unde
   if (!key) return -1;
   return items.findIndex((i) => mediaItemKey(i) === key);
 }
+
+function isMediaItem(value: Song | MediaItem): value is MediaItem {
+  return typeof value === "object" && value !== null && "kind" in value;
+}
+
+/** normalize a queue-input array that may still be a legacy all-`Song[]`
+ * call (most existing callers) or a mixed `MediaItem[]` call (playlist
+ * rows, once a playlist has video items) into one `MediaItem[]` — lets
+ * `playQueue`/`addToQueue` accept either shape without every caller having
+ * to convert first. */
+export function toMediaItems(items: Array<Song | MediaItem>): MediaItem[] {
+  return items.map((item) => (isMediaItem(item) ? item : songToMediaItem(item)));
+}

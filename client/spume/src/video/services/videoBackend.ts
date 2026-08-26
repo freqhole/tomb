@@ -23,7 +23,9 @@ import { setCurrentSong } from "../../app/services/storage/db";
 import { getVideoURL } from "./videoBlobAccess";
 import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { installVideoPlaybackOrchestrator } from "./queue/videoPlaybackOrchestrator";
-import { error as errorLog } from "../../utils/logger";
+import { error as errorLog, debug } from "../../utils/logger";
+import { registerWatchdog } from "../../music/services/audio/mediaSessionBridge";
+import { isPlaying } from "../../music/services/audio/playerState";
 
 // video-side counterpart of `music/services/audio/player.ts`'s
 // `installPlaybackOrchestrator()` call — installed here (rather than in
@@ -41,6 +43,15 @@ export class VideoBackend implements PlayerBackend {
   private listeners = new Set<PlayerEventListener>();
   private snap: PlayerSnapshot = { ...emptySnapshot };
   private disposed = false;
+  // android `expectedend` watchdog unregister handle - see htmlAudio.ts's
+  // identical pattern (screen-off/doze can throttle js so the `ended`
+  // event never fires; the native plugin's watchdog fires shortly after
+  // the expected end time as a fallback).
+  private unregisterWatchdog: (() => void) | null = null;
+
+  constructor() {
+    this.unregisterWatchdog = registerWatchdog(() => this.expectedEndWatchdog());
+  }
 
   /** the owned `<video>` element — PlayerBar mounts this into the DOM
    * when a video item is active. lazily created on first access. */
@@ -124,6 +135,8 @@ export class VideoBackend implements PlayerBackend {
     if (this.disposed) return;
     this.disposed = true;
     this.listeners.clear();
+    this.unregisterWatchdog?.();
+    this.unregisterWatchdog = null;
     if (this.videoElement) {
       try {
         this.videoElement.pause();
@@ -133,6 +146,27 @@ export class VideoBackend implements PlayerBackend {
       }
       this.videoElement = null;
     }
+  }
+
+  // android `expectedend` watchdog, registered with `mediaSessionBridge`
+  // via `registerWatchdog` in the constructor - mirrors htmlAudio.ts's
+  // `expectedEndWatchdog` exactly, just checking the video element instead
+  // of the audio element.
+  private expectedEndWatchdog(): void {
+    const v = this.videoElement;
+    if (!v) return;
+    if (v.ended) return;
+    if (!isPlaying()) return;
+    const dur = v.duration;
+    if (Number.isFinite(dur) && dur > 0 && v.currentTime < dur - 2) {
+      debug(
+        "player",
+        `expectedend ignored (video) — currentTime=${v.currentTime.toFixed(2)} duration=${dur.toFixed(2)}`
+      );
+      return;
+    }
+    debug("player", "expectedend watchdog firing (video) — advancing queue");
+    this.emit({ kind: "ended" });
   }
 
   async loadAndPlay(item: MediaItem, options?: LoadAndPlayOptions): Promise<void> {

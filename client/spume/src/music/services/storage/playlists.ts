@@ -183,7 +183,7 @@ export async function reorderLocalPlaylistItems(
   const index = store.index("by_playlist_id");
   const existingItems = (await index.getAll(playlistId)) as PlaylistItem[];
   const addedAtByKey = new Map(
-    existingItems.map((item) => [`${item.entity_type}:${item.entity_id}`, item.added_at]),
+    existingItems.map((item) => [`${item.entity_type}:${item.entity_id}`, item.added_at])
   );
 
   const now = Date.now();
