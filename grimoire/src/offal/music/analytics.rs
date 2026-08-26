@@ -6,9 +6,9 @@ use crate::error::ErrorDetail;
 use crate::music::analytics::admin::{
     get_overview_stats, get_top_albums, get_top_artists, get_top_songs, get_user_stats,
 };
-use crate::music::analytics::events::{create_play_event, record_play_event};
+use crate::music::analytics::events::{create_play_event, create_video_play_event, record_play_event};
 use crate::music::analytics::queries::{get_song_play_analytics, get_user_listening_history};
-use crate::music::analytics::MusicPlayEvent;
+use crate::music::analytics::PlayEvent;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
@@ -23,6 +23,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Music,
         request_type: "RecordPlayRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
+    RouteInfo {
+        name: "record_video_play",
+        path: "/api/analytics/video-play",
+        method: Method::POST,
+        domain: Domain::Music,
+        request_type: "RecordVideoPlayRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
@@ -126,7 +135,7 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         "offal: record_play"
     );
 
-    let (media_event, music_event) = create_play_event(
+    let (media_event, play_event) = create_play_event(
         req.media_blob_id,
         req.song_id,
         Some(caller.user_id.clone()),
@@ -134,7 +143,7 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
         req.event_data,
     );
 
-    let response = record_play_event(&media_event, &music_event).await;
+    let response = record_play_event(&media_event, &play_event).await;
 
     if !response.success {
         tracing::warn!(
@@ -147,13 +156,71 @@ pub async fn record_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
     response.map(|_| JsonValue::Null)
 }
 
+/// record a video play event (canonical endpoint) - mirrors `record_play`,
+/// kept as its own named handler/route per the "keep differences between
+/// listening and watching" convention.
+///
+/// path: POST /api/analytics/video-play
+#[derive(Deserialize)]
+struct RecordVideoPlayRequest {
+    media_blob_id: String,
+    video_id: String,
+    session_id: Option<String>,
+    event_data: Option<serde_json::Value>,
+}
+
+pub async fn record_video_play(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RecordVideoPlayRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "offal: record_video_play: bad request");
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            );
+        }
+    };
+
+    tracing::debug!(
+        user_id = %caller.user_id,
+        media_blob_id = %req.media_blob_id,
+        video_id = %req.video_id,
+        session_id = ?req.session_id,
+        "offal: record_video_play"
+    );
+
+    let (media_event, play_event) = create_video_play_event(
+        req.media_blob_id,
+        req.video_id,
+        Some(caller.user_id.clone()),
+        req.session_id,
+        req.event_data,
+    );
+
+    let response = record_play_event(&media_event, &play_event).await;
+
+    if !response.success {
+        tracing::warn!(
+            message = %response.message,
+            errors = ?response.errors,
+            "offal: record_video_play: failed"
+        );
+    }
+
+    response.map(|_| JsonValue::Null)
+}
+
 /// record a play event (legacy endpoint with separate events)
 ///
 /// path: POST /api/analytics/events
 #[derive(Deserialize)]
 struct RecordEventRequest {
     media_event: MediaEvent,
-    play_event: MusicPlayEvent,
+    play_event: PlayEvent,
 }
 
 pub async fn record_event(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {

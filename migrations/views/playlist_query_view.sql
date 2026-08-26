@@ -38,8 +38,8 @@ SELECT
     COUNT(ps.entity_id) as playlist_song_count,
     COALESCE(SUM(s.duration), 0) as playlist_total_duration,
 
-    -- initiated play count from music_play_eventz (uses idx_music_play_eventz_playlist)
-    (SELECT COUNT(*) FROM music_play_eventz WHERE playlist_id = pl.id) as playlist_play_count,
+    -- initiated play count from play_eventz (uses idx_play_eventz_playlist)
+    (SELECT COUNT(*) FROM play_eventz WHERE playlist_id = pl.id) as playlist_play_count,
 
     -- user favorites - now NULL (populated via cache layer)
     NULL as favorite_id,

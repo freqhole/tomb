@@ -7,8 +7,8 @@
 //!
 //! Music analytics builds on top of the generic analytics system:
 //! - Generic `media_eventz` table tracks all events (domain-agnostic)
-//! - `music_play_eventz` table provides denormalized music-specific data
-//! - This denormalization enables fast queries without complex joins
+//! - `play_eventz` table provides denormalized entity_type/entity_id data
+//!   (song or video) - this enables fast queries without complex joins
 //!
 //! ## Usage
 //!
@@ -18,7 +18,7 @@
 //!
 //! # async fn example() -> grimoire::GrimoireResult<()> {
 //! // Create a play event
-//! let (media_event, music_event) = create_play_event(
+//! let (media_event, play_event) = create_play_event(
 //!     "media_blob_id".to_string(),
 //!     "song_id".to_string(),
 //!     Some("user_id".to_string()),
@@ -27,7 +27,7 @@
 //! );
 //!
 //! // Record the event
-//! let (media_id, music_id) = record_play_event(&media_event, &music_event).await?;
+//! let (media_id, play_event_id) = record_play_event(&media_event, &play_event).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -43,16 +43,18 @@ pub mod sessions;
 
 // Re-export core types
 pub use models::{
-    ListeningHistoryItem, MusicPlayEvent, PlayAnalytics, SessionSong, SessionSummary,
+    ListeningHistoryItem, PlayAnalytics, PlayEvent, SessionSong, SessionSummary,
 };
 
 // Re-export core functions
-pub use events::{create_complete_event, create_play_event, record_play_event};
+pub use events::{
+    create_complete_event, create_play_event, create_video_play_event, record_play_event,
+};
 
 // Re-export query functions
 pub use queries::{
     get_album_play_count, get_artist_play_count, get_session_summary, get_song_play_analytics,
-    get_song_play_count, get_user_listening_history,
+    get_song_play_count, get_user_listening_history, get_video_play_count,
 };
 
 // Re-export feed types and functions
@@ -75,7 +77,8 @@ pub use admin::{
 // Re-export api request/response types
 pub use api_types::{
     FeedRequest, FeedResponse, ListeningHistoryRequest, ListeningHistoryResponse,
-    RecordPlayRequest, SongAnalyticsRequest, TopAlbumsRequest, TopArtistsRequest, TopSongsRequest,
+    RecordPlayRequest, RecordVideoPlayRequest, SongAnalyticsRequest, TopAlbumsRequest,
+    TopArtistsRequest, TopSongsRequest,
 };
 
 // Re-export session types and functions

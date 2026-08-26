@@ -225,10 +225,10 @@ pub mod type_registry {
         FeedItemType, FeedRequest, FeedResponse, GetListenSessionRequest,
         ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
         ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
-        OverviewStats, PlayAnalytics, RecordPlayRequest, SessionSong, SessionSummary,
-        SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong,
-        TopSongsRequest, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
-        UpdateListenSessionStatusRequest, UserStats,
+        OverviewStats, PlayAnalytics, RecordPlayRequest, RecordVideoPlayRequest, SessionSong,
+        SessionSummary, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
+        TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
+        UpdateListenSessionSongsRequest, UpdateListenSessionStatusRequest, UserStats,
     };
 
     // musicbrainz types
@@ -632,6 +632,9 @@ pub mod type_registry {
         // analytics types
         gen.add_schema::<RecordPlayRequest>("RecordPlayRequest");
         registered.insert("RecordPlayRequest".to_string());
+
+        gen.add_schema::<RecordVideoPlayRequest>("RecordVideoPlayRequest");
+        registered.insert("RecordVideoPlayRequest".to_string());
 
         gen.add_schema::<ListeningHistoryRequest>("ListeningHistoryRequest");
         registered.insert("ListeningHistoryRequest".to_string());

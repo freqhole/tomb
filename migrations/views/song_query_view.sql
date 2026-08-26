@@ -178,8 +178,8 @@ SELECT
     NULL as album_user_rating,
     NULL as album_rating_created_at,
 
-    -- aggregated play count from music_play_eventz (uses idx_music_play_eventz_song)
-    (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) as song_play_count
+    -- aggregated play count from play_eventz (uses idx_play_eventz_entity)
+    (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song' AND entity_id = s.id) as song_play_count
 
 FROM songz s
 LEFT JOIN artist_songz ars ON s.id = ars.song_id

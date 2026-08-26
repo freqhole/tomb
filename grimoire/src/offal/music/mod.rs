@@ -265,6 +265,9 @@ pub async fn dispatch(
 
         // analytics
         "/api/analytics/play" => Some(analytics::record_play(caller, body.clone()).await),
+        "/api/analytics/video-play" => {
+            Some(analytics::record_video_play(caller, body.clone()).await)
+        }
         "/api/analytics/listening-history" => Some(analytics::history(caller, body.clone()).await),
         "/api/analytics/song-stats" => Some(analytics::song_analytics(caller, body.clone()).await),
         "/api/analytics/top-songs" => Some(analytics::top_songs(caller, body.clone()).await),

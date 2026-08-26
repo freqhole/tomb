@@ -764,7 +764,7 @@ impl UserRepository {
         .await?;
 
         sqlx::query!(
-            "UPDATE music_play_eventz SET user_id = NULL WHERE user_id = ?",
+            "UPDATE play_eventz SET user_id = NULL WHERE user_id = ?",
             user_id
         )
         .execute(&mut *tx)

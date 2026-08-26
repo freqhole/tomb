@@ -134,13 +134,13 @@ pub async fn update_station(req: UpdateStationRequest) -> GrimoireResult<RadioSt
 
 pub async fn delete_station(id: &str) -> GrimoireResult<()> {
     let pool = database::connect().await?;
-    // music_play_eventz.radio_station_id has no ON DELETE action (see
-    // migrations/026_play_count_views.sql). nullify any references first so
-    // the cascade-less FK doesn't block the station delete. preserves the
-    // historical play event for song/album/artist crediting.
+    // play_eventz.radio_station_id has no ON DELETE action (see
+    // migrations/026_play_count_views.sql, superseded by migrations/074_play_eventz.sql).
+    // nullify any references first so the cascade-less FK doesn't block the
+    // station delete. preserves the historical play event for song/album/artist crediting.
     let mut tx = pool.begin().await?;
     sqlx::query!(
-        "UPDATE music_play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
+        "UPDATE play_eventz SET radio_station_id = NULL WHERE radio_station_id = ?",
         id
     )
     .execute(&mut *tx)
@@ -757,7 +757,7 @@ pub(crate) async fn song_ids_for_clause(
                 sqlx::query_scalar!(
                     r#"SELECT s.id as "song_id!"
                    FROM songz s
-                   WHERE (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) >= ?"#,
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song' AND entity_id = s.id) >= ?"#,
                     threshold
                 )
                 .fetch_all(pool)
@@ -770,7 +770,7 @@ pub(crate) async fn song_ids_for_clause(
                 sqlx::query_scalar!(
                     r#"SELECT s.id as "song_id!"
                    FROM songz s
-                   WHERE (SELECT COUNT(*) FROM music_play_eventz WHERE song_id = s.id) <= ?"#,
+                   WHERE (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'song' AND entity_id = s.id) <= ?"#,
                     threshold
                 )
                 .fetch_all(pool)

@@ -3,29 +3,32 @@
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
-/// Music-specific play event that links to songs, albums, artists
+/// A generalized play event - tracks a single play/watch of a song or video
 ///
-/// This is denormalized for query performance - stores direct references
-/// to music entities rather than requiring joins through relationship tables.
+/// This is denormalized for query performance - stores a direct
+/// `entity_type`/`entity_id` reference rather than requiring joins through
+/// relationship tables. supersedes the song-only `MusicPlayEvent` shape
+/// (see `play_eventz` migration) - "keep differences between listening and
+/// watching" happens one level up, in domain-specific constructors
+/// (`new_song`/`new_video`) and query functions, not in this shared row shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MusicPlayEvent {
+pub struct PlayEvent {
     /// Unique event ID (auto-generated if not provided)
     pub id: Option<String>,
     /// Reference to the core media event (optional - radio/playlist-initiated
     /// marker rows have no backing media event)
     pub media_event_id: Option<String>,
-    /// Song that was played (optional - playlist-initiated and radio-only
-    /// marker rows may not credit a specific song)
-    pub song_id: Option<String>,
-    /// Album the song belongs to (optional - derived from song)
-    pub album_id: Option<String>,
-    /// Primary artist for the song (optional - derived from song)
-    pub artist_id: Option<String>,
-    /// Playlist the song was played from (if applicable)
+    /// kind of entity played ("song" or "video") - None for context-only
+    /// marker rows (e.g. playlist-initiated play with no specific song/video)
+    pub entity_type: Option<String>,
+    /// the song or video that was played (optional - playlist-initiated and
+    /// radio-only marker rows may not credit a specific entity)
+    pub entity_id: Option<String>,
+    /// Playlist the entity was played from (if applicable)
     pub playlist_id: Option<String>,
     /// Radio station the song was broadcast on (if applicable)
     pub radio_station_id: Option<String>,
-    /// User who played the song
+    /// User who played the entity
     pub user_id: Option<String>,
     /// Session ID to group related play events
     pub session_id: Option<String>,
@@ -33,15 +36,14 @@ pub struct MusicPlayEvent {
     pub created_at: Option<i64>,
 }
 
-impl MusicPlayEvent {
-    /// Create a new music play event with required fields
-    pub fn new(song_id: String) -> Self {
+impl PlayEvent {
+    /// Create a new play event for a song
+    pub fn new_song(song_id: String) -> Self {
         Self {
             id: None,
             media_event_id: None,
-            song_id: Some(song_id),
-            album_id: None,
-            artist_id: None,
+            entity_type: Some("song".to_string()),
+            entity_id: Some(song_id),
             playlist_id: None,
             radio_station_id: None,
             user_id: None,
@@ -50,33 +52,35 @@ impl MusicPlayEvent {
         }
     }
 
-    /// create a marker row not tied to a specific song (e.g. playlist-initiated
-    /// play, radio tune-in for non-library content)
+    /// Create a new play event for a video
+    pub fn new_video(video_id: String) -> Self {
+        Self {
+            id: None,
+            media_event_id: None,
+            entity_type: Some("video".to_string()),
+            entity_id: Some(video_id),
+            playlist_id: None,
+            radio_station_id: None,
+            user_id: None,
+            session_id: None,
+            created_at: None,
+        }
+    }
+
+    /// create a marker row not tied to a specific song/video (e.g.
+    /// playlist-initiated play, radio tune-in for non-library content)
     pub fn marker() -> Self {
         Self {
             id: None,
             media_event_id: None,
-            song_id: None,
-            album_id: None,
-            artist_id: None,
+            entity_type: None,
+            entity_id: None,
             playlist_id: None,
             radio_station_id: None,
             user_id: None,
             session_id: None,
             created_at: None,
         }
-    }
-
-    /// Set the album ID
-    pub fn with_album_id(mut self, album_id: impl Into<String>) -> Self {
-        self.album_id = Some(album_id.into());
-        self
-    }
-
-    /// Set the artist ID
-    pub fn with_artist_id(mut self, artist_id: impl Into<String>) -> Self {
-        self.artist_id = Some(artist_id.into());
-        self
     }
 
     /// Set the playlist ID
@@ -213,19 +217,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_music_play_event_builder() {
-        let event = MusicPlayEvent::new("song123".to_string())
-            .with_album_id("album456")
-            .with_artist_id("artist789")
+    fn test_play_event_builder() {
+        let event = PlayEvent::new_song("song123".to_string())
             .with_user_id("user000")
             .with_playlist_id("playlist111")
             .with_session_id("session222");
 
-        assert_eq!(event.song_id, Some("song123".to_string()));
-        assert_eq!(event.album_id, Some("album456".to_string()));
-        assert_eq!(event.artist_id, Some("artist789".to_string()));
+        assert_eq!(event.entity_type, Some("song".to_string()));
+        assert_eq!(event.entity_id, Some("song123".to_string()));
         assert_eq!(event.user_id, Some("user000".to_string()));
         assert_eq!(event.playlist_id, Some("playlist111".to_string()));
         assert_eq!(event.session_id, Some("session222".to_string()));
+    }
+
+    #[test]
+    fn test_play_event_builder_video() {
+        let event = PlayEvent::new_video("video123".to_string());
+
+        assert_eq!(event.entity_type, Some("video".to_string()));
+        assert_eq!(event.entity_id, Some("video123".to_string()));
     }
 }
