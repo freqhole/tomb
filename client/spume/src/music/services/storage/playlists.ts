@@ -254,65 +254,6 @@ export async function getLocalPlaylistVideoItems(
 }
 
 /**
- * add a single video to a local playlist (no-op if already present) -
- * local counterpart to the remote `add_playlist_item` route.
- */
-export async function addVideoToLocalPlaylist(
-  db: IDBPDatabase,
-  playlistId: string,
-  videoId: string
-): Promise<void> {
-  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_ITEMS], "readwrite");
-  const store = tx.objectStore(STORE_PLAYLIST_ITEMS);
-
-  const existing = await store.get([playlistId, "video", videoId]);
-  if (!existing) {
-    const index = store.index("by_playlist_id");
-    const existingItems = (await index.getAll(playlistId)) as PlaylistItem[];
-    const maxPosition = existingItems.reduce((max, item) => Math.max(max, item.position), 0);
-    const item: PlaylistItem = {
-      playlist_id: playlistId,
-      entity_type: "video",
-      entity_id: videoId,
-      position: maxPosition + 1,
-      added_at: Date.now(),
-    };
-    await store.put(item);
-  }
-
-  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
-  const playlist = await playlistsStore.get(playlistId);
-  if (playlist) {
-    playlist.updated_at = Date.now();
-    await playlistsStore.put(playlist);
-  }
-
-  await tx.done;
-}
-
-/**
- * remove a single video from a local playlist - local counterpart to the
- * remote `remove_playlist_item` route.
- */
-export async function removeVideoFromLocalPlaylist(
-  db: IDBPDatabase,
-  playlistId: string,
-  videoId: string
-): Promise<void> {
-  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_ITEMS], "readwrite");
-  await tx.objectStore(STORE_PLAYLIST_ITEMS).delete([playlistId, "video", videoId]);
-
-  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
-  const playlist = await playlistsStore.get(playlistId);
-  if (playlist) {
-    playlist.updated_at = Date.now();
-    await playlistsStore.put(playlist);
-  }
-
-  await tx.done;
-}
-
-/**
  * add several entities (songs and/or videos) to a local playlist in one
  * call, auto-appending each at the end (in the order given). items
  * already in the playlist are silently skipped - local counterpart to

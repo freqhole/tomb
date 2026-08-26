@@ -28,7 +28,7 @@ function pickSource(remote: Remote | undefined): MusicDataSource {
 export function useRecentPlaylistsQuery(
   limit: number = 5,
   enabled: Accessor<boolean> = () => true,
-  remote?: Accessor<Remote | undefined>,
+  remote?: Accessor<Remote | undefined>
 ) {
   return createQuery(() => ({
     queryKey: [...queryKeys.playlists.recent(limit), remote?.()?.remote_id ?? null] as const,
@@ -242,99 +242,19 @@ export function useDeletePlaylistMutation() {
   }));
 }
 
-// mutation hook for adding songs to playlist
-export function useAddSongsToPlaylistMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: async (params: {
-      playlistId: string;
-      songIds: string[];
-      /** when set, target this remote rather than the active source. */
-      remote?: Remote;
-    }) => {
-      const dataSource = pickSource(params.remote);
-
-      if (!dataSource.addSongsToPlaylist) {
-        throw new Error(
-          "data source does not support adding songs to playlists",
-        );
-      }
-
-      await dataSource.addSongsToPlaylist(params.playlistId, params.songIds);
-    },
-    onSuccess: (_, variables) => {
-      // invalidate and refetch playlist songs query
-      queryClient.invalidateQueries({
-        queryKey: ["playlists", variables.playlistId, "songs"],
-      });
-      void queryClient.refetchQueries({
-        queryKey: ["playlists", variables.playlistId, "songs"],
-      });
-      // invalidate and refetch playlists list (song count may have changed)
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
-    },
-  }));
-}
-
-// mutation hook for removing songs from playlist
-export function useRemoveSongsFromPlaylistMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: async (params: { playlistId: string; songIds: string[] }) => {
-      const dataSource = getDataSource();
-
-      if (!dataSource.removeSongsFromPlaylist) {
-        throw new Error(
-          "data source does not support removing songs from playlists",
-        );
-      }
-
-      await dataSource.removeSongsFromPlaylist(
-        params.playlistId,
-        params.songIds,
-      );
-    },
-    onSuccess: (_, variables) => {
-      // invalidate and refetch playlist songs query
-      queryClient.invalidateQueries({
-        queryKey: ["playlists", variables.playlistId, "songs"],
-      });
-      void queryClient.refetchQueries({
-        queryKey: ["playlists", variables.playlistId, "songs"],
-      });
-      // invalidate and refetch playlists list (song count may have changed)
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
-    },
-  }));
-}
-
 // mutation hook for reordering songs in playlist
 export function useReorderPlaylistSongsMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (params: {
-      playlistId: string;
-      songIds: string[];
-      newPosition: number;
-    }) => {
+    mutationFn: async (params: { playlistId: string; songIds: string[]; newPosition: number }) => {
       const dataSource = getDataSource();
 
       if (!dataSource.reorderPlaylistSongs) {
-        throw new Error(
-          "data source does not support reordering playlist songs",
-        );
+        throw new Error("data source does not support reordering playlist songs");
       }
 
-      await dataSource.reorderPlaylistSongs(
-        params.playlistId,
-        params.songIds,
-        params.newPosition,
-      );
+      await dataSource.reorderPlaylistSongs(params.playlistId, params.songIds, params.newPosition);
     },
     onSuccess: (_, variables) => {
       // invalidate and refetch playlist songs query to update with new order

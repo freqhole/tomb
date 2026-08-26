@@ -16,9 +16,7 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { initMusicDB } from "../../music/services/storage/db/init";
 import {
-  addVideoToLocalPlaylist,
   getLocalPlaylistVideoItems,
-  removeVideoFromLocalPlaylist,
   reorderLocalPlaylistItems,
   addPlaylistItemsToLocal,
   removePlaylistItemsFromLocal,
@@ -127,67 +125,6 @@ export function usePlaylistVideoItemsQuery(playlistId: Accessor<string | undefin
   }));
 }
 
-export function useAddVideoToPlaylistMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: async (params: { playlistId: string; videoId: string }) => {
-      const client = await getRemoteClient();
-      if (!client) {
-        const db = await initMusicDB();
-        await addVideoToLocalPlaylist(db, params.playlistId, params.videoId);
-        return;
-      }
-      const result = await client.entities.addPlaylistItem({
-        playlist_id: params.playlistId,
-        entity_type: "video",
-        entity_id: params.videoId,
-        position: null,
-      });
-      if (!result.success) {
-        const message = errorMessage(result.error);
-        if (errorType(result.error) === "duplicate_playlist_item") {
-          throw new PlaylistItemDuplicateError(message);
-        }
-        throw new Error(message);
-      }
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: videoQueryKeys.playlistItems.list(variables.playlistId),
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-    },
-  }));
-}
-
-export function useRemoveVideoFromPlaylistMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: async (params: { playlistId: string; videoId: string }) => {
-      const client = await getRemoteClient();
-      if (!client) {
-        const db = await initMusicDB();
-        await removeVideoFromLocalPlaylist(db, params.playlistId, params.videoId);
-        return;
-      }
-      const result = await client.entities.removePlaylistItem({
-        playlist_id: params.playlistId,
-        entity_type: "video",
-        entity_id: params.videoId,
-      });
-      if (!result.success) throw new Error(errorMessage(result.error));
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: videoQueryKeys.playlistItems.list(variables.playlistId),
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-    },
-  }));
-}
-
 /** reorder every item (songs AND videos) in a playlist in one shared
  * position space. `orderedItems` must contain every item currently in
  * the playlist, in the desired new order (see grimoire's
@@ -227,12 +164,9 @@ export function useReorderPlaylistItemsMutation() {
 }
 
 /** add several items (songs and/or videos) to a playlist in one call -
- * the generic counterpart to music's legacy `useAddSongsToPlaylistMutation`
- * and video's singular `useAddVideoToPlaylistMutation`, unifying both
- * behind the shared `entities.addPlaylistItems` bulk route (mirrors how
- * `useReorderPlaylistItemsMutation` already unified reorder). invalidates
- * both the video-items query and the music songs query since either or
- * both kinds of items may have been added. */
+ * unifies what used to be music's batch song route and video's singular
+ * per-item route behind the shared `entities.addPlaylistItems` bulk
+ * route. */
 export function useAddPlaylistItemsMutation() {
   const queryClient = useQueryClient();
 
@@ -274,10 +208,9 @@ export function useAddPlaylistItemsMutation() {
 }
 
 /** remove several items (songs and/or videos) from a playlist in one call
- * - the generic counterpart to music's legacy
- * `useRemoveSongsFromPlaylistMutation` and video's singular
- * `useRemoveVideoFromPlaylistMutation`, unifying both behind the shared
- * `entities.removePlaylistItems` bulk route. */
+ * - unifies what used to be music's batch song route and video's
+ * singular per-item route behind the shared `entities.removePlaylistItems`
+ * bulk route. */
 export function useRemovePlaylistItemsMutation() {
   const queryClient = useQueryClient();
 
