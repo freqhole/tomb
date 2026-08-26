@@ -156,6 +156,167 @@ pub async fn remove_playlist_item(
     GrimoireResponse::success_unit("Playlist item removed successfully")
 }
 
+/// add several entities to a playlist in one call, auto-appending each at
+/// the end (in the order given). items already in the playlist are
+/// silently skipped (mirrors `add_playlist_item`'s soft
+/// `duplicate_playlist_item` handling) rather than failing the whole
+/// batch - the response contains only the items actually inserted by this
+/// call. runs in one transaction so a mid-batch failure (other than a
+/// duplicate, which is expected/skipped) rolls back cleanly.
+pub async fn add_playlist_items(
+    playlist_id: &str,
+    refs: &[(TaggableEntity, String)],
+    added_by: Option<String>,
+) -> GrimoireResponse<Vec<PlaylistItem>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to begin transaction",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let mut inserted_refs: Vec<(&str, &str)> = Vec::with_capacity(refs.len());
+    for (entity_type, entity_id) in refs {
+        let entity_type_str = entity_type.as_str();
+        let position: i64 = 0;
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position, added_by)
+             VALUES (?, ?, ?, ?, ?)",
+            playlist_id,
+            entity_type_str,
+            entity_id,
+            position,
+            added_by
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            let err_str = e.to_string();
+            if err_str.contains("UNIQUE constraint failed: playlist_itemz.playlist_id") {
+                // already in the playlist - skip, not a hard error.
+                continue;
+            }
+            return GrimoireResponse::failure(
+                "Failed to add playlist item",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+        inserted_refs.push((entity_type_str, entity_id.as_str()));
+    }
+
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure(
+            "Failed to commit transaction",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // read back after commit so the auto-append trigger's final positions
+    // are reflected, rather than relying on RETURNING/trigger ordering.
+    let mut items = Vec::with_capacity(inserted_refs.len());
+    for (entity_type_str, entity_id) in inserted_refs {
+        let item = match sqlx::query_as!(
+            PlaylistItem,
+            r#"SELECT
+                id as "id!",
+                playlist_id as "playlist_id!",
+                entity_type as "entity_type!",
+                entity_id as "entity_id!",
+                position as "position!",
+                added_at as "added_at!",
+                added_by
+             FROM playlist_itemz
+             WHERE playlist_id = ? AND entity_type = ? AND entity_id = ?"#,
+            playlist_id,
+            entity_type_str,
+            entity_id
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(item) => item,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "Failed to read back playlist item",
+                    vec![ErrorDetail::from(e)],
+                )
+            }
+        };
+        items.push(item);
+    }
+
+    GrimoireResponse::success("Playlist items added successfully", items)
+}
+
+/// remove several entities from a playlist in one call. removing an
+/// entity not currently in the playlist is a no-op for that entity (not
+/// an error) - mirrors `remove_playlist_item`'s behavior of a bare
+/// `DELETE` with no existence check.
+pub async fn remove_playlist_items(
+    playlist_id: &str,
+    refs: &[(TaggableEntity, String)],
+) -> GrimoireResponse<()> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to begin transaction",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    for (entity_type, entity_id) in refs {
+        let entity_type_str = entity_type.as_str();
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE playlist_id = ? AND entity_type = ? AND entity_id = ?",
+            playlist_id,
+            entity_type_str,
+            entity_id
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            return GrimoireResponse::failure(
+                "Failed to remove playlist item",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    }
+
+    if let Err(e) = tx.commit().await {
+        return GrimoireResponse::failure(
+            "Failed to commit transaction",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    GrimoireResponse::success_unit("Playlist items removed successfully")
+}
+
 /// reorder every item in a playlist. `ordered_refs` must contain the
 /// complete set of (entity_type, entity_id) refs currently in the
 /// playlist, in the desired new order - position is assigned as

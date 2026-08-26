@@ -61,6 +61,21 @@ pub struct ReorderPlaylistItemsRequest {
     pub ordered_entity_refs: Vec<PlaylistItemRef>,
 }
 
+/// request for adding several entities to a playlist in one call - each
+/// is auto-appended at the end, in the order given.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct AddPlaylistItemsRequest {
+    pub playlist_id: String,
+    pub items: Vec<PlaylistItemRef>,
+}
+
+/// request for removing several entities from a playlist in one call.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct RemovePlaylistItemsRequest {
+    pub playlist_id: String,
+    pub items: Vec<PlaylistItemRef>,
+}
+
 /// route metadata for generic playlist items
 pub const ROUTES: &[RouteInfo] = &[
     RouteInfo {
@@ -96,6 +111,24 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Entities,
         request_type: "ReorderPlaylistItemsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "add_playlist_items",
+        path: "/api/entities/playlists/items/add-bulk",
+        method: Method::POST,
+        domain: Domain::Entities,
+        request_type: "AddPlaylistItemsRequest",
+        response_type: "Vec<PlaylistItem>",
+        auth: RouteAuth::OwnerOr(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "remove_playlist_items",
+        path: "/api/entities/playlists/items/remove-bulk",
+        method: Method::POST,
+        domain: Domain::Entities,
+        request_type: "RemovePlaylistItemsRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::OwnerOr(UserRole::Admin),
     },
@@ -251,5 +284,96 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
     }
 
     let response = crate::playlists::reorder_playlist_items(&req.playlist_id, &resolved_refs).await;
+    response.map(|_| JsonValue::Null)
+}
+
+/// add several entities to a playlist in one call
+///
+/// path: POST /api/entities/playlists/items/add-bulk
+pub async fn add_many(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: AddPlaylistItemsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    if let Some(playlist) = &playlist_response.data {
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "add_playlist_items",
+        )
+        .await
+        {
+            return resp;
+        }
+    }
+
+    let mut resolved_refs = Vec::with_capacity(req.items.len());
+    for item_ref in &req.items {
+        match resolve_playlist_entity_type(&item_ref.entity_type) {
+            Ok(t) => resolved_refs.push((t, item_ref.entity_id.clone())),
+            Err(resp) => return resp,
+        }
+    }
+
+    let response = crate::playlists::add_playlist_items(
+        &req.playlist_id,
+        &resolved_refs,
+        Some(caller.user_id.clone()),
+    )
+    .await;
+    response.map(|data| serde_json::to_value(data).unwrap())
+}
+
+/// remove several entities from a playlist in one call
+///
+/// path: POST /api/entities/playlists/items/remove-bulk
+pub async fn remove_many(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RemovePlaylistItemsRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let playlist_response = get_playlist(&req.playlist_id).await;
+    if let Some(playlist) = &playlist_response.data {
+        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
+            playlist.created_by_id.as_deref(),
+            caller,
+            "remove_playlist_items",
+        )
+        .await
+        {
+            return resp;
+        }
+    }
+
+    let mut resolved_refs = Vec::with_capacity(req.items.len());
+    for item_ref in &req.items {
+        match resolve_playlist_entity_type(&item_ref.entity_type) {
+            Ok(t) => resolved_refs.push((t, item_ref.entity_id.clone())),
+            Err(resp) => return resp,
+        }
+    }
+
+    let response = crate::playlists::remove_playlist_items(&req.playlist_id, &resolved_refs).await;
     response.map(|_| JsonValue::Null)
 }

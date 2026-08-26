@@ -11,6 +11,8 @@
 import { createMutation, createQuery, useQueryClient } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getRemoteClient } from "../../music/data";
+import { getClientForRemote } from "../../app/api/client";
+import type { Remote } from "../../app/services/storage/schemas/remote";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { initMusicDB } from "../../music/services/storage/db/init";
 import {
@@ -18,6 +20,8 @@ import {
   getLocalPlaylistVideoItems,
   removeVideoFromLocalPlaylist,
   reorderLocalPlaylistItems,
+  addPlaylistItemsToLocal,
+  removePlaylistItemsFromLocal,
 } from "../../music/services/storage/playlists";
 import { getVideoDataSource } from "../data";
 import type { VideoSummary } from "../data/types";
@@ -42,6 +46,18 @@ function errorType(error: { issues?: { path?: unknown[] }[] }): string | undefin
   return error.issues?.[0]?.path?.find(
     (p): p is string => typeof p === "string" && p !== "__auth_expired__"
   );
+}
+
+// resolve a remote-scoped client when an explicit remote is supplied
+// (e.g. adding a search result found on a non-active remote to a
+// playlist), otherwise the globally-active remote client (or null for
+// the local/offline data source) - mirrors
+// music/queries/playlists.ts's pickSource for the MusicDataSource layer.
+async function pickClient(remote: Remote | undefined) {
+  if (remote?.remote_id) {
+    return getClientForRemote(remote);
+  }
+  return getRemoteClient();
 }
 
 /** every video-typed item in a playlist, resolved to full video metadata
@@ -206,6 +222,92 @@ export function useReorderPlaylistItemsMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.playlists.songs(variables.playlistId),
       });
+    },
+  }));
+}
+
+/** add several items (songs and/or videos) to a playlist in one call -
+ * the generic counterpart to music's legacy `useAddSongsToPlaylistMutation`
+ * and video's singular `useAddVideoToPlaylistMutation`, unifying both
+ * behind the shared `entities.addPlaylistItems` bulk route (mirrors how
+ * `useReorderPlaylistItemsMutation` already unified reorder). invalidates
+ * both the video-items query and the music songs query since either or
+ * both kinds of items may have been added. */
+export function useAddPlaylistItemsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: {
+      playlistId: string;
+      items: Array<{ entity_type: "song" | "video"; entity_id: string }>;
+      /** when set, target this remote rather than the active source. */
+      remote?: Remote;
+    }) => {
+      const client = await pickClient(params.remote);
+      if (!client) {
+        const db = await initMusicDB();
+        await addPlaylistItemsToLocal(db, params.playlistId, params.items);
+        return;
+      }
+      const result = await client.entities.addPlaylistItems({
+        playlist_id: params.playlistId,
+        items: params.items,
+      });
+      if (!result.success) {
+        const message = errorMessage(result.error);
+        if (errorType(result.error) === "duplicate_playlist_item") {
+          throw new PlaylistItemDuplicateError(message);
+        }
+        throw new Error(message);
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: videoQueryKeys.playlistItems.list(variables.playlistId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.playlists.songs(variables.playlistId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+    },
+  }));
+}
+
+/** remove several items (songs and/or videos) from a playlist in one call
+ * - the generic counterpart to music's legacy
+ * `useRemoveSongsFromPlaylistMutation` and video's singular
+ * `useRemoveVideoFromPlaylistMutation`, unifying both behind the shared
+ * `entities.removePlaylistItems` bulk route. */
+export function useRemovePlaylistItemsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: {
+      playlistId: string;
+      items: Array<{ entity_type: "song" | "video"; entity_id: string }>;
+      /** when set, target this remote rather than the active source. */
+      remote?: Remote;
+    }) => {
+      const client = await pickClient(params.remote);
+      if (!client) {
+        const db = await initMusicDB();
+        await removePlaylistItemsFromLocal(db, params.playlistId, params.items);
+        return;
+      }
+      const result = await client.entities.removePlaylistItems({
+        playlist_id: params.playlistId,
+        items: params.items,
+      });
+      if (!result.success) throw new Error(errorMessage(result.error));
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: videoQueryKeys.playlistItems.list(variables.playlistId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.playlists.songs(variables.playlistId),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
     },
   }));
 }

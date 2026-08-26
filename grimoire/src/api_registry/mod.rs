@@ -357,8 +357,8 @@ pub mod type_registry {
     use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
     use crate::offal::entities::image_links::GetEntityImagesRequest;
     use crate::offal::entities::playlist_items::{
-        AddPlaylistItemRequest, ListPlaylistItemsRequest, PlaylistItemRef,
-        RemovePlaylistItemRequest, ReorderPlaylistItemsRequest,
+        AddPlaylistItemRequest, AddPlaylistItemsRequest, ListPlaylistItemsRequest, PlaylistItemRef,
+        RemovePlaylistItemRequest, RemovePlaylistItemsRequest, ReorderPlaylistItemsRequest,
     };
     use crate::offal::entities::ratings::{GetRatingStatusBulkRequest, RatingStatusItem};
     use crate::offal::entities::tag_links::{
@@ -939,6 +939,10 @@ pub mod type_registry {
         registered.insert("PlaylistItemRef".to_string());
         gen.add_schema::<ReorderPlaylistItemsRequest>("ReorderPlaylistItemsRequest");
         registered.insert("ReorderPlaylistItemsRequest".to_string());
+        gen.add_schema::<AddPlaylistItemsRequest>("AddPlaylistItemsRequest");
+        registered.insert("AddPlaylistItemsRequest".to_string());
+        gen.add_schema::<RemovePlaylistItemsRequest>("RemovePlaylistItemsRequest");
+        registered.insert("RemovePlaylistItemsRequest".to_string());
 
         // album metadata blob types — single source of truth.
         gen.add_schema::<MbLookupStatus>("MbLookupStatus");

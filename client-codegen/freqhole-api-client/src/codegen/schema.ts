@@ -72,6 +72,15 @@ export const AddPlaylistItemRequestSchema = z.object({
 });
 export type AddPlaylistItemRequest = z.infer<typeof AddPlaylistItemRequestSchema>;
 
+export const AddPlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type AddPlaylistItemsRequest = z.infer<typeof AddPlaylistItemsRequestSchema>;
+
 export const AddSongsToPlaylistRequestSchema = z.object({
   playlist_id: z.string(),
   song_ids: z.array(z.string())
@@ -5569,6 +5578,15 @@ export const RemovePlaylistItemRequestSchema = z.object({
   entity_id: z.string()
 });
 export type RemovePlaylistItemRequest = z.infer<typeof RemovePlaylistItemRequestSchema>;
+
+export const RemovePlaylistItemsRequestSchema = z.object({
+  playlist_id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+}))
+});
+export type RemovePlaylistItemsRequest = z.infer<typeof RemovePlaylistItemsRequestSchema>;
 
 export const RemovePlaylistThumbnailRequestSchema = z.object({
   playlist_id: z.string(),

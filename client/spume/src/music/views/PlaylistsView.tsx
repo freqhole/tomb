@@ -71,7 +71,7 @@ import { isNarrowViewport } from "../../config/breakpoints";
 import { isTouchDevice } from "../../utils/isMobile";
 import {
   usePlaylistVideoItemsQuery,
-  useRemoveVideoFromPlaylistMutation,
+  useRemovePlaylistItemsMutation,
   useReorderPlaylistItemsMutation,
   type PlaylistVideoItem,
 } from "../../video/queries/playlistItems";
@@ -356,7 +356,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
     () => selectedPlaylistId() ?? undefined
   );
   const playlistVideoItems = createMemo(() => playlistVideoItemsQuery.data ?? []);
-  const removeVideoMutation = useRemoveVideoFromPlaylistMutation();
+  const removeItemsMutation = useRemovePlaylistItemsMutation();
 
   // series list lookup for the video-metadata subtitle shown in playlist
   // rows (content type + series/season/episode) - mirrors VideoCard.tsx's
@@ -569,20 +569,25 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   };
 
   // remove a single song from the currently selected playlist (used by
-  // the per-row x button shown to playlist owners + admins).
+  // the per-row x button shown to playlist owners + admins) - goes
+  // through the shared generic bulk `entities.removePlaylistItems` route
+  // (mirrors how reorder was already unified).
   const handleRemoveSongFromPlaylist = async (song: Song) => {
     const playlistId = selectedPlaylistId();
     if (!playlistId) return;
-    const dataSource = getDataSource();
-    if (!dataSource.removeSongsFromPlaylist) return;
-    await dataSource.removeSongsFromPlaylist(playlistId, [song.id]);
-    await queryClient.invalidateQueries({ queryKey: ["playlists"] });
+    await removeItemsMutation.mutateAsync({
+      playlistId,
+      items: [{ entity_type: "song", entity_id: song.id }],
+    });
   };
 
   const handleRemoveVideoFromPlaylist = (item: PlaylistVideoItem) => {
     const playlistId = selectedPlaylistId();
     if (!playlistId) return;
-    removeVideoMutation.mutate({ playlistId, videoId: item.video.id });
+    removeItemsMutation.mutate({
+      playlistId,
+      items: [{ entity_type: "video", entity_id: item.video.id }],
+    });
   };
 
   // fetch more playlists when scrolling near end

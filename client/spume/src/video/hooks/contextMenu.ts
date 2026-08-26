@@ -17,7 +17,7 @@ import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideoToQueue, addVideosToQueue, playVideoNext } from "../services/videoQueueActions";
 import { useDeleteVideoMutation } from "../queries/videos";
 import { useDeleteVideoSeriesMutation } from "../queries/series";
-import { useRemoveVideoFromPlaylistMutation } from "../queries/playlistItems";
+import { useRemovePlaylistItemsMutation } from "../queries/playlistItems";
 import type { VideoSeries, VideoSummary } from "../data/types";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 
@@ -61,7 +61,7 @@ export function useVideoContextMenu(
 ): MenuAction[] {
   const navigate = useNavigate();
   const deleteMutation = useDeleteVideoMutation();
-  const removeFromPlaylistMutation = useRemoveVideoFromPlaylistMutation();
+  const removeFromPlaylistMutation = useRemovePlaylistItemsMutation();
   const actions: MenuAction[] = [];
 
   // queue management actions FIRST (when in queue context) — mirrors
@@ -168,7 +168,7 @@ export function useVideoContextMenu(
         try {
           await removeFromPlaylistMutation.mutateAsync({
             playlistId: options.playlistId!,
-            videoId: video.id,
+            items: [{ entity_type: "video", entity_id: video.id }],
           });
           options.onRemovedFromPlaylist?.();
         } catch (err) {

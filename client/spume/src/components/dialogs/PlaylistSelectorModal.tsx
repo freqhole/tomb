@@ -5,14 +5,13 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
 import {
-  useAddSongsToPlaylistMutation,
   useCreatePlaylistMutation,
   usePlaylistsQuery,
   useRecentPlaylistsQuery,
 } from "../../music/queries/playlists";
 import { queryKeys } from "../../music/queries/queryKeys";
 import { PlaylistItemDuplicateError } from "../../music/data/types";
-import { useAddVideoToPlaylistMutation } from "../../video/queries/playlistItems";
+import { useAddPlaylistItemsMutation } from "../../video/queries/playlistItems";
 import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
@@ -49,8 +48,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     remote: () => props.remote,
   });
 
-  const addSongsMutation = useAddSongsToPlaylistMutation();
-  const addVideoMutation = useAddVideoToPlaylistMutation();
+  const addItemsMutation = useAddPlaylistItemsMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
 
   const songIds = createMemo(() =>
@@ -70,21 +68,16 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   };
 
   // add whichever items this modal instance was opened for to a playlist -
-  // songs go through the existing bulk addSongsToPlaylist call, videos go
-  // through the domain-generic playlist_itemz route one at a time (no bulk
-  // endpoint yet). both can run in the same call for a mixed selection.
+  // songs and videos both go through the shared generic bulk
+  // `entities.addPlaylistItems` route in one request (mirrors how reorder
+  // was already unified).
   const addItemsToPlaylist = async (playlistId: string) => {
-    const songIdList = songIds();
-    if (songIdList.length > 0) {
-      await addSongsMutation.mutateAsync({
-        playlistId,
-        songIds: songIdList,
-        remote: props.remote,
-      });
-    }
-    for (const videoId of videoIds()) {
-      await addVideoMutation.mutateAsync({ playlistId, videoId });
-    }
+    if (props.items.length === 0) return;
+    await addItemsMutation.mutateAsync({
+      playlistId,
+      items: props.items.map((i) => ({ entity_type: i.entity_type, entity_id: i.entity_id })),
+      remote: props.remote,
+    });
   };
 
   // filter playlists based on search query
@@ -160,8 +153,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     props.onClose();
   };
 
-  const isLoading = () =>
-    addSongsMutation.isPending || addVideoMutation.isPending || createPlaylistMutation.isPending;
+  const isLoading = () => addItemsMutation.isPending || createPlaylistMutation.isPending;
 
   return (
     <Modal

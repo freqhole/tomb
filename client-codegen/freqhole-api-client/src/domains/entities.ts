@@ -200,6 +200,30 @@ export function createEntitiesMethods(call: CallFn) {
       );
     },
 
+    addPlaylistItems: (params: s.AddPlaylistItemsRequest) => {
+      return call(
+        "entities",
+        "add_playlist_items",
+        routes.entities.add_playlist_items.resp,
+        routes.entities.add_playlist_items.req,
+        routes.entities.add_playlist_items.method,
+        routes.entities.add_playlist_items.path,
+        params,
+      );
+    },
+
+    removePlaylistItems: (params: s.RemovePlaylistItemsRequest) => {
+      return call(
+        "entities",
+        "remove_playlist_items",
+        routes.entities.remove_playlist_items.resp,
+        routes.entities.remove_playlist_items.req,
+        routes.entities.remove_playlist_items.method,
+        routes.entities.remove_playlist_items.path,
+        params,
+      );
+    },
+
     // favorites (domain-agnostic set/status-check; rich music-specific
     // listing endpoints live on client.music - see listFavorites/listBeloved)
     setFavorite: (params: s.SetFavoriteRequest) => {

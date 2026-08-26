@@ -311,3 +311,75 @@ export async function removeVideoFromLocalPlaylist(
 
   await tx.done;
 }
+
+/**
+ * add several entities (songs and/or videos) to a local playlist in one
+ * call, auto-appending each at the end (in the order given). items
+ * already in the playlist are silently skipped - local counterpart to
+ * the remote `add_playlist_items` bulk route.
+ */
+export async function addPlaylistItemsToLocal(
+  db: IDBPDatabase,
+  playlistId: string,
+  refs: Array<{ entity_type: "song" | "video"; entity_id: string }>
+): Promise<void> {
+  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_ITEMS], "readwrite");
+  const store = tx.objectStore(STORE_PLAYLIST_ITEMS);
+
+  const index = store.index("by_playlist_id");
+  const existingItems = (await index.getAll(playlistId)) as PlaylistItem[];
+  let maxPosition = existingItems.reduce((max, item) => Math.max(max, item.position), 0);
+  const existingKeys = new Set(existingItems.map((i) => `${i.entity_type}:${i.entity_id}`));
+
+  const now = Date.now();
+  for (const ref of refs) {
+    const key = `${ref.entity_type}:${ref.entity_id}`;
+    if (existingKeys.has(key)) continue;
+    maxPosition += 1;
+    const item: PlaylistItem = {
+      playlist_id: playlistId,
+      entity_type: ref.entity_type,
+      entity_id: ref.entity_id,
+      position: maxPosition,
+      added_at: now,
+    };
+    await store.put(item);
+    existingKeys.add(key);
+  }
+
+  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
+  const playlist = await playlistsStore.get(playlistId);
+  if (playlist) {
+    playlist.updated_at = now;
+    await playlistsStore.put(playlist);
+  }
+
+  await tx.done;
+}
+
+/**
+ * remove several entities (songs and/or videos) from a local playlist in
+ * one call - local counterpart to the remote `remove_playlist_items` bulk
+ * route.
+ */
+export async function removePlaylistItemsFromLocal(
+  db: IDBPDatabase,
+  playlistId: string,
+  refs: Array<{ entity_type: "song" | "video"; entity_id: string }>
+): Promise<void> {
+  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_ITEMS], "readwrite");
+  const store = tx.objectStore(STORE_PLAYLIST_ITEMS);
+
+  for (const ref of refs) {
+    await store.delete([playlistId, ref.entity_type, ref.entity_id]);
+  }
+
+  const playlistsStore = tx.objectStore(STORE_PLAYLISTS);
+  const playlist = await playlistsStore.get(playlistId);
+  if (playlist) {
+    playlist.updated_at = Date.now();
+    await playlistsStore.put(playlist);
+  }
+
+  await tx.done;
+}

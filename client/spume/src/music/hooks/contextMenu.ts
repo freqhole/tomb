@@ -17,6 +17,7 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import { isP2PRemote } from "../../app/services/storage/schemas/remote";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import { useRemovePlaylistItemsMutation } from "../../video/queries/playlistItems";
 import type { ShareTarget } from "../../components/share/types";
 import type { SendPayload } from "../services/send/sendToRemote";
 import type { RemoteSong } from "../data/remote/adapters";
@@ -149,6 +150,7 @@ export function createShareMenuAction(
 export function useSongContextMenu(song: Song, options: ContextMenuOptions = {}): MenuAction[] {
   const navigate = useNavigate();
   const toggleFavoriteMutation = useToggleFavoriteMutation();
+  const removeFromPlaylistMutation = useRemovePlaylistItemsMutation();
   const actions: MenuAction[] = [];
 
   // resolve the song's origin remote so every action below routes
@@ -264,13 +266,11 @@ export function useSongContextMenu(song: Song, options: ContextMenuOptions = {})
         // route to the song's origin remote, not the active source —
         // the queue can contain songs from multiple remotes.
         const remote = await resolveSongRemote();
-        const dataSource = remote ? new RemoteMusicDataSource(remote) : getDataSource();
-        if (dataSource.removeSongsFromPlaylist) {
-          await dataSource.removeSongsFromPlaylist(options.playlistId!, [song.id]);
-          // invalidate playlist queries to refresh song list
-          queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-          queryClient.invalidateQueries({ queryKey: ["playlists", options.playlistId, "songs"] });
-        }
+        await removeFromPlaylistMutation.mutateAsync({
+          playlistId: options.playlistId!,
+          items: [{ entity_type: "song", entity_id: song.id }],
+          remote,
+        });
       },
     });
     actions.push({ type: "separator" });

@@ -81,6 +81,12 @@ pub async fn dispatch(
         "/api/entities/playlists/items/reorder" => {
             Some(playlist_items::reorder(caller, body.clone()).await)
         }
+        "/api/entities/playlists/items/add-bulk" => {
+            Some(playlist_items::add_many(caller, body.clone()).await)
+        }
+        "/api/entities/playlists/items/remove-bulk" => {
+            Some(playlist_items::remove_many(caller, body.clone()).await)
+        }
 
         "/api/entities/favorites/set" => Some(favorites::set(caller, body.clone()).await),
         "/api/entities/favorites/status-bulk" => {
