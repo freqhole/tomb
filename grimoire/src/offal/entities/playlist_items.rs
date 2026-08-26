@@ -17,7 +17,7 @@ use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 
-use super::resolve_video_entity_type;
+use super::resolve_playlist_entity_type;
 
 /// request for listing every item in a playlist
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
@@ -53,7 +53,7 @@ pub struct PlaylistItemRef {
 
 /// request for reordering every item in a playlist. `ordered_entity_refs`
 /// must contain every item currently in the playlist, in the desired new
-/// order - see `crate::video::reorder_playlist_items` for why a full
+/// order - see `crate::playlists::reorder_playlist_items` for why a full
 /// ordered list (rather than a move-to-position delta) is required.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ReorderPlaylistItemsRequest {
@@ -119,7 +119,7 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
         }
     };
 
-    let response = crate::video::list_playlist_items(&req.playlist_id).await;
+    let response = crate::playlists::list_playlist_items(&req.playlist_id).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
@@ -154,12 +154,12 @@ pub async fn add(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue
         }
     }
 
-    let entity_type = match resolve_video_entity_type(&req.entity_type) {
+    let entity_type = match resolve_playlist_entity_type(&req.entity_type) {
         Ok(t) => t,
         Err(resp) => return resp,
     };
 
-    let response = crate::video::add_playlist_item(
+    let response = crate::playlists::add_playlist_item(
         &req.playlist_id,
         entity_type,
         &req.entity_id,
@@ -201,13 +201,13 @@ pub async fn remove(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         }
     }
 
-    let entity_type = match resolve_video_entity_type(&req.entity_type) {
+    let entity_type = match resolve_playlist_entity_type(&req.entity_type) {
         Ok(t) => t,
         Err(resp) => return resp,
     };
 
     let response =
-        crate::video::remove_playlist_item(&req.playlist_id, entity_type, &req.entity_id).await;
+        crate::playlists::remove_playlist_item(&req.playlist_id, entity_type, &req.entity_id).await;
     response.map(|_| JsonValue::Null)
 }
 
@@ -244,12 +244,12 @@ pub async fn reorder(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonV
 
     let mut resolved_refs = Vec::with_capacity(req.ordered_entity_refs.len());
     for item_ref in &req.ordered_entity_refs {
-        match resolve_video_entity_type(&item_ref.entity_type) {
+        match resolve_playlist_entity_type(&item_ref.entity_type) {
             Ok(t) => resolved_refs.push((t, item_ref.entity_id.clone())),
             Err(resp) => return resp,
         }
     }
 
-    let response = crate::video::reorder_playlist_items(&req.playlist_id, &resolved_refs).await;
+    let response = crate::playlists::reorder_playlist_items(&req.playlist_id, &resolved_refs).await;
     response.map(|_| JsonValue::Null)
 }

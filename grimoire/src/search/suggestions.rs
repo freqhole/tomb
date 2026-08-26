@@ -472,11 +472,11 @@ pub async fn get_playlist_suggestions(
             playlist.created_by as "created_by!: String",
             playlist.description as "description: String",
             fts.rank as "fts_rank!: f64",
-            COUNT(DISTINCT ps.song_id) as "song_count!: i64",
+            COUNT(DISTINCT ps.entity_id) as "song_count!: i64",
             CASE WHEN favorite.id IS NOT NULL THEN 1 ELSE 0 END as "is_favorite!: i64"
         FROM playlistz_fts fts
         JOIN playlistz playlist ON fts.playlist_id = playlist.id
-        LEFT JOIN playlist_songz ps ON ps.playlist_id = playlist.id
+        LEFT JOIN playlist_itemz ps ON ps.playlist_id = playlist.id AND ps.entity_type = 'song'
         LEFT JOIN user_favoritez favorite
             ON favorite.target_id = playlist.id
             AND favorite.target_type = 'playlist'

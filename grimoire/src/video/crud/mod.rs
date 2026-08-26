@@ -8,6 +8,5 @@ pub mod entity_tagz;
 pub mod entity_taxonz;
 pub mod entity_urlz;
 pub mod playback_progressz;
-pub mod playlist_itemz;
 pub mod query;
 pub mod update;

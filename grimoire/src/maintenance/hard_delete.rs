@@ -155,7 +155,10 @@ async fn hard_delete_old_records_internal(
         sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+        sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+            song_id
+        )
             .execute(&mut *tx)
             .await?;
         sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
@@ -206,7 +209,10 @@ async fn hard_delete_old_records_internal(
             sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+            sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+            song_id
+        )
                 .execute(&mut *tx)
                 .await?;
             sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
@@ -298,7 +304,10 @@ async fn hard_delete_old_records_internal(
                 sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+                sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+            song_id
+        )
                     .execute(&mut *tx)
                     .await?;
                 sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
@@ -371,7 +380,10 @@ async fn hard_delete_old_records_internal(
             sqlx::query!("DELETE FROM album_songz WHERE song_id = ?", song_id)
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query!("DELETE FROM playlist_songz WHERE song_id = ?", song_id)
+            sqlx::query!(
+            "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
+            song_id
+        )
                 .execute(&mut *tx)
                 .await?;
             sqlx::query!("DELETE FROM song_imagez WHERE song_id = ?", song_id)
@@ -435,7 +447,7 @@ async fn hard_delete_old_records_internal(
 
     for playlist_id in &playlist_ids {
         sqlx::query!(
-            "DELETE FROM playlist_songz WHERE playlist_id = ?",
+            "DELETE FROM playlist_itemz WHERE playlist_id = ?",
             playlist_id
         )
         .execute(&mut *tx)

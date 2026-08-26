@@ -3,14 +3,17 @@
 //! covers `entity_taxonz` and `playlist_itemz`, both polymorphic tables
 //! any domain (music, video, and future ones) can write rows into -
 //! genuinely cross-domain, so they don't belong under `offal::music` or
-//! `offal::video`. today only the video domain's `crate::video::crud`
-//! functions actually implement reading/writing these tables, so these
-//! handlers validate the incoming `entity_type` string against the shared
+//! `offal::video`. `entity_taxonz`/`entity_tagz`/`entity_urlz`/`entity_imagez`
+//! are still only wired up for the video domain today, so their handlers
+//! validate the incoming `entity_type` string against the shared
 //! `crate::entities::TaggableEntity` allowlist first (rejecting anything
 //! not a recognized entity type at all), then narrow to
 //! `crate::video::VideoEntityType` for the actual database call (rejecting
-//! recognized-but-not-yet-wired-up types like `song`/`album` until each
-//! domain exposes its own generalized-table functions).
+//! recognized-but-not-yet-wired-up types like `song`/`album`). `playlist_itemz`
+//! is different: it's genuinely cross-domain (songs and video entities both
+//! use it), so `playlist_items.rs` uses `resolve_playlist_entity_type`
+//! instead, which accepts `TaggableEntity::Song` alongside the video entity
+//! types.
 
 pub mod favorites;
 pub mod image_links;
@@ -99,6 +102,10 @@ pub async fn dispatch(
 /// `VideoEntityType` - the only domain whose generalized-table functions
 /// exist today. valid-but-unsupported types (song/album/...) surface a
 /// distinct error detail from genuinely-unrecognized ones.
+///
+/// used by `entity_taxonz`/`entity_tagz`/`entity_urlz`/`entity_imagez`
+/// handlers, which remain video-only for now. `playlist_items.rs` uses
+/// `resolve_playlist_entity_type` instead - see its docs for why.
 pub(super) fn resolve_video_entity_type(
     entity_type: &str,
 ) -> Result<crate::video::VideoEntityType, GrimoireResponse<JsonValue>> {
@@ -116,7 +123,41 @@ pub(super) fn resolve_video_entity_type(
         other => {
             let err = GrimoireError::InvalidEntityType {
                 entity_type: format!(
-                    "{other} (a recognized entity type, but only video/video_series/video_season are wired up to entity_taxonz/playlist_itemz today)"
+                    "{other} (a recognized entity type, but only video/video_series/video_season are wired up to entity_taxonz today)"
+                ),
+            };
+            Err(GrimoireResponse::failure(
+                "unsupported entity type",
+                vec![ErrorDetail::from(&err)],
+            ))
+        }
+    }
+}
+
+/// resolve an `entity_type` wire string for playlist membership -
+/// `playlist_itemz` is genuinely cross-domain (unlike `entity_taxonz` and
+/// friends, still video-only), so this accepts `TaggableEntity::Song` in
+/// addition to the video entity types. valid-but-not-a-playlist-item types
+/// (album/artist/playlist/taxon/...) surface a distinct error detail from
+/// genuinely-unrecognized ones.
+pub(super) fn resolve_playlist_entity_type(
+    entity_type: &str,
+) -> Result<crate::entities::TaggableEntity, GrimoireResponse<JsonValue>> {
+    use crate::entities::TaggableEntity;
+
+    let taggable = TaggableEntity::parse(entity_type).map_err(|e| {
+        GrimoireResponse::failure("invalid entity type", vec![ErrorDetail::from(&e)])
+    })?;
+
+    match taggable {
+        TaggableEntity::Song
+        | TaggableEntity::Video
+        | TaggableEntity::VideoSeries
+        | TaggableEntity::VideoSeason => Ok(taggable),
+        other => {
+            let err = GrimoireError::InvalidEntityType {
+                entity_type: format!(
+                    "{other} (a recognized entity type, but not a valid playlist item type)"
                 ),
             };
             Err(GrimoireResponse::failure(

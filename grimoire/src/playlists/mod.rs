@@ -1,12 +1,22 @@
-//! generalized playlist items (video's usage of the shared
-//! `playlist_itemz` table)
+//! generalized, entity-type-agnostic playlist items
+//!
+//! `playlist_itemz` is a single, cross-domain table: any `TaggableEntity`
+//! variant (song, video, video_series, video_season, ...) can be a playlist
+//! member here, sharing one global position/ordering space per playlist.
+//! previously this lived under `crate::video::crud::playlist_itemz` (only
+//! video ever wrote to it), but songs need it too. music's own
+//! playlist-membership functions
+//! (`crate::music::entities::playlists::repository`) delegate to
+//! `playlist_itemz` under the hood for song membership; this module is the
+//! shared, domain-neutral core both sides call into for generic
+//! (non-song-specific) operations.
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use zod_gen_derive::ZodSchema;
 
-use super::entity_taxonz::VideoEntityType;
 use crate::database;
+use crate::entities::TaggableEntity;
 use crate::error::ErrorDetail;
 use crate::response::GrimoireResponse;
 
@@ -22,12 +32,11 @@ pub struct PlaylistItem {
     pub added_by: Option<String>,
 }
 
-/// add a video-domain entity to a playlist. pass `position = None` to
-/// auto-append at the end - `trg_playlist_itemz_auto_append` handles the
-/// numbering.
+/// add an entity to a playlist. pass `position = None` to auto-append at
+/// the end - `trg_playlist_itemz_auto_append` handles the numbering.
 pub async fn add_playlist_item(
     playlist_id: &str,
-    entity_type: VideoEntityType,
+    entity_type: TaggableEntity,
     entity_id: &str,
     position: Option<i64>,
     added_by: Option<String>,
@@ -95,10 +104,10 @@ pub async fn add_playlist_item(
     GrimoireResponse::success("Playlist item added successfully", item)
 }
 
-/// remove a video-domain entity from a playlist
+/// remove an entity from a playlist
 pub async fn remove_playlist_item(
     playlist_id: &str,
-    entity_type: VideoEntityType,
+    entity_type: TaggableEntity,
     entity_id: &str,
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
@@ -135,12 +144,10 @@ pub async fn remove_playlist_item(
 /// playlist, in the desired new order - position is assigned as
 /// `index + 1` for each. no `UNIQUE` constraint exists on
 /// `(playlist_id, position)` (only `(playlist_id, entity_type,
-/// entity_id)`), so a straightforward per-row update loop is safe
-/// without the negative-position dance `update_songs_position` needs
-/// for `playlist_songz`.
+/// entity_id)`), so a straightforward per-row update loop is safe.
 pub async fn reorder_playlist_items(
     playlist_id: &str,
-    ordered_refs: &[(VideoEntityType, String)],
+    ordered_refs: &[(TaggableEntity, String)],
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,

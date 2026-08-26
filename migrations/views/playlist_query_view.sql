@@ -33,8 +33,9 @@ SELECT
         '[]'
     ) as playlist_urls,
 
-    -- aggregated stats
-    COUNT(ps.song_id) as playlist_song_count,
+    -- aggregated stats (song membership lives in playlist_itemz now,
+    -- entity_type = 'song')
+    COUNT(ps.entity_id) as playlist_song_count,
     COALESCE(SUM(s.duration), 0) as playlist_total_duration,
 
     -- initiated play count from music_play_eventz (uses idx_music_play_eventz_playlist)
@@ -46,8 +47,8 @@ SELECT
     NULL as favorited_at
 
 FROM playlistz pl
-LEFT JOIN playlist_songz ps ON pl.id = ps.playlist_id
-LEFT JOIN songz s ON ps.song_id = s.id AND s.deleted_at IS NULL
+LEFT JOIN playlist_itemz ps ON pl.id = ps.playlist_id AND ps.entity_type = 'song'
+LEFT JOIN songz s ON ps.entity_id = s.id AND s.deleted_at IS NULL
 WHERE pl.deleted_at IS NULL
 GROUP BY pl.id, pl.title, pl.description, pl.is_public, pl.created_by_id,
          pl.created_at, pl.updated_at, pl.deleted_at;

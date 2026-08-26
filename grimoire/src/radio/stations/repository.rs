@@ -572,9 +572,9 @@ pub(crate) async fn song_ids_for_clause(
                 // resolve at tune time — edits to the playlist propagate
                 // automatically without re-syncing the station.
                 sqlx::query_scalar!(
-                    r#"SELECT DISTINCT ps.song_id as "song_id!"
-                   FROM playlist_songz ps
-                   WHERE ps.playlist_id = ?"#,
+                    r#"SELECT DISTINCT ps.entity_id as "song_id!"
+                   FROM playlist_itemz ps
+                   WHERE ps.playlist_id = ? AND ps.entity_type = 'song'"#,
                     id
                 )
                 .fetch_all(pool)
@@ -608,7 +608,7 @@ pub(crate) async fn song_ids_for_clause(
                    LEFT JOIN artist_songz ars ON ars.song_id = s.id
                    LEFT JOIN user_favoritez far
                           ON far.target_type = 'artist' AND far.target_id = ars.artist_id AND far.user_id = ?
-                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN playlist_itemz ps ON ps.entity_id = s.id AND ps.entity_type = 'song'
                    LEFT JOIN user_favoritez fap
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id AND fap.user_id = ?
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL
@@ -633,7 +633,7 @@ pub(crate) async fn song_ids_for_clause(
                    LEFT JOIN artist_songz ars ON ars.song_id = s.id
                    LEFT JOIN user_favoritez far
                           ON far.target_type = 'artist' AND far.target_id = ars.artist_id
-                   LEFT JOIN playlist_songz ps ON ps.song_id = s.id
+                   LEFT JOIN playlist_itemz ps ON ps.entity_id = s.id AND ps.entity_type = 'song'
                    LEFT JOIN user_favoritez fap
                           ON fap.target_type = 'playlist' AND fap.target_id = ps.playlist_id
                    WHERE fs.id IS NOT NULL OR fal.id IS NOT NULL

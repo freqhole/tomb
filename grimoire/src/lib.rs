@@ -29,6 +29,7 @@ pub mod music;
 pub mod offal;
 pub mod paths;
 pub mod player;
+pub mod playlists;
 pub mod progress;
 pub mod query_ordering;
 pub mod radio;

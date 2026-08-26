@@ -343,9 +343,10 @@ pub mod type_registry {
 
     // video domain types (phase 1)
     use crate::music::crud::{EntityUrl, ImageMetadata};
+    use crate::playlists::PlaylistItem;
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
-        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, PlaybackProgress, PlaylistItem,
+        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, PlaybackProgress,
         SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
         UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries,

@@ -636,15 +636,15 @@ pub async fn upsert_playlist_feed_event(
             p.description,
             p.created_by_id as original_creator_id,
             (SELECT u.username FROM user_accountz u WHERE u.id = p.created_by_id) as "original_creator_username?: String",
-            (SELECT COUNT(*) FROM playlist_songz ps WHERE ps.playlist_id = p.id) as "song_count!: i64",
-            (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = p.id) as "total_duration_ms!: i64",
+            (SELECT COUNT(*) FROM playlist_itemz ps WHERE ps.playlist_id = p.id AND ps.entity_type = 'song') as "song_count!: i64",
+            (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = p.id AND ps.entity_type = 'song') as "total_duration_ms!: i64",
             COALESCE((SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi JOIN media_blobz mb ON pi.media_blob_id = mb.id
              WHERE pi.playlist_id = p.id AND mb.blob_type NOT IN ('waveform') AND pi.is_primary = 1), '[]') as "images!: String",
             COALESCE((SELECT json_group_array(json_object('blob_id', pi.media_blob_id, 'is_primary', pi.is_primary, 'blob_type', mb.blob_type))
              FROM playlist_imagez pi JOIN media_blobz mb ON pi.media_blob_id = mb.id
              WHERE pi.playlist_id = p.id AND mb.blob_type NOT IN ('waveform') AND pi.is_primary = 0), '[]') as "extra_images!: String",
-            COALESCE((SELECT json_group_array(s.id) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = p.id ORDER BY ps.position), '[]') as "song_ids!: String",
+            COALESCE((SELECT json_group_array(s.id) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = p.id AND ps.entity_type = 'song' ORDER BY ps.position), '[]') as "song_ids!: String",
             COALESCE((SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
              FROM entity_urlz eu WHERE eu.entity_type = 'playlist' AND eu.entity_id = p.id), '[]') as "urls!: String"
         FROM playlistz p
@@ -1626,8 +1626,8 @@ pub async fn create_image_feed_event(
                 SELECT 
                     title, 
                     description,
-                    (SELECT COUNT(*) FROM playlist_songz WHERE playlist_id = playlistz.id) as "song_count!: i64",
-                    (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_songz ps JOIN songz s ON s.id = ps.song_id WHERE ps.playlist_id = playlistz.id) as "total_duration_ms!: i64"
+                    (SELECT COUNT(*) FROM playlist_itemz WHERE playlist_id = playlistz.id AND entity_type = 'song') as "song_count!: i64",
+                    (SELECT COALESCE(SUM(s.duration), 0) FROM playlist_itemz ps JOIN songz s ON s.id = ps.entity_id WHERE ps.playlist_id = playlistz.id AND ps.entity_type = 'song') as "total_duration_ms!: i64"
                 FROM playlistz WHERE id = ?
                 "#,
                 entity_id

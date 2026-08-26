@@ -63,10 +63,8 @@ pub use crud::playback_progressz::{
     get_playback_progress, list_playback_progress_for_user, upsert_playback_progress,
     PlaybackProgress,
 };
-pub use crud::playlist_itemz::{
-    add_playlist_item, list_playlist_items, remove_playlist_item, reorder_playlist_items,
-    PlaylistItem,
-};
+// generalized playlist items now live in `crate::playlists` (domain-neutral,
+// since songs can be playlist members too, not just video entities).
 
 // full-text search
 pub use search::{
