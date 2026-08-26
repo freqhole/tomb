@@ -210,11 +210,16 @@ export function AppLayout(props: AppLayoutProps) {
 
   // the mini player floats above everything, including modals - hide it
   // (pausing playback first) whenever any modal opens so it doesn't sit
-  // on top of the modal. reuses the same dismiss/reopen mechanism as the
-  // panel's own close button.
+  // on top of the modal. only applies when a video is actually loaded
+  // (the mini player is video-only - songs have no floating panel to
+  // hide, so opening a modal shouldn't pause music playback).
   const isAnyModalOpenReactive = useIsAnyModalOpen();
   createEffect(() => {
-    if (isAnyModalOpenReactive() && !videoMiniPlayerDismissed()) {
+    if (
+      currentVideoData() &&
+      isAnyModalOpenReactive() &&
+      !videoMiniPlayerDismissed()
+    ) {
       if (isPlaying()) pause();
       setVideoMiniPlayerDismissed(true);
     }

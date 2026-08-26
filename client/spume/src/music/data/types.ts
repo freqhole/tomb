@@ -371,6 +371,14 @@ export interface MusicDataSource {
     songIds: string[],
     newPosition: number,
   ): Promise<void>;
+  // unified cross-type reorder - `orderedItems` must contain every item
+  // currently in the playlist (song AND video), in the desired new order
+  // (see grimoire's ReorderPlaylistItemsRequest doc comment for why a
+  // full ordered list, rather than a move-to-position delta, is required)
+  reorderPlaylistItems?(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+  ): Promise<void>;
 
   // search (optional - remote only initially)
   searchSuggestions?(params: {

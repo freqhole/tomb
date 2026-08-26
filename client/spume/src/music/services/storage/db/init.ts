@@ -11,8 +11,7 @@ import {
   STORE_ENTITY_TAXONS,
   STORE_FAVORITES,
   STORE_GENRES,
-  STORE_PLAYLIST_SONGS,
-  STORE_PLAYLIST_VIDEO_ITEMS,
+  STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
   STORE_SONGS,
@@ -120,26 +119,15 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         playlistsStore.createIndex("by_last_synced_at", "last_synced_at");
       }
 
-      // playlist_songs junction
-      if (!db.objectStoreNames.contains(STORE_PLAYLIST_SONGS)) {
-        const playlistSongsStore = db.createObjectStore(STORE_PLAYLIST_SONGS, {
-          keyPath: ["playlist_id", "song_id"],
+      // playlist_items junction (unified across entity types) - one
+      // shared position space per playlist across every entity type it
+      // can hold (song, video, ...), so songs and videos can be freely
+      // interleaved/drag-reordered together locally.
+      if (!db.objectStoreNames.contains(STORE_PLAYLIST_ITEMS)) {
+        const playlistItemsStore = db.createObjectStore(STORE_PLAYLIST_ITEMS, {
+          keyPath: ["playlist_id", "entity_type", "entity_id"],
         });
-        playlistSongsStore.createIndex("by_playlist_id", "playlist_id");
-        playlistSongsStore.createIndex("by_song_id", "song_id");
-        playlistSongsStore.createIndex("by_position", ["playlist_id", "position"]);
-      }
-
-      // playlist_video_items junction - local counterpart to the server's
-      // generic playlist_itemz table (video-only slice), so a playlist can
-      // hold videos without an active remote connection.
-      if (!db.objectStoreNames.contains(STORE_PLAYLIST_VIDEO_ITEMS)) {
-        const playlistVideoItemsStore = db.createObjectStore(STORE_PLAYLIST_VIDEO_ITEMS, {
-          keyPath: ["playlist_id", "video_id"],
-        });
-        playlistVideoItemsStore.createIndex("by_playlist_id", "playlist_id");
-        playlistVideoItemsStore.createIndex("by_video_id", "video_id");
-        playlistVideoItemsStore.createIndex("by_position", ["playlist_id", "position"]);
+        playlistItemsStore.createIndex("by_playlist_id", "playlist_id");
       }
 
       // favorites
@@ -331,6 +319,67 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
             }
           }
           cursor = await cursor.continue();
+        }
+      }
+
+      // v16 -> v17: backfill the unified playlist_items store from the
+      // old split playlist_songs / playlist_video_items stores, then drop
+      // them - mirrors the server's playlist_itemz backfill+cutover.
+      // songs keep their existing relative order (positions 1..N per
+      // playlist, unchanged); video positions are offset to come after a
+      // playlist's songs, preserving the old UI's "songs then videos"
+      // visual order as the new shared ordering.
+      if (oldVersion < 17) {
+        const playlistItemsStore = tx.objectStore(STORE_PLAYLIST_ITEMS);
+        const maxSongPositionByPlaylist = new Map<string, number>();
+
+        if (db.objectStoreNames.contains("playlist_songs")) {
+          const oldSongsStore = tx.objectStore("playlist_songs");
+          let cursor = await oldSongsStore.openCursor();
+          while (cursor) {
+            const row = cursor.value as {
+              playlist_id: string;
+              song_id: string;
+              position: number;
+              added_at: number;
+            };
+            await playlistItemsStore.put({
+              playlist_id: row.playlist_id,
+              entity_type: "song",
+              entity_id: row.song_id,
+              position: row.position,
+              added_at: row.added_at,
+            });
+            const prevMax = maxSongPositionByPlaylist.get(row.playlist_id) ?? 0;
+            if (row.position > prevMax) {
+              maxSongPositionByPlaylist.set(row.playlist_id, row.position);
+            }
+            cursor = await cursor.continue();
+          }
+          db.deleteObjectStore("playlist_songs");
+        }
+
+        if (db.objectStoreNames.contains("playlist_video_items")) {
+          const oldVideoStore = tx.objectStore("playlist_video_items");
+          let cursor = await oldVideoStore.openCursor();
+          while (cursor) {
+            const row = cursor.value as {
+              playlist_id: string;
+              video_id: string;
+              position: number;
+              added_at: number;
+            };
+            const offset = maxSongPositionByPlaylist.get(row.playlist_id) ?? 0;
+            await playlistItemsStore.put({
+              playlist_id: row.playlist_id,
+              entity_type: "video",
+              entity_id: row.video_id,
+              position: offset + row.position,
+              added_at: row.added_at,
+            });
+            cursor = await cursor.continue();
+          }
+          db.deleteObjectStore("playlist_video_items");
         }
       }
     },

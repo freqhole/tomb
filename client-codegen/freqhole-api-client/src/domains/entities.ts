@@ -188,6 +188,18 @@ export function createEntitiesMethods(call: CallFn) {
       );
     },
 
+    reorderPlaylistItems: (params: s.ReorderPlaylistItemsRequest) => {
+      return call(
+        "entities",
+        "reorder_playlist_items",
+        routes.entities.reorder_playlist_items.resp,
+        routes.entities.reorder_playlist_items.req,
+        routes.entities.reorder_playlist_items.method,
+        routes.entities.reorder_playlist_items.path,
+        params,
+      );
+    },
+
     // favorites (domain-agnostic set/status-check; rich music-specific
     // listing endpoints live on client.music - see listFavorites/listBeloved)
     setFavorite: (params: s.SetFavoriteRequest) => {

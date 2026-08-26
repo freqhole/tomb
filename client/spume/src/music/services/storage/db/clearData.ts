@@ -7,8 +7,7 @@ import {
   STORE_ARTISTS,
   STORE_FAVORITES,
   STORE_GENRES,
-  STORE_PLAYLIST_SONGS,
-  STORE_PLAYLIST_VIDEO_ITEMS,
+  STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_RATINGS,
   STORE_SONGS,
@@ -23,8 +22,7 @@ export async function clearAllMusicData(): Promise<void> {
   await db.clear(STORE_SONGS);
   await db.clear(STORE_GENRES);
   await db.clear(STORE_PLAYLISTS);
-  await db.clear(STORE_PLAYLIST_SONGS);
-  await db.clear(STORE_PLAYLIST_VIDEO_ITEMS);
+  await db.clear(STORE_PLAYLIST_ITEMS);
   await db.clear(STORE_FAVORITES);
   await db.clear(STORE_RATINGS);
   await db.clear(STORE_TAGS);

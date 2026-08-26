@@ -1,4 +1,5 @@
 // local data source implementation - queries indexeddb directly
+import type { IDBPDatabase } from "idb";
 import { generateUUID } from "../../../utils/uuid";
 import {
   addAlbumTag,
@@ -40,16 +41,17 @@ import { storeBlob } from "../../services/storage/blobs";
 import { adaptAlbumFromIDB } from "./adapters";
 import {
   deletePlaylist as deletePlaylistFromDB,
+  reorderLocalPlaylistItems,
   updatePlaylistSongs,
 } from "../../services/storage/playlists";
 import {
   STORE_ALBUMS,
   STORE_ARTISTS,
-  STORE_PLAYLIST_SONGS,
+  STORE_PLAYLIST_ITEMS,
   STORE_PLAYLISTS,
   STORE_SONGS,
   type Playlist,
-  type PlaylistSong,
+  type PlaylistItem,
   type Song,
 } from "../../services/storage/types";
 import type {
@@ -68,6 +70,20 @@ import type {
   SuggestionsResponse,
 } from "../types";
 import { debug } from "../../../utils/logger";
+
+// count song-typed items in a local playlist (playlist_items is shared
+// across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+async function countPlaylistSongs(
+  db: IDBPDatabase,
+  playlistId: string
+): Promise<number> {
+  const items = (await db.getAllFromIndex(
+    STORE_PLAYLIST_ITEMS,
+    "by_playlist_id",
+    playlistId
+  )) as PlaylistItem[];
+  return items.filter((item) => item.entity_type === "song").length;
+}
 
 
 // return the song's own images (never mix in album images)
@@ -386,11 +402,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           return null;
         }
         
-        const playlistSongs = await db.getAllFromIndex(
-          STORE_PLAYLIST_SONGS,
-          "by_playlist_id",
-          playlist.playlist_id,
-        );
+        const songCount = await countPlaylistSongs(db, playlist.playlist_id);
 
         const summary: PlaylistSummary = {
           playlist_id: playlist.playlist_id,
@@ -398,7 +410,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           description: playlist.description,
           is_public: playlist.is_public,
           images: adaptDatabaseImages(playlist.images),
-          song_count: playlistSongs.length,
+          song_count: songCount,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
           is_favorite: playlist.is_favorite ?? false,
@@ -437,18 +449,20 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     const db = await initMusicDB();
 
-    // get playlist songs ordered by position
-    const playlistSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
+    // get playlist songs ordered by position (playlist_items is shared
+    // across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+    const allItems = (await db.getAllFromIndex(
+      STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
       playlistId,
-    );
+    )) as PlaylistItem[];
+    const playlistSongs = allItems.filter((item) => item.entity_type === "song");
 
     // sort by position
     playlistSongs.sort((a, b) => a.position - b.position);
 
     // get song_ids for querySongsWithDetails
-    const songIds = playlistSongs.map((ps) => ps.song_id);
+    const songIds = playlistSongs.map((ps) => ps.entity_id);
 
     // use querySongsWithDetails to get fully hydrated songs
     const results = await querySongsWithDetails({
@@ -457,10 +471,25 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     const songsWithImages = enrichSongsWithImages(results);
 
-    // maintain playlist order
+    // maintain playlist order, attaching each song's shared playlist
+    // position/added_at (see Song's playlist_item_position doc comment)
     const songMap = new Map(songsWithImages.map((song) => [song.id, song]));
+    const playlistItemBySongId = new Map(
+      playlistSongs.map((ps) => [ps.entity_id, ps]),
+    );
     const songs = songIds
-      .map((id) => songMap.get(id))
+      .map((id) => {
+        const song = songMap.get(id);
+        if (!song) return undefined;
+        const item = playlistItemBySongId.get(id);
+        return item
+          ? {
+              ...song,
+              playlist_item_position: item.position,
+              playlist_item_added_at: item.added_at,
+            }
+          : song;
+      })
       .filter((s) => s !== undefined) as Song[];
 
     // apply pagination
@@ -542,11 +571,7 @@ export class LocalMusicDataSource implements MusicDataSource {
     await db.put(STORE_PLAYLISTS, playlist);
 
     // get song count
-    const playlistSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
-      "by_playlist_id",
-      playlistId,
-    );
+    const songCount = await countPlaylistSongs(db, playlistId);
 
     return {
       playlist_id: playlist.playlist_id,
@@ -554,7 +579,7 @@ export class LocalMusicDataSource implements MusicDataSource {
       description: playlist.description,
       is_public: playlist.is_public,
       images: playlist.images,
-      song_count: playlistSongs.length,
+      song_count: songCount,
       created_at: playlist.created_at,
       updated_at: playlist.updated_at,
     };
@@ -586,12 +611,14 @@ export class LocalMusicDataSource implements MusicDataSource {
   ): Promise<void> {
     const db = await initMusicDB();
 
-    // get current max position
-    const existingSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
+    // get current max position among song-typed items (playlist_items is
+    // shared across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+    const allItems = (await db.getAllFromIndex(
+      STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
       playlistId,
-    );
+    )) as PlaylistItem[];
+    const existingSongs = allItems.filter((item) => item.entity_type === "song");
 
     let maxPosition = 0;
     for (const ps of existingSongs) {
@@ -606,19 +633,20 @@ export class LocalMusicDataSource implements MusicDataSource {
       const songId = songIds[i];
 
       // check if song already exists in playlist
-      const existing = existingSongs.find((ps) => ps.song_id === songId);
+      const existing = existingSongs.find((ps) => ps.entity_id === songId);
       if (existing) {
         continue; // skip duplicates
       }
 
-      const playlistSong: PlaylistSong = {
+      const playlistItem: PlaylistItem = {
         playlist_id: playlistId,
-        song_id: songId,
+        entity_type: "song",
+        entity_id: songId,
         position: maxPosition + i + 1,
         added_at: now,
       };
 
-      await db.put(STORE_PLAYLIST_SONGS, playlistSong);
+      await db.put(STORE_PLAYLIST_ITEMS, playlistItem);
     }
 
     // update playlist updated_at
@@ -637,7 +665,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // delete each song from playlist
     for (const songId of songIds) {
-      await db.delete(STORE_PLAYLIST_SONGS, [playlistId, songId]);
+      await db.delete(STORE_PLAYLIST_ITEMS, [playlistId, "song", songId]);
     }
 
     // update playlist updated_at
@@ -655,19 +683,21 @@ export class LocalMusicDataSource implements MusicDataSource {
   ): Promise<void> {
     const db = await initMusicDB();
 
-    // get all songs in playlist
-    const allSongs = await db.getAllFromIndex(
-      STORE_PLAYLIST_SONGS,
+    // get all song-typed items in playlist (playlist_items is shared
+    // across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
+    const allItems = (await db.getAllFromIndex(
+      STORE_PLAYLIST_ITEMS,
       "by_playlist_id",
       playlistId,
-    );
+    )) as PlaylistItem[];
+    const allSongs = allItems.filter((item) => item.entity_type === "song");
 
     // sort by position
     allSongs.sort((a, b) => a.position - b.position);
 
     // find songs to move
-    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.song_id));
-    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.song_id));
+    const songsToMove = allSongs.filter((ps) => songIds.includes(ps.entity_id));
+    const songsToKeep = allSongs.filter((ps) => !songIds.includes(ps.entity_id));
 
     // insert moved songs at new position (1-based index -> 0-based)
     const targetIndex = newPosition - 1;
@@ -679,7 +709,7 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     // update positions
     const updates = reordered.map((song, index) => ({
-      song_id: song.song_id,
+      song_id: song.entity_id,
       position: index + 1,
     }));
 
@@ -691,6 +721,14 @@ export class LocalMusicDataSource implements MusicDataSource {
       playlist.updated_at = Date.now();
       await db.put(STORE_PLAYLISTS, playlist);
     }
+  }
+
+  async reorderPlaylistItems(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+  ): Promise<void> {
+    const db = await initMusicDB();
+    await reorderLocalPlaylistItems(db, playlistId, orderedItems);
   }
 
   // mutations
@@ -1203,8 +1241,7 @@ export class LocalMusicDataSource implements MusicDataSource {
         const playlist = await db.get(STORE_PLAYLISTS, favorite.target_id);
         if (playlist) {
           // count songs in playlist
-          const playlistSongs = await db
-            .getAllFromIndex(STORE_PLAYLIST_SONGS, "by_playlist_id", playlist.playlist_id);
+          const songCount = await countPlaylistSongs(db, playlist.playlist_id);
           items.push({
             type: "playlist",
             favorited_at: favorite.favorited_at,
@@ -1214,7 +1251,7 @@ export class LocalMusicDataSource implements MusicDataSource {
               description: playlist.description || null,
               is_public: playlist.is_public,
               images: playlist.images,
-              song_count: playlistSongs.length,
+              song_count: songCount,
               created_at: playlist.created_at,
               updated_at: playlist.updated_at,
               is_favorite: playlist.is_favorite ?? false,
@@ -1351,19 +1388,15 @@ export class LocalMusicDataSource implements MusicDataSource {
       ).slice(0, 10);
 
       for (const playlist of matchingPlaylists) {
-        const playlistSongs = await db.getAllFromIndex(
-          STORE_PLAYLIST_SONGS,
-          "by_playlist_id",
-          playlist.playlist_id,
-        );
+        const songCount = await countPlaylistSongs(db, playlist.playlist_id);
         suggestions.push({
           value: playlist.playlist_id,
           display: playlist.title || "untitled playlist",
           highlight: playlist.title || "untitled playlist",
-          count: playlistSongs.length,
+          count: songCount,
           suggestion_type: "playlist",
           confidence: 1.0,
-          metadata: { description: playlist.description, song_count: playlistSongs.length },
+          metadata: { description: playlist.description, song_count: songCount },
           entity_id: playlist.playlist_id,
           is_favorite: await checkFavorite("playlist", playlist.playlist_id),
         });

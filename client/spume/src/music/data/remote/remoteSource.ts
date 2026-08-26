@@ -526,11 +526,15 @@ export class RemoteMusicDataSource implements MusicDataSource {
     }
 
     // adapt API response to our interface
-    // playlist songs have same structure as regular song queries
+    // playlist songs have same structure as regular song queries, plus
+    // this playlist's shared position/added_at (see Song's
+    // playlist_item_position/playlist_item_added_at doc comment)
     return {
-      items: result.data.items.map((item) =>
-        adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
-      ),
+      items: result.data.items.map((item) => ({
+        ...adaptSongFromAPI(item.details, this.baseUrl, this.remoteId),
+        playlist_item_position: item.position,
+        playlist_item_added_at: item.added_at,
+      })),
       total: result.data.total_count,
       offset: result.data.offset,
       limit: result.data.limit,
@@ -741,6 +745,21 @@ export class RemoteMusicDataSource implements MusicDataSource {
     if (!result.success) {
       await this.handleFailedRequest(result);
       throw new Error("failed to reorder playlist songs");
+    }
+  }
+
+  async reorderPlaylistItems(
+    playlistId: string,
+    orderedItems: Array<{ entity_type: "song" | "video"; entity_id: string }>,
+  ): Promise<void> {
+    const result = await (await this.getClient()).entities.reorderPlaylistItems({
+      playlist_id: playlistId,
+      ordered_entity_refs: orderedItems,
+    });
+
+    if (!result.success) {
+      await this.handleFailedRequest(result);
+      throw new Error("failed to reorder playlist items");
     }
   }
 
