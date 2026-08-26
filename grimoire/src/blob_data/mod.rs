@@ -17,6 +17,7 @@ pub use helpers::{
 pub use purge::{
     cleanup_orphaned_media_blobs, find_orphaned_media_blobs, OrphanedBlob, OrphanedBlobSummary,
 };
+pub(crate) use purge::{reclaim_blob_bytes, ReclaimOutcome};
 pub use service::{delete_blob_data, get_blob_data, store_blob_data};
 pub use thumbnails::{
     backfill_thumbnails, count_blobs_needing_thumbnails, find_existing_thumbnail,

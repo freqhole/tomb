@@ -13,6 +13,7 @@ use zod_gen_derive::ZodSchema;
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::media_blobz::{create_media_blob, BlobType, CreateMediaBlobRequest};
+use crate::media_domain::MediaDomain;
 use crate::music::crud::create_or_update::import_song_with_metadata;
 use crate::music::crud::ImportSongRequest;
 use crate::offal::caller::Caller;
@@ -360,6 +361,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         req.size,
         &req.filename,
         caller,
+        MediaDomain::Music,
     )
     .await
     {

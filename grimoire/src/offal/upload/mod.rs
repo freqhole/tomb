@@ -28,6 +28,7 @@ use crate::media_blobz::{
     create_media_blob, get_media_blob_by_sha256, update_blob_local_path, BlobType,
     CreateMediaBlobRequest, MediaBlob,
 };
+use crate::media_domain::MediaDomain;
 use crate::music::scanner::{is_supported_audio_file, scan_directory};
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
@@ -94,6 +95,15 @@ pub const ROUTES: &[RouteInfo] = &[
         response_type: "VideoUploadResponse",
         auth: RouteAuth::Role(UserRole::Member),
     },
+    RouteInfo {
+        name: "upload_video_by_blake3",
+        path: "/api/upload/video-by-blake3",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "UploadVideoByBlake3Request",
+        response_type: "VideoUploadResponse",
+        auth: RouteAuth::Role(UserRole::Member),
+    },
 ];
 
 /// collect all route metadata from upload domain
@@ -141,6 +151,7 @@ pub async fn dispatch(
         "/api/upload/music-paths" => Some(import_music_paths(caller, body.clone()).await),
         "/api/upload/music-by-blake3" => Some(upload_music_by_blake3(caller, body.clone()).await),
         "/api/upload/video" => Some(upload_video(caller, body.clone()).await),
+        "/api/upload/video-by-blake3" => Some(upload_video_by_blake3(caller, body.clone()).await),
         _ => None,
     }
 }
@@ -1495,6 +1506,7 @@ pub async fn upload_music_by_blake3(
         req.size,
         &req.filename,
         caller,
+        MediaDomain::Music,
     )
     .await
     {
@@ -1582,6 +1594,168 @@ pub async fn upload_music_by_blake3(
     )
 }
 
+/// request for video upload via iroh-blobs pull model - mirrors
+/// `UploadMusicByBlake3Request`.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct UploadVideoByBlake3Request {
+    /// blake3 hash of the file (64 hex chars) - the client has this blob in their iroh store
+    pub blake3: String,
+    /// original filename (for mime detection)
+    pub filename: String,
+    /// file size in bytes (for validation)
+    pub size: Option<u64>,
+    /// the node_id of the uploading peer (injected by transport handler, not sent by client)
+    pub node_id: Option<String>,
+    /// optional metadata hints for processing
+    pub metadata: Option<VideoMetadataHints>,
+}
+
+/// upload video via iroh-blobs pull model - mirrors `upload_music_by_blake3`.
+///
+/// the client imports the file into their local iroh-blobs store, gets the blake3 hash,
+/// then sends a request with the hash. the server pulls the blob via verified streaming
+/// instead of embedding the whole file in a single P2P message (which is capped at
+/// `federation.max_message_size_mb` and unsuitable for large video files).
+///
+/// this route only works over P2P transport - node_id is injected by the transport handler.
+///
+/// path: POST /api/upload/video-by-blake3
+pub async fn upload_video_by_blake3(
+    caller: &Caller,
+    body: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    if !matches!(caller.role, UserRole::Admin | UserRole::Member) {
+        return GrimoireResponse::failure(
+            "forbidden",
+            vec![ErrorDetail::new(
+                "forbidden",
+                "forbidden",
+                "only members can upload video",
+            )],
+        );
+    }
+
+    let req: UploadVideoByBlake3Request = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let node_id = match &req.node_id {
+        Some(id) => id.clone(),
+        None => {
+            return GrimoireResponse::failure(
+                "P2P transport required",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "P2P transport required",
+                    "this route only works over P2P transport (node_id must be set)",
+                )],
+            )
+        }
+    };
+
+    let pulled = match pull_audio_blob_to_local_storage(
+        &node_id,
+        &req.blake3,
+        None, // upload route trusts the streamed sha256 (no expected hash)
+        req.size,
+        &req.filename,
+        caller,
+        MediaDomain::Video,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return e.into_grimoire_response(),
+    };
+
+    let job_payload = json!({
+        "blob_id": pulled.blob.id,
+        "local_path": pulled.local_path.to_string_lossy(),
+        "mime_type": pulled.mime,
+        "filename": req.filename,
+        "user_hints": req.metadata,
+    });
+
+    let blake3_sess_resp = create_job_session(CreateJobSessionRequest {
+        job_type: JobType::ImportVideo,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let blake3_session_id = match blake3_sess_resp.data {
+        Some(s) => {
+            tracing::info!(session_id = %s.id, "created blake3 upload session for import review tracking");
+            Some(s.id)
+        }
+        None => {
+            tracing::warn!(
+                "failed to create blake3 upload session; import review will be unavailable"
+            );
+            None
+        }
+    };
+
+    let job_response = create_job(CreateJobRequest {
+        job_type: JobType::ImportVideo,
+        session_id: blake3_session_id,
+        parameters: job_payload,
+        max_retries: Some(3),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+        priority: None,
+    })
+    .await;
+
+    let job = match job_response.data {
+        Some(j) => j,
+        None => {
+            return GrimoireResponse::failure(
+                "failed to create import job",
+                job_response.errors.into_iter().collect(),
+            )
+        }
+    };
+
+    tracing::info!(
+        "created ImportVideo job: {} for blob {} (file: {}, via blake3 pull from {})",
+        job.id,
+        pulled.blob.id,
+        req.filename,
+        &node_id[..16.min(node_id.len())],
+    );
+
+    let message = if pulled.existing {
+        "existing video file found (deduplicated), import job scheduled".to_string()
+    } else {
+        "video file received via P2P, import job scheduled".to_string()
+    };
+
+    let response = VideoUploadResponse {
+        blob_id: pulled.blob.id,
+        job_id: job.id,
+        sha256: pulled.sha256,
+        size: pulled.size,
+        mime: pulled.mime,
+        existing: pulled.existing,
+        message,
+    };
+
+    GrimoireResponse::success(
+        "video upload complete",
+        serde_json::to_value(response).unwrap(),
+    )
+}
+
 /// result of pulling a single audio blob from a remote peer to local storage.
 #[derive(Debug)]
 pub struct PullAudioBlobResult {
@@ -1624,8 +1798,8 @@ pub enum PullAudioBlobError {
     ReadFailed(String),
     /// computed sha256 didn't match the caller-supplied expected sha256
     Sha256Mismatch { expected: String, got: String },
-    /// detected mime type wasn't `audio/*`
-    NotAudio,
+    /// detected mime type didn't match the expected domain (`audio/*`/`video/*`)
+    WrongMediaType(MediaDomain),
     /// `create_media_blob` failed
     CreateBlobFailed(GrimoireError),
     /// rename / cross-device-copy failed
@@ -1715,12 +1889,12 @@ impl PullAudioBlobError {
                     format!("expected sha256 {}, computed {}", expected, got),
                 )],
             ),
-            PullAudioBlobError::NotAudio => GrimoireResponse::failure(
-                "invalid audio file",
+            PullAudioBlobError::WrongMediaType(domain) => GrimoireResponse::failure(
+                format!("invalid {} file", domain),
                 vec![ErrorDetail::new(
                     "bad_request",
-                    "invalid audio file",
-                    "file is not a valid audio file",
+                    format!("invalid {} file", domain),
+                    format!("file is not a valid {} file", domain),
                 )],
             ),
             PullAudioBlobError::CreateBlobFailed(e) => {
@@ -1734,17 +1908,19 @@ impl PullAudioBlobError {
     }
 }
 
-/// pull a single audio blob from a remote iroh peer to local storage.
+/// pull a single audio or video blob from a remote iroh peer to local storage.
 ///
-/// shared between `/api/upload/music-by-blake3` and `/api/sync/song-by-blake3`.
-/// performs:
+/// shared between `/api/upload/music-by-blake3`, `/api/upload/video-by-blake3`,
+/// and `/api/sync/song-by-blake3`. `domain` selects which `fetch_*` config's
+/// `output_dir` to write into and which mime-type prefix (`audio/`/`video/`)
+/// the downloaded file must match. performs:
 ///   1. blake3 format validation
 ///   2. max-upload-size enforcement (from federation.max_upload_size_mb)
 ///   3. iroh-blobs verified streaming fetch to a temp path (120s timeout)
 ///   4. size validation if `expected_size` provided
 ///   5. streaming sha256 computation
 ///   6. optional sha256 verification against `expected_sha256`
-///   7. mime detection (must be `audio/*`)
+///   7. mime detection (must match `domain`)
 ///   8. `create_media_blob` (with sha256 dedupe)
 ///   9. rename temp file → `{output_dir}/{year}/{month}/{blob_id}.{ext}`
 ///
@@ -1757,6 +1933,7 @@ pub async fn pull_audio_blob_to_local_storage(
     expected_size: Option<u64>,
     filename: &str,
     caller: &Caller,
+    domain: MediaDomain,
 ) -> Result<PullAudioBlobResult, PullAudioBlobError> {
     // 1. validate blake3 hash format (64 hex chars)
     if blake3.len() != 64 || !blake3.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -1792,13 +1969,22 @@ pub async fn pull_audio_blob_to_local_storage(
     );
 
     // determine output path before downloading so we can stream directly to it
-    let output_dir = config
-        .server
-        .as_ref()
-        .and_then(|s| s.fetch_music.as_ref())
-        .and_then(|f| f.output_dir.as_ref())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config.data_dir.join("fetch"));
+    let output_dir = match domain {
+        MediaDomain::Music => config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_music.as_ref())
+            .and_then(|f| f.output_dir.as_ref())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| config.data_dir.join("fetch")),
+        MediaDomain::Video => config
+            .server
+            .as_ref()
+            .and_then(|s| s.fetch_video.as_ref())
+            .and_then(|f| f.output_dir.as_ref())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| config.data_dir.join("fetch")),
+    };
 
     let ext = detect_extension(
         &mime_guess::from_path(filename)
@@ -1923,15 +2109,22 @@ pub async fn pull_audio_blob_to_local_storage(
         let _ = f.read(&mut buf).await;
         buf
     };
-    let mime_type = detect_audio_mime_type(filename, &header);
+    let mime_type = match domain {
+        MediaDomain::Music => detect_audio_mime_type(filename, &header),
+        MediaDomain::Video => detect_video_mime_type(filename, &header),
+    };
     tracing::debug!(
         "detected mime type for blob {}: {}",
         &blake3[..16],
         &mime_type
     );
-    if !mime_type.starts_with("audio/") {
+    let expected_prefix = match domain {
+        MediaDomain::Music => "audio/",
+        MediaDomain::Video => "video/",
+    };
+    if !mime_type.starts_with(expected_prefix) {
         let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err(PullAudioBlobError::NotAudio);
+        return Err(PullAudioBlobError::WrongMediaType(domain));
     }
 
     let size = file_size as i64;

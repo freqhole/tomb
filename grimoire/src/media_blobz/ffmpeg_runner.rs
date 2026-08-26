@@ -31,10 +31,28 @@ pub fn humanize_ffmpeg_error(raw: &str) -> String {
     if trimmed.is_empty() {
         return "unknown ffmpeg error".to_string();
     }
-    // ffmpeg's actual error is usually the last non-empty line (banner/
-    // codec-list/config noise comes first) - prefer it over the raw blob.
-    let last_line = trimmed.lines().rev().find(|l| !l.trim().is_empty());
-    let candidate = last_line.unwrap_or(trimmed).trim();
+    // ffmpeg always prints a generic footer line ("Conversion failed!")
+    // as the very last line of stderr on any encode/decode failure - the
+    // actually useful message is 1-3 lines above it. skip footer/banner
+    // noise and prefer the last remaining, specific-looking line.
+    let is_uninformative = |l: &str| {
+        let l = l.trim().to_lowercase();
+        l.is_empty()
+            || l == "conversion failed!"
+            || l.starts_with("ffmpeg version")
+            || l.starts_with("configuration:")
+            || l.starts_with("libav")
+            || l.starts_with("libsw")
+            || l.starts_with("libpostproc")
+            || l.starts_with("built with")
+            || l.starts_with("press [q]")
+    };
+    let candidate = trimmed
+        .lines()
+        .rev()
+        .find(|l| !is_uninformative(l))
+        .unwrap_or_else(|| trimmed.lines().next_back().unwrap_or(trimmed))
+        .trim();
     let lower = candidate.to_lowercase();
     if lower.contains("no such file or directory") {
         return "input file not found".to_string();

@@ -7271,6 +7271,20 @@ export const UploadMusicByBlake3RequestSchema = z.object({
 });
 export type UploadMusicByBlake3Request = z.infer<typeof UploadMusicByBlake3RequestSchema>;
 
+export const UploadVideoByBlake3RequestSchema = z.object({
+  blake3: z.string(),
+  filename: z.string(),
+  size: z.number().nullish(),
+  node_id: z.string().nullish(),
+  metadata: z.object({
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  title: z.string().nullish()
+}).nullish()
+});
+export type UploadVideoByBlake3Request = z.infer<typeof UploadVideoByBlake3RequestSchema>;
+
 export const UpsertPlaybackProgressRequestSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string(),

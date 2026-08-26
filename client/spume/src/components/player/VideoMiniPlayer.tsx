@@ -1,16 +1,11 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
 import { isPlaying, pause, togglePlayback } from "../../music/services/audio/player";
-import { pushModal, popModal } from "../../music/hooks/modals";
 
 // delay before a click's play/pause toggle fires, so a second click
 // arriving within the window can cancel it and fire fullscreen instead.
 const CLICK_VS_DBLCLICK_DELAY_MS = 220;
-
-// modal-stack id so pressing esc while expanded collapses it (and doesn't
-// also trigger whatever's underneath, e.g. a graph view's own esc handler)
-const EXPAND_MODAL_ID = "video-mini-player-expand";
 
 export interface VideoMiniPlayerProps {
   /** the singleton `<video>` element owned by the video backend — moved
@@ -47,10 +42,18 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     }
   });
 
-  // make sure we don't leave a dangling esc handler registered if this
-  // unmounts (e.g. closed) while still expanded.
-  onCleanup(() => {
-    if (expanded()) popModal(EXPAND_MODAL_ID);
+  // esc collapses the expanded view - a private listener, not the shared
+  // global modal stack (pushing onto that stack would itself flip
+  // `isAnyModalOpenReactive()` in AppLayout, which auto-dismisses this
+  // very panel whenever "any modal" opens - collapsing right back to
+  // closed the instant expand was pressed).
+  createEffect(() => {
+    if (!expanded()) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    onCleanup(() => window.removeEventListener("keydown", handleEscape));
   });
 
   const requestFullscreen = () => {
@@ -61,14 +64,7 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     }
   };
 
-  const toggleExpand = () => {
-    setExpanded((was) => {
-      const next = !was;
-      if (next) pushModal(EXPAND_MODAL_ID, () => setExpanded(false));
-      else popModal(EXPAND_MODAL_ID);
-      return next;
-    });
-  };
+  const toggleExpand = () => setExpanded((was) => !was);
 
   // pause (if playing) and hide the panel - does NOT touch the queue, so
   // playback can resume from the player bar and the panel reopens then.

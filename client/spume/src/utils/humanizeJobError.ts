@@ -16,6 +16,22 @@ export interface FriendlyError {
   full: string;
 }
 
+/**
+ * pull a structured `.errorType` off an error thrown by a transport
+ * (`CharnelTransport`'s or `WasmTransport`'s `TransportError` - these are
+ * two separate classes with the same shape, so this checks the property
+ * directly instead of using `instanceof`). used at upload catch sites
+ * that previously discarded this and fell back to fuzzy text-matching
+ * in `humanizeJobError` below.
+ */
+export function extractTransportErrorType(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "errorType" in error) {
+    const errorType = (error as { errorType?: unknown }).errorType;
+    return typeof errorType === "string" ? errorType : undefined;
+  }
+  return undefined;
+}
+
 export function humanizeJobError(
   message: string | undefined,
   errorType: string | undefined,

@@ -83,6 +83,16 @@ export function AddMusicModal(props: AddMusicModalProps) {
   const [uploadMode, setUploadMode] = createSignal("files");
   const [urlText, setUrlText] = createSignal("");
   const [showFullItemList, setShowFullItemList] = createSignal(false);
+  // ids of failed jobs whose error text has been clicked-open to show the full message
+  const [expandedErrorJobIds, setExpandedErrorJobIds] = createSignal<Set<string>>(new Set());
+  const toggleErrorExpanded = (id: string) => {
+    setExpandedErrorJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // register with the global modal stack so escape closes this modal
   createEffect(() => {
@@ -1000,77 +1010,97 @@ export function AddMusicModal(props: AddMusicModalProps) {
                   <div class="max-h-32 overflow-y-auto space-y-1">
                     <For each={props.uploadJobs ?? []}>
                       {(job) => (
-                        <div class="flex items-center gap-2 py-0.5">
-                          {/* status indicator */}
-                          <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                            {job.status === "uploading" || job.status === "polling" ? (
-                              <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                            ) : job.status === "completed" ? (
-                              <Icon name="check" size={14} color="var(--color-success)" />
-                            ) : job.status === "timeout" ? (
-                              <Icon name="recent" size={14} color="var(--color-warning, #f59e0b)" />
-                            ) : (
-                              <Icon name="close" size={14} color="var(--color-error)" />
-                            )}
-                          </div>
-                          {/* label */}
-                          <span
-                            class="body-xs truncate flex-1"
-                            classList={{
-                              "text-[var(--color-text-secondary)]":
-                                job.status === "uploading" || job.status === "polling",
-                              "text-[var(--color-text-tertiary)]": job.status === "completed",
-                              "text-amber-400": job.status === "timeout",
-                              "text-red-400": job.status === "failed",
-                            }}
-                          >
-                            {job.label}
-                          </span>
-                          {/* status text */}
-                          <span
-                            class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
-                            title={
-                              job.status === "failed"
-                                ? (job.errorFull ?? job.error ?? "failed")
-                                : job.status === "polling" && job.stage
-                                  ? job.stage
-                                  : undefined
-                            }
-                          >
-                            {job.status === "uploading"
-                              ? "transferring..."
-                              : job.status === "polling"
-                                ? (job.stage ?? "processing...")
-                                : job.status === "completed"
-                                  ? (job.resultSummary ??
-                                    (job.isDuplicate ? "already in your library" : "done"))
-                                  : job.status === "timeout"
-                                    ? "queued, check back later"
-                                    : (job.error ?? "failed")}
-                          </span>
-                          {/* album link - shown whenever albumId is known, even for
-                              failed/duplicate jobs (the track is already in that album) */}
-                          <Show when={job.albumId}>
-                            <a
-                              class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
-                              href={`#${routes.albumOn(job.remoteId, job.albumId!)}`}
-                              title="view album"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                // capture before onClose(), which clears completed jobs
-                                // from the store - reading job.* after that could race
-                                const target = routes.albumOn(job.remoteId, job.albumId!);
-                                debug("addMusic", "view album clicked:", {
-                                  remoteId: job.remoteId,
-                                  albumId: job.albumId,
-                                  target,
-                                });
-                                props.onClose();
-                                window.location.hash = target;
+                        <div class="py-0.5">
+                          <div class="flex items-center gap-2">
+                            {/* status indicator */}
+                            <div class="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                              {job.status === "uploading" || job.status === "polling" ? (
+                                <div class="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                              ) : job.status === "completed" ? (
+                                <Icon name="check" size={14} color="var(--color-success)" />
+                              ) : job.status === "timeout" ? (
+                                <Icon
+                                  name="recent"
+                                  size={14}
+                                  color="var(--color-warning, #f59e0b)"
+                                />
+                              ) : (
+                                <Icon name="close" size={14} color="var(--color-error)" />
+                              )}
+                            </div>
+                            {/* label */}
+                            <span
+                              class="body-xs truncate flex-1"
+                              classList={{
+                                "text-[var(--color-text-secondary)]":
+                                  job.status === "uploading" || job.status === "polling",
+                                "text-[var(--color-text-tertiary)]": job.status === "completed",
+                                "text-amber-400": job.status === "timeout",
+                                "text-red-400": job.status === "failed",
                               }}
                             >
-                              view album
-                            </a>
+                              {job.label}
+                            </span>
+                            {/* status text */}
+                            <span
+                              class="body-xs flex-shrink-0 text-[var(--color-text-tertiary)] max-w-[60%] truncate"
+                              classList={{
+                                "cursor-pointer hover:underline": job.status === "failed",
+                              }}
+                              title={
+                                job.status === "failed"
+                                  ? (job.errorFull ?? job.error ?? "failed") +
+                                    (job.errorFull && job.errorFull !== job.error
+                                      ? " (click for full text)"
+                                      : "")
+                                  : job.status === "polling" && job.stage
+                                    ? job.stage
+                                    : undefined
+                              }
+                              onClick={() => {
+                                if (job.status === "failed") toggleErrorExpanded(job.id);
+                              }}
+                            >
+                              {job.status === "uploading"
+                                ? "transferring..."
+                                : job.status === "polling"
+                                  ? (job.stage ?? "processing...")
+                                  : job.status === "completed"
+                                    ? (job.resultSummary ??
+                                      (job.isDuplicate ? "already in your library" : "done"))
+                                    : job.status === "timeout"
+                                      ? "queued, check back later"
+                                      : (job.error ?? "failed")}
+                            </span>
+                            {/* album link - shown whenever albumId is known, even for
+                                failed/duplicate jobs (the track is already in that album) */}
+                            <Show when={job.albumId}>
+                              <a
+                                class="body-xs flex-shrink-0 text-[var(--color-link)] hover:underline"
+                                href={`#${routes.albumOn(job.remoteId, job.albumId!)}`}
+                                title="view album"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  // capture before onClose(), which clears completed jobs
+                                  // from the store - reading job.* after that could race
+                                  const target = routes.albumOn(job.remoteId, job.albumId!);
+                                  debug("addMusic", "view album clicked:", {
+                                    remoteId: job.remoteId,
+                                    albumId: job.albumId,
+                                    target,
+                                  });
+                                  props.onClose();
+                                  window.location.hash = target;
+                                }}
+                              >
+                                view album
+                              </a>
+                            </Show>
+                          </div>
+                          <Show when={job.status === "failed" && expandedErrorJobIds().has(job.id)}>
+                            <p class="body-xs text-red-400/80 pl-6 pr-1 whitespace-pre-wrap break-words">
+                              {job.errorFull ?? job.error ?? "failed"}
+                            </p>
                           </Show>
                         </div>
                       )}

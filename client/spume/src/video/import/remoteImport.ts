@@ -13,6 +13,7 @@ import { toast } from "../../components/feedback/Toast";
 import { getCurrentRemote, getCurrentUser } from "../../music/data";
 import type { UploadJobStatus } from "../../music/import";
 import { humanizeJobError as humanizeJobErrorShared } from "../../utils/humanizeJobError";
+import { extractTransportErrorType } from "../../utils/humanizeJobError";
 
 export interface VideoUploadJob {
   /** unique client-side id */
@@ -183,7 +184,7 @@ export async function uploadVideoFilesToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -249,7 +250,7 @@ export async function uploadVideoPathsToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();

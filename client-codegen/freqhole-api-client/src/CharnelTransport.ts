@@ -62,6 +62,29 @@ export class TransportError extends Error {
  * immediately before the colon, so an ordinary sentence like "failed to
  * open file: permission denied" is left alone).
  */
+// P2P `ApiRequest` messages are read in one shot on the remote peer and
+// capped by that peer's configured `federation.max_message_size_mb`
+// (10 MB by default - see grimoire/src/config.rs). the base64 fallback
+// (used here when a blob-pull upload path isn't available for this
+// route, e.g. video uploads today) embeds the whole file directly in
+// that message, inflated ~4/3 by base64 plus a small JSON envelope. we
+// don't know the actual remote's configured cap, so this is a
+// conservative pre-flight check against the documented default with
+// headroom for that overhead - it exists purely to fail fast with a
+// clear message instead of a raw mid-transfer "stream too long"/generic
+// "network error".
+const MAX_BASE64_UPLOAD_BYTES = 7 * 1024 * 1024;
+
+function uploadTooLargeError(file: File, path: string): TransportError {
+  const mb = (file.size / (1024 * 1024)).toFixed(1);
+  const limitMb = (MAX_BASE64_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
+  const kind = path.includes("/video") ? "video uploads" : "uploads of this size";
+  return new TransportError(
+    `this file is ${mb} MB, too large to upload over this P2P connection (roughly ${limitMb} MB limit) - large ${kind} aren't fully supported over P2P yet`,
+    { errorType: "upload_too_large_for_transport" },
+  );
+}
+
 function extractErrorType(err: unknown): { message: string; errorType?: string } {
   const message = err instanceof Error ? err.message : String(err);
   const trimmed = message.trim();
@@ -237,9 +260,9 @@ export class CharnelTransport implements Transport {
   /**
    * upload via P2P
    *
-   * for music uploads, returns an error directing callers to use uploadByPath()
-   * which uses iroh-blobs pull model (file path -> FsStore import -> remote pull).
-   * for non-music uploads (images), uses base64 encoding (small enough to be fine).
+   * for music/video uploads, uses the iroh-blobs pull model (import bytes ->
+   * FsStore -> remote pull) - see uploadByPath() for the filesystem-path variant.
+   * for other uploads (images), uses base64 encoding (small enough to be fine).
    */
   async upload(path: string, formData: FormData): Promise<TransportResponse> {
     // extract file from form data
@@ -261,14 +284,14 @@ export class CharnelTransport implements Transport {
       };
     }
 
-    // for music uploads, import bytes into iroh-blobs store and use the
+    // for music/video uploads, import bytes into iroh-blobs store and use the
     // blake3 pull model (same as uploadByPath but from in-memory bytes).
     // this supports Android where file picker returns File objects, not paths.
-    if (path === "/api/upload/music") {
-      return this.uploadMusicViaBytes(file);
+    if (path === "/api/upload/music" || path === "/api/upload/video") {
+      return this.uploadMediaViaBytes(path, file);
     }
 
-    // for non-music uploads (images etc), use base64 (small enough)
+    // for non-media uploads (images etc), use base64 (small enough)
     return this.uploadViaBase64(path, file, formData);
   }
 
@@ -286,8 +309,8 @@ export class CharnelTransport implements Transport {
   ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    // only use iroh-blobs for music uploads
-    if (path === "/api/upload/music") {
+    // only use iroh-blobs for music/video uploads
+    if (path === "/api/upload/music" || path === "/api/upload/video") {
       console.debug("[P2P] uploadByPath: importing blob from", filePath);
       // import file into local FsStore -> get blake3 hash
       const blake3 = await tagStep(
@@ -296,20 +319,21 @@ export class CharnelTransport implements Transport {
       );
       console.debug("[P2P] uploadByPath: imported blob, blake3 =", blake3);
 
+      const defaultName = path === "/api/upload/video" ? "video" : "music";
       // build request body for the remote peer
       const body: Record<string, unknown> = {
         blake3,
-        filename: filePath.split("/").pop() || filePath.split("\\").pop() || "music",
+        filename: filePath.split("/").pop() || filePath.split("\\").pop() || defaultName,
         ...metadata,
       };
 
       // tell the remote peer to pull the blob from us
       return tagStep("remote_trigger", () =>
-        this.request("POST", "/api/upload/music-by-blake3", JSON.stringify(body)),
+        this.request("POST", `${path}-by-blake3`, JSON.stringify(body)),
       );
     }
 
-    // for non-music uploads, send path + metadata via api_request
+    // for non-media uploads, send path + metadata via api_request
     const body: Record<string, unknown> = {
       file_path: filePath,
       ...metadata,
@@ -326,6 +350,10 @@ export class CharnelTransport implements Transport {
     file: File,
     formData: FormData,
   ): Promise<TransportResponse> {
+    if (file.size > MAX_BASE64_UPLOAD_BYTES) {
+      throw uploadTooLargeError(file, path);
+    }
+
     const bytes = new Uint8Array(await file.arrayBuffer());
     const base64 = bytesToBase64(bytes);
 
@@ -349,7 +377,7 @@ export class CharnelTransport implements Transport {
   }
 
   /**
-   * upload music via in-memory bytes using iroh-blobs pull model
+   * upload music or video via in-memory bytes using iroh-blobs pull model
    *
    * streams the File to the local blobs store in bounded chunks via
    * p2p_import_begin / p2p_import_chunk / p2p_import_finish, then tells the
@@ -358,10 +386,10 @@ export class CharnelTransport implements Transport {
    * webview; it also keeps memory bounded on both sides (the receiver
    * accumulates chunks in a temp file on disk, not in memory).
    */
-  private async uploadMusicViaBytes(file: File): Promise<TransportResponse> {
+  private async uploadMediaViaBytes(path: string, file: File): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
-    console.debug("[P2P] uploadMusicViaBytes: streaming file", file.name, file.size, "bytes");
+    console.debug("[P2P] uploadMediaViaBytes: streaming file", file.name, file.size, "bytes");
 
     // ~4MB raw per chunk -> ~5.5MB base64 per IPC call, well within limits.
     const CHUNK_SIZE = 4 * 1024 * 1024;
@@ -388,12 +416,12 @@ export class CharnelTransport implements Transport {
       // finalize: import accumulated temp file into the blobs store -> blake3.
       return (await inv("p2p_import_finish", { uploadId })) as string;
     });
-    console.debug("[P2P] uploadMusicViaBytes: imported blob, blake3 =", blake3);
+    console.debug("[P2P] uploadMediaViaBytes: imported blob, blake3 =", blake3);
 
     // tell the remote peer to pull the blob from us
     const body = { blake3, filename: file.name };
     return tagStep("remote_trigger", () =>
-      this.request("POST", "/api/upload/music-by-blake3", JSON.stringify(body)),
+      this.request("POST", `${path}-by-blake3`, JSON.stringify(body)),
     );
   }
 

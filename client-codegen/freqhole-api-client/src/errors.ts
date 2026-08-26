@@ -42,6 +42,8 @@ export const ERROR_TYPE_MESSAGES: Record<string, string> = {
   route_not_found: "that server doesn't support this feature (server may need an update)",
   duplicate_song: "this song already exists in the library",
   duplicate_video: "this video already exists in the library",
+  video_previously_deleted:
+    "this video was already deleted from the library - an admin needs to run a maintenance cleanup before it can be added back",
   fetch_not_configured: "downloading from urls isn't set up on this server",
   fetch_forbidden: "source blocked the request (403) - it may require login/cookies",
   fetch_not_found: "source returned 404 - the video may have been deleted, or the url is wrong",
@@ -51,6 +53,10 @@ export const ERROR_TYPE_MESSAGES: Record<string, string> = {
   fetch_content_unavailable: "content isn't available (may be region-locked)",
   fetch_login_required:
     "site requires sign-in verification - can't fetch without cookies configured",
+  message_too_large:
+    "file is too large to send over this P2P connection - large file transfers need a blob-pull upload path, not a direct embedded message",
+  upload_too_large_for_transport:
+    "file is too large to upload over this connection - large video uploads aren't fully supported over P2P yet",
 };
 
 function bodyFallbackMessage(status: number): string {

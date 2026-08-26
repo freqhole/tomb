@@ -257,6 +257,7 @@ export const routes = {
     update_video_series: { method: 'POST', path: '/api/video/series/update', req: s.UpdateVideoSeriesRequestSchema, resp: s.VideoSeriesSchema, auth: { type: 'role', role: 'admin' } as const },
     update_videos: { method: 'POST', path: '/api/video/videos/update', req: s.UpdateVideosRequestSchema, resp: s.UpdateVideosResultSchema, auth: { type: 'role', role: 'admin' } as const },
     upload_video: { method: 'POST', path: '/api/upload/video', req: null, resp: s.VideoUploadResponseSchema, auth: { type: 'role', role: 'member' } as const },
+    upload_video_by_blake3: { method: 'POST', path: '/api/upload/video-by-blake3', req: s.UploadVideoByBlake3RequestSchema, resp: s.VideoUploadResponseSchema, auth: { type: 'role', role: 'member' } as const },
     upsert_playback_progress: { method: 'POST', path: '/api/video/progress/upsert', req: s.UpsertPlaybackProgressRequestSchema, resp: s.PlaybackProgressSchema, auth: { type: 'authenticated' } as const },
   },
 } as const;

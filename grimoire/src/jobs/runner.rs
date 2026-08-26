@@ -2,7 +2,7 @@
 //!
 //! handles dispatching jobs to the appropriate processor and running the job queue loop
 
-use super::models::{Job, JobResult, JobType};
+use super::models::{Job, JobResult, JobStatus, JobType};
 use super::music::{
     process_album_enrichment_pipeline_job, process_audiodb_album_detail_job,
     process_audiodb_artist_detail_job, process_auto_apply_album_enrichment_job,
@@ -11,11 +11,11 @@ use super::music::{
     process_mb_album_detail_job, process_mb_album_search_job, process_precheck_fetch_job,
     process_rescan_directories_job, process_scan_directory_job,
 };
-use super::video::{process_import_video_job, process_transcode_video_job};
 use super::service::{
     delete_job, get_job_session, get_next_pending_job, get_session_job_counts, mark_job_completed,
     mark_job_failed, peek_pending_jobs, try_claim_pending_job,
 };
+use super::video::{process_import_video_job, process_transcode_video_job};
 use crate::error::ErrorDetail;
 use crate::jobs::job_events::{self, JobEvent, JobStatusWire};
 use crate::response::GrimoireResponse;
@@ -310,8 +310,24 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             );
             // convert error to ErrorDetail for structured storage
             let error_detail: ErrorDetail = error.into();
-            let _failed_job_response =
+            let failed_job_response =
                 mark_job_failed(&job.id, vec![error_detail.clone()], is_retryable).await;
+
+            // `is_retryable` reflects the error TYPE in isolation (e.g. the
+            // generic `ProcessingFailed` always reports `true`), but
+            // `mark_job_failed` also factors in whether max_retries has
+            // been exhausted, and persists whichever status actually won.
+            // trust that persisted status here rather than re-deriving it
+            // from `is_retryable` - otherwise a job that just exhausted its
+            // retries (DB row: Failed) still gets emitted as "back to
+            // Pending" with no `Failed` event, so the client never learns
+            // the job is actually done and stuck showing a stale stage.
+            let truly_exhausted = failed_job_response
+                .data
+                .as_ref()
+                .and_then(|j| j.status().ok())
+                .map(|s| matches!(s, JobStatus::Failed))
+                .unwrap_or(!is_retryable);
 
             // phase 9.0 — typed job-lifecycle emit (failure path).
             // when retryable, mark_job_failed pushes the row back to
@@ -321,10 +337,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
             // still emit StatusChanged/Failed so subscribers filtered
             // by `job_ids` receive a terminal event.
             {
-                let to_status = if is_retryable {
-                    JobStatusWire::Pending
-                } else {
+                let to_status = if truly_exhausted {
                     JobStatusWire::Failed
+                } else {
+                    JobStatusWire::Pending
                 };
                 let topic = job_type.clone();
                 let entity_ref = job_events::entity_ref_for_job(&job);
@@ -339,7 +355,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                     entity_ref: entity_ref.clone(),
                     created_by: created_by.clone(),
                 });
-                if !is_retryable {
+                if truly_exhausted {
                     job_events::emit(JobEvent::Failed {
                         session_id: session_id_str,
                         job_id: job.id.clone(),

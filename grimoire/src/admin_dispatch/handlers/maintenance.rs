@@ -286,10 +286,12 @@ pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
         )
     } else {
         format!(
-            "deleted {}/{} orphaned blob(s) older than {min_age_days} day(s); freed {:.2} MiB ({} failure(s); checked {} total in {} ms)",
+            "deleted {}/{} orphaned blob(s) older than {min_age_days} day(s); freed {:.2} MiB, removed {} app-managed file(s), left {} user-owned file(s) untouched ({} failure(s); checked {} total in {} ms)",
             data.orphaned_blobs_deleted,
             data.orphaned_blobs_found,
             bytes_mb,
+            data.files_deleted,
+            data.files_skipped_user_owned,
             data.deletion_failures,
             data.total_blobs_checked,
             data.duration_ms,
@@ -305,6 +307,8 @@ pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
             "deletion_failures": data.deletion_failures,
             "bytes_freed": data.bytes_freed,
             "bytes_freed_mib": format!("{bytes_mb:.2}"),
+            "files_deleted": data.files_deleted,
+            "files_skipped_user_owned": data.files_skipped_user_owned,
             "duration_ms": data.duration_ms,
         }),
     )
@@ -363,6 +367,54 @@ pub(in crate::admin_dispatch) async fn hard_delete_old_records(
     )
 }
 
+/// hard-delete videos/seasons/series that have been soft-deleted longer
+/// than `retention_days`. args: `{ retention_days?: u32 (default 30),
+/// dry_run?: bool (default false) }`. row-level only - any media blobs (and
+/// their app-managed files) this orphans are reclaimed separately by the
+/// domain-agnostic `maintenance_cleanup_orphaned_blobs`/`maintenance_run_full`
+/// pass, which never deletes a file living outside the app's own data_dir
+/// (i.e. a user's own library file, added via directory scan).
+pub(in crate::admin_dispatch) async fn hard_delete_old_videos(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let retention_days = args
+        .get("retention_days")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(30);
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let opts = crate::maintenance::HardDeleteVideoOptions {
+        retention_days,
+        dry_run,
+    };
+    let resp = crate::maintenance::hard_delete_old_videos(opts).await;
+    if !resp.success {
+        return to_value(resp);
+    }
+    let data = match resp.data {
+        Some(d) => d,
+        None => return to_value(resp),
+    };
+    let prefix = if dry_run { "dry run: " } else { "" };
+    let msg = format!(
+        "{prefix}video hard-delete pass: {} record(s) (videos={} seasons={} series={}) (retention={}d, {} ms)",
+        data.total_records_deleted,
+        data.videos_deleted,
+        data.seasons_deleted,
+        data.series_deleted,
+        retention_days,
+        data.duration_ms,
+    );
+    GrimoireResponse::success(
+        &msg,
+        json!({
+            "dry_run": dry_run,
+            "retention_days": retention_days,
+            "summary": data,
+        }),
+    )
+}
+
 /// run the full maintenance pipeline (orphaned tags + genres cleanup
 /// + hard-delete pass). args: same as `hard_delete_old_records`.
 pub(in crate::admin_dispatch) async fn run_full(args: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -391,9 +443,11 @@ pub(in crate::admin_dispatch) async fn run_full(args: JsonValue) -> GrimoireResp
     let hd = &data.hard_delete_summary;
     let bytes_mb = blobs.bytes_freed as f64 / (1024.0 * 1024.0);
     let msg = format!(
-        "{prefix}full maintenance: {} orphaned blob(s) deleted ({:.2} MiB freed), {} record(s) hard-deleted (retention={}d, delete_blob_data={}, {} ms total)",
+        "{prefix}full maintenance: {} orphaned blob(s) deleted ({:.2} MiB freed, {} file(s) removed, {} user-owned file(s) untouched), {} record(s) hard-deleted (retention={}d, delete_blob_data={}, {} ms total)",
         blobs.orphaned_blobs_deleted,
         bytes_mb,
+        blobs.files_deleted,
+        blobs.files_skipped_user_owned,
         hd.total_records_deleted,
         retention_days,
         delete_blob_data,

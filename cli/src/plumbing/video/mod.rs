@@ -9,6 +9,7 @@ use clap::Subcommand;
 use grimoire::music::crud::QueryParams;
 use serde_json::json;
 
+mod maintenance;
 mod playlist_items;
 mod taxon_links;
 
@@ -160,6 +161,17 @@ pub enum VideoAction {
     PlaylistItems {
         #[command(subcommand)]
         action: PlaylistItemsAction,
+    },
+
+    // Maintenance commands (custom - no offal routes)
+    /// permanently delete old soft-deleted videos/seasons/series (row-level
+    /// only - orphaned media blobs/files are reclaimed separately by the
+    /// domain-agnostic `maintenance cleanup-orphaned-blobs`/`run-full` pass)
+    HardDeleteOldRecords {
+        #[arg(long, default_value = "90")]
+        retention_days: i64,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -317,5 +329,10 @@ pub async fn handle_command(action: VideoAction) -> CommandOutput<serde_json::Va
 
         VideoAction::TaxonLinks { action } => taxon_links::handle_command(action).await,
         VideoAction::PlaylistItems { action } => playlist_items::handle_command(action).await,
+
+        VideoAction::HardDeleteOldRecords {
+            retention_days,
+            dry_run,
+        } => maintenance::handle_hard_delete_old_videos(retention_days, dry_run).await,
     }
 }

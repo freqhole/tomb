@@ -304,7 +304,7 @@ pub mod type_registry {
     };
 
     // upload request types
-    use crate::offal::upload::UploadMusicByBlake3Request;
+    use crate::offal::upload::{UploadMusicByBlake3Request, UploadVideoByBlake3Request};
 
     // sync types
     use crate::offal::sync::{
@@ -1654,6 +1654,8 @@ pub mod type_registry {
         // upload request types
         gen.add_schema::<UploadMusicByBlake3Request>("UploadMusicByBlake3Request");
         registered.insert("UploadMusicByBlake3Request".to_string());
+        gen.add_schema::<UploadVideoByBlake3Request>("UploadVideoByBlake3Request");
+        registered.insert("UploadVideoByBlake3Request".to_string());
 
         // sync types
         gen.add_schema::<SyncSongByBlake3Request>("SyncSongByBlake3Request");

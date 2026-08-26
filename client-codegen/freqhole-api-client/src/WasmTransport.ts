@@ -204,6 +204,29 @@ export class TransportError extends Error {
  * immediately before the colon, so an ordinary sentence like "failed to
  * open file: permission denied" is left alone).
  */
+// P2P `ApiRequest` messages are read in one shot on the remote peer and
+// capped by that peer's configured `federation.max_message_size_mb`
+// (10 MB by default - see grimoire/src/config.rs). the base64 fallback
+// (used here when a blob-pull upload path isn't available for this
+// route, e.g. video uploads today) embeds the whole file directly in
+// that message, inflated ~4/3 by base64 plus a small JSON envelope. we
+// don't know the actual remote's configured cap, so this is a
+// conservative pre-flight check against the documented default with
+// headroom for that overhead - it exists purely to fail fast with a
+// clear message instead of a raw mid-transfer "stream too long"/generic
+// "network error".
+const MAX_BASE64_UPLOAD_BYTES = 7 * 1024 * 1024;
+
+function uploadTooLargeError(file: File, path: string): TransportError {
+  const mb = (file.size / (1024 * 1024)).toFixed(1);
+  const limitMb = (MAX_BASE64_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
+  const kind = path.includes("/video") ? "video uploads" : "uploads of this size";
+  return new TransportError(
+    `this file is ${mb} MB, too large to upload over this P2P connection (roughly ${limitMb} MB limit) - large ${kind} aren't fully supported over P2P yet`,
+    { errorType: "upload_too_large_for_transport" },
+  );
+}
+
 function extractErrorType(err: unknown): { message: string; errorType?: string } {
   const message = err instanceof Error ? err.message : String(err);
   const trimmed = message.trim();
@@ -312,9 +335,11 @@ export class WasmTransport implements Transport {
       };
     }
 
-    // for music uploads, use iroh-blobs pull model if available
-    if (path === "/api/upload/music" && this.node.import_blob) {
-      return this.uploadViaIrohBlobs(file, formData);
+    // music and video uploads both go through the iroh-blobs pull model if
+    // available - chunked/verified streaming, no base64/raw-bytes framing.
+    const blobPullPaths = ["/api/upload/music", "/api/upload/video"];
+    if (blobPullPaths.includes(path) && this.node.import_blob) {
+      return this.uploadViaIrohBlobs(path, file, formData);
     }
 
     // fallback: base64 encode and send via api_request (works for image uploads)
@@ -324,11 +349,15 @@ export class WasmTransport implements Transport {
   /**
    * upload via iroh-blobs pull model:
    * 1. import file bytes into local iroh-blobs store (returns blake3 hash)
-   * 2. tell remote peer the hash via /api/upload/music-by-blake3
+   * 2. tell remote peer the hash via `${path}-by-blake3` (e.g. /api/upload/music-by-blake3)
    * 3. remote peer pulls the blob from us via iroh-blobs verified streaming
    * 4. release the TempTag so local GC can reclaim the blob
    */
-  private async uploadViaIrohBlobs(file: File, formData: FormData): Promise<TransportResponse> {
+  private async uploadViaIrohBlobs(
+    path: string,
+    file: File,
+    formData: FormData,
+  ): Promise<TransportResponse> {
     try {
       const fileBytes = new Uint8Array(await file.arrayBuffer());
       const hash = await this.node.import_blob!(fileBytes);
@@ -360,11 +389,7 @@ export class WasmTransport implements Transport {
           }
         }
 
-        const response = await this.request(
-          "POST",
-          "/api/upload/music-by-blake3",
-          JSON.stringify(body),
-        );
+        const response = await this.request("POST", `${path}-by-blake3`, JSON.stringify(body));
         return response;
       } finally {
         // release TempTag so local GC can reclaim the blob
@@ -390,10 +415,14 @@ export class WasmTransport implements Transport {
     file: File,
     formData: FormData,
   ): Promise<TransportResponse> {
-    if (path === "/api/upload/music") {
+    if (path === "/api/upload/music" || path === "/api/upload/video") {
       console.warn(
-        "[WasmTransport] falling back to base64 upload for music (import_blob not available)",
+        `[WasmTransport] falling back to base64 upload for ${path} (import_blob not available)`,
       );
+    }
+
+    if (file.size > MAX_BASE64_UPLOAD_BYTES) {
+      throw uploadTooLargeError(file, path);
     }
 
     const arrayBuffer = await file.arrayBuffer();

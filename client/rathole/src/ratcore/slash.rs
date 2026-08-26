@@ -1627,6 +1627,18 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 }),
             }
         }
+        "hard-delete-videos" | "hard_delete_videos" => {
+            let retention_days = first_positional
+                .and_then(|t| t.parse::<u32>().ok())
+                .unwrap_or(30);
+            SlashAction::AdminDispatch {
+                name: "maintenance_hard_delete_old_videos",
+                body: serde_json::json!({
+                    "retention_days": retention_days,
+                    "dry_run": has_flag("dry-run"),
+                }),
+            }
+        }
         "run-full" | "run_full" | "full" => {
             let retention_days = first_positional
                 .and_then(|t| t.parse::<u32>().ok())
@@ -1648,7 +1660,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             body: serde_json::json!({}),
         },
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|run-full|update-image|update-spume> [args]",
+            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-blobs|cleanup-all|backfill-blake3|backfill-thumbs|hard-delete|hard-delete-videos|run-full|update-image|update-spume> [args]",
         ),
     }
 }

@@ -9,6 +9,7 @@ import { getCurrentRemote, getCurrentUser } from "../data";
 import { warn as logWarn } from "../../utils/logger";
 import {
   humanizeJobError as humanizeJobErrorShared,
+  extractTransportErrorType,
   type FriendlyError,
 } from "../../utils/humanizeJobError";
 export type { FriendlyError };
@@ -362,7 +363,7 @@ export async function uploadFilesToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -435,7 +436,7 @@ export async function uploadPathsToRemote(
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();
@@ -589,7 +590,7 @@ export async function importPathsToLocal(
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : "unknown error";
-            const friendly = humanizeJobError(msg, undefined);
+            const friendly = humanizeJobError(msg, extractTransportErrorType(err));
             updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
           } finally {
             remaining -= 1;
@@ -700,7 +701,7 @@ export async function fetchUrlsOnRemote(urls: string[], onJobComplete?: () => vo
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : "unknown error";
-        const friendly = humanizeJobError(msg, undefined);
+        const friendly = humanizeJobError(msg, extractTransportErrorType(error));
         updateJobStatus(trackId, "failed", { error: friendly.short, errorFull: friendly.full });
       }
     })();

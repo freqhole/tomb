@@ -118,11 +118,30 @@ async fn handle_stream(
     let msg_bytes = match recv.read_to_end(max_size).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            let error = format!("failed to read message: {}", e);
+            // distinguish "message exceeds the configured size cap" (a
+            // specific, actionable condition - usually a client trying to
+            // embed a large file directly instead of using a blob-pull
+            // upload path) from a generic transport read failure.
+            let (error, error_type) = if matches!(e, iroh::endpoint::ReadToEndError::TooLong) {
+                (
+                    format!(
+                        "message exceeds this connection's {}mb size limit - large file \
+                         transfers must use a blob-pull upload path instead of embedding \
+                         data directly in the request",
+                        max_size / (1024 * 1024)
+                    ),
+                    "message_too_large",
+                )
+            } else {
+                (
+                    format!("failed to read message: {}", e),
+                    "stream_read_failed",
+                )
+            };
             let resp = PeerMessage::ErrorResponse {
                 id: None,
                 error: error.clone(),
-                error_type: Some("stream_read_failed".to_string()),
+                error_type: Some(error_type.to_string()),
             };
             // best-effort: the send side may itself be broken, in which case
             // this is a no-op and the caller still sees the original error.
@@ -202,6 +221,7 @@ async fn handle_stream(
                 || path == "/api/auth/webauthn/login/start"
                 || path == "/api/auth/webauthn/login/finish"
                 || path == "/api/upload/music-by-blake3"
+                || path == "/api/upload/video-by-blake3"
             {
                 if let Some(obj) = json_body.as_object_mut() {
                     obj.insert(

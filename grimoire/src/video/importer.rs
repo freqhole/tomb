@@ -140,6 +140,30 @@ pub async fn import_video_file(
                         is_duplicate: true,
                     });
                 }
+                // no live video for this blob, so the conflict is with a
+                // soft-deleted one (the same file was imported before, then
+                // deleted) - stays deleted; a unique constraint violation on
+                // media_blob_id can never succeed by retrying with the exact
+                // same blob either way, so fail terminally with a message
+                // that explains *why*, and clean up the uploaded copy
+                // rather than leaving it (and 3 useless retries) behind.
+                //
+                // TODO(video-maintenance): there's currently no admin
+                // maintenance job that purges soft-deleted videoz rows
+                // (unlike music's `hard_delete_old_records`, which does
+                // cover songz) - once one exists, the message below should
+                // point at it by name/command instead of speaking generally.
+                cleanup_unimportable_upload(file_path).await;
+                if was_video_soft_deleted(media_blob_id).await? {
+                    return Err(JobError::ProcessingFailedFinal {
+                        reason: "this video was already deleted from the library. an admin will need to run a maintenance cleanup before this file can be added back".to_string(),
+                        error_type: "video_previously_deleted".to_string(),
+                    });
+                }
+                return Err(JobError::ProcessingFailedFinal {
+                    reason: "a video with this exact file already exists".to_string(),
+                    error_type: "duplicate_video".to_string(),
+                });
             }
             let error_messages: Vec<String> =
                 response.errors.iter().map(|e| e.detail.clone()).collect();
@@ -396,6 +420,39 @@ async fn find_video_by_media_blob_id(media_blob_id: &str) -> Result<Option<Strin
         reason: format!("failed to check for existing video: {}", e),
     })?;
     Ok(id.flatten())
+}
+
+/// true if a (soft-deleted) videoz row already references this media_blob_id
+/// - distinguishes "this exact file was imported before and deleted" from
+/// any other unique-constraint conflict, for a clearer error message.
+async fn was_video_soft_deleted(media_blob_id: &str) -> Result<bool, JobError> {
+    let pool = crate::database::connect().await?;
+    let found = sqlx::query_scalar!(
+        "SELECT 1 as \"found!: i32\" FROM videoz WHERE media_blob_id = ? AND deleted_at IS NOT NULL LIMIT 1",
+        media_blob_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| JobError::ProcessingFailed {
+        reason: format!("failed to check for soft-deleted video: {}", e),
+    })?;
+    Ok(found.is_some())
+}
+
+/// best-effort removal of an upload's local temp copy once we've determined
+/// it can never be imported (e.g. permanently blocked duplicate) - this is
+/// an app-managed "fetch" storage copy, not a user's own library file, so
+/// leaving it behind just wastes disk space.
+async fn cleanup_unimportable_upload(file_path: &Path) {
+    if let Err(e) = tokio::fs::remove_file(file_path).await {
+        warn!(
+            "failed to clean up unimportable upload at {}: {}",
+            file_path.display(),
+            e
+        );
+    } else {
+        info!("removed unimportable upload copy: {}", file_path.display());
+    }
 }
 
 /// probe duration + subtitle stream indices via ffprobe. best-effort:
