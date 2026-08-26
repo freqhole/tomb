@@ -26,11 +26,26 @@ function cacheKey(blobId: string): string {
 export class TransportError extends Error {
   readonly errorType?: string;
   readonly step?: "import" | "remote_trigger";
-  constructor(message: string, opts?: { errorType?: string; step?: "import" | "remote_trigger" }) {
+  /**
+   * per-step breakdown for a multi-step fallback chain (e.g.
+   * `fetchBlob`'s verified-download -> api-request -> on-demand-blake3
+   * sequence). populated only by call sites that actually fall through
+   * multiple attempts before failing - absent for single-shot failures.
+   */
+  readonly attempts?: Array<{ step: string; reason: string }>;
+  constructor(
+    message: string,
+    opts?: {
+      errorType?: string;
+      step?: "import" | "remote_trigger";
+      attempts?: Array<{ step: string; reason: string }>;
+    },
+  ) {
     super(message);
     this.name = "TransportError";
     this.errorType = opts?.errorType;
     this.step = opts?.step;
+    this.attempts = opts?.attempts;
   }
 }
 
@@ -392,20 +407,37 @@ export class CharnelTransport implements Transport {
     const inv = await ensureInvoke();
     const tauri = await import("@tauri-apps/api/core");
     const onProgress = new tauri.Channel<{ bytes_downloaded: number }>();
+    // per-step failure breakdown, attached to the final thrown error so a
+    // bug report/log has the full fallback-chain picture, not just the
+    // last step's message (see docs/error-handling-tasks.md track P0-E).
+    const attempts: Array<{ step: string; reason: string }> = [];
 
     if (blake3) {
-      // blake3 known — use verified iroh-blobs download
-      const result = (await inv("p2p_fetch_blob_verified", {
-        peerAddr: this.peerAddr,
-        blake3Hash: blake3,
-        onProgress,
-      })) as { data: string; content_type: string | null; size: number };
+      // blake3 known — use verified iroh-blobs download. no fallback
+      // chain in this branch (no blake3 means we can't retry via
+      // api_request/on-demand-blake3 below), but still tag the failure
+      // with `attempts` for consistency with the no-blake3 path.
+      try {
+        const result = (await inv("p2p_fetch_blob_verified", {
+          peerAddr: this.peerAddr,
+          blake3Hash: blake3,
+          onProgress,
+        })) as { data: string; content_type: string | null; size: number };
 
-      const bytes = base64ToBytes(result.data);
-      return {
-        data: bytes,
-        contentType: result.content_type ?? "audio/mpeg",
-      };
+        const bytes = base64ToBytes(result.data);
+        return {
+          data: bytes,
+          contentType: result.content_type ?? "audio/mpeg",
+        };
+      } catch (e) {
+        const { message, errorType } = extractErrorType(e);
+        throw new TransportError(`verified download failed for blob ${blobId}: ${message}`, {
+          errorType,
+          attempts: [
+            { step: "verified_download", reason: errorType ? `${errorType}: ${message}` : message },
+          ],
+        });
+      }
     }
 
     // no blake3 — try api_request to get blob data from database
@@ -419,31 +451,51 @@ export class CharnelTransport implements Transport {
           const contentType = parsed.data.mime || "application/octet-stream";
           return { data: bytes, contentType };
         }
+        attempts.push({
+          step: "api_request",
+          reason: `unexpected response shape (status ${result.status})`,
+        });
+      } else {
+        attempts.push({ step: "api_request", reason: `http ${result.status}` });
       }
     } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : String(e);
+      const { message, errorType } = extractErrorType(e);
+      const reason = errorType ? `${errorType}: ${message}` : message;
+      attempts.push({ step: "api_request", reason });
       console.warn(
-        `[CharnelTransport] api blob data request failed, falling back to verified download: ${errorMessage}`,
+        `[CharnelTransport] api blob data request failed, falling back to verified download: ${reason}`,
       );
     }
 
     // fallback: ask the peer to compute blake3, then do verified download
-    const result = (await inv("p2p_fetch_blob_verified_by_id", {
-      peerAddr: this.peerAddr,
-      blobId,
-      onProgress,
-    })) as {
-      data: string;
-      content_type: string | null;
-      size: number;
-      blake3: string;
-    };
+    try {
+      const result = (await inv("p2p_fetch_blob_verified_by_id", {
+        peerAddr: this.peerAddr,
+        blobId,
+        onProgress,
+      })) as {
+        data: string;
+        content_type: string | null;
+        size: number;
+        blake3: string;
+      };
 
-    const bytes = base64ToBytes(result.data);
-    return {
-      data: bytes,
-      contentType: result.content_type ?? "application/octet-stream",
-    };
+      const bytes = base64ToBytes(result.data);
+      return {
+        data: bytes,
+        contentType: result.content_type ?? "application/octet-stream",
+      };
+    } catch (e) {
+      const { message, errorType } = extractErrorType(e);
+      attempts.push({
+        step: "on_demand_blake3",
+        reason: errorType ? `${errorType}: ${message}` : message,
+      });
+      throw new TransportError(
+        `failed to fetch blob ${blobId} after trying all fallback methods: ${message}`,
+        { errorType, attempts },
+      );
+    }
   }
 
   /**

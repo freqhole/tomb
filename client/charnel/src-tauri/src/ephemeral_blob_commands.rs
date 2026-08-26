@@ -84,7 +84,7 @@ fn validate_blake3(blake3: &str) -> Result<(), String> {
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
     {
-        return Err(format!("invalid blake3 hash: {blake3}"));
+        return Err(format!("invalid_blake3_hash: invalid blake3 hash: {blake3}"));
     }
     Ok(())
 }
@@ -97,7 +97,7 @@ fn validate_ext(ext: &str) -> Result<(), String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() && !c.is_ascii_uppercase())
     {
-        return Err(format!("invalid ext: {ext}"));
+        return Err(format!("invalid_ext: invalid ext: {ext}"));
     }
     Ok(())
 }
@@ -162,7 +162,7 @@ pub async fn fetch_ephemeral_blob(
                 error = %e,
                 "ephemeral blob fetch failed"
             );
-            Err(format!("fetch failed: {e}"))
+            Err(format!("{}: fetch failed: {}", e.error_type(), e))
         }
         Err(_) => {
             let _ = tokio::fs::remove_file(&target).await;
@@ -172,7 +172,7 @@ pub async fn fetch_ephemeral_blob(
                 target = %target.display(),
                 "ephemeral blob fetch timed out (120s)"
             );
-            Err("fetch timeout (120s)".to_string())
+            Err("fetch_timeout: fetch timed out after 120s".to_string())
         }
     }
 }

@@ -510,13 +510,26 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
         return Ok((blob, None));
     }
 
-    // try to get data from blob_data table
+    // try to get data from blob_data table. get_blob_data collapses both
+    // "no row for this id" and genuine db/connectivity failures into the
+    // same success=false shape - only the former should fall through to
+    // the reliquary fallback below and eventually resolve to
+    // MediaBlobNotFound; the latter needs to be remembered and surfaced
+    // as a real error if every other source also comes up empty, instead
+    // of being silently miscategorized as "blob never existed".
     let data_response = blob_data::get_blob_data(&blob.id).await;
+    let mut blob_data_error: Option<String> = None;
 
     if data_response.success {
         if let Some(data) = data_response.data {
             return Ok((blob, Some(data)));
         }
+    } else if let Some(err) = data_response
+        .errors
+        .first()
+        .filter(|e| e.error_type != "media_blob_not_found")
+    {
+        blob_data_error = Some(err.detail.clone());
     }
 
     // fall back to reliquary: any problem reaching it or resolving the blob
@@ -544,6 +557,15 @@ pub async fn get_media_blob_with_data(id: &str) -> GrimoireResult<(MediaBlob, Op
                 return Ok((blob, Some(data)));
             }
         }
+    }
+
+    // a genuine blob_data lookup failure takes priority over the blanket
+    // not-found: it tells the caller "something is actually broken" rather
+    // than "this content was never here".
+    if let Some(detail) = blob_data_error {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("blob_data lookup failed for {}: {}", id, detail),
+        });
     }
 
     // no data source available
@@ -624,6 +646,19 @@ pub async fn get_media_blob_stream_source(
         if let Some(data) = data_response.data {
             return Ok((blob, BlobStreamSource::Memory(data)));
         }
+    } else if let Some(err) = data_response
+        .errors
+        .first()
+        .filter(|e| e.error_type != "media_blob_not_found")
+    {
+        // a genuine db/connectivity failure looking up blob_data, not a
+        // clean "no row for this id" - surface it instead of collapsing
+        // into a misleading MediaBlobNotFound (this is the last source
+        // tried, so there's no other fallback left that could still save
+        // this lookup).
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("blob_data lookup failed for {}: {}", id, err.detail),
+        });
     }
 
     Err(GrimoireError::MediaBlobNotFound { id: id.to_string() })

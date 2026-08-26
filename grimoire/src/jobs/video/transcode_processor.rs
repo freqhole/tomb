@@ -7,6 +7,7 @@
 use crate::blob_data::stream_sha256_hash;
 use crate::blobz::compute_blake3_hash;
 use crate::config::get_config;
+use crate::error::ErrorDetail;
 use crate::jobs::job_events;
 use crate::jobs::models::{TranscodeVideoParams, TranscodeVideoResult};
 use crate::jobs::{Job, JobError};
@@ -32,6 +33,7 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             serde_json::to_value(TranscodeVideoResult {
                 video_id: params.video_id,
                 rendition_blob_ids: Vec::new(),
+                partial_failures: Vec::new(),
             })
             .map_err(JobError::Serialization)?,
         ));
@@ -46,6 +48,7 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             serde_json::to_value(TranscodeVideoResult {
                 video_id: params.video_id,
                 rendition_blob_ids: Vec::new(),
+                partial_failures: Vec::new(),
             })
             .map_err(JobError::Serialization)?,
         ));
@@ -69,13 +72,8 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         })?;
 
     let mut rendition_blob_ids = Vec::new();
+    let mut partial_failures: Vec<ErrorDetail> = Vec::new();
     let total = renditions.len();
-    // TODO: all five warn!-and-continue sites below (ffmpeg failure, stat
-    // failure, hash failure, blake3 failure, blob-creation failure) silently
-    // drop a rendition while the job still reports overall success. a
-    // `partial_failures`/`warnings` field on the job result is the proper
-    // fix but is a cross-cutting design decision shared with the music-side
-    // processors - see docs/error-handling-tasks.md's P0-C track.
     for (i, rendition) in renditions.iter().enumerate() {
         job_events::emit_stage_from_job(
             job,
@@ -134,6 +132,14 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 "transcode failed for video {} rendition {} (output path {}): {}",
                 params.video_id, rendition.label, output_path, e
             );
+            partial_failures.push(ErrorDetail::new(
+                "transcode_rendition_ffmpeg_failed",
+                "transcode rendition failed",
+                format!(
+                    "ffmpeg failed for video {} rendition {}: {}",
+                    params.video_id, rendition.label, e
+                ),
+            ));
             let _ = tokio::fs::remove_file(&output_path).await;
             continue;
         }
@@ -149,6 +155,14 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                     "failed to stat transcode output for video {} rendition {} at {}: {}",
                     params.video_id, rendition.label, output_path, e
                 );
+                partial_failures.push(ErrorDetail::new(
+                    "transcode_rendition_stat_failed",
+                    "transcode rendition failed",
+                    format!(
+                        "failed to stat transcode output for video {} rendition {} at {}: {}",
+                        params.video_id, rendition.label, output_path, e
+                    ),
+                ));
                 continue;
             }
         };
@@ -158,6 +172,14 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                 "transcode output empty for video {} rendition {}",
                 params.video_id, rendition.label
             );
+            partial_failures.push(ErrorDetail::new(
+                "transcode_rendition_empty_output",
+                "transcode rendition failed",
+                format!(
+                    "transcode output empty for video {} rendition {}",
+                    params.video_id, rendition.label
+                ),
+            ));
             let _ = tokio::fs::remove_file(&output_path).await;
             continue;
         }
@@ -171,6 +193,15 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                      re-transcode from scratch rather than reuse it)",
                     params.video_id, rendition.label, e, output_path
                 );
+                partial_failures.push(ErrorDetail::new(
+                    "transcode_rendition_hash_failed",
+                    "transcode rendition failed",
+                    format!(
+                        "failed to hash transcode output for video {} rendition {}: {} \
+                         (output file left orphaned on disk at {})",
+                        params.video_id, rendition.label, e, output_path
+                    ),
+                ));
                 continue;
             }
         };
@@ -186,6 +217,14 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
                      - future p2p transfer verification for this rendition is disabled until backfilled",
                     output_path, params.video_id, rendition.label, e
                 );
+                partial_failures.push(ErrorDetail::new(
+                    "transcode_rendition_blake3_failed",
+                    "transcode rendition blake3 hash failed",
+                    format!(
+                        "failed to compute blake3 for transcode output {} (video {} rendition {}): {}",
+                        output_path, params.video_id, rendition.label, e
+                    ),
+                ));
                 None
             }
         };
@@ -216,10 +255,20 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         .await
         {
             Ok(blob) => rendition_blob_ids.push(blob.id),
-            Err(e) => warn!(
-                "failed to create rendition blob for video {} rendition {} (output path {}): {}",
-                params.video_id, rendition.label, output_path, e
-            ),
+            Err(e) => {
+                warn!(
+                    "failed to create rendition blob for video {} rendition {} (output path {}): {}",
+                    params.video_id, rendition.label, output_path, e
+                );
+                partial_failures.push(ErrorDetail::new(
+                    "transcode_rendition_blob_creation_failed",
+                    "transcode rendition failed",
+                    format!(
+                        "failed to create rendition blob for video {} rendition {} (output path {}): {}",
+                        params.video_id, rendition.label, output_path, e
+                    ),
+                ));
+            }
         }
     }
 
@@ -234,6 +283,7 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         serde_json::to_value(TranscodeVideoResult {
             video_id: params.video_id,
             rendition_blob_ids,
+            partial_failures,
         })
         .map_err(JobError::Serialization)?,
     ))

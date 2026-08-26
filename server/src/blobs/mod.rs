@@ -23,6 +23,7 @@ use axum::{
     response::Response,
     Extension,
 };
+use grimoire::error::GrimoireError;
 use grimoire::media_blobz::{get_media_blob_stream_source, BlobStreamSource};
 use std::io::SeekFrom;
 use tokio::{
@@ -115,10 +116,12 @@ pub async fn stream_blob_handler(
         "streaming blob"
     );
 
-    // get blob metadata and where to stream its bytes from
-    let (blob, source) = get_media_blob_stream_source(&blob_id)
-        .await
-        .map_err(|_| ApiError::NotFound)?;
+    // get blob metadata and where to stream its bytes from. relies on
+    // `From<GrimoireError> for ApiError` so a genuine db/connectivity
+    // failure surfaces as its own error_type/status instead of being
+    // flattened into a blanket not-found (see media_blobz::service's
+    // get_media_blob_stream_source for where that distinction is made).
+    let (blob, source) = get_media_blob_stream_source(&blob_id).await?;
 
     let content_type = blob
         .mime
@@ -191,7 +194,11 @@ pub async fn blob_thumbnail_handler(
         // on-demand enabled: generate if needed
         grimoire::blob_data::get_or_generate_thumbnail(&blob_id, size, Some(user.user_id.clone()))
             .await
-            .map_err(|e| ApiError::Internal(format!("thumbnail generation failed: {}", e)))?
+            .map_err(|e| {
+                ApiError::Grimoire(GrimoireError::ThumbnailGeneration {
+                    reason: e.to_string(),
+                })
+            })?
     } else {
         // on-demand disabled: only return existing thumbnail
         grimoire::blob_data::find_existing_thumbnail(&blob_id, size)
@@ -200,10 +207,9 @@ pub async fn blob_thumbnail_handler(
             .ok_or(ApiError::NotFound)?
     };
 
-    // stream the thumbnail blob
-    let (blob, db_data) = grimoire::media_blobz::get_media_blob_with_data(&thumb_blob_id)
-        .await
-        .map_err(|_| ApiError::NotFound)?;
+    // stream the thumbnail blob (see stream_blob_handler's note on why `?`
+    // is used instead of collapsing every error into ApiError::NotFound)
+    let (blob, db_data) = grimoire::media_blobz::get_media_blob_with_data(&thumb_blob_id).await?;
 
     let content_type = blob
         .mime
@@ -246,6 +252,11 @@ async fn stream_from_file(
 ) -> Result<Response, ApiError> {
     let path = std::path::PathBuf::from(&local_path);
 
+    // this is a point-in-time check: if the file is deleted between here
+    // and the actual open/seek in stream_file_full/stream_file_range below,
+    // those calls will fail with their own io::ErrorKind::NotFound, which
+    // is handled separately there (distinct log message) rather than being
+    // confused with this entry check.
     if !path.exists() {
         return Err(ApiError::NotFound);
     }
@@ -273,7 +284,7 @@ async fn stream_file_full(
 ) -> Result<Response, ApiError> {
     let file = File::open(&path)
         .await
-        .map_err(|_| ApiError::Internal("failed to open file".to_string()))?;
+        .map_err(|e| open_file_error(&path, e))?;
 
     let stream = ReaderStream::with_capacity(file, STREAM_CHUNK_SIZE);
     let body = Body::from_stream(stream);
@@ -308,17 +319,21 @@ async fn stream_file_range(
 
     // validate range
     if start >= file_size || end >= file_size || start > end {
-        return Err(ApiError::BadRequest("unsatisfiable range".to_string()));
+        return Err(unsatisfiable_range(format!(
+            "range {}-{} is outside file bounds (file size {})",
+            start, end, file_size
+        )));
     }
 
     // open file and seek to start
     let mut file = File::open(&path)
         .await
-        .map_err(|_| ApiError::Internal("failed to open file".to_string()))?;
+        .map_err(|e| open_file_error(&path, e))?;
 
-    file.seek(SeekFrom::Start(start))
-        .await
-        .map_err(|_| ApiError::Internal("failed to seek file".to_string()))?;
+    file.seek(SeekFrom::Start(start)).await.map_err(|e| {
+        tracing::error!(path = %path.display(), error = %e, "failed to seek blob file during range streaming");
+        ApiError::Internal(format!("failed to seek file: {}", e))
+    })?;
 
     let content_length = end - start + 1;
 
@@ -400,7 +415,10 @@ async fn stream_memory_range(
 
     // validate range
     if start >= size || end >= size || start > end {
-        return Err(ApiError::BadRequest("unsatisfiable range".to_string()));
+        return Err(unsatisfiable_range(format!(
+            "range {}-{} is outside file bounds (file size {})",
+            start, end, size
+        )));
     }
 
     // extract requested range
@@ -426,15 +444,44 @@ async fn stream_memory_range(
 // Range Parsing
 // ============================================================================
 
+/// malformed range header syntax (unparseable, missing `bytes=` prefix, or
+/// non-numeric parts) - distinct from `unsatisfiable_range` below
+/// (syntactically valid but out of the file's actual bounds), so a client
+/// branching on `error_type` can tell "the request itself is broken" apart
+/// from "the request just needs adjusting". routed through the existing
+/// `ApiError::Grimoire` mechanism (no new ApiError variant) via
+/// `GrimoireError::InvalidFormat`, whose auto-derived error_type is
+/// `invalid_format`.
+fn invalid_range_header(reason: impl Into<String>) -> ApiError {
+    ApiError::Grimoire(GrimoireError::InvalidFormat {
+        reason: reason.into(),
+    })
+}
+
+/// range is syntactically valid but falls outside the file's actual bounds
+/// (RFC 7233 416 territory, though this still responds with 400 pending a
+/// dedicated ApiError variant - see error-handling-tasks.md's P1-A notes).
+/// kept as its own error_type (`validation`, via `GrimoireError::Validation`)
+/// distinct from `invalid_range_header` above.
+fn unsatisfiable_range(reason: impl Into<String>) -> ApiError {
+    ApiError::Grimoire(GrimoireError::Validation {
+        field: "range".to_string(),
+        message: reason.into(),
+    })
+}
+
 /// parse range header into (start, end) byte positions
 /// only supports single ranges (not multipart)
 fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64, u64), ApiError> {
     let range_str = range_header
         .to_str()
-        .map_err(|_| ApiError::BadRequest("invalid range header".to_string()))?;
+        .map_err(|_| invalid_range_header("range header is not valid ascii/utf-8"))?;
 
     if !range_str.starts_with("bytes=") {
-        return Err(ApiError::BadRequest("invalid range format".to_string()));
+        return Err(invalid_range_header(format!(
+            "range header must start with 'bytes=': {}",
+            range_str
+        )));
     }
 
     let range_part = &range_str[6..].trim();
@@ -443,12 +490,15 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
     if let Some(rest) = range_part.strip_prefix('-') {
         let suffix_length: u64 = rest
             .parse()
-            .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
+            .map_err(|_| invalid_range_header(format!("invalid suffix range: -{}", rest)))?;
 
         if suffix_length > 0 && suffix_length <= file_size {
             return Ok((file_size - suffix_length, file_size - 1));
         } else {
-            return Err(ApiError::BadRequest("unsatisfiable range".to_string()));
+            return Err(unsatisfiable_range(format!(
+                "suffix range -{} is outside file bounds (file size {})",
+                suffix_length, file_size
+            )));
         }
     }
 
@@ -456,12 +506,15 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
     if let Some(rest) = range_part.strip_suffix('-') {
         let start: u64 = rest
             .parse()
-            .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
+            .map_err(|_| invalid_range_header(format!("invalid prefix range: {}-", rest)))?;
 
         if start < file_size {
             return Ok((start, file_size - 1));
         } else {
-            return Err(ApiError::BadRequest("unsatisfiable range".to_string()));
+            return Err(unsatisfiable_range(format!(
+                "range start {} is outside file bounds (file size {})",
+                start, file_size
+            )));
         }
     }
 
@@ -469,17 +522,43 @@ fn parse_range_header(range_header: &HeaderValue, file_size: u64) -> Result<(u64
     if let Some(dash_pos) = range_part.find('-') {
         let start: u64 = range_part[..dash_pos]
             .parse()
-            .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
+            .map_err(|_| invalid_range_header(format!("invalid range start: {}", range_part)))?;
         let end: u64 = range_part[dash_pos + 1..]
             .parse()
-            .map_err(|_| ApiError::BadRequest("invalid range".to_string()))?;
+            .map_err(|_| invalid_range_header(format!("invalid range end: {}", range_part)))?;
 
         if start <= end && start < file_size {
             return Ok((start, end.min(file_size - 1)));
         }
+
+        return Err(unsatisfiable_range(format!(
+            "range {}-{} is outside file bounds (file size {})",
+            start, end, file_size
+        )));
     }
 
-    Err(ApiError::BadRequest("invalid range".to_string()))
+    Err(invalid_range_header(format!(
+        "unrecognized range header: {}",
+        range_str
+    )))
+}
+
+/// build the ApiError for a blob file that failed to open for streaming,
+/// distinguishing "it was deleted out-of-band after the entry-point
+/// existence check" (io::ErrorKind::NotFound) from any other io failure
+/// (permissions, disk issues, etc), which keeps the underlying io::Error's
+/// own message so it's diagnosable server-side and in the response.
+fn open_file_error(path: &std::path::Path, e: std::io::Error) -> ApiError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        tracing::warn!(
+            path = %path.display(),
+            "blob file existed at handler entry but was gone by the time streaming started (deleted out-of-band)"
+        );
+        ApiError::NotFound
+    } else {
+        tracing::error!(path = %path.display(), error = %e, "failed to open blob file for streaming");
+        ApiError::Internal(format!("failed to open file: {}", e))
+    }
 }
 
 // ============================================================================

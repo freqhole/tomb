@@ -10,6 +10,7 @@
 import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import {
   BackendPlaybackError,
+  classifyMediaElementError,
   emptySnapshot,
   type BackendKind,
   type LoadAndPlayOptions,
@@ -285,13 +286,10 @@ export class VideoBackend implements PlayerBackend {
       const error = video.error;
       this.emit({
         kind: "error",
-        detail: {
-          error_type: "video_element_error",
-          title: "Video Element Error",
-          detail: error
-            ? `media error code: ${error.code}, message: ${error.message}`
-            : "unknown <video> element error",
-        },
+        detail: classifyMediaElementError(
+          "video",
+          error ? { code: error.code, message: error.message } : null
+        ),
       });
     });
 

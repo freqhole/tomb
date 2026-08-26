@@ -71,6 +71,10 @@ pub struct TranscodeVideoParams {
 pub struct TranscodeVideoResult {
     pub video_id: String,
     pub rendition_blob_ids: Vec<String>,
+    /// non-fatal per-rendition failures (ffmpeg, stat, hash, blake3,
+    /// blob-creation) that dropped a rendition but didn't fail the job.
+    #[serde(default)]
+    pub partial_failures: Vec<ErrorDetail>,
 }
 
 /// external enrichment sources the pipeline can run against.

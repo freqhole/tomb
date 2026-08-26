@@ -181,6 +181,24 @@ pub enum GrimoireError {
     #[error("peer {peer} unauthorized to access blob {blake3}")]
     PeerUnauthorized { peer: String, blake3: String },
 
+    /// peer confirmed (structurally, not just via a generic error string) that
+    /// it does not have this blob at all - e.g. iroh-blobs reported an eof
+    /// reading the blob header, or a not-found chunk/parent. permanent, don't
+    /// retry against this peer for this blob. `blake3` is usually the blake3
+    /// hash that was requested, but a couple of call sites (on-demand
+    /// blake3 computation, which fails before a blake3 hash exists) reuse this
+    /// variant with the blob's sha256 `blob_id` instead - both are "the
+    /// identifier we asked the peer about", just from different id spaces.
+    #[error("peer {peer} does not have blob {blake3}")]
+    BlobNotFoundOnPeer { peer: String, blake3: String },
+
+    /// a peer sent data that didn't match the requested blake3 hash (bao-tree
+    /// leaf/parent hash mismatch). either a bug on the peer's end or a
+    /// malicious peer - permanent, and worth flagging loudly since it's a
+    /// stronger signal than an ordinary transfer failure.
+    #[error("blob verification failed for {blake3}: {reason}")]
+    BlobVerificationFailed { blake3: String, reason: String },
+
     #[error("federation not configured")]
     FederationNotConfigured,
 
@@ -285,6 +303,8 @@ impl GrimoireError {
             GrimoireError::PeerRejected { .. } => false,         // peer said no - permanent
             GrimoireError::PeerProtocolMismatch { .. } => false, // incompatible peer - permanent
             GrimoireError::PeerUnauthorized { .. } => false,     // needs knock, not retry
+            GrimoireError::BlobNotFoundOnPeer { .. } => false,   // peer confirmed it has nothing
+            GrimoireError::BlobVerificationFailed { .. } => false, // corrupt/malicious, retrying won't fix it
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
             GrimoireError::FederationCredentialsInvalid { .. } => false,
@@ -331,6 +351,8 @@ impl GrimoireError {
             GrimoireError::PeerUnauthorized { .. } => 403,
             GrimoireError::PeerRejected { .. } => 409,
             GrimoireError::PeerProtocolMismatch { .. } => 400,
+            GrimoireError::BlobNotFoundOnPeer { .. } => 404,
+            GrimoireError::BlobVerificationFailed { .. } => 422,
             // everything else is internal error
             _ => 500,
         }

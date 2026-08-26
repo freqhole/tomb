@@ -66,6 +66,23 @@ const PLAY_NEXT_MAX_ATTEMPTS = 5;
 // per-song setup timeout for `playNext`.
 const PLAY_SONG_TIMEOUT_MS = 20_000;
 
+// `error_type`s emitted by `classifyMediaElementError` (see
+// `audio/backend.ts`) for the native media error codes worth
+// distinguishing in `bindAutoAdvance` below: NETWORK (2) is often a
+// transient blip worth one retry; DECODE (3) is permanent (the file
+// itself is bad) and should never retry.
+const NETWORK_ELEMENT_ERROR_TYPES = new Set([
+  "audio_element_error_network",
+  "video_element_error_network",
+]);
+const DECODE_ELEMENT_ERROR_TYPES = new Set([
+  "audio_element_error_decode",
+  "video_element_error_decode",
+]);
+// delay before retrying a network-error track once, so a transient
+// blip has a moment to clear before we hammer the same request again.
+const NETWORK_RETRY_DELAY_MS = 1500;
+
 // retry budget for `playNext` — caps how many times the queue will
 // (non-userInitiated) `playSong` calls land but the resulting
 // playback is paused immediately (or never started, via
@@ -178,6 +195,12 @@ export function isVideoBackendActive(): boolean {
 // the supervisor). the facade subscribes once and runs unified queue
 // traversal regardless of backend.
 let autoAdvanceUnsubscribe: (() => void) | null = null;
+// sha256/id of the track we've already retried once for a network
+// element error — cleared implicitly once the current track changes
+// (a new key never matches an old retry marker), so each track gets
+// exactly one network retry before falling back to advancing the
+// queue.
+let networkRetriedKey: string | null = null;
 function bindAutoAdvance(backend: PlayerBackend): void {
   if (autoAdvanceUnsubscribe) {
     try {
@@ -194,13 +217,47 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       return;
     }
     if (event.kind === "error") {
+      const errorType = event.detail?.error_type;
+      const reason = event.detail?.detail ?? event.detail?.title ?? "unknown";
+
+      // NETWORK element errors are often transient — retry the same
+      // track once (after a short delay) before giving up on it.
+      if (errorType && NETWORK_ELEMENT_ERROR_TYPES.has(errorType)) {
+        const state = appState();
+        const current = state?.current_sha256 ?? null;
+        const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
+        if (current && item && networkRetriedKey !== current) {
+          networkRetriedKey = current;
+          warn(
+            "player",
+            `backend "${backend.kind}" network error — retrying current track once before advancing: ${reason}`
+          );
+          setTimeout(() => {
+            void playMediaItem(item, { userInitiated: false }).catch((err) => {
+              warn(
+                "player",
+                `backend "${backend.kind}" network-error retry failed, advancing queue: ${err instanceof Error ? err.message : err}`
+              );
+              void playNext();
+            });
+          }, NETWORK_RETRY_DELAY_MS);
+          return;
+        }
+      }
+
       // playback errors are treated as "skip + try the next track" —
       // `playNext` has its own retry budget so a string of bad tracks
-      // doesn't loop forever.
-      warn(
-        "player",
-        `backend "${backend.kind}" error — advancing queue: ${event.detail?.detail ?? event.detail?.title ?? "unknown"}`
-      );
+      // doesn't loop forever. DECODE errors are permanent (the file
+      // itself is bad), so call that out distinctly rather than
+      // implying a retry would help.
+      if (errorType && DECODE_ELEMENT_ERROR_TYPES.has(errorType)) {
+        warn(
+          "player",
+          `backend "${backend.kind}" decode error (file may be corrupted), not retrying — advancing queue: ${reason}`
+        );
+      } else {
+        warn("player", `backend "${backend.kind}" error — advancing queue: ${reason}`);
+      }
       void playNext();
       return;
     }

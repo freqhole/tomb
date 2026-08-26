@@ -2,6 +2,7 @@
 //!
 //! request/response types for music-specific job processors
 
+use crate::error::ErrorDetail;
 use serde::{Deserialize, Serialize};
 use zod_gen_derive::ZodSchema;
 
@@ -71,6 +72,10 @@ pub struct ProcessFileResult {
     pub waveform_generated: bool,
     /// true when this file's content matched an already-existing song
     pub is_duplicate: bool,
+    /// non-fatal sub-step failures (image collection, waveform generation)
+    /// that didn't fail the job but left something missing/incomplete.
+    #[serde(default)]
+    pub partial_failures: Vec<ErrorDetail>,
 }
 
 /// one entry in a `ProcessDirectoryParams.files` list. carries the

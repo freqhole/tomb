@@ -113,7 +113,7 @@ export async function uploadImagesToDest(opts: {
   const anyPrimary = images.some((i) => i.is_primary);
   info(
     "uploadImagesToDest",
-    `${logPrefix} uploading ${images.length} image(s) to dest for ${entityType} ${entityId}`,
+    `${logPrefix} uploading ${images.length} image(s) to dest for ${entityType} ${entityId}`
   );
 
   for (let idx = 0; idx < images.length; idx++) {
@@ -121,17 +121,14 @@ export async function uploadImagesToDest(opts: {
     const blobId = img.remote_blob_id;
     if (!blobId) {
       result.skipped += 1;
-      debug(
-        "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] skipped — no remote_blob_id`,
-      );
+      debug("uploadImagesToDest", `${logPrefix} [img ${idx}] skipped — no remote_blob_id`);
       continue;
     }
     if (skipBlobIds?.has(blobId)) {
       result.skipped += 1;
       debug(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] skipped — blob ${blobId} already covered by a higher-level entity (e.g. album cover)`,
+        `${logPrefix} [img ${idx}] skipped — blob ${blobId} already covered by a higher-level entity (e.g. album cover)`
       );
       continue;
     }
@@ -146,14 +143,11 @@ export async function uploadImagesToDest(opts: {
       mimeType = cached.mime;
       debug(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] cache hit for source blob ${blobId} (${bytes.byteLength}b)`,
+        `${logPrefix} [img ${idx}] cache hit for source blob ${blobId} (${bytes.byteLength}b)`
       );
     } else {
       try {
-        debug(
-          "uploadImagesToDest",
-          `${logPrefix} [img ${idx}] fetching source blob ${blobId}`,
-        );
+        debug("uploadImagesToDest", `${logPrefix} [img ${idx}] fetching source blob ${blobId}`);
         const blob = await sourceTransport.fetchBlob(blobId);
         // copy into a fresh ArrayBuffer-backed view so Blob/FormData is happy
         // across all worker/threadpool combinations.
@@ -163,13 +157,22 @@ export async function uploadImagesToDest(opts: {
         imageCache?.set(blobId, { bytes, mime: mimeType });
         debug(
           "uploadImagesToDest",
-          `${logPrefix} [img ${idx}] got ${bytes.byteLength}b (${mimeType})`,
+          `${logPrefix} [img ${idx}] got ${bytes.byteLength}b (${mimeType})`
         );
       } catch (e) {
         result.failed += 1;
+        // if the transport tagged a structured error_type (or a
+        // fallback-chain `attempts` breakdown, see CharnelTransport/
+        // WasmTransport's fetchBlob), surface it here too instead of
+        // letting `String(e)` collapse it to just the top-level message.
+        const errorType = (e as { errorType?: string })?.errorType;
+        const attempts = (e as { attempts?: Array<{ step: string; reason: string }> })?.attempts;
+        const context =
+          (errorType ? ` error_type=${errorType}` : "") +
+          (attempts?.length ? ` attempts=${JSON.stringify(attempts)}` : "");
         warn(
           "uploadImagesToDest",
-          `${logPrefix} [img ${idx}] source fetchBlob failed for ${blobId}: ${String(e)}`,
+          `${logPrefix} [img ${idx}] source fetchBlob failed for ${blobId}:${context} ${String(e)}`
         );
         continue;
       }
@@ -185,7 +188,7 @@ export async function uploadImagesToDest(opts: {
       // `BlobPart` doesn't accept in strict mode.
       const ab = bytes.buffer.slice(
         bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
+        bytes.byteOffset + bytes.byteLength
       ) as ArrayBuffer;
       fd.append("file", new Blob([ab], { type: mimeType }), filename);
       fd.append(
@@ -198,18 +201,18 @@ export async function uploadImagesToDest(opts: {
           // sync boundary so the destination doesn't reclassify everything
           // as Original.
           blob_type: img.blob_type,
-        }),
+        })
       );
       debug(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] POST /api/upload/image (primary=${isPrimary}, blob_type=${img.blob_type ?? "?"}, ${bytes.byteLength}b)`,
+        `${logPrefix} [img ${idx}] POST /api/upload/image (primary=${isPrimary}, blob_type=${img.blob_type ?? "?"}, ${bytes.byteLength}b)`
       );
       const resp = await destTransport.upload("/api/upload/image", fd);
       if (resp.status < 200 || resp.status >= 300) {
         result.failed += 1;
         warn(
           "uploadImagesToDest",
-          `${logPrefix} [img ${idx}] upload http ${resp.status}: ${resp.body}`,
+          `${logPrefix} [img ${idx}] upload http ${resp.status}: ${resp.body}`
         );
         continue;
       }
@@ -227,14 +230,14 @@ export async function uploadImagesToDest(opts: {
         result.failed += 1;
         warn(
           "uploadImagesToDest",
-          `${logPrefix} [img ${idx}] upload failed: ${parsed.errors?.[0]?.detail ?? resp.body}`,
+          `${logPrefix} [img ${idx}] upload failed: ${parsed.errors?.[0]?.detail ?? resp.body}`
         );
         continue;
       }
       result.uploaded += 1;
       info(
         "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] uploaded blob_id=${parsed.data?.blob_id ?? "?"} existing=${parsed.data?.existing ?? "?"}`,
+        `${logPrefix} [img ${idx}] uploaded blob_id=${parsed.data?.blob_id ?? "?"} existing=${parsed.data?.existing ?? "?"}`
       );
 
       // optionally wait for the dest's ConvertWebp job so subsequent
@@ -242,56 +245,47 @@ export async function uploadImagesToDest(opts: {
       const jobId = parsed.data?.job_id;
       if (destRemote && jobId) {
         try {
-          const pollResult = await pollJobUntilComplete(
-            destRemote,
-            jobId,
-            imageJobTimeoutMs,
-          );
+          const pollResult = await pollJobUntilComplete(destRemote, jobId, imageJobTimeoutMs);
           if (pollResult === "failed") {
-            warn(
-              "uploadImagesToDest",
-              `${logPrefix} [img ${idx}] dest job ${jobId} failed`,
-            );
+            warn("uploadImagesToDest", `${logPrefix} [img ${idx}] dest job ${jobId} failed`);
           } else if (pollResult === "timeout") {
             warn(
               "uploadImagesToDest",
-              `${logPrefix} [img ${idx}] dest job ${jobId} did not complete within ${imageJobTimeoutMs}ms`,
+              `${logPrefix} [img ${idx}] dest job ${jobId} did not complete within ${imageJobTimeoutMs}ms`
             );
           } else {
-            debug(
-              "uploadImagesToDest",
-              `${logPrefix} [img ${idx}] dest job ${jobId} completed`,
-            );
+            debug("uploadImagesToDest", `${logPrefix} [img ${idx}] dest job ${jobId} completed`);
           }
         } catch (e) {
           warn(
             "uploadImagesToDest",
-            `${logPrefix} [img ${idx}] dest job ${jobId} poll threw: ${String(e)}`,
+            `${logPrefix} [img ${idx}] dest job ${jobId} poll threw: ${String(e)}`
           );
         }
       }
     } catch (e) {
       result.failed += 1;
-      warn(
-        "uploadImagesToDest",
-        `${logPrefix} [img ${idx}] upload threw: ${String(e)}`,
-      );
+      warn("uploadImagesToDest", `${logPrefix} [img ${idx}] upload threw: ${String(e)}`);
     }
   }
 
   info(
     "uploadImagesToDest",
-    `${logPrefix} ${entityType} ${entityId} images: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed`,
+    `${logPrefix} ${entityType} ${entityId} images: ${result.uploaded} uploaded, ${result.skipped} skipped, ${result.failed} failed`
   );
   return result;
 }
 
 function filenameForMime(mime: string, idx: number): string {
   const ext =
-    mime === "image/png" ? "png" :
-    mime === "image/webp" ? "webp" :
-    mime === "image/gif" ? "gif" :
-    mime === "image/avif" ? "avif" :
-    "jpg";
+    mime === "image/png"
+      ? "png"
+      : mime === "image/webp"
+        ? "webp"
+        : mime === "image/gif"
+          ? "gif"
+          : mime === "image/avif"
+            ? "avif"
+            : "jpg";
   return `image-${idx}.${ext}`;
 }

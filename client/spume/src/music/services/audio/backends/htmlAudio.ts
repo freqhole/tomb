@@ -29,6 +29,7 @@
 import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import {
   BackendPlaybackError,
+  classifyMediaElementError,
   emptySnapshot,
   type BackendKind,
   type LoadAndPlayOptions,
@@ -458,7 +459,14 @@ export class HtmlAudioBackend implements PlayerBackend {
         const onError = () => {
           audio.removeEventListener("canplay", onCanPlay);
           audio.removeEventListener("error", onError);
-          reject(new Error("failed to load refreshed URL"));
+          const mediaError = audio.error;
+          reject(
+            new Error("failed to load refreshed URL", {
+              cause: mediaError
+                ? { code: mediaError.code, message: mediaError.message }
+                : undefined,
+            })
+          );
         };
         audio.addEventListener("canplay", onCanPlay);
         audio.addEventListener("error", onError);
@@ -648,16 +656,15 @@ export class HtmlAudioBackend implements PlayerBackend {
       );
       // surface as a structured error event — facade's auto-advance
       // bridge treats this the same way it treats `ended` (advance
-      // the queue with a retry budget).
+      // the queue with a retry budget), but branches on `error_type`
+      // (encoding the native media error code) to give NETWORK errors
+      // one retry before DECODE/other errors advance immediately.
       this.emit({
         kind: "error",
-        detail: {
-          error_type: "audio_element_error",
-          title: "Audio Element Error",
-          detail: error
-            ? `media error code: ${error.code}, message: ${error.message}`
-            : "unknown <audio> element error",
-        },
+        detail: classifyMediaElementError(
+          "audio",
+          error ? { code: error.code, message: error.message } : null
+        ),
       });
     });
 

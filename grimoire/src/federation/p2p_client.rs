@@ -209,10 +209,7 @@ fn classify_connect_error(node_id_short: &str, e: &iroh::endpoint::ConnectError)
             source: ConnectingError::HandshakeFailure { .. },
             ..
         } => GrimoireError::PeerProtocolMismatch {
-            reason: format!(
-                "tls handshake with peer {} failed: {}",
-                node_id_short, e
-            ),
+            reason: format!("tls handshake with peer {} failed: {}", node_id_short, e),
         },
         _ => GrimoireError::FederationApiError {
             message: format!("failed to connect to peer {}: {}", node_id_short, e),
@@ -371,18 +368,52 @@ async fn download_blob_to_store(
 
     // consume progress stream, check for errors
     let mut had_error = false;
-    let mut last_error: Option<String> = None;
+    let mut last_error_text: Option<String> = None;
+    let mut failure_kind: Option<DownloadFailureKind> = None;
 
     while let Some(event) = stream.next().await {
         match event {
             DownloadProgressItem::Error(e) => {
                 had_error = true;
-                last_error = Some(format!("{:?}", e));
+                last_error_text = Some(format!("{:?}", e));
                 tracing::error!("iroh-blobs: download error for {}: {:?}", hash_short, e);
+
+                // `e`'s concrete type is `n0_error::AnyError` (not a direct
+                // dependency of this crate, so it's never named here - the
+                // compiler infers it from this match arm). its `downcast_ref`
+                // is an inherent method (not a trait), so this classification
+                // has to happen right here rather than in a helper function
+                // that would need to name the type.
+                use iroh_blobs::get::fsm::{AtBlobHeaderNextError, DecodeError};
+                use iroh_blobs::get::GetError;
+                failure_kind = Some(match e.downcast_ref::<GetError>() {
+                    Some(
+                        GetError::Decode {
+                            source:
+                                DecodeError::ChunkNotFound { .. }
+                                | DecodeError::ParentNotFound { .. }
+                                | DecodeError::LeafNotFound { .. },
+                            ..
+                        }
+                        | GetError::AtBlobHeaderNext {
+                            source: AtBlobHeaderNextError::NotFound { .. },
+                            ..
+                        },
+                    ) => DownloadFailureKind::NotFoundOnPeer,
+                    Some(
+                        get_err @ GetError::Decode {
+                            source:
+                                DecodeError::ParentHashMismatch { .. }
+                                | DecodeError::LeafHashMismatch { .. },
+                            ..
+                        },
+                    ) => DownloadFailureKind::VerificationFailed(get_err.to_string()),
+                    _ => DownloadFailureKind::Transient,
+                });
             }
             DownloadProgressItem::DownloadError => {
                 had_error = true;
-                last_error = Some("download error".to_string());
+                last_error_text = Some("download error".to_string());
                 tracing::error!("iroh-blobs: generic download error for {}", hash_short);
             }
             DownloadProgressItem::PartComplete { .. } => {
@@ -400,19 +431,67 @@ async fn download_blob_to_store(
     );
 
     if had_error {
-        let msg = last_error.unwrap_or_else(|| "no error detail in stream".to_string());
-        error!(
-            hash = %hash_short,
-            peer = %node_id_short,
-            error = %msg,
-            "[p2p] iroh-blobs verified download failed"
-        );
-        return Err(GrimoireError::FederationApiError {
-            message: format!("verified download failed: {}", msg),
-        });
+        let msg = last_error_text.unwrap_or_else(|| "no error detail in stream".to_string());
+        match failure_kind {
+            Some(DownloadFailureKind::NotFoundOnPeer) => {
+                tracing::warn!(
+                    hash = %hash_short,
+                    peer = %node_id_short,
+                    "[p2p] iroh-blobs verified download: peer does not have this blob"
+                );
+                return Err(GrimoireError::BlobNotFoundOnPeer {
+                    peer: node_id_short,
+                    blake3: blake3_hash.to_string(),
+                });
+            }
+            Some(DownloadFailureKind::VerificationFailed(reason)) => {
+                // logged as error!, not warn!, since a hash mismatch is a
+                // stronger signal than an ordinary transfer failure (bug or
+                // malicious peer).
+                error!(
+                    hash = %hash_short,
+                    peer = %node_id_short,
+                    reason = %reason,
+                    "[p2p] iroh-blobs verified download: HASH MISMATCH - peer sent data that does not match the requested blake3 hash"
+                );
+                return Err(GrimoireError::BlobVerificationFailed {
+                    blake3: blake3_hash.to_string(),
+                    reason,
+                });
+            }
+            Some(DownloadFailureKind::Transient) | None => {
+                error!(
+                    hash = %hash_short,
+                    peer = %node_id_short,
+                    error = %msg,
+                    "[p2p] iroh-blobs verified download failed"
+                );
+                return Err(GrimoireError::FederationApiError {
+                    message: format!("verified download failed: {}", msg),
+                });
+            }
+        }
     }
 
     Ok((store, hash, hash_short, node_id_short))
+}
+
+/// classification of a verified-download progress-stream failure. anything
+/// that doesn't downcast to a recognized shape (see the classification
+/// inline in `download_blob_to_store`'s progress loop) stays `Transient`,
+/// same bucket as before this classification existed.
+enum DownloadFailureKind {
+    /// peer explicitly reported it has nothing for this hash: EOF reading
+    /// the blob header, or a not-found chunk/parent partway through decode.
+    /// permanent - don't retry against this peer for this blob.
+    NotFoundOnPeer,
+    /// a bao-tree leaf/parent hash didn't match what was requested - the
+    /// peer sent us corrupted or wrong data. permanent, and a stronger
+    /// signal than a normal transfer failure (bug, or a malicious peer).
+    VerificationFailed(String),
+    /// anything else: transport reset, timeout, io error, or a shape we
+    /// don't recognize. treated as transient/retryable, same as before.
+    Transient,
 }
 
 /// ensure a blob is loaded into a remote peer's FsStore
@@ -547,11 +626,9 @@ pub async fn fetch_blob_verified_with_ensure(
     match outcome {
         EnsureBlobOutcome::Available => {}
         EnsureBlobOutcome::NotAvailable => {
-            return Err(GrimoireError::FederationApiError {
-                message: format!(
-                    "blob {} not available on peer",
-                    &blake3_hash[..16.min(blake3_hash.len())]
-                ),
+            return Err(GrimoireError::BlobNotFoundOnPeer {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
             });
         }
         EnsureBlobOutcome::Unauthorized => {
@@ -625,11 +702,9 @@ pub async fn fetch_blob_verified_to_file_with_ensure(
                 &peer_addr[..16.min(peer_addr.len())],
                 &blake3_hash[..16.min(blake3_hash.len())],
             );
-            return Err(GrimoireError::FederationApiError {
-                message: format!(
-                    "blob {} not available on peer",
-                    &blake3_hash[..16.min(blake3_hash.len())]
-                ),
+            return Err(GrimoireError::BlobNotFoundOnPeer {
+                peer: peer_addr.to_string(),
+                blake3: blake3_hash.to_string(),
             });
         }
         EnsureBlobOutcome::Unauthorized => {
@@ -676,10 +751,15 @@ pub async fn fetch_blob_verified_by_id(
 ) -> GrimoireResult<(Vec<u8>, String)> {
     let blob_id_short = &blob_id[..16.min(blob_id.len())];
 
-    // compute blake3 on demand
+    // compute blake3 on demand. `compute_blake3()` collapses every peer-side
+    // failure (not-found, io error, auth) to `None` today - see the deferred
+    // note on `PeerConnection::compute_blake3` in transport/connection.rs
+    // (out of scope for this pass' file list) for why "not found" can't yet
+    // be distinguished from "peer-side error" any more precisely than this.
     let blake3 = compute_blake3(peer_addr, blob_id).await?.ok_or_else(|| {
-        GrimoireError::FederationApiError {
-            message: format!("blob {} not found on peer", blob_id_short),
+        GrimoireError::BlobNotFoundOnPeer {
+            peer: peer_addr.to_string(),
+            blake3: blob_id_short.to_string(),
         }
     })?;
 

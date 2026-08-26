@@ -347,38 +347,69 @@ async fn handle_stream(
             };
 
             // ensure blob is loaded into FsStore
-            match blobz::ensure_blob_by_blake3(&blake3_hash).await {
-                Ok(available) => {
+            use blobz::EnsureBlobOutcome;
+            let resp = match blobz::ensure_blob_by_blake3(&blake3_hash).await {
+                EnsureBlobOutcome::Available => {
                     tracing::info!(
-                        "ensure_blob_request: result for peer {} blake3 {} -> available={}",
+                        "ensure_blob_request: result for peer {} blake3 {} -> available",
                         node_id_short,
                         &blake3_hash[..16.min(blake3_hash.len())],
-                        available,
                     );
-                    let resp = PeerMessage::EnsureBlobResponse {
+                    PeerMessage::EnsureBlobResponse {
                         id,
-                        available,
+                        available: true,
                         error: None,
                         error_type: None,
-                    };
-                    send_response(&mut send, &resp).await?;
+                    }
                 }
-                Err(e) => {
+                EnsureBlobOutcome::NoSuchBlob => {
+                    tracing::warn!(
+                        "ensure_blob_request: NO SUCH BLOB for peer {} blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
+                    PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some(
+                            "blob not found: this source has never seen this blake3 hash"
+                                .to_string(),
+                        ),
+                        error_type: Some("blob_not_found".to_string()),
+                    }
+                }
+                EnsureBlobOutcome::LocalFileMissing => {
+                    tracing::error!(
+                        "ensure_blob_request: LOCAL FILE MISSING for peer {} blake3 {}",
+                        node_id_short,
+                        &blake3_hash[..16.min(blake3_hash.len())],
+                    );
+                    PeerMessage::EnsureBlobResponse {
+                        id,
+                        available: false,
+                        error: Some(
+                            "local file missing: media_blob row exists but the local file/data is gone"
+                                .to_string(),
+                        ),
+                        error_type: Some("blob_local_file_missing".to_string()),
+                    }
+                }
+                EnsureBlobOutcome::Error(e) => {
                     tracing::error!(
                         "ensure_blob_request: FAIL for peer {} blake3 {}: {}",
                         node_id_short,
                         &blake3_hash[..16.min(blake3_hash.len())],
                         e,
                     );
-                    let resp = PeerMessage::EnsureBlobResponse {
+                    PeerMessage::EnsureBlobResponse {
                         id,
                         available: false,
                         error: Some(format!("failed to ensure blob: {}", e)),
                         error_type: Some(e.error_type()),
-                    };
-                    send_response(&mut send, &resp).await?;
+                    }
                 }
-            }
+            };
+            send_response(&mut send, &resp).await?;
         }
 
         PeerMessage::ComputeBlake3Request { id, blob_id } => {

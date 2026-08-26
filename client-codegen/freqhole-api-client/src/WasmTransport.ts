@@ -168,11 +168,26 @@ export class TransportError extends Error {
   readonly errorType?: string;
   /** the original error this was derived from, if any (see uploadViaIrohBlobs). */
   readonly cause?: unknown;
-  constructor(message: string, opts?: { errorType?: string; cause?: unknown }) {
+  /**
+   * per-step breakdown for a multi-step fallback chain (e.g. `fetchBlob`'s
+   * verified-download -> api-request -> on-demand-blake3 -> legacy
+   * fetch_blob sequence). populated only by call sites that actually fall
+   * through multiple attempts before failing.
+   */
+  readonly attempts?: Array<{ step: string; reason: string }>;
+  constructor(
+    message: string,
+    opts?: {
+      errorType?: string;
+      cause?: unknown;
+      attempts?: Array<{ step: string; reason: string }>;
+    },
+  ) {
     super(message);
     this.name = "TransportError";
     this.errorType = opts?.errorType;
     this.cause = opts?.cause;
+    this.attempts = opts?.attempts;
   }
 }
 
@@ -416,6 +431,11 @@ export class WasmTransport implements Transport {
       return { data, contentType };
     }
 
+    // per-step failure breakdown, attached to the final thrown error so a
+    // bug report/log has the full fallback-chain picture, not just the
+    // last step's message (see docs/error-handling-tasks.md track P0-E).
+    const attempts: Array<{ step: string; reason: string }> = [];
+
     // if blake3 is provided, try iroh-blobs verified download
     // prefer download_verified_with_ensure (handles on-demand loading)
     // fall back to download_verified if that's not available
@@ -440,6 +460,7 @@ export class WasmTransport implements Transport {
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
+          attempts.push({ step: "verified_download", reason: errorMessage });
           console.warn(`[WasmTransport] verified download failed, falling back: ${errorMessage}`);
           // fall through to api fetch
         }
@@ -473,9 +494,16 @@ export class WasmTransport implements Transport {
 
           return { data, contentType };
         }
+        attempts.push({
+          step: "api_request",
+          reason: `unexpected response shape (status ${result.status})`,
+        });
+      } else {
+        attempts.push({ step: "api_request", reason: `http ${result.status}` });
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
+      attempts.push({ step: "api_request", reason: errorMessage });
       console.warn(`[WasmTransport] api blob data request failed, falling back: ${errorMessage}`);
     }
 
@@ -500,6 +528,7 @@ export class WasmTransport implements Transport {
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "on_demand_blake3", reason: errorMessage });
         console.warn(
           `[WasmTransport] on-demand verified download failed, falling back: ${errorMessage}`,
         );
@@ -527,13 +556,15 @@ export class WasmTransport implements Transport {
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "legacy_fetch_blob", reason: errorMessage });
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
+        throw new TransportError(`P2P fetch_blob failed: ${errorMessage}`, { attempts });
       }
     }
 
-    throw new Error(
+    throw new TransportError(
       "no download method available for this blob (no blake3 hash and no legacy fetch_blob)",
+      { attempts },
     );
   }
 
@@ -570,6 +601,11 @@ export class WasmTransport implements Transport {
       onProgress(data.length, data.length);
       return { data, contentType };
     }
+
+    // per-step failure breakdown, attached to the final thrown error so a
+    // bug report/log has the full fallback-chain picture, not just the
+    // last step's message (see docs/error-handling-tasks.md track P0-E).
+    const attempts: Array<{ step: string; reason: string }> = [];
 
     // if blake3 is provided, try iroh-blobs verified download
     // prefer streaming path (chunk-by-chunk into a Blob) for large files —
@@ -637,6 +673,7 @@ export class WasmTransport implements Transport {
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
+          attempts.push({ step: "streaming_verified_download", reason: errorMessage });
           console.warn(
             `[WasmTransport] streaming verified download failed, trying non-streaming: ${errorMessage}`,
           );
@@ -667,6 +704,7 @@ export class WasmTransport implements Transport {
           return { data, contentType };
         } catch (e) {
           const errorMessage = e instanceof Error ? e.message : String(e);
+          attempts.push({ step: "verified_download", reason: errorMessage });
           console.warn(`[WasmTransport] verified download failed, falling back: ${errorMessage}`);
           // fall through to regular fetch_blob
         }
@@ -698,6 +736,7 @@ export class WasmTransport implements Transport {
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "audio_verified_by_id", reason: errorMessage });
         console.warn(
           `[WasmTransport] audio verified-by-id failed, falling back to api_request: ${errorMessage}`,
         );
@@ -735,14 +774,17 @@ export class WasmTransport implements Transport {
           return { data, contentType };
         }
         apiFailureReason = `success=false in api response body for blob ${blobId}`;
+        attempts.push({ step: "api_request", reason: apiFailureReason });
         console.warn(`[WasmTransport] ${apiFailureReason}`);
       } else {
         apiFailureReason = `api request returned status ${result.status} for blob ${blobId}`;
+        attempts.push({ step: "api_request", reason: apiFailureReason });
         console.warn(`[WasmTransport] ${apiFailureReason}`);
       }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : String(e);
       apiFailureReason = `api request threw: ${errorMessage}`;
+      attempts.push({ step: "api_request", reason: apiFailureReason });
       console.warn(`[WasmTransport] api blob data request failed, falling back: ${errorMessage}`);
     }
 
@@ -770,6 +812,7 @@ export class WasmTransport implements Transport {
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "on_demand_blake3", reason: errorMessage });
         console.warn(`[WasmTransport] on-demand verified download failed: ${errorMessage}`);
       }
     }
@@ -800,16 +843,18 @@ export class WasmTransport implements Transport {
         return { data, contentType };
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
+        attempts.push({ step: "legacy_fetch_blob", reason: errorMessage });
         console.warn(`[WasmTransport] P2P fetch_blob failed: ${errorMessage}`);
-        throw new Error(`P2P fetch_blob failed: ${errorMessage}`);
+        throw new TransportError(`P2P fetch_blob failed: ${errorMessage}`, { attempts });
       }
     }
 
-    throw new Error(
+    throw new TransportError(
       `no download method available for blob ${blobId} ` +
         `(blake3=${blake3 ? "yes" : "no"}, ` +
         `api=${apiFailureReason ?? "not attempted"}, ` +
         `legacy_fetch_blob=${this.node.fetch_blob ? "available" : "missing"})`,
+      { attempts },
     );
   }
 

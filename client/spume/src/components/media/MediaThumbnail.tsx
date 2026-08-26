@@ -13,6 +13,7 @@ import { isCharnelAvailable } from "../../app/api/client";
 import { Icon } from "../icons/registry";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
+import { warn } from "../../utils/logger";
 
 /**
  * determine thumbnail size to request based on display size
@@ -212,7 +213,18 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
             />
           }
         >
-          <img src={imageUrl()!} alt="" class="w-full h-full object-cover" decoding="async" />
+          <img
+            src={imageUrl()!}
+            alt=""
+            class="w-full h-full object-cover"
+            decoding="async"
+            onError={() =>
+              warn(
+                "MediaThumbnail",
+                `image failed to load: url=${imageUrl()?.slice(0, 120) ?? "?"}`
+              )
+            }
+          />
         </Show>
       </div>
 

@@ -14,6 +14,7 @@ import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/s
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { pickBestImage } from "../../utils/images";
 import { Icon } from "../icons/registry";
+import { warn } from "../../utils/logger";
 
 // flip to true to trace MediaImage url resolution. very chatty;
 // off by default. set to true when investigating missing artwork /
@@ -416,6 +417,14 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
             props.onLoad?.();
           }}
           onError={() => {
+            // no retry/full player-style event here by design (this is the
+            // lowest-priority error-surfacing gap in the whole
+            // error-handling doc) — just stop failed thumbnail/cover loads
+            // from being completely silent.
+            warn(
+              "MediaImage",
+              `image failed to load: domainType=${props.domainType ?? "?"} alt="${props.alt}" blobId=${props.blobId ?? "?"} remoteBlobId=${props.remoteBlobId ?? "?"} url=${resolvedUrl()?.slice(0, 120) ?? "?"}`
+            );
             setImageError(true);
             setImageLoaded(false);
             props.onError?.();

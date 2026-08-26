@@ -163,13 +163,38 @@ export class RodioBackend implements PlayerBackend {
       if (!(e instanceof BackendPlaybackError)) throw e;
       // only the "missing on disk" discriminants are recoverable
       // by syncing. database/io errors should bubble up.
+      //
+      // "media_blob_not_found" is the real `error_type` grimoire's
+      // `GrimoireError::MediaBlobNotFound` auto-derives (snake_case
+      // of the variant name) — "not_found" alone is kept for
+      // back-compat with any older/differently-shaped rejection, but
+      // was never actually produced by this path; the `message.includes`
+      // fallback below was doing the real work before this fix.
       const recoverable =
         e.error_type === "no_local_path" ||
         e.error_type === "not_found" ||
+        e.error_type === "media_blob_not_found" ||
         // grimoire's media_blobz returns a generic "database: blob
         // not found" string for unknown ids; treat that as missing.
         e.message.includes("blob not found");
       if (!recoverable) throw e;
+      // NOTE on a p2p transient-failure retry allowlist: considered
+      // adding one here (e.g. `error_type === "peer_offline"`) per a
+      // prior review pass, but a full grep of the rust commands this
+      // path can throw through (`resolve_blob_path` in
+      // client/charnel/src-tauri/src/player_commands.rs, backed by
+      // grimoire's `build_blob_path_response`) shows it never touches
+      // the network — it's a pure local-db lookup, so no p2p
+      // error_type can ever reach this specific catch. the p2p paths
+      // this backend actually uses (`fetch_ephemeral_blob` in
+      // ephemeral_blob_commands.rs, and `syncSongToLocal`) don't
+      // currently emit a structured `error_type` prefix at all (bare
+      // `Err(format!("fetch failed: {e}"))` / `"fetch timeout (120s)"`
+      // strings) — see docs/error-handling-tasks.md tracks P0-D/P1-B
+      // for the pending rust-side work to add one. adding a guessed
+      // string here would silently never match anything real, so
+      // this is deliberately left as-is until those tracks land a
+      // real, grep-confirmed error_type to key off.
 
       // local songs that fail to resolve are a real bug — don't try
       // to "sync" a song that has no remote source.

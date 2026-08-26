@@ -291,27 +291,54 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
     }
 }
 
+/// outcome of trying to ensure a blob is loaded into the shared FsStore by
+/// blake3 hash. splits what used to be a bare `bool` into the distinct
+/// situations a requesting peer actually cares about: "ask someone else"
+/// (`NoSuchBlob`) vs "this source's own library is broken for this blob"
+/// (`LocalFileMissing`) vs "we know about it but something else went wrong
+/// trying to serve it" (`Error`).
+#[derive(Debug)]
+pub enum EnsureBlobOutcome {
+    /// blob is now available in FsStore (already there, or just added).
+    Available,
+    /// no media_blob row exists for this blake3 hash at all - this source
+    /// has never seen this blob. permanent from this source's perspective.
+    NoSuchBlob,
+    /// a media_blob row exists but the local file on disk is missing (or,
+    /// for db-stored blobs, neither a file nor inline data could be found) -
+    /// db/disk drift on this source. permanent, and worth flagging as a
+    /// bug in this source's library rather than "try another peer".
+    LocalFileMissing,
+    /// row exists and data should be resolvable, but adding it to FsStore
+    /// (or reading its bytes) failed for some other reason.
+    Error(GrimoireError),
+}
+
 /// ensure a blob is loaded into the shared storage node's iroh-blobs store
 /// by its blake3 hash.
 ///
 /// looks up the blob in media_blobz by blake3, then adds the file (or
-/// bytes) to the store if not already present. returns true if the blob is
-/// now available, false if the blake3 hash is not found in our database.
+/// bytes) to the store if not already present. see `EnsureBlobOutcome` for
+/// what each result variant means.
 ///
 /// this enables on-demand loading for iroh-blobs requests.
-pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
+pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
     // first check if already in store
     let hash = match parse_hash(blake3_hash) {
         Ok(h) => h,
-        Err(_) => return Ok(false),
+        Err(_) => return EnsureBlobOutcome::NoSuchBlob,
     };
 
-    if has_blob(hash).await? {
-        tracing::info!(
-            "ensure_blob_by_blake3: already in FsStore: {}",
-            &blake3_hash[..16]
-        );
-        return Ok(true);
+    match has_blob(hash).await {
+        Ok(true) => {
+            tracing::info!(
+                "ensure_blob_by_blake3: already in FsStore: {}",
+                &blake3_hash[..16]
+            );
+            return EnsureBlobOutcome::Available;
+        }
+        Ok(false) => {}
+        Err(e) => return EnsureBlobOutcome::Error(e),
     }
 
     // look up blob by blake3 in media_blobz
@@ -322,7 +349,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                 "ensure_blob_by_blake3: NOT FOUND in media_blobz: {} (dest asked for a blake3 this source has never seen)",
                 &blake3_hash[..16]
             );
-            return Ok(false);
+            return EnsureBlobOutcome::NoSuchBlob;
         }
     };
     tracing::info!(
@@ -342,7 +369,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                     &blake3_hash[..16],
                     local_path
                 );
-                return Ok(false);
+                return EnsureBlobOutcome::LocalFileMissing;
             }
 
             match add_file_to_store(path).await {
@@ -352,7 +379,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         &blake3_hash[..16],
                         local_path
                     );
-                    Ok(true)
+                    EnsureBlobOutcome::Available
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -361,7 +388,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         local_path,
                         e
                     );
-                    Ok(false)
+                    EnsureBlobOutcome::Error(e)
                 }
             }
         }
@@ -377,7 +404,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         &blake3_hash[..16],
                         blob.id,
                     );
-                    return Ok(false);
+                    return EnsureBlobOutcome::LocalFileMissing;
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -386,7 +413,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         blob.id,
                         e,
                     );
-                    return Ok(false);
+                    return EnsureBlobOutcome::Error(e);
                 }
             };
 
@@ -397,7 +424,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         &blake3_hash[..16],
                         data.len()
                     );
-                    Ok(true)
+                    EnsureBlobOutcome::Available
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -405,7 +432,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> GrimoireResult<bool> {
                         &blake3_hash[..16],
                         e
                     );
-                    Ok(false)
+                    EnsureBlobOutcome::Error(e)
                 }
             }
         }
