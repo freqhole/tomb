@@ -3,6 +3,7 @@
 // as its own copy (own directory names) per the video domain's isolation
 // rule — never edit music's opfs helpers to make room for video.
 import { debug, error as errorLog } from "../../../utils/logger";
+import { unmarkVideoSynced } from "../syncState";
 
 // opfs directory for video files
 const VIDEO_DIR = "video";
@@ -204,6 +205,7 @@ export async function purgeVideoFromOPFS(videoId: string): Promise<void> {
 
     // then delete the IDB row (so we never leave a dangling row pointing at deleted OPFS files)
     await deleteLocalVideo(videoId);
+    unmarkVideoSynced(videoId);
     debug("opfs", `purged video ${videoId} from OPFS + IDB`);
   } catch (error) {
     errorLog("opfs", `purge video ${videoId} failed:`, error);

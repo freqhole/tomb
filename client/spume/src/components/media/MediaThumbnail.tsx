@@ -116,6 +116,8 @@ export interface MediaThumbnailProps {
    *  mark video items among mixed-kind rows - mirrors VideoQueueRow.tsx's
    *  corner badge) - omit for no badge */
   cornerBadgeIcon?: IconName;
+  /** whether to hide the corner badge (e.g. on row hover, mirrors hideIndex) */
+  hideCornerBadge?: boolean;
   /** additional classes */
   class?: string;
 }
@@ -275,9 +277,13 @@ export function MediaThumbnail(props: MediaThumbnailProps): JSX.Element {
         </div>
       </Show>
 
-      {/* corner badge - e.g. marks a row as video among mixed-kind lists */}
+      {/* corner badge - e.g. marks a row as video among mixed-kind lists.
+          hidden on row hover, same signal that drives hideIndex */}
       <Show when={props.cornerBadgeIcon}>
-        <div class="absolute bottom-0.5 right-0.5 bg-black/70 rounded px-0.5 pointer-events-none">
+        <div
+          class="absolute bottom-0.5 right-0.5 bg-black/70 rounded px-0.5 pointer-events-none transition-opacity duration-200"
+          style={{ opacity: props.hideCornerBadge ? 0 : 1 }}
+        >
           <Icon name={props.cornerBadgeIcon!} size={10} color="white" />
         </div>
       </Show>

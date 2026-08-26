@@ -63,7 +63,7 @@ import {
   clearExternalMediaSession,
   setExternalMediaSession,
 } from "../music/services/audio/mediaSessionBridge";
-import { getLoadingSongIds, isSongSyncedLocally } from "../music/services/download";
+import { getLoadingIds, isSongSyncedLocally } from "../music/services/download";
 import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
@@ -263,9 +263,10 @@ export function AppLayout(props: AppLayoutProps) {
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
-  // reactive memo for loading song ids (combines HTTP + P2P + current song loading)
-  const loadingSongIds = createMemo(() => {
-    const loadingSet = new Set(getLoadingSongIds());
+  // reactive memo for currently-loading media ids (combines HTTP + P2P
+  // song fetches, the current song, and now also video pre-caching)
+  const loadingIds = createMemo(() => {
+    const loadingSet = new Set(getLoadingIds());
     for (const sha256 of getLoadingP2PSongIds()) {
       loadingSet.add(sha256);
     }
@@ -1181,7 +1182,7 @@ export function AppLayout(props: AppLayoutProps) {
           currentTime={currentTime()}
           duration={duration()}
           progressMap={progressMap()}
-          loadingSongIds={loadingSongIds()}
+          loadingIds={loadingIds()}
           onClose={() => void setQueueOpen(false)}
           onItemClick={(index) => {
             const item = appState()?.queue[index];
@@ -1740,8 +1741,7 @@ export function AppLayout(props: AppLayoutProps) {
       <PlaylistSelectorModal
         isOpen={playlistSelectorState().isOpen}
         onClose={closePlaylistSelector}
-        songIds={playlistSelectorState().songIds}
-        videoIds={playlistSelectorState().videoIds}
+        items={playlistSelectorState().items}
         remote={playlistSelectorState().remote}
       />
 

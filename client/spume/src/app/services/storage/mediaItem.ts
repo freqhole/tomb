@@ -4,12 +4,14 @@
 //
 // scope note (phase 9 MVP slice): audio-only side mechanics that predate
 // this union — queue history re-queue entries, server-side listen
-// sessions, P2P pre-caching/eviction, local-sync tracking — still operate
-// on `Song` directly. callers extract the song subset of a `MediaItem[]`
-// queue via `songsOnly()` before handing off to those Song-typed helpers,
-// so video items simply don't participate in those systems yet. this is
-// additive scoping (per the plan doc), not a functional regression for
-// existing music playback.
+// sessions, local-sync tracking — still operate on `Song` directly.
+// callers extract the song subset of a `MediaItem[]` queue via
+// `songsOnly()` before handing off to those Song-typed helpers, so video
+// items simply don't participate in those systems yet. this is additive
+// scoping (per the plan doc), not a functional regression for existing
+// music playback. rolling-window pre-caching (`preCacheScheduler.ts`) is
+// the one system upgraded to cover both kinds — see `videoPreCache.ts`
+// and `songStartIndexAfter`/`videoStartIndexAfter` below.
 
 import type { Video } from "@freqhole/api-client";
 import type { Song } from "../../../music/services/storage/types";
@@ -102,6 +104,26 @@ export function withQueueEntryId(item: MediaItem, id: string): MediaItem {
 export function findMediaItemIndex(items: MediaItem[], key: string | null | undefined): number {
   if (!key) return -1;
   return items.findIndex((i) => mediaItemKey(i) === key);
+}
+
+/** index into `songsOnly(items)` marking where songs *after* the item
+ * identified by `key` begin — correct even when the current item is a
+ * video (or not a song at all), so per-kind pre-cache windows (see
+ * `music/services/queue/preCacheScheduler.ts`) keep advancing through a
+ * mixed queue regardless of which kind is currently playing. returns
+ * `songsOnly(items).length` (i.e. "no upcoming songs") if `key` isn't
+ * found. */
+export function songStartIndexAfter(items: MediaItem[], key: string | null | undefined): number {
+  const idx = findMediaItemIndex(items, key);
+  if (idx < 0) return songsOnly(items).length;
+  return songsOnly(items.slice(0, idx + 1)).length;
+}
+
+/** same as `songStartIndexAfter`, for videos. */
+export function videoStartIndexAfter(items: MediaItem[], key: string | null | undefined): number {
+  const idx = findMediaItemIndex(items, key);
+  if (idx < 0) return videosOnly(items).length;
+  return videosOnly(items.slice(0, idx + 1)).length;
 }
 
 function isMediaItem(value: Song | MediaItem): value is MediaItem {

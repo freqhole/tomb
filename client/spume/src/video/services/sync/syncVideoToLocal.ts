@@ -13,6 +13,7 @@ import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { addLocalVideo, getLocalVideoById } from "../storage/db/videos";
+import { markVideoSynced } from "../syncState";
 import { writeVideoPosterToOPFS, writeVideoToOPFS } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../videoBlobAccess";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
@@ -101,6 +102,7 @@ export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
       mime_type: videoBlob.type || "video/mp4",
       duration_seconds: video.duration_seconds ?? null,
     });
+    markVideoSynced(video.id);
 
     debug("videoSync", `synced video "${video.title}" (${video.id}) to local library`);
   } catch (err) {

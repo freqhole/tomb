@@ -64,6 +64,7 @@ import {
   useEditVideoSeriesState,
 } from "../video/hooks/modals";
 import { importVideoFiles } from "../video/import/localImport";
+import { initVideoSyncState } from "../video/services/syncState";
 import {
   clearCompletedVideoJobs,
   fetchVideoUrlsOnRemote,
@@ -813,6 +814,10 @@ export function App() {
       // initialize download state (synced sha256s from IDB/grimoire)
       await initDownloadState();
       mark("initDownloadState done");
+
+      // seed reactive synced-video-ids state from IDB (non-blocking, mirrors
+      // the song-sync store but only ever needed in browser mode)
+      void initVideoSyncState().then(() => mark("initVideoSyncState done (background)"));
 
       // register service worker (prod web mode only)
       void registerServiceWorker();

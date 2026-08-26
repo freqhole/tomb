@@ -1,11 +1,11 @@
 // pre-cache scheduler.
 //
 // **what**: subscribes to the playback progress signals and triggers
-// `preCacheNextSongs` + `preCacheNextP2PSongs` once per song when the
-// listener crosses the 50% mark. extracted from `audio/player.ts`
-// (was `HtmlAudioBackend.handlePreCacheNext`) so it's backend-agnostic
-// — same threshold logic applies whether playback is going through
-// the html `<audio>` element or rodio.
+// `preCacheNextSongs` + `preCacheNextP2PSongs` + `preCacheNextVideos`
+// once per item when the listener crosses the 50% mark. extracted from
+// `audio/player.ts` (was `HtmlAudioBackend.handlePreCacheNext`) so it's
+// backend-agnostic — same threshold logic applies whether playback is
+// going through the html `<audio>` element, rodio, or the video backend.
 //
 // **why a separate module**: pre-caching is a queue concern, not a
 // playback concern. the backend just plays bytes. moving this out of
@@ -14,15 +14,21 @@
 // only when solid invalidates the effect, which is the same cadence
 // since `currentTime` is what `timeupdate` writes.
 //
-// **per-song debounce**: tracks `lastPreCachedFor` so each song only
+// **per-item debounce**: tracks `lastPreCachedFor` so each item only
 // triggers the pre-cache once. resets when `current_sha256` changes
 // in `appState`.
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
-import { songsOnly } from "../../../app/services/storage/mediaItem";
+import {
+  songsOnly,
+  videosOnly,
+  songStartIndexAfter,
+  videoStartIndexAfter,
+} from "../../../app/services/storage/mediaItem";
 import { preCacheNextSongs } from "../cache/blobCache";
 import { preCacheNextP2PSongs } from "../storage/blobResolver";
+import { preCacheNextVideos } from "../../../video/services/videoPreCache";
 import { currentTime, duration } from "../audio/playerState";
 import { debug } from "../../../utils/logger";
 
@@ -79,12 +85,20 @@ export function installPreCacheScheduler(): void {
       if (progress < PRE_CACHE_TRIGGER_FRACTION) return;
 
       lastPreCachedFor = current_sha256;
-      debug("player", `pre-caching next songs (~${PRE_CACHE_MINUTES_AHEAD} min)`);
-      // video items don't participate in P2P/blob pre-caching yet
-      // (phase 9 MVP scope note) — operate on the song-only subset.
+      debug("player", `pre-caching next media (~${PRE_CACHE_MINUTES_AHEAD} min)`);
+      // song and video pre-caching run as two independent rolling
+      // windows over their own kind's subset of the queue, each keyed
+      // off the current item's position in the FULL mixed queue (not
+      // its position within the kind-filtered subset) — so upcoming
+      // songs keep getting pre-cached while a video is playing, and
+      // vice versa. see `songStartIndexAfter`/`videoStartIndexAfter`.
       const queueSongs = songsOnly(queue);
-      void preCacheNextSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD);
-      void preCacheNextP2PSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD);
+      const queueVideos = videosOnly(queue);
+      const songStart = songStartIndexAfter(queue, current_sha256);
+      const videoStart = videoStartIndexAfter(queue, current_sha256);
+      void preCacheNextSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD, songStart);
+      void preCacheNextP2PSongs(current_sha256, queueSongs, PRE_CACHE_MINUTES_AHEAD, songStart);
+      void preCacheNextVideos(queueVideos, PRE_CACHE_MINUTES_AHEAD, videoStart);
     });
   });
 }

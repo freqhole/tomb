@@ -11,7 +11,7 @@ import { isCharnelMode } from "../../app/services/charnel";
 import { Icon } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
-import { isSongCachedReactive } from "../../music/services/cache/blobCache";
+import { isRemoteBlobCachedReactive } from "../../music/services/cache/blobCache";
 import {
   isSongOnDiskEphemeral,
   isSongSyncedLocally,
@@ -34,7 +34,7 @@ export interface QueueSongRowProps {
   /** playback progress, 0..1 (only meaningful while currently playing or
    * for a song with stored max progress) */
   progress: number;
-  loadingSongIds?: Set<string>;
+  loadingIds?: Set<string>;
   onClick: () => void;
   onDoubleClick: () => void;
   onRemove: (e: MouseEvent) => void;
@@ -235,19 +235,19 @@ export function QueueSongRow(props: QueueSongRowProps) {
         {/* duration with loading underline */}
         <div class="relative inline-flex flex-col items-center">
           <span
-            class="text-xs text-shadow-glow px-1"
+            class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem]"
             style={{
               color: (() => {
-                const isLoading = props.loadingSongIds?.has(props.song.sha256 ?? "");
+                const isLoading = props.loadingIds?.has(props.song.sha256 ?? "");
                 // if loading, let animation handle color
                 if (isLoading) return undefined;
                 return "var(--color-text-secondary)";
               })(),
-              animation: props.loadingSongIds?.has(props.song.sha256 ?? "")
+              animation: props.loadingIds?.has(props.song.sha256 ?? "")
                 ? "pulse-text 4s ease-in-out infinite"
                 : undefined,
               "text-decoration": (() => {
-                const isLoading = props.loadingSongIds?.has(props.song.sha256 ?? "");
+                const isLoading = props.loadingIds?.has(props.song.sha256 ?? "");
                 // don't underline if currently loading
                 if (isLoading) return undefined;
 
@@ -276,7 +276,7 @@ export function QueueSongRow(props: QueueSongRowProps) {
                 }
 
                 // for remote songs, underline only when cached (not when playing direct URL)
-                const isCached = isSongCachedReactive(
+                const isCached = isRemoteBlobCachedReactive(
                   props.song.remote_server_id,
                   props.song.sha256
                 );
@@ -289,7 +289,7 @@ export function QueueSongRow(props: QueueSongRowProps) {
             {formatDuration(props.song.duration_seconds)}
           </span>
           {/* loading underline - shows progress or bouncing bar */}
-          <Show when={props.loadingSongIds?.has(props.song.sha256 ?? "")}>
+          <Show when={props.loadingIds?.has(props.song.sha256 ?? "")}>
             {(() => {
               const sha256 = props.song.sha256;
               const progress = sha256 ? getLoadingProgress(sha256) : undefined;

@@ -281,7 +281,7 @@ export const Interactive: Story = {
           getContextMenuActions={getContextMenuActions}
           currentTime={currentTime()}
           duration={currentSong()?.duration_seconds}
-          loadingSongIds={loadingSongIds()}
+          loadingIds={loadingSongIds()}
         />
       </div>
     );

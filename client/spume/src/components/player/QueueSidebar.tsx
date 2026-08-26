@@ -113,8 +113,8 @@ export interface QueueSidebarProps {
   duration?: number;
   /** max progress per queue_entry_id for played songs (reactive signal) */
   progressMap?: Map<string, number>;
-  /** set of song sha256s currently being loaded/preloaded */
-  loadingSongIds?: Set<string>;
+  /** ids (song sha256s or video ids) currently being loaded/preloaded */
+  loadingIds?: Set<string>;
   /** index of the item that is pending "up next" (loading to play next) */
   upNextIndex?: number;
   /** callback when resume downloads button is clicked */
@@ -671,7 +671,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               isDropTarget={isDropTarget()}
                               top={virtualItem.start}
                               progress={progress()}
-                              loadingSongIds={props.loadingSongIds}
+                              loadingIds={props.loadingIds}
                               onClick={() => handleItemDoubleClick(itemIndex)}
                               onDoubleClick={() => handleItemDoubleClick(itemIndex)}
                               onRemove={(e) => handleRemove(e, itemIndex)}
@@ -680,12 +680,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           ) : (
                             <VideoQueueRow
                               video={it.video}
+                              index={itemIndex}
                               isCurrentlyPlaying={isCurrentlyPlaying()}
                               isUpNext={isUpNext()}
                               isDragging={isDragging()}
                               isDropTarget={isDropTarget()}
                               top={virtualItem.start}
                               progress={progress()}
+                              loadingIds={props.loadingIds}
                               onClick={() => handleItemDoubleClick(itemIndex)}
                               onDoubleClick={() => handleItemDoubleClick(itemIndex)}
                               onRemove={(e) => handleRemove(e, itemIndex)}

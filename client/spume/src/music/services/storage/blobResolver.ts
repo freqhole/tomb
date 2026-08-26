@@ -606,23 +606,24 @@ export async function isP2PBlobCached(blobId: string, remoteId: string): Promise
  * tracks loading state and progress for UI feedback.
  *
  * id types (do not conflate!):
- * @param blobId   the *remote's* `media_blobz.id` short pk (7–16
- *                 hex chars). this is what `/api/blobs/{id}/*`
- *                 routes look up against. each freqhole instance
- *                 generates its own ids — NOT portable. when
- *                 caching a blob from a remote song, pass
- *                 `song.media_blob_id`, never `song.sha256`.
- * @param remoteId the remote_server_id (which peer to fetch from).
- * @param sha256   the 64-char content hash. used here ONLY for
- *                 client-side loading-set tracking + progress UI.
- *                 not sent on the wire as a route param.
- * @param blake3   optional blake3 hash for verified streaming via
- *                 iroh-blobs (audio only).
+ * @param blobId     the *remote's* `media_blobz.id` short pk (7–16
+ *                    hex chars). this is what `/api/blobs/{id}/*`
+ *                    routes look up against. each freqhole instance
+ *                    generates its own ids — NOT portable. when
+ *                    caching a blob from a remote song, pass
+ *                    `song.media_blob_id`, never `song.sha256`.
+ * @param remoteId   the remote_server_id (which peer to fetch from).
+ * @param trackingId client-side-only key for the loading-set/progress UI
+ *                    (see downloadState.ts) - a song's sha256 content
+ *                    hash, or a video's own `id` (NOT a content hash -
+ *                    videos have no sha256). never sent on the wire.
+ * @param blake3     optional blake3 hash for verified streaming via
+ *                    iroh-blobs (audio only).
  */
 export async function preCacheP2PBlob(
   blobId: string,
   remoteId: string,
-  sha256?: string,
+  trackingId?: string,
   type: "audio" | "image" | "video" = "audio",
   blake3?: string,
   totalBytes?: number
@@ -668,9 +669,9 @@ export async function preCacheP2PBlob(
   }
 
   // track loading state for UI (use blobCache's unified loading set)
-  if (sha256 && type === "audio") {
-    addToLoadingSet(sha256);
-    updateLoadingProgress(sha256, null); // indeterminate until we get total size
+  if (trackingId && (type === "audio" || type === "video")) {
+    addToLoadingSet(trackingId);
+    updateLoadingProgress(trackingId, null); // indeterminate until we get total size
   }
 
   try {
@@ -679,12 +680,12 @@ export async function preCacheP2PBlob(
       `pre-caching P2P blob: ${blobId.slice(0, 8)}...${blake3 ? ` (verified)` : ""}`
     );
 
-    // create progress callback if we have sha256 for tracking
+    // create progress callback if we have an id for tracking
     const onProgress: BlobProgressCallback | undefined =
-      sha256 && type === "audio"
+      trackingId && (type === "audio" || type === "video")
         ? (received, total) => {
             if (total > 0) {
-              updateLoadingProgress(sha256, received / total);
+              updateLoadingProgress(trackingId, received / total);
             }
           }
         : undefined;
@@ -698,8 +699,8 @@ export async function preCacheP2PBlob(
   } catch (err) {
     warn("blobResolver", `pre-cache failed for p2p blob ${blobId.slice(0, 8)}:`, err);
   } finally {
-    if (sha256 && type === "audio") {
-      removeFromLoadingSet(sha256);
+    if (trackingId && (type === "audio" || type === "video")) {
+      removeFromLoadingSet(trackingId);
     }
   }
 }
@@ -715,9 +716,15 @@ export async function preCacheP2PBlob(
 export async function preCacheNextP2PSongs(
   currentSongSha256: string | null,
   queue: Song[],
-  targetMinutes: number = 30
+  targetMinutes: number = 30,
+  // when the queue is a mixed song+video queue and the currently-playing
+  // item is a video, `currentSongSha256` won't match anything in `queue`
+  // (song-only). callers that already know where "songs after current"
+  // begins (see `songStartIndexAfter` in `app/services/storage/mediaItem.ts`)
+  // can pass it here to skip the findIndex-based derivation entirely.
+  startIndexOverride?: number
 ): Promise<void> {
-  if (!currentSongSha256 || queue.length === 0) {
+  if (queue.length === 0) {
     return;
   }
 
@@ -731,10 +738,18 @@ export async function preCacheNextP2PSongs(
   // calls `fetchEphemeralForSong`.
   const useEphemeralPreFetch = !shouldSync && isCharnelMode() && isRodioEnabled();
 
-  // find current song index
-  const currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
-  if (currentIdx < 0) {
-    return;
+  let currentIdx: number;
+  if (startIndexOverride !== undefined) {
+    currentIdx = startIndexOverride;
+  } else {
+    if (!currentSongSha256) {
+      return;
+    }
+    // find current song index
+    currentIdx = queue.findIndex((s) => s.sha256 === currentSongSha256);
+    if (currentIdx < 0) {
+      return;
+    }
   }
 
   // songs selected for caching/syncing (we need full Song for sync mode).

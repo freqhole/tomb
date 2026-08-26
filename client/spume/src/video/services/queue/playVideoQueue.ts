@@ -1,9 +1,12 @@
 // play a list of videos as the active queue, starting at startIndex.
 // mirrors music/services/queue/queue.ts's playQueue — when a `source` is
 // given, records a video history entry and starts local watch-progress
-// tracking. still no p2p pre-cache (video pre-cache scheduling is a later
-// phase per docs/video-domain-plan.md) and no remote/server progress sync
-// (a separate, much-less-frequent mechanism — see videoListenProgress.ts).
+// tracking. no remote/server progress sync here (a separate, much-less-
+// frequent mechanism — see videoListenProgress.ts). the rolling-window
+// pre-cache scheduler (preCacheScheduler.ts) takes over once playback
+// crosses the 50% mark; the immediate `preCacheNextVideos` call below
+// just mirrors queue.ts's equivalent immediate trigger for songs so the
+// *next* video is already warming before that threshold is reached.
 import { setQueue } from "../../../app/services/storage/db";
 import { playMediaItem } from "../../../music/services/audio/player";
 import {
@@ -18,6 +21,7 @@ import type {
 import { addVideoHistoryEntry } from "./videoQueueHistory";
 import { resumeVideoTracking, startVideoTracking } from "./videoListenProgress";
 import { startVideoRemoteSync } from "./videoServerProgressSync";
+import { preCacheNextVideos } from "../videoPreCache";
 import type { VideoSummary } from "../../data/types";
 
 export async function playVideoQueue(
@@ -29,6 +33,7 @@ export async function playVideoQueue(
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
   await setQueue(items);
   await playMediaItem(items[startIndex], { userInitiated: true });
+  void preCacheNextVideos(videosOnly(items), 30, startIndex + 1);
 
   if (source) {
     const entryId = await addVideoHistoryEntry(videosOnly(items), source);
@@ -55,6 +60,7 @@ export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Pr
     userInitiated: true,
     initialPosition: entry.current_video_position || 0,
   });
+  void preCacheNextVideos(videosOnly(items), 30, resumeIndex + 1);
 
   resumeVideoTracking(entry.id, {
     watched_seconds: entry.watched_seconds || 0,

@@ -7,12 +7,16 @@ import {
   mediaItemKey,
   mediaItemQueueEntryId,
   songsOnly,
+  songStartIndexAfter,
+  videosOnly,
+  videoStartIndexAfter,
   songToMediaItem,
   toMediaItems,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
 import { evictCachedBlob } from "../cache/blobCache";
 import { evictP2PBlob, preCacheNextP2PSongs, cancelP2PDownload } from "../storage/blobResolver";
+import { preCacheNextVideos } from "../../../video/services/videoPreCache";
 import {
   clearPendingUpNext,
   pendingUpNextSha256,
@@ -56,6 +60,35 @@ export {
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "./queueState";
+
+// immediate (queue-start/queue-modification) pre-cache trigger — mirrors
+// preCacheScheduler.ts's rolling window, but fires right away instead of
+// waiting for the 50%-progress tick, so the *next* item is already
+// warming from time zero. `currentKey` is whatever `mediaItemKey()`
+// returns for the item that's (about to be) playing — may be a song OR
+// a video's key.
+function triggerImmediatePreCache(
+  mixedItems: MediaItem[],
+  currentKey: string | null | undefined
+): void {
+  if (!currentKey) return;
+  const songs = songsOnly(mixedItems);
+  const videos = videosOnly(mixedItems);
+  const currentIsVideo = mixedItems.some(
+    (i) => i.kind === "video" && mediaItemKey(i) === currentKey
+  );
+  if (currentIsVideo) {
+    // currentKey won't match anything in `songs` (song-only) - use the
+    // mixed-queue-derived start index instead of preCacheNextP2PSongs's
+    // own findIndex-based lookup so upcoming songs still get cached.
+    void preCacheNextP2PSongs(null, songs, 30, songStartIndexAfter(mixedItems, currentKey));
+  } else {
+    // unchanged behavior: preCacheNextP2PSongs finds currentKey itself
+    // and includes it (for immediate waveform display).
+    void preCacheNextP2PSongs(currentKey, songs);
+  }
+  void preCacheNextVideos(videos, 30, videoStartIndexAfter(mixedItems, currentKey));
+}
 
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
@@ -229,9 +262,7 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    if (startItem.kind === "song") {
-      void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
-    }
+    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -271,9 +302,7 @@ export async function playQueue(
     await setQueue(finalItems);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
-    if (startItem.kind === "song") {
-      void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
-    }
+    triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
 
     if (options?.source) {
       const entryId = await addHistoryEntry(finalSongs, options.source, options.resumeProgress);
@@ -310,9 +339,7 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      if (startItem.kind === "song") {
-        void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
-      }
+      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -335,9 +362,7 @@ export async function playQueue(
       await setQueue(finalItems);
       const startItem = finalItems[startIndex];
       await playMediaItem(startItem, { userInitiated: true });
-      if (startItem.kind === "song") {
-        void preCacheNextP2PSongs(startItem.song.sha256, finalSongs);
-      }
+      triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
@@ -394,9 +419,7 @@ async function playQueueInternal(
   await playMediaItem(items[startIndex], { userInitiated: true });
   const newQueueSongs = songsOnly(newQueue);
   const startItem = items[startIndex];
-  if (startItem.kind === "song") {
-    void preCacheNextP2PSongs(startItem.song.sha256, newQueueSongs);
-  }
+  triggerImmediatePreCache(newQueue, mediaItemKey(startItem));
 
   if (options?.source) {
     const existingEntryId = activeHistoryEntryId();
@@ -582,17 +605,17 @@ async function addToQueueInternal(
     await playMediaItem(items[0], { userInitiated: true });
   }
 
-  // pre-cache P2P songs (~30 min ahead from current position)
+  // pre-cache P2P songs/videos (~30 min ahead from current position)
   // only trigger pre-cache when:
   // 1. starting playback (need immediate cache for smooth playback)
-  // 2. adding as "next" (the song is within the 30-min rolling window)
+  // 2. adding as "next" (the item is within the 30-min rolling window)
   // skip pre-cache when adding to "end" and not starting playback
   // (the rolling 50% progress check will pick it up later if needed)
   const newQueueSongs = songsOnly(newQueue);
   const shouldPreCache = willAutoPlay || position === "next";
   const currentKey = currentId ?? mediaItemKey(items[0]);
   if (shouldPreCache && currentKey) {
-    void preCacheNextP2PSongs(currentKey, newQueueSongs);
+    triggerImmediatePreCache(newQueue, currentKey);
   }
 
   // sync history + server session with the full queue

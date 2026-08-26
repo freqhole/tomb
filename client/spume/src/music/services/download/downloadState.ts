@@ -143,24 +143,27 @@ async function persistSyncedToIDB(_sha256: string, _synced: boolean): Promise<vo
 }
 
 // ===== download progress tracking =====
-// tracks songs currently being downloaded and their progress
+// tracks media currently being downloaded and their progress.
+// keyed generically (a song's sha256, a video's own `id`, etc.) - NOT
+// a content hash specifically, just a client-side tracking key. keep
+// this generic; do not reintroduce sha256/song-specific naming here.
 
-const [loadingSha256s, setLoadingSha256s] = createSignal<Set<string>>(new Set());
+const [loadingIds, setLoadingIds] = createSignal<Set<string>>(new Set());
 const [loadingProgress, setLoadingProgress] = createSignal<Map<string, number | null>>(new Map());
 
-/** get the set of currently downloading song sha256s (for UI binding) */
-export function getLoadingSongIds(): Set<string> {
-  return loadingSha256s();
+/** get the set of currently downloading media ids (for UI binding) */
+export function getLoadingIds(): Set<string> {
+  return loadingIds();
 }
 
-/** check if a song is currently being downloaded */
-export function isLoading(sha256: string): boolean {
-  return loadingSha256s().has(sha256);
+/** check if a given id is currently being downloaded */
+export function isLoading(id: string): boolean {
+  return loadingIds().has(id);
 }
 
-/** get loading progress for a song (0-1, or null for indeterminate) */
-export function getLoadingProgress(sha256: string): number | null | undefined {
-  return loadingProgress().get(sha256);
+/** get loading progress for an id (0-1, or null for indeterminate) */
+export function getLoadingProgress(id: string): number | null | undefined {
+  return loadingProgress().get(id);
 }
 
 /** get all loading progress as a map (for UI binding) */
@@ -168,37 +171,37 @@ export function getAllLoadingProgress(): Map<string, number | null> {
   return loadingProgress();
 }
 
-/** add a sha256 to the loading set */
-export function addToLoadingSet(sha256: string): void {
-  setLoadingSha256s((prev) => {
-    if (prev.has(sha256)) return prev;
+/** add an id to the loading set */
+export function addToLoadingSet(id: string): void {
+  setLoadingIds((prev) => {
+    if (prev.has(id)) return prev;
     const next = new Set(prev);
-    next.add(sha256);
+    next.add(id);
     return next;
   });
 }
 
-/** update download progress for a sha256 */
-export function updateLoadingProgress(sha256: string, progress: number | null): void {
+/** update download progress for an id */
+export function updateLoadingProgress(id: string, progress: number | null): void {
   setLoadingProgress((prev) => {
     const next = new Map(prev);
-    next.set(sha256, progress);
+    next.set(id, progress);
     return next;
   });
 }
 
-/** remove a sha256 from the loading set and clear its progress */
-export function removeFromLoadingSet(sha256: string): void {
-  setLoadingSha256s((prev) => {
-    if (!prev.has(sha256)) return prev;
+/** remove an id from the loading set and clear its progress */
+export function removeFromLoadingSet(id: string): void {
+  setLoadingIds((prev) => {
+    if (!prev.has(id)) return prev;
     const next = new Set(prev);
-    next.delete(sha256);
+    next.delete(id);
     return next;
   });
   setLoadingProgress((prev) => {
-    if (!prev.has(sha256)) return prev;
+    if (!prev.has(id)) return prev;
     const next = new Map(prev);
-    next.delete(sha256);
+    next.delete(id);
     return next;
   });
 }
@@ -308,16 +311,19 @@ async function initFromGrimoire(): Promise<void> {
   try {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
-    const response = await invoke("api_call", {
+    const response = (await invoke("api_call", {
       path: "/api/sync/sha256s",
       body: null,
-    }) as { success: boolean; data?: string[]; message?: string };
+    })) as { success: boolean; data?: string[]; message?: string };
 
     if (response.success && response.data) {
       loadSyncedSha256s(response.data);
       debug("downloadState", `initialized ${response.data.length} synced sha256s from grimoire`);
     } else {
-      warn("downloadState", `failed to fetch sha256s from grimoire: ${response.message ?? "unknown error"}`);
+      warn(
+        "downloadState",
+        `failed to fetch sha256s from grimoire: ${response.message ?? "unknown error"}`
+      );
     }
   } catch (err) {
     warn("downloadState", "failed to initialize synced sha256s from grimoire:", err);
@@ -328,16 +334,16 @@ async function initFromGrimoire(): Promise<void> {
 async function initFromIDB(): Promise<void> {
   try {
     const db = await initMusicDB();
-    
+
     const tx = db.transaction("songs", "readonly");
     const store = tx.objectStore("songs");
     const index = store.index("by_source_type");
     const syncedSongs = await index.getAll("synced");
-    
+
     const sha256s = syncedSongs
       .map((song) => song.sha256)
       .filter((sha256): sha256 is string => !!sha256);
-    
+
     loadSyncedSha256s(sha256s);
     debug("downloadState", `initialized ${sha256s.length} synced sha256s from IDB`);
   } catch (err) {
@@ -348,7 +354,7 @@ async function initFromIDB(): Promise<void> {
 /** initialize download state (call on app startup) */
 export async function initDownloadState(): Promise<void> {
   const isCharnel = typeof window !== "undefined" && "__TAURI__" in window;
-  
+
   if (isCharnel) {
     await initFromGrimoire();
   } else {

@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
 import {
   useAddSongsToPlaylistMutation,
@@ -23,16 +24,14 @@ export interface PlaylistSelectorModalProps {
   isOpen: boolean;
   /** callback when modal is closed */
   onClose: () => void;
-  /** song IDs to add to the selected playlist */
-  songIds: string[];
-  /** video IDs to add instead of songIds (mutually exclusive with songIds) */
-  videoIds?: string[];
+  /** items to add to the selected playlist — may mix songs and videos. */
+  items: PlaylistSelectorItem[];
   /** when set, scope all queries/mutations to this remote rather than
    *  the globally-active data source. */
   remote?: Remote;
 }
 
-// playlist selector modal for adding songs (or videos) to playlists
+// playlist selector modal for adding songs and/or videos to playlists
 export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isCreatingNew, setIsCreatingNew] = createSignal(false);
@@ -54,30 +53,38 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const addVideoMutation = useAddVideoToPlaylistMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
 
-  const videoIds = () => props.videoIds ?? [];
-  const isVideoMode = () => videoIds().length > 0;
-  const itemCount = () => (isVideoMode() ? videoIds().length : props.songIds.length);
+  const songIds = createMemo(() =>
+    props.items.filter((i) => i.entity_type === "song").map((i) => i.entity_id)
+  );
+  const videoIds = createMemo(() =>
+    props.items.filter((i) => i.entity_type === "video").map((i) => i.entity_id)
+  );
+  const itemCount = () => props.items.length;
   const itemLabel = () => {
+    const hasSongs = songIds().length > 0;
+    const hasVideos = videoIds().length > 0;
     const count = itemCount();
-    return isVideoMode() ? (count === 1 ? "video" : "videos") : count === 1 ? "song" : "songs";
+    if (hasSongs && hasVideos) return count === 1 ? "item" : "items";
+    if (hasVideos) return count === 1 ? "video" : "videos";
+    return count === 1 ? "song" : "songs";
   };
 
-  // add whichever kind of item this modal instance was opened for to a
-  // playlist - videos go through the domain-generic playlist_itemz
-  // route one at a time (no bulk endpoint yet), songs keep the existing
-  // bulk addSongsToPlaylist call.
+  // add whichever items this modal instance was opened for to a playlist -
+  // songs go through the existing bulk addSongsToPlaylist call, videos go
+  // through the domain-generic playlist_itemz route one at a time (no bulk
+  // endpoint yet). both can run in the same call for a mixed selection.
   const addItemsToPlaylist = async (playlistId: string) => {
-    if (isVideoMode()) {
-      for (const videoId of videoIds()) {
-        await addVideoMutation.mutateAsync({ playlistId, videoId });
-      }
-      return;
+    const songIdList = songIds();
+    if (songIdList.length > 0) {
+      await addSongsMutation.mutateAsync({
+        playlistId,
+        songIds: songIdList,
+        remote: props.remote,
+      });
     }
-    await addSongsMutation.mutateAsync({
-      playlistId,
-      songIds: props.songIds,
-      remote: props.remote,
-    });
+    for (const videoId of videoIds()) {
+      await addVideoMutation.mutateAsync({ playlistId, videoId });
+    }
   };
 
   // filter playlists based on search query
