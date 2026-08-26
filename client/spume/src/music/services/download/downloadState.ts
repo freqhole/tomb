@@ -151,9 +151,24 @@ async function persistSyncedToIDB(_sha256: string, _synced: boolean): Promise<vo
 const [loadingIds, setLoadingIds] = createSignal<Set<string>>(new Set());
 const [loadingProgress, setLoadingProgress] = createSignal<Map<string, number | null>>(new Map());
 
+// debounced "visible" loading set - for UI binding only (queue row
+// pulse/progress indicators). a load that finishes within
+// LOADING_INDICATOR_DEBOUNCE_MS never gets shown at all, avoiding a
+// flash of the loading UI for near-instant local/cached hits; a load
+// that's genuinely still running after the delay reveals immediately.
+const LOADING_INDICATOR_DEBOUNCE_MS = 1000;
+const [visibleLoadingIds, setVisibleLoadingIds] = createSignal<Set<string>>(new Set());
+const pendingRevealTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 /** get the set of currently downloading media ids (for UI binding) */
 export function getLoadingIds(): Set<string> {
   return loadingIds();
+}
+
+/** debounced version of getLoadingIds() for UI loading indicators - only
+ *  reflects an id once it's been loading for LOADING_INDICATOR_DEBOUNCE_MS. */
+export function getVisibleLoadingIds(): Set<string> {
+  return visibleLoadingIds();
 }
 
 /** check if a given id is currently being downloaded */
@@ -179,6 +194,20 @@ export function addToLoadingSet(id: string): void {
     next.add(id);
     return next;
   });
+  if (!pendingRevealTimers.has(id)) {
+    const timer = setTimeout(() => {
+      pendingRevealTimers.delete(id);
+      if (loadingIds().has(id)) {
+        setVisibleLoadingIds((prev) => {
+          if (prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.add(id);
+          return next;
+        });
+      }
+    }, LOADING_INDICATOR_DEBOUNCE_MS);
+    pendingRevealTimers.set(id, timer);
+  }
 }
 
 /** update download progress for an id */
@@ -201,6 +230,17 @@ export function removeFromLoadingSet(id: string): void {
   setLoadingProgress((prev) => {
     if (!prev.has(id)) return prev;
     const next = new Map(prev);
+    next.delete(id);
+    return next;
+  });
+  const timer = pendingRevealTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    pendingRevealTimers.delete(id);
+  }
+  setVisibleLoadingIds((prev) => {
+    if (!prev.has(id)) return prev;
+    const next = new Set(prev);
     next.delete(id);
     return next;
   });

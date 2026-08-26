@@ -8,12 +8,17 @@
 
 import type { BlobProgressCallback } from "@freqhole/api-client";
 import { resolveBlobUrl, usesBlobResolver } from "../../music/services/storage/blobResolver";
-import { getCachedBlob, preCacheBlob } from "../../music/services/cache/blobCache";
+import {
+  getCachedBlob,
+  preCacheBlob,
+  isRemoteBlobCachedReactive,
+} from "../../music/services/cache/blobCache";
 import { getClientForRemote } from "../../app/api/client";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { readVideoFromOPFS } from "./opfs/helpers";
 import { getLocalVideoById } from "./storage/db/videos";
+import { isVideoSyncedLocally } from "./syncState";
 import { warn } from "../../utils/logger";
 
 /** resolve the media_blob_id to actually play for a remote video: the
@@ -58,12 +63,16 @@ export async function getVideoURL(
 
   // a remote video may have since been synced to local storage (see
   // syncVideoToLocal.ts) without the in-memory queue item's source_type
-  // being updated - check the local library by id first so a synced
-  // copy is served from disk instead of re-fetched remotely.
-  const localCopy = await getLocalVideoById(video.id);
-  if (localCopy?.opfs_path) {
-    const file = await readVideoFromOPFS(localCopy.opfs_path);
-    return URL.createObjectURL(file);
+  // being updated. `isVideoSyncedLocally` is a plain reactive set lookup
+  // (no IDB round trip) kept up to date by markVideoSynced/initVideoSyncState,
+  // so the common "never synced" case skips straight to the remote path
+  // below instead of paying for an IDB read on every single play.
+  if (isVideoSyncedLocally(video.id)) {
+    const localCopy = await getLocalVideoById(video.id);
+    if (localCopy?.opfs_path) {
+      const file = await readVideoFromOPFS(localCopy.opfs_path);
+      return URL.createObjectURL(file);
+    }
   }
 
   if (!video.media_blob_id) {
@@ -85,10 +94,14 @@ export async function getVideoURL(
   // transport with no cache check, so check our own blob cache first -
   // otherwise an already pre-cached video (see videoPreCache.ts's
   // rolling window) would still be re-fetched over the network on play.
-  const cachedResponse = await getCachedBlob(remoteId, blobId);
-  if (cachedResponse) {
-    const blob = await cachedResponse.blob();
-    return URL.createObjectURL(blob);
+  // gate the actual Cache API read behind the reactive flag (sync, no
+  // round trip) so a definite cache-miss skips straight past it.
+  if (isRemoteBlobCachedReactive(remoteId, blobId)) {
+    const cachedResponse = await getCachedBlob(remoteId, blobId);
+    if (cachedResponse) {
+      const blob = await cachedResponse.blob();
+      return URL.createObjectURL(blob);
+    }
   }
 
   const remote = await getRemoteById(remoteId);

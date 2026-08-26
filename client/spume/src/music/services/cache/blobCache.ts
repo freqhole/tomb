@@ -112,11 +112,13 @@ function clearCachedSet(): void {
 
 // seed the reactive set from existing cache metadata on startup
 // validates that blobs actually exist in Cache API before marking as cached
+// (covers both audio and video metadata - anything isRemoteBlobCachedReactive
+// might be asked about)
 // also purges incomplete "pending" entries from previous sessions (crash recovery)
 export async function initCachedAudioURLs(): Promise<void> {
   try {
     const allMetadata = await getAllMetadata();
-    const audioMetadata = allMetadata.filter((m) => m.type === "audio");
+    const audioMetadata = allMetadata.filter((m) => m.type === "audio" || m.type === "video");
 
     // validate each entry actually exists in Cache API
     const validatedKeys: Record<string, boolean> = {};

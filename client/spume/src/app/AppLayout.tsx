@@ -26,6 +26,7 @@ import {
 } from "./services/remotes/connectionProgress";
 import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitching";
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
+import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
 import { TopNav } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
@@ -63,7 +64,7 @@ import {
   clearExternalMediaSession,
   setExternalMediaSession,
 } from "../music/services/audio/mediaSessionBridge";
-import { getLoadingIds, isSongSyncedLocally } from "../music/services/download";
+import { getVisibleLoadingIds, isSongSyncedLocally } from "../music/services/download";
 import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
@@ -264,15 +265,18 @@ export function AppLayout(props: AppLayoutProps) {
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   // reactive memo for currently-loading media ids (combines HTTP + P2P
-  // song fetches, the current song, and now also video pre-caching)
+  // song fetches, the current song, and now also video pre-caching).
+  // uses the debounced/visible loading set so a load that finishes
+  // within ~1s never flashes the queue row's loading indicator at all.
+  const debouncedCurrentIsLoading = createDebouncedBoolean(isLoading);
   const loadingIds = createMemo(() => {
-    const loadingSet = new Set(getLoadingIds());
+    const loadingSet = new Set(getVisibleLoadingIds());
     for (const sha256 of getLoadingP2PSongIds()) {
       loadingSet.add(sha256);
     }
     // add current song if audio is loading (includes P2P fetch wait)
     const currentSha256 = appState()?.current_sha256;
-    if (isLoading() && currentSha256) {
+    if (debouncedCurrentIsLoading() && currentSha256) {
       loadingSet.add(currentSha256);
     }
     return loadingSet;
@@ -1460,6 +1464,7 @@ export function AppLayout(props: AppLayoutProps) {
 
           const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
           const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
+          const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
           const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
           const barDuration = () => {
             if (isRadio()) {
@@ -1659,7 +1664,7 @@ export function AppLayout(props: AppLayoutProps) {
               <PlayerBar
                 song={barSong()}
                 isPlaying={barIsPlaying()}
-                isLoading={barIsLoading()}
+                isLoading={debouncedBarIsLoading()}
                 hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
                 currentTime={barCurrentTime()}
                 duration={barDuration()}

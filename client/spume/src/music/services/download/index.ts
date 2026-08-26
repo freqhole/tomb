@@ -16,6 +16,7 @@ export {
 
   // loading/progress
   getLoadingIds,
+  getVisibleLoadingIds,
   isLoading,
   getLoadingProgress,
   getAllLoadingProgress,
