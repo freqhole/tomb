@@ -406,19 +406,17 @@ export const VideoIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
-// video series: three stacked cards (episodes) — the back two are line-art
-// outlines, the front one is solid-filled with a play triangle cut out of it
-// (fill-rule evenodd) so it reads as a distinct, playable "top of the stack"
+// video series: user-supplied traced artwork, fitted into the 24x24 viewBox
 export const VideoSeriesIcon = (props: IconProps) => (
   <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video series"}>
-    <rect x="9" y="1" width="13" height="9" rx="2" />
-    <rect x="6" y="5" width="14" height="10" rx="2" />
-    <path
-      fill-rule="evenodd"
-      fill="currentColor"
-      stroke="none"
-      d="M5.5,9 H15.5 A2.5,2.5 0 0 1 18,11.5 V17.5 A2.5,2.5 0 0 1 15.5,20 H5.5 A2.5,2.5 0 0 1 3,17.5 V11.5 A2.5,2.5 0 0 1 5.5,9 Z M7.3,12.6 L7.3,16.4 L10.8,14.5 Z"
-    />
+    <g transform="translate(0,3.227) scale(0.031332)">
+      <g transform="translate(0,560) scale(0.1,-0.1)" fill="currentColor" stroke="none">
+        <path
+          fill-rule="evenodd"
+          d="M0,0 H7660 V5600 H0 Z M0 2800 l0 -2800 3785 0 c3442 0 3785 1 3785 16 0 12 7 14 33 9 17 -4 34 -11 35 -16 2 -5 8 -9 13 -9 5 0 9 1110 9 2800 l0 2800 -3830 0 -3830 0 0 -2800z m6110 2080 l0 -50 150 0 150 0 0 -50 0 -50 45 0 45 0 0 -50 0 -50 50 0 50 0 0 -95 0 -95 50 0 50 0 0 -1035 0 -1035 -50 0 -50 0 0 -50 0 -50 -50 0 -50 0 0 -95 0 -95 -95 0 -95 0 0 -50 0 -50 -100 0 -100 0 0 835 0 835 -50 0 -50 0 0 145 0 145 -50 0 -50 0 0 50 0 50 -45 0 -45 0 0 50 0 50 -100 0 -100 0 0 50 0 50 -150 0 -150 0 0 50 0 50 -1275 0 -1275 0 0 95 0 95 45 0 45 0 0 100 0 100 100 0 100 0 0 50 0 50 100 0 100 0 0 50 0 50 1425 0 1425 0 0 -50z m-790 -790 l0 -50 150 0 150 0 0 -50 0 -50 50 0 50 0 0 -45 0 -45 50 0 50 0 0 -100 0 -100 45 0 45 0 0 -1230 0 -1230 -45 0 -45 0 0 -50 0 -50 -50 0 -50 0 0 -50 0 -50 -100 0 -100 0 0 -45 0 -45 -100 0 -100 0 0 980 0 980 -45 0 -45 0 0 150 0 150 -50 0 -50 0 0 50 0 50 -50 0 -50 0 0 45 0 45 -100 0 -100 0 0 50 0 50 -145 0 -145 0 0 50 0 50 -1430 0 -1430 0 0 100 0 100 50 0 50 0 0 95 0 95 50 0 50 0 0 50 0 50 445 0 445 0 0 50 0 50 1275 0 1275 0 0 -50z m-680 -785 l0 -45 95 0 95 0 0 -50 0 -50 50 0 50 0 0 -50 0 -50 50 0 50 0 0 -100 0 -100 50 0 50 0 0 -1230 0 -1230 -50 0 -50 0 0 -50 0 -50 -50 0 -50 0 0 -45 0 -45 -100 0 -100 0 0 -50 0 -50 -1620 0 -1620 0 0 50 0 50 -100 0 -100 0 0 45 0 45 -50 0 -50 0 0 50 0 50 -50 0 -50 0 0 50 0 50 -45 0 -45 0 0 100 0 100 -50 0 -50 0 0 1130 0 1130 50 0 50 0 0 100 0 100 45 0 45 0 0 95 0 95 1775 0 1775 0 0 -45z"
+        />
+      </g>
+    </g>
   </StrokeBaseIcon>
 );
 
