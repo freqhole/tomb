@@ -17,11 +17,14 @@ export type VideoImageEntityType = "video" | "video_series" | "video_season";
 export type { Video, VideoWithMetadata };
 
 /** series/season augmented with the remote they came from - lets
- * MediaImage resolve `poster_blob_id` via the same remoteBlobId +
- * remoteServerId path videos already use (see VideoSummary's
- * `remote_server_id`), instead of the OPFS-only `blobId` path, which
- * never resolves a charnel (tauri)-managed blob. optional: local
- * series/seasons never set a poster_blob_id, so they never need it. */
+ * MediaImage resolve `poster_blob_id` via remoteBlobId + remoteServerId
+ * for charnel (tauri)/P2P-managed remotes, which the OPFS-only `blobId`
+ * path can't reach. local (browser) storage series/seasons DO also set
+ * `poster_blob_id` (see localSource.ts's uploadImage, which mirrors it
+ * onto the row after adding an entity image) - it just holds a local
+ * reliquary blob id there instead, so callers should pass it as BOTH
+ * `blobId` and `remoteBlobId` and let MediaImage's local-then-remote
+ * resolution pick whichever one actually matches. */
 export type VideoSeries = ApiVideoSeries & { remote_server_id?: string | null };
 export type VideoSeason = ApiVideoSeason & { remote_server_id?: string | null };
 

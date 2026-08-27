@@ -18,7 +18,7 @@ use crate::users::models::AuthError;
 /// any kind (genre, label, mood, era, region, ...). today only the genre
 /// kind has UI for favoriting, but the storage layer is kind-agnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum FavoriteTarget {
     Song,
     Artist,
@@ -26,11 +26,12 @@ pub enum FavoriteTarget {
     Taxon,
     Playlist,
     Video,
+    VideoSeries,
 }
 
 impl ZodSchemaTrait for FavoriteTarget {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")])"#.to_string()
     }
 }
 
@@ -43,6 +44,7 @@ impl fmt::Display for FavoriteTarget {
             FavoriteTarget::Taxon => write!(f, "taxon"),
             FavoriteTarget::Playlist => write!(f, "playlist"),
             FavoriteTarget::Video => write!(f, "video"),
+            FavoriteTarget::VideoSeries => write!(f, "video_series"),
         }
     }
 }
@@ -58,6 +60,7 @@ impl From<String> for FavoriteTarget {
             "taxon" | "genre" => FavoriteTarget::Taxon,
             "playlist" => FavoriteTarget::Playlist,
             "video" => FavoriteTarget::Video,
+            "video_series" => FavoriteTarget::VideoSeries,
             _ => FavoriteTarget::Song,
         }
     }
@@ -108,7 +111,9 @@ impl From<FavoriteTarget> for Option<RatingTarget> {
             FavoriteTarget::Artist => Some(RatingTarget::Artist),
             FavoriteTarget::Album => Some(RatingTarget::Album),
             FavoriteTarget::Video => Some(RatingTarget::Video),
-            FavoriteTarget::Taxon | FavoriteTarget::Playlist => None,
+            // video series can be favorited but not rated (no series-level
+            // rating UI/target exists yet, unlike video itself).
+            FavoriteTarget::Taxon | FavoriteTarget::Playlist | FavoriteTarget::VideoSeries => None,
         }
     }
 }

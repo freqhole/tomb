@@ -36,6 +36,11 @@ pub struct Video {
     /// select it falls back to `None` instead of failing at runtime.
     #[sqlx(default)]
     pub images: Option<JsonVec<ImageMetadata>>,
+    /// total play count from `play_eventz` (entity_type = 'video') -
+    /// mirrors `Song::play_count`. `#[sqlx(default)]` so any query that
+    /// forgets to select it falls back to `None` instead of failing.
+    #[sqlx(default)]
+    pub play_count: Option<i64>,
 }
 
 /// request for creating a new video

@@ -2,6 +2,7 @@
 // supports local (indexeddb/opfs) and remote (server) sources
 
 import type { Song, ImageMetadata } from "../services/storage/types";
+import type { VideoSummary, VideoSeries } from "../../video/data/types";
 
 // re-export for convenience
 export type { Song, ImageMetadata };
@@ -135,14 +136,22 @@ export interface PlaylistSummary {
 }
 
 // favorite target type for mutations
-export type FavoriteTarget = "song" | "album" | "artist" | "playlist" | "video";
+export type FavoriteTarget =
+  | "song"
+  | "album"
+  | "artist"
+  | "playlist"
+  | "video"
+  | "video_series";
 
 // favorite item - discriminated union of all favoritable types
 export type FavoriteItem =
   | { type: "song"; favorited_at: number; data: Song }
   | { type: "album"; favorited_at: number; data: AlbumSummary }
   | { type: "artist"; favorited_at: number; data: ArtistSummary }
-  | { type: "playlist"; favorited_at: number; data: PlaylistSummary };
+  | { type: "playlist"; favorited_at: number; data: PlaylistSummary }
+  | { type: "video"; favorited_at: number; data: VideoSummary }
+  | { type: "video_series"; favorited_at: number; data: VideoSeries };
 
 // request params for listing favorites
 export interface ListFavoritesParams {
@@ -502,9 +511,9 @@ export interface MusicDataSource {
   canDeleteAlbum?(): boolean;
   canDeleteArtist?(): boolean;
 
-  // listen session operations (remote only — returns undefined for local)
-  getListenSession?(sessionId: string): Promise<ListenSession | null>;
-  deleteListenSession?(sessionId: string): Promise<void>;
+  // playback session operations (remote only — returns undefined for local)
+  getPlaybackSession?(sessionId: string): Promise<PlaybackSession | null>;
+  deletePlaybackSession?(sessionId: string): Promise<void>;
 
   // feed event deletion (admin can delete any feed event)
   deleteFeedEvent?(feedEventId: string): Promise<void>;
@@ -591,22 +600,22 @@ export interface FeedResponse {
   total: number;
 }
 
-// listen session data from server
-export interface ListenSession {
+// playback session data from server
+export interface PlaybackSession {
   id: string;
   user_id: string;
   session_type: string;
   entity_id: string | null;
   label: string;
   status: string;
-  song_ids: string[];
-  total_songs: number;
-  songs_completed: number;
-  current_song_index: number;
-  current_song_position_ms: number | null;
+  items: { entity_type: string; entity_id: string }[];
+  total_items: number;
+  items_completed: number;
+  current_item_index: number;
+  current_item_position_ms: number | null;
   progress_percent: number | null;
   total_duration_ms: number;
-  listened_duration_ms: number;
+  played_duration_ms: number;
   created_at: number;
   updated_at: number;
 }

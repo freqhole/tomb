@@ -2,7 +2,12 @@
 // events are queued locally in IDB, synced FIFO with per-event retry logic.
 // each event carries its target remote info so events route to the correct server.
 
-import { getClientForRemote, httpRemote, type Remote, type RemoteLike } from "../../../app/api/client";
+import {
+  getClientForRemote,
+  httpRemote,
+  type Remote,
+  type RemoteLike,
+} from "../../../app/api/client";
 import { createSignal } from "solid-js";
 import { error as errorLog, warn } from "../../../utils/logger";
 import { initAppDB } from "../../../app/services/storage/db";
@@ -28,7 +33,7 @@ let isSyncing = false;
 // captures the target remote from the payload so it syncs to the correct server.
 export async function queueAnalyticsEvent(
   type: AnalyticsEventType,
-  payload: AnalyticsEvent["payload"],
+  payload: AnalyticsEvent["payload"]
 ): Promise<void> {
   try {
     const db = await initAppDB();
@@ -106,7 +111,7 @@ async function syncEvents(): Promise<void> {
 
       // try to resolve by remote_id first (preferred - gets transport_type etc)
       if (event.payload.target_remote_id) {
-        remote = await getRemoteById(event.payload.target_remote_id) ?? null;
+        remote = (await getRemoteById(event.payload.target_remote_id)) ?? null;
       }
 
       // fall back to target_base_url (legacy events or deleted remotes)
@@ -127,9 +132,7 @@ async function syncEvents(): Promise<void> {
 
     // cleanup: remove sent events older than 24 hours
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const sent = allEvents.filter(
-      (e) => e.status === "sent" && e.created_at < cutoff,
-    );
+    const sent = allEvents.filter((e) => e.status === "sent" && e.created_at < cutoff);
     if (sent.length > 0) {
       const tx = db.transaction(STORE_ANALYTICS_EVENTS, "readwrite");
       for (const e of sent) {
@@ -140,10 +143,7 @@ async function syncEvents(): Promise<void> {
 
     // also cleanup events that exceeded max retries (>24h old)
     const expired = allEvents.filter(
-      (e) =>
-        e.status === "failed" &&
-        e.retry_count >= e.max_retries &&
-        e.created_at < cutoff,
+      (e) => e.status === "failed" && e.retry_count >= e.max_retries && e.created_at < cutoff
     );
     if (expired.length > 0) {
       const tx = db.transaction(STORE_ANALYTICS_EVENTS, "readwrite");
@@ -165,7 +165,7 @@ async function syncEvents(): Promise<void> {
 async function syncSingleEvent(
   db: Awaited<ReturnType<typeof initAppDB>>,
   event: AnalyticsEvent,
-  remote: Remote | RemoteLike,
+  remote: Remote | RemoteLike
 ): Promise<void> {
   // mark as sending
   const sending: AnalyticsEvent = {
@@ -191,7 +191,29 @@ async function syncSingleEvent(
           event_data: event.payload.event_data ?? null,
         });
         if (!result.success) {
-          throw new Error(`record play failed: ${"error" in result ? result.error.message : "unknown error"}`);
+          throw new Error(
+            `record play failed: ${"error" in result ? result.error.message : "unknown error"}`
+          );
+        }
+        break;
+      }
+      case "video_play_complete": {
+        if (!event.payload.media_blob_id || !event.payload.video_id) {
+          // invalid event, mark as sent to skip it
+          await db.put(STORE_ANALYTICS_EVENTS, { ...sending, status: "sent" });
+          return;
+        }
+        const client = await getClientForRemote(remote);
+        const result = await client.music.recordVideoPlay({
+          media_blob_id: event.payload.media_blob_id,
+          video_id: event.payload.video_id,
+          session_id: event.payload.session_id ?? null,
+          event_data: event.payload.event_data ?? null,
+        });
+        if (!result.success) {
+          throw new Error(
+            `record video play failed: ${"error" in result ? result.error.message : "unknown error"}`
+          );
         }
         break;
       }
@@ -208,8 +230,7 @@ async function syncSingleEvent(
     });
   } catch (error) {
     // failure — increment retry count
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     const failed: AnalyticsEvent = {
       ...sending,
       status: "failed",
@@ -220,7 +241,7 @@ async function syncSingleEvent(
 
     warn(
       "analytics",
-      `event ${event.id} failed attempt ${failed.retry_count}/${event.max_retries}: ${errorMessage}`,
+      `event ${event.id} failed attempt ${failed.retry_count}/${event.max_retries}: ${errorMessage}`
     );
   }
 }
@@ -230,9 +251,7 @@ async function refreshPendingCount(): Promise<void> {
   try {
     const db = await initAppDB();
     const all: AnalyticsEvent[] = await db.getAll(STORE_ANALYTICS_EVENTS);
-    const pending = all.filter(
-      (e) => e.status === "pending" || e.status === "failed",
-    ).length;
+    const pending = all.filter((e) => e.status === "pending" || e.status === "failed").length;
     setPendingEventCount(pending);
   } catch {
     // ignore

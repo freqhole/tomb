@@ -14,6 +14,9 @@ export interface ListItem {
   metadata?: string;
   images?: ImageMetadata[];
   thumbnailUrl?: string | null;
+  /** local blob id (reliquary store) - resolves through MediaImage's
+   *  `blobId` prop before falling back to remoteBlobId/remoteServerId. */
+  blobId?: string | null;
   /** blob id + owning remote, for entities (e.g. video series/seasons)
    *  whose poster isn't exposed via `images`/`thumbnailUrl` - resolves
    *  through the same transport MediaImage's `remoteBlobId` prop uses. */
@@ -242,6 +245,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                     <MediaImage
                       images={item.images}
                       imageUrl={item.thumbnailUrl || null}
+                      blobId={item.blobId}
                       remoteBlobId={item.remoteBlobId}
                       remoteServerId={item.remoteServerId}
                       alt={item.title}

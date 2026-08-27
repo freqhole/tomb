@@ -652,6 +652,18 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
+    recordVideoPlay: (params: s.RecordVideoPlayRequest) => {
+      return call(
+        "music",
+        "record_video_play",
+        routes.music.record_video_play.resp,
+        routes.music.record_video_play.req,
+        routes.music.record_video_play.method,
+        routes.music.record_video_play.path,
+        params,
+      );
+    },
+
     activityFeed: (params: s.FeedRequest) => {
       return call(
         "music",
@@ -724,39 +736,40 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    // listen sessions
-    createListenSession: (params: s.CreateListenSessionRequest) => {
+    // playback sessions
+    createPlaybackSession: (params: s.CreatePlaybackSessionRequest) => {
       return call(
         "music",
-        "create_listen_session",
-        routes.music.create_listen_session.resp,
-        routes.music.create_listen_session.req,
-        routes.music.create_listen_session.method,
-        routes.music.create_listen_session.path,
+        "create_playback_session",
+        routes.music.create_playback_session.resp,
+        routes.music.create_playback_session.req,
+        routes.music.create_playback_session.method,
+        routes.music.create_playback_session.path,
         params,
       );
     },
 
-    getListenSession: (id: string) => {
-      const path = routes.music.get_listen_session.path.replace("{id}", id);
+    getPlaybackSession: (id: string) => {
+      const path = routes.music.get_playback_session.path.replace("{id}", id);
       return call(
         "music",
-        "get_listen_session",
-        routes.music.get_listen_session.resp,
-        routes.music.get_listen_session.req,
-        routes.music.get_listen_session.method,
+        "get_playback_session",
+        routes.music.get_playback_session.resp,
+        routes.music.get_playback_session.req,
+        routes.music.get_playback_session.method,
         path,
+        { id },
       );
     },
 
-    deleteListenSession: (id: string) => {
+    deletePlaybackSession: (id: string) => {
       return call(
         "music",
-        "delete_listen_session",
-        routes.music.delete_listen_session.resp,
-        routes.music.delete_listen_session.req,
-        routes.music.delete_listen_session.method,
-        routes.music.delete_listen_session.path,
+        "delete_playback_session",
+        routes.music.delete_playback_session.resp,
+        routes.music.delete_playback_session.req,
+        routes.music.delete_playback_session.method,
+        routes.music.delete_playback_session.path,
         { id },
       );
     },
@@ -785,54 +798,55 @@ export function createMusicMethods(call: CallFn) {
       );
     },
 
-    updateListenSessionProgress: (id: string, params: s.UpdateListenSessionProgressRequest) => {
-      const path = routes.music.update_listen_session_progress.path.replace("{id}", id);
+    updatePlaybackSessionProgress: (id: string, params: s.UpdatePlaybackSessionProgressRequest) => {
+      const path = routes.music.update_playback_session_progress.path.replace("{id}", id);
       return call(
         "music",
-        "update_listen_session_progress",
-        routes.music.update_listen_session_progress.resp,
-        routes.music.update_listen_session_progress.req,
-        routes.music.update_listen_session_progress.method,
+        "update_playback_session_progress",
+        routes.music.update_playback_session_progress.resp,
+        routes.music.update_playback_session_progress.req,
+        routes.music.update_playback_session_progress.method,
         path,
         params,
       );
     },
 
-    updateListenSessionStatus: (id: string, status: string) => {
-      const path = routes.music.update_listen_session_status.path
+    updatePlaybackSessionStatus: (id: string, status: string) => {
+      const path = routes.music.update_playback_session_status.path
         .replace("{id}", id)
         .replace("{status}", status);
       return call(
         "music",
-        "update_listen_session_status",
-        routes.music.update_listen_session_status.resp,
-        routes.music.update_listen_session_status.req,
-        routes.music.update_listen_session_status.method,
+        "update_playback_session_status",
+        routes.music.update_playback_session_status.resp,
+        routes.music.update_playback_session_status.req,
+        routes.music.update_playback_session_status.method,
         path,
+        { id, status },
       );
     },
 
-    updateListenSessionSongs: (id: string, params: s.UpdateListenSessionSongsRequest) => {
-      const path = routes.music.update_listen_session_songs.path.replace("{id}", id);
+    updatePlaybackSessionItems: (id: string, params: s.UpdatePlaybackSessionItemsRequest) => {
+      const path = routes.music.update_playback_session_items.path.replace("{id}", id);
       return call(
         "music",
-        "update_listen_session_songs",
-        routes.music.update_listen_session_songs.resp,
-        routes.music.update_listen_session_songs.req,
-        routes.music.update_listen_session_songs.method,
+        "update_playback_session_items",
+        routes.music.update_playback_session_items.resp,
+        routes.music.update_playback_session_items.req,
+        routes.music.update_playback_session_items.method,
         path,
         params,
       );
     },
 
-    listListenSessions: (params: s.ListListenSessionsRequest) => {
+    listPlaybackSessions: (params: s.ListPlaybackSessionsRequest) => {
       return call(
         "music",
-        "list_listen_sessions",
-        routes.music.list_listen_sessions.resp,
-        routes.music.list_listen_sessions.req,
-        routes.music.list_listen_sessions.method,
-        routes.music.list_listen_sessions.path,
+        "list_playback_sessions",
+        routes.music.list_playback_sessions.resp,
+        routes.music.list_playback_sessions.req,
+        routes.music.list_playback_sessions.method,
+        routes.music.list_playback_sessions.path,
         params,
       );
     },

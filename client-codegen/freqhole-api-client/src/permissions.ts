@@ -151,16 +151,16 @@ export function canRemoveSongsFromPlaylist(
 }
 
 /**
- * check if user can delete a listen session.
- * listen sessions use OwnerOr(Admin) - owner or admin can delete.
+ * check if user can delete a playback session.
+ * playback sessions use OwnerOr(Admin) - owner or admin can delete.
  */
-export function canDeleteListenSession(
+export function canDeletePlaybackSession(
   userId: string,
   sessionOwnerId: string | null,
   userRole: UserRoleName,
 ): boolean {
-  // listen sessions use OwnerOr(Admin) - owner or admin can delete
-  const auth = routes.music.delete_listen_session.auth;
+  // playback sessions use OwnerOr(Admin) - owner or admin can delete
+  const auth = routes.music.delete_playback_session.auth;
   if (auth.type === "owner_or") {
     return canAccessOwnerOr(userId, sessionOwnerId, userRole, auth.role);
   }
@@ -168,10 +168,10 @@ export function canDeleteListenSession(
 }
 
 /**
- * check if user can update a listen session.
- * listen sessions use Owner - strictly owner only.
+ * check if user can update a playback session.
+ * playback sessions use Owner - strictly owner only.
  */
-export function canUpdateListenSession(userId: string, sessionOwnerId: string | null): boolean {
+export function canUpdatePlaybackSession(userId: string, sessionOwnerId: string | null): boolean {
   return canAccessOwner(userId, sessionOwnerId);
 }
 
@@ -300,11 +300,11 @@ export function canUploadImage(userRole: UserRoleName): boolean {
 }
 
 /**
- * check if user can create listen sessions.
- * listen sessions require Member role.
+ * check if user can create playback sessions.
+ * playback sessions require Member role.
  */
-export function canCreateListenSession(userRole: UserRoleName): boolean {
-  const auth = routes.music.create_listen_session.auth;
+export function canCreatePlaybackSession(userRole: UserRoleName): boolean {
+  const auth = routes.music.create_playback_session.auth;
   if (auth.type === "role") {
     return canAccessRole(userRole, auth.role);
   }

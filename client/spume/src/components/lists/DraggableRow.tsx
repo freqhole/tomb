@@ -292,6 +292,8 @@ export interface DraggableRowVideoContentProps {
   actions?: JSX.Element;
   /** when true, actions are always visible (not just on hover - use on touch devices) */
   alwaysShowActions?: boolean;
+  /** total play count to show inline (omit or null/0 to hide) */
+  playCount?: number | null;
   /** tighter spacing - use on narrow/mobile rows, mirrors DraggableRowSongContent's compact */
   compact?: boolean;
   /** additional classes */
@@ -319,6 +321,16 @@ export function DraggableRowVideoContent(props: DraggableRowVideoContentProps) {
             onToggle={(isFavorite) => props.onFavoriteToggle?.(props.videoId!, isFavorite)}
             size="sm"
           />
+        </div>
+      </Show>
+
+      {/* play count (before duration) */}
+      <Show when={props.playCount != null && props.playCount > 0}>
+        <div
+          class="text-[var(--color-text-muted)] text-xs flex-shrink-0 text-right"
+          title={`${props.playCount} plays`}
+        >
+          {props.playCount}×
         </div>
       </Show>
 

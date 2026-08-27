@@ -222,12 +222,12 @@ async function ensureRadioListenSession(): Promise<void> {
       return;
     }
     const client = await getClientForRemote(remote);
-    const result = await client.music.createListenSession({
+    const result = await client.music.createPlaybackSession({
       session_type: "radio",
       entity_id: stationId,
       label,
-      song_ids: [],
-      total_songs: 0,
+      items: [],
+      total_items: 0,
       total_duration_ms: 0,
     });
     if (result.success) {
@@ -238,7 +238,7 @@ async function ensureRadioListenSession(): Promise<void> {
       console.info("[radio] created listen session", result.data.id, "for station", stationId);
     } else {
       console.warn(
-        "[radio] createListenSession failed:",
+        "[radio] createPlaybackSession failed:",
         (result as { success: false; error: unknown }).error
       );
     }
@@ -259,7 +259,7 @@ async function endRadioListenSession(
     const remote = await getRemoteById(sess.remoteId);
     if (!remote) return;
     const client = await getClientForRemote(remote);
-    await client.music.updateListenSessionStatus(sess.sessionId, status);
+    await client.music.updatePlaybackSessionStatus(sess.sessionId, status);
   } catch (e) {
     console.warn("[radio] endRadioListenSession threw:", e);
   }

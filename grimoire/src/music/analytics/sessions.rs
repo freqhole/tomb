@@ -1,7 +1,11 @@
-//! listen session tracking
+//! playback session tracking
 //!
-//! tracks user progress through entities (albums, playlists, artists, genres, songs, shuffles).
-//! each session represents a single "listening to X" that gets updated as songs are played.
+//! tracks user progress through entities (albums, playlists, artists, genres, songs,
+//! videos, shuffles, radio). each session represents a single "playing/watching X"
+//! that gets updated as items are played. `items` is an ordered list of
+//! `{entity_type: "song"|"video", entity_id}` objects, which lets one session
+//! represent a pure-song, pure-video, or interleaved mixed queue-play
+//! (supersedes the song-only `listen_sessionz`/`song_ids` shape).
 
 use super::feed_events::upsert_session_feed_event;
 use crate::database;
@@ -13,13 +17,14 @@ use tracing;
 use zod_gen::ZodSchema as ZodSchemaTrait;
 use zod_gen_derive::ZodSchema;
 
-/// session type — what kind of entity is being listened to.
+/// session type — what kind of entity is being played.
 ///
 /// entity_id for a taxon session points at `taxonz.id`, which can be any
-/// kind (genre, label, mood, era, region, ...).
+/// kind (genre, label, mood, era, region, ...). `mixed` covers sessions
+/// whose `items` contain both songs and videos.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ListenSessionType {
+pub enum PlaybackSessionType {
     Song,
     Album,
     Artist,
@@ -27,15 +32,19 @@ pub enum ListenSessionType {
     Playlist,
     Shuffle,
     Radio,
+    Video,
+    VideoSeries,
+    VideoSeason,
+    Mixed,
 }
 
-impl ZodSchemaTrait for ListenSessionType {
+impl ZodSchemaTrait for PlaybackSessionType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")])"#.to_string()
+        r#"z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")])"#.to_string()
     }
 }
 
-impl std::fmt::Display for ListenSessionType {
+impl std::fmt::Display for PlaybackSessionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Song => write!(f, "song"),
@@ -45,11 +54,15 @@ impl std::fmt::Display for ListenSessionType {
             Self::Playlist => write!(f, "playlist"),
             Self::Shuffle => write!(f, "shuffle"),
             Self::Radio => write!(f, "radio"),
+            Self::Video => write!(f, "video"),
+            Self::VideoSeries => write!(f, "video_series"),
+            Self::VideoSeason => write!(f, "video_season"),
+            Self::Mixed => write!(f, "mixed"),
         }
     }
 }
 
-impl ListenSessionType {
+impl PlaybackSessionType {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
@@ -61,6 +74,10 @@ impl ListenSessionType {
             "playlist" => Self::Playlist,
             "shuffle" => Self::Shuffle,
             "radio" => Self::Radio,
+            "video" => Self::Video,
+            "video_series" => Self::VideoSeries,
+            "video_season" => Self::VideoSeason,
+            "mixed" => Self::Mixed,
             _ => Self::Song,
         }
     }
@@ -69,20 +86,20 @@ impl ListenSessionType {
 /// session lifecycle status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ListenSessionStatus {
+pub enum PlaybackSessionStatus {
     Active,
     Paused,
     Completed,
     Abandoned,
 }
 
-impl ZodSchemaTrait for ListenSessionStatus {
+impl ZodSchemaTrait for PlaybackSessionStatus {
     fn zod_schema() -> String {
         r#"z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")])"#.to_string()
     }
 }
 
-impl std::fmt::Display for ListenSessionStatus {
+impl std::fmt::Display for PlaybackSessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Active => write!(f, "active"),
@@ -93,7 +110,7 @@ impl std::fmt::Display for ListenSessionStatus {
     }
 }
 
-impl ListenSessionStatus {
+impl PlaybackSessionStatus {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
@@ -106,22 +123,30 @@ impl ListenSessionStatus {
     }
 }
 
-/// a listen session record
+/// a single item within a playback session's queue - a song or video
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, Eq)]
+pub struct SessionItem {
+    /// "song" or "video"
+    pub entity_type: String,
+    pub entity_id: String,
+}
+
+/// a playback session record
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct ListenSession {
+pub struct PlaybackSession {
     pub id: String,
     pub user_id: String,
-    pub session_type: ListenSessionType,
+    pub session_type: PlaybackSessionType,
     pub entity_id: Option<String>,
     pub label: String,
-    pub song_ids: Vec<String>,
-    pub total_songs: i64,
-    pub songs_completed: i64,
+    pub items: Vec<SessionItem>,
+    pub total_items: i64,
+    pub items_completed: i64,
     pub total_duration_ms: i64,
-    pub listened_duration_ms: i64,
-    pub current_song_index: i64,
-    pub current_song_position_ms: i64,
-    pub status: ListenSessionStatus,
+    pub played_duration_ms: i64,
+    pub current_item_index: i64,
+    pub current_item_position_ms: i64,
+    pub status: PlaybackSessionStatus,
     pub created_at: i64,
     pub updated_at: i64,
     /// username (resolved from user_id, for feed display)
@@ -130,120 +155,166 @@ pub struct ListenSession {
     pub progress_percent: Option<f64>,
 }
 
-/// request to create a new listen session
+/// request to create a new playback session
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct CreateListenSessionRequest {
+pub struct CreatePlaybackSessionRequest {
     pub session_type: String,
     pub entity_id: Option<String>,
     pub label: String,
-    pub song_ids: Vec<String>,
-    pub total_songs: i64,
+    pub items: Vec<SessionItem>,
+    pub total_items: i64,
     pub total_duration_ms: i64,
 }
 
-/// request to update session progress (song-based, not time-based)
-/// progress is the index of the next song to play (0 = haven't started, total_songs = done)
+/// request to update session progress (item-based, not time-based)
+/// progress is the index of the next item to play (0 = haven't started, total_items = done)
 /// progress only ever moves forward (server enforces this with MAX)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct UpdateListenSessionProgressRequest {
+pub struct UpdatePlaybackSessionProgressRequest {
     /// the session id to update
     pub id: String,
-    /// the next song index (after completing/skipping the current song)
-    /// e.g., finishing song 0 means progress = 1
+    /// the next item index (after completing/skipping the current item)
+    /// e.g., finishing item 0 means progress = 1
     pub progress: i64,
 }
 
-/// request to list listen sessions
+/// request to list playback sessions
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct ListListenSessionsRequest {
+pub struct ListPlaybackSessionsRequest {
     pub user_id: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
 
-/// response with listen sessions and total count
+/// response with playback sessions and total count
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct ListListenSessionsResponse {
-    pub items: Vec<ListenSession>,
+pub struct ListPlaybackSessionsResponse {
+    pub items: Vec<PlaybackSession>,
     pub total: i64,
 }
 
-/// request for getting a listen session by id
+/// request for getting a playback session by id
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct GetListenSessionRequest {
+pub struct GetPlaybackSessionRequest {
     pub id: String,
 }
 
-/// request for deleting a listen session
+/// request for deleting a playback session
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct DeleteListenSessionRequest {
+pub struct DeletePlaybackSessionRequest {
     pub id: String,
 }
 
-/// request for updating listen session status
+/// request for updating playback session status
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct UpdateListenSessionStatusRequest {
+pub struct UpdatePlaybackSessionStatusRequest {
     pub id: String,
     pub status: String,
 }
 
-/// filter song_ids to only those that actually exist in the songs table.
-/// this prevents clients from sending song IDs from other servers or invalid IDs.
-/// uses json_each() so the query works with a single bind parameter and the query! macro.
-async fn validate_song_ids(pool: &SqlitePool, song_ids: &[String]) -> Vec<String> {
-    if song_ids.is_empty() {
-        tracing::debug!("validate_song_ids: empty input");
+/// filter items to only those that actually exist on this server (song items
+/// checked against `songz`, video items checked against `videoz`; anything
+/// else is dropped). this prevents clients from sending IDs from other
+/// servers or invalid IDs. preserves original ordering.
+async fn validate_items(pool: &SqlitePool, items: &[SessionItem]) -> Vec<SessionItem> {
+    if items.is_empty() {
+        tracing::debug!("validate_items: empty input");
         return vec![];
     }
 
+    let song_ids: Vec<String> = items
+        .iter()
+        .filter(|i| i.entity_type == "song")
+        .map(|i| i.entity_id.clone())
+        .collect();
+    let video_ids: Vec<String> = items
+        .iter()
+        .filter(|i| i.entity_type == "video")
+        .map(|i| i.entity_id.clone())
+        .collect();
+
+    let valid_song_ids: std::collections::HashSet<String> = if song_ids.is_empty() {
+        Default::default()
+    } else {
+        let song_ids_json = serde_json::to_string(&song_ids).unwrap_or_else(|_| "[]".to_string());
+        let result: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar!(
+            r#"
+            SELECT s.id as "id!"
+            FROM songz s
+            INNER JOIN json_each(?) je ON s.id = je.value
+            "#,
+            song_ids_json,
+        )
+        .fetch_all(pool)
+        .await;
+        match result {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "validate_items: song id DB query failed");
+                song_ids.iter().cloned().collect()
+            }
+        }
+    };
+
+    let valid_video_ids: std::collections::HashSet<String> = if video_ids.is_empty() {
+        Default::default()
+    } else {
+        let video_ids_json =
+            serde_json::to_string(&video_ids).unwrap_or_else(|_| "[]".to_string());
+        let result: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar!(
+            r#"
+            SELECT v.id as "id!"
+            FROM videoz v
+            INNER JOIN json_each(?) je ON v.id = je.value
+            "#,
+            video_ids_json,
+        )
+        .fetch_all(pool)
+        .await;
+        match result {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "validate_items: video id DB query failed");
+                video_ids.iter().cloned().collect()
+            }
+        }
+    };
+
     tracing::debug!(
-        count = song_ids.len(),
-        first_id = ?song_ids.first(),
-        "validate_song_ids: checking IDs"
+        input_count = items.len(),
+        valid_songs = valid_song_ids.len(),
+        valid_videos = valid_video_ids.len(),
+        "validate_items: found valid IDs"
     );
 
-    let song_ids_json = serde_json::to_string(song_ids).unwrap_or_else(|_| "[]".to_string());
-
-    let valid_ids: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar!(
-        r#"
-        SELECT s.id as "id!"
-        FROM songz s
-        INNER JOIN json_each(?) je ON s.id = je.value
-        "#,
-        song_ids_json,
-    )
-    .fetch_all(pool)
-    .await;
-
-    match valid_ids {
-        Ok(ids) => {
-            tracing::debug!(
-                input_count = song_ids.len(),
-                valid_count = ids.len(),
-                "validate_song_ids: found valid IDs"
-            );
-            // preserve original ordering
-            let valid_set: std::collections::HashSet<String> = ids.into_iter().collect();
-            song_ids
-                .iter()
-                .filter(|id| valid_set.contains(id.as_str()))
-                .cloned()
-                .collect()
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "validate_song_ids: DB query failed");
-            // on error, keep the original IDs rather than losing data
-            song_ids.to_vec()
-        }
-    }
+    items
+        .iter()
+        .filter(|i| match i.entity_type.as_str() {
+            "song" => valid_song_ids.contains(&i.entity_id),
+            "video" => valid_video_ids.contains(&i.entity_id),
+            _ => false,
+        })
+        .cloned()
+        .collect()
 }
 
-/// create a new listen session
-pub async fn create_listen_session(
+/// serialize a list of items to the `items` JSON column shape:
+/// `[{"entity_type": "song", "entity_id": "..."}, ...]`
+fn items_to_json(items: &[SessionItem]) -> String {
+    serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// parse the `items` JSON column back into a list of items
+fn items_from_json(json_str: &str) -> Vec<SessionItem> {
+    serde_json::from_str(json_str).unwrap_or_default()
+}
+
+/// create a new playback session
+pub async fn create_playback_session(
     user_id: &str,
-    req: &CreateListenSessionRequest,
-) -> GrimoireResponse<ListenSession> {
+    req: &CreatePlaybackSessionRequest,
+) -> GrimoireResponse<PlaybackSession> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -256,23 +327,23 @@ pub async fn create_listen_session(
     let label = &req.label;
 
     // radio sessions are station-level only — no per-track tracking, so we
-    // skip song validation and accept an empty song_ids list.
+    // skip item validation and accept an empty items list.
     let is_radio = session_type == "radio";
 
-    // validate song_ids — only keep IDs that exist on this server
-    let validated_song_ids = if is_radio {
+    // validate items — only keep entities that exist on this server
+    let validated_items = if is_radio {
         Vec::new()
     } else {
-        let v = validate_song_ids(&pool, &req.song_ids).await;
+        let v = validate_items(&pool, &req.items).await;
         if v.is_empty() {
             return GrimoireResponse::failure(
-                "no valid song IDs found on this server",
+                "no valid items found on this server",
                 vec![crate::error::ErrorDetail::new(
-                    "invalid_song_ids",
-                    "invalid song IDs",
+                    "invalid_items",
+                    "invalid items",
                     format!(
-                        "none of the {} provided song IDs exist on this server",
-                        req.song_ids.len()
+                        "none of the {} provided items exist on this server",
+                        req.items.len()
                     ),
                 )],
             );
@@ -280,14 +351,13 @@ pub async fn create_listen_session(
         v
     };
 
-    let song_ids_json =
-        serde_json::to_string(&validated_song_ids).unwrap_or_else(|_| "[]".to_string());
-    let total_songs = validated_song_ids.len() as i64;
+    let items_json = items_to_json(&validated_items);
+    let total_items = validated_items.len() as i64;
     let total_duration_ms = req.total_duration_ms;
 
     let result = sqlx::query!(
         r#"
-        INSERT INTO listen_sessionz (user_id, session_type, entity_id, label, song_ids, total_songs, total_duration_ms)
+        INSERT INTO playback_sessionz (user_id, session_type, entity_id, label, items, total_items, total_duration_ms)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         RETURNING id as "id!", created_at as "created_at!: i64", updated_at as "updated_at!: i64"
         "#,
@@ -295,8 +365,8 @@ pub async fn create_listen_session(
         session_type,
         entity_id,
         label,
-        song_ids_json,
-        total_songs,
+        items_json,
+        total_items,
         total_duration_ms,
     )
     .fetch_one(&pool)
@@ -304,20 +374,20 @@ pub async fn create_listen_session(
 
     match result {
         Ok(row) => {
-            let session = ListenSession {
+            let session = PlaybackSession {
                 id: row.id.clone(),
                 user_id: user_id.to_string(),
-                session_type: ListenSessionType::from_str(session_type),
+                session_type: PlaybackSessionType::from_str(session_type),
                 entity_id: req.entity_id.clone(),
                 label: label.clone(),
-                song_ids: validated_song_ids,
-                total_songs,
-                songs_completed: 0,
+                items: validated_items,
+                total_items,
+                items_completed: 0,
                 total_duration_ms,
-                listened_duration_ms: 0,
-                current_song_index: 0,
-                current_song_position_ms: 0,
-                status: ListenSessionStatus::Active,
+                played_duration_ms: 0,
+                current_item_index: 0,
+                current_item_position_ms: 0,
+                status: PlaybackSessionStatus::Active,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
                 username: None,
@@ -334,20 +404,20 @@ pub async fn create_listen_session(
                     "failed to upsert session feed event on create"
                 );
             }
-            GrimoireResponse::success("listen session created", session)
+            GrimoireResponse::success("playback session created", session)
         }
-        Err(e) => GrimoireResponse::failure("failed to create listen session", vec![e.into()]),
+        Err(e) => GrimoireResponse::failure("failed to create playback session", vec![e.into()]),
     }
 }
 
-/// update session progress (song-based)
+/// update session progress (item-based)
 /// progress only moves forward - server enforces this with MAX
-/// when progress >= total_songs, the trigger auto-marks session as completed
+/// when progress >= total_items, the trigger auto-marks session as completed
 /// rejects updates for completed sessions (prevents feed timestamp churn)
-pub async fn update_listen_session_progress(
+pub async fn update_playback_session_progress(
     session_id: &str,
     user_id: &str,
-    req: &UpdateListenSessionProgressRequest,
+    req: &UpdatePlaybackSessionProgressRequest,
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -359,8 +429,8 @@ pub async fn update_listen_session_progress(
     // check current state - skip update if no actual progress change or session is completed
     let current = sqlx::query!(
         r#"
-        SELECT songs_completed, status
-        FROM listen_sessionz
+        SELECT items_completed, status
+        FROM playback_sessionz
         WHERE id = ? AND user_id = ?
         "#,
         session_id,
@@ -378,17 +448,17 @@ pub async fn update_listen_session_progress(
                 );
             }
             // skip if no actual progress (prevents updated_at churn)
-            if req.progress <= row.songs_completed {
+            if req.progress <= row.items_completed {
                 return GrimoireResponse::success_unit("no progress change");
             }
         }
         Ok(None) => {
             return GrimoireResponse::failure(
-                "listen session not found",
+                "playback session not found",
                 vec![ErrorDetail::new(
                     "session_not_found",
                     "Session Not Found",
-                    "the listen session does not exist or has been deleted",
+                    "the playback session does not exist or has been deleted",
                 )],
             );
         }
@@ -398,13 +468,13 @@ pub async fn update_listen_session_progress(
     }
 
     // progress only moves forward (MAX ensures this)
-    // songs_completed tracks the same value for the auto-complete trigger
-    // current_song_index = progress - 1 (the last song we finished), clamped to 0
+    // items_completed tracks the same value for the auto-complete trigger
+    // current_item_index = progress - 1 (the last item we finished), clamped to 0
     let result = sqlx::query!(
         r#"
-        UPDATE listen_sessionz
-        SET songs_completed = MAX(songs_completed, ?),
-            current_song_index = MAX(current_song_index, MAX(0, ? - 1)),
+        UPDATE playback_sessionz
+        SET items_completed = MAX(items_completed, ?),
+            current_item_index = MAX(current_item_index, MAX(0, ? - 1)),
             updated_at = unixepoch()
         WHERE id = ? AND user_id = ?
         "#,
@@ -431,11 +501,11 @@ pub async fn update_listen_session_progress(
             GrimoireResponse::success_unit("session progress updated")
         }
         Ok(_) => GrimoireResponse::failure(
-            "listen session not found",
+            "playback session not found",
             vec![ErrorDetail::new(
                 "session_not_found",
                 "Session Not Found",
-                "the listen session does not exist or has been deleted",
+                "the playback session does not exist or has been deleted",
             )],
         ),
         Err(e) => GrimoireResponse::failure("failed to update session progress", vec![e.into()]),
@@ -443,7 +513,7 @@ pub async fn update_listen_session_progress(
 }
 
 /// update session status (complete, abandon, pause)
-pub async fn update_listen_session_status(
+pub async fn update_playback_session_status(
     session_id: &str,
     user_id: &str,
     status: &str,
@@ -457,7 +527,7 @@ pub async fn update_listen_session_status(
 
     let result = sqlx::query!(
         r#"
-        UPDATE listen_sessionz
+        UPDATE playback_sessionz
         SET status = ?,
             updated_at = unixepoch()
         WHERE id = ? AND user_id = ?
@@ -484,40 +554,40 @@ pub async fn update_listen_session_status(
             GrimoireResponse::success_unit("session status updated")
         }
         Ok(_) => GrimoireResponse::failure(
-            "listen session not found",
+            "playback session not found",
             vec![ErrorDetail::new(
                 "session_not_found",
                 "Session Not Found",
-                "the listen session does not exist or has been deleted",
+                "the playback session does not exist or has been deleted",
             )],
         ),
         Err(e) => GrimoireResponse::failure("failed to update session status", vec![e.into()]),
     }
 }
 
-/// request to update session songs (queue sync)
+/// request to update session items (queue sync)
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-pub struct UpdateListenSessionSongsRequest {
+pub struct UpdatePlaybackSessionItemsRequest {
     /// the session id to update
     pub id: String,
-    /// updated list of song ids (replaces the entire list)
-    pub song_ids: Vec<String>,
+    /// updated list of items (replaces the entire list)
+    pub items: Vec<SessionItem>,
     /// updated label (smart label computed by client)
     pub label: String,
-    /// updated total songs count
-    pub total_songs: i64,
+    /// updated total items count
+    pub total_items: i64,
     /// updated total duration in milliseconds
     pub total_duration_ms: i64,
 }
 
-/// update session songs — syncs the session's song list with the current queue
+/// update session items — syncs the session's item list with the current queue
 ///
-/// called when the user adds or removes songs from the queue while a session
-/// is active. ownership-checked: only the session owner can update songs.
-pub async fn update_listen_session_songs(
+/// called when the user adds or removes songs/videos from the queue while a
+/// session is active. ownership-checked: only the session owner can update items.
+pub async fn update_playback_session_items(
     session_id: &str,
     user_id: &str,
-    req: &UpdateListenSessionSongsRequest,
+    req: &UpdatePlaybackSessionItemsRequest,
 ) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -526,25 +596,24 @@ pub async fn update_listen_session_songs(
         }
     };
 
-    // validate song_ids — only keep IDs that exist on this server
-    let validated_song_ids = validate_song_ids(&pool, &req.song_ids).await;
-    let song_ids_json =
-        serde_json::to_string(&validated_song_ids).unwrap_or_else(|_| "[]".to_string());
-    let validated_total_songs = validated_song_ids.len() as i64;
+    // validate items — only keep entities that exist on this server
+    let validated_items = validate_items(&pool, &req.items).await;
+    let items_json = items_to_json(&validated_items);
+    let validated_total_items = validated_items.len() as i64;
 
     let result = sqlx::query!(
         r#"
-        UPDATE listen_sessionz
-        SET song_ids = ?,
+        UPDATE playback_sessionz
+        SET items = ?,
             label = ?,
-            total_songs = ?,
+            total_items = ?,
             total_duration_ms = ?,
             updated_at = unixepoch()
         WHERE id = ? AND user_id = ? AND status IN ('active', 'paused')
         "#,
-        song_ids_json,
+        items_json,
         req.label,
-        validated_total_songs,
+        validated_total_items,
         req.total_duration_ms,
         session_id,
         user_id,
@@ -561,25 +630,25 @@ pub async fn update_listen_session_songs(
                     %session_id,
                     message = %feed_resp.message,
                     errors = ?feed_resp.errors,
-                    "failed to upsert session feed event on songs update"
+                    "failed to upsert session feed event on items update"
                 );
             }
-            GrimoireResponse::success_unit("session songs updated")
+            GrimoireResponse::success_unit("session items updated")
         }
         Ok(_) => GrimoireResponse::failure(
-            "listen session not found or not active",
+            "playback session not found or not active",
             vec![ErrorDetail::new(
                 "session_not_found",
                 "Session Not Found",
-                "the listen session does not exist, has been deleted, or is not active",
+                "the playback session does not exist, has been deleted, or is not active",
             )],
         ),
-        Err(e) => GrimoireResponse::failure("failed to update session songs", vec![e.into()]),
+        Err(e) => GrimoireResponse::failure("failed to update session items", vec![e.into()]),
     }
 }
 
-/// get a single listen session by id (readable by any authenticated user)
-pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSession> {
+/// get a single playback session by id (readable by any authenticated user)
+pub async fn get_playback_session(session_id: &str) -> GrimoireResponse<PlaybackSession> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -590,14 +659,14 @@ pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSess
     let result = sqlx::query!(
         r#"
         SELECT
-            ls.id as "id!", ls.user_id, ls.session_type, ls.entity_id, ls.label,
-            ls.song_ids, ls.total_songs, ls.songs_completed,
-            ls.total_duration_ms, ls.listened_duration_ms,
-            ls.current_song_index, ls.current_song_position_ms,
-            ls.status, ls.created_at, ls.updated_at,
-            (SELECT u.username FROM user_accountz u WHERE u.id = ls.user_id) as "username?"
-        FROM listen_sessionz ls
-        WHERE ls.id = ?
+            ps.id as "id!", ps.user_id, ps.session_type, ps.entity_id, ps.label,
+            ps.items, ps.total_items, ps.items_completed,
+            ps.total_duration_ms, ps.played_duration_ms,
+            ps.current_item_index, ps.current_item_position_ms,
+            ps.status, ps.created_at, ps.updated_at,
+            (SELECT u.username FROM user_accountz u WHERE u.id = ps.user_id) as "username?"
+        FROM playback_sessionz ps
+        WHERE ps.id = ?
         "#,
         session_id,
     )
@@ -606,52 +675,52 @@ pub async fn get_listen_session(session_id: &str) -> GrimoireResponse<ListenSess
 
     match result {
         Ok(Some(row)) => {
-            let song_ids: Vec<String> = serde_json::from_str(&row.song_ids).unwrap_or_default();
+            let items = items_from_json(&row.items);
 
-            let progress = if row.total_songs > 0 {
-                Some((row.songs_completed as f64 / row.total_songs as f64 * 100.0).min(100.0))
+            let progress = if row.total_items > 0 {
+                Some((row.items_completed as f64 / row.total_items as f64 * 100.0).min(100.0))
             } else {
                 Some(0.0)
             };
 
-            let session = ListenSession {
+            let session = PlaybackSession {
                 id: row.id,
                 user_id: row.user_id,
-                session_type: ListenSessionType::from_str(&row.session_type),
+                session_type: PlaybackSessionType::from_str(&row.session_type),
                 entity_id: row.entity_id,
                 label: row.label,
-                song_ids,
-                total_songs: row.total_songs,
-                songs_completed: row.songs_completed,
+                items,
+                total_items: row.total_items,
+                items_completed: row.items_completed,
                 total_duration_ms: row.total_duration_ms,
-                listened_duration_ms: row.listened_duration_ms,
-                current_song_index: row.current_song_index,
-                current_song_position_ms: row.current_song_position_ms,
-                status: ListenSessionStatus::from_str(&row.status),
+                played_duration_ms: row.played_duration_ms,
+                current_item_index: row.current_item_index,
+                current_item_position_ms: row.current_item_position_ms,
+                status: PlaybackSessionStatus::from_str(&row.status),
                 created_at: row.created_at,
                 updated_at: row.updated_at,
                 username: row.username,
                 progress_percent: progress,
             };
 
-            GrimoireResponse::success("listen session found", session)
+            GrimoireResponse::success("playback session found", session)
         }
         Ok(None) => GrimoireResponse::failure(
-            "listen session not found",
+            "playback session not found",
             vec![ErrorDetail::new(
                 "session_not_found",
                 "Session Not Found",
-                "the listen session does not exist or has been deleted",
+                "the playback session does not exist or has been deleted",
             )],
         ),
-        Err(e) => GrimoireResponse::failure("failed to get listen session", vec![e.into()]),
+        Err(e) => GrimoireResponse::failure("failed to get playback session", vec![e.into()]),
     }
 }
 
-/// list listen sessions with optional filters
-pub async fn list_listen_sessions(
-    req: &ListListenSessionsRequest,
-) -> GrimoireResponse<(Vec<ListenSession>, i64)> {
+/// list playback sessions with optional filters
+pub async fn list_playback_sessions(
+    req: &ListPlaybackSessionsRequest,
+) -> GrimoireResponse<(Vec<PlaybackSession>, i64)> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -668,7 +737,7 @@ pub async fn list_listen_sessions(
     let count = sqlx::query_scalar!(
         r#"
         SELECT COUNT(*) as "count!: i64"
-        FROM listen_sessionz
+        FROM playback_sessionz
         WHERE (? IS NULL OR user_id = ?)
           AND (? IS NULL OR status = ?)
         "#,
@@ -684,16 +753,16 @@ pub async fn list_listen_sessions(
     let rows = sqlx::query!(
         r#"
         SELECT
-            ls.id as "id!", ls.user_id, ls.session_type, ls.entity_id, ls.label,
-            ls.song_ids, ls.total_songs, ls.songs_completed,
-            ls.total_duration_ms, ls.listened_duration_ms,
-            ls.current_song_index, ls.current_song_position_ms,
-            ls.status, ls.created_at, ls.updated_at,
-            (SELECT u.username FROM user_accountz u WHERE u.id = ls.user_id) as "username?"
-        FROM listen_sessionz ls
-        WHERE (? IS NULL OR ls.user_id = ?)
-          AND (? IS NULL OR ls.status = ?)
-        ORDER BY ls.updated_at DESC
+            ps.id as "id!", ps.user_id, ps.session_type, ps.entity_id, ps.label,
+            ps.items, ps.total_items, ps.items_completed,
+            ps.total_duration_ms, ps.played_duration_ms,
+            ps.current_item_index, ps.current_item_position_ms,
+            ps.status, ps.created_at, ps.updated_at,
+            (SELECT u.username FROM user_accountz u WHERE u.id = ps.user_id) as "username?"
+        FROM playback_sessionz ps
+        WHERE (? IS NULL OR ps.user_id = ?)
+          AND (? IS NULL OR ps.status = ?)
+        ORDER BY ps.updated_at DESC
         LIMIT ? OFFSET ?
         "#,
         user_id,
@@ -709,35 +778,35 @@ pub async fn list_listen_sessions(
     let rows = match rows {
         Ok(r) => r,
         Err(e) => {
-            return GrimoireResponse::failure("failed to list listen sessions", vec![e.into()])
+            return GrimoireResponse::failure("failed to list playback sessions", vec![e.into()])
         }
     };
 
     let items = rows
         .into_iter()
         .map(|row| {
-            let song_ids: Vec<String> = serde_json::from_str(&row.song_ids).unwrap_or_default();
+            let items = items_from_json(&row.items);
 
-            let progress = if row.total_songs > 0 {
-                Some((row.songs_completed as f64 / row.total_songs as f64 * 100.0).min(100.0))
+            let progress = if row.total_items > 0 {
+                Some((row.items_completed as f64 / row.total_items as f64 * 100.0).min(100.0))
             } else {
                 Some(0.0)
             };
 
-            ListenSession {
+            PlaybackSession {
                 id: row.id,
                 user_id: row.user_id,
-                session_type: ListenSessionType::from_str(&row.session_type),
+                session_type: PlaybackSessionType::from_str(&row.session_type),
                 entity_id: row.entity_id,
                 label: row.label,
-                song_ids,
-                total_songs: row.total_songs,
-                songs_completed: row.songs_completed,
+                items,
+                total_items: row.total_items,
+                items_completed: row.items_completed,
                 total_duration_ms: row.total_duration_ms,
-                listened_duration_ms: row.listened_duration_ms,
-                current_song_index: row.current_song_index,
-                current_song_position_ms: row.current_song_position_ms,
-                status: ListenSessionStatus::from_str(&row.status),
+                played_duration_ms: row.played_duration_ms,
+                current_item_index: row.current_item_index,
+                current_item_position_ms: row.current_item_position_ms,
+                status: PlaybackSessionStatus::from_str(&row.status),
                 created_at: row.created_at,
                 updated_at: row.updated_at,
                 username: row.username,
@@ -746,13 +815,13 @@ pub async fn list_listen_sessions(
         })
         .collect();
 
-    GrimoireResponse::success("listen sessions retrieved", (items, count))
+    GrimoireResponse::success("playback sessions retrieved", (items, count))
 }
 
-/// delete a listen session
+/// delete a playback session
 ///
 /// only the owner can delete their session (ownership check done in handler).
-pub async fn delete_listen_session(session_id: &str) -> GrimoireResponse<()> {
+pub async fn delete_playback_session(session_id: &str) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -760,7 +829,7 @@ pub async fn delete_listen_session(session_id: &str) -> GrimoireResponse<()> {
         }
     };
 
-    let result = sqlx::query("DELETE FROM listen_sessionz WHERE id = ?")
+    let result = sqlx::query("DELETE FROM playback_sessionz WHERE id = ?")
         .bind(session_id)
         .execute(&pool)
         .await;
@@ -771,3 +840,4 @@ pub async fn delete_listen_session(session_id: &str) -> GrimoireResponse<()> {
         Err(e) => GrimoireResponse::failure("failed to delete session", vec![e.into()]),
     }
 }
+

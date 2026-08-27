@@ -406,6 +406,17 @@ export const VideoIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
+// video series: two stacked cards (episodes) with a play badge on the
+// front card
+export const VideoSeriesIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video series"}>
+    <rect x="7" y="3" width="14" height="10" rx="2" />
+    <rect x="3" y="8" width="15" height="13" rx="2" />
+    <circle cx="10" cy="15.5" r="3.5" />
+    <polygon points="8.8,13.3 8.8,17.7 12.3,15.5" fill="currentColor" stroke="none" />
+  </StrokeBaseIcon>
+);
+
 export const ExternalLinkIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "External link"}>
     <path
@@ -595,6 +606,7 @@ export const IconRegistry = {
   expandWindow: ExpandWindowIcon,
   collapseWindow: CollapseWindowIcon,
   video: VideoIcon,
+  videoSeries: VideoSeriesIcon,
   externalLink: ExternalLinkIcon,
   autoDownload: AutoDownloadIcon,
   downloadZip: DownloadZipIcon,
@@ -710,6 +722,7 @@ export const IconNames = {
   expandWindow: "expandWindow",
   collapseWindow: "collapseWindow",
   video: "video",
+  videoSeries: "videoSeries",
   externalLink: "externalLink",
   autoDownload: "autoDownload",
   downloadZip: "downloadZip",

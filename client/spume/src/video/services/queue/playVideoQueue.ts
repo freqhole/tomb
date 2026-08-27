@@ -1,12 +1,12 @@
 // play a list of videos as the active queue, starting at startIndex.
 // mirrors music/services/queue/queue.ts's playQueue — when a `source` is
-// given, records a video history entry and starts local watch-progress
-// tracking. no remote/server progress sync here (a separate, much-less-
-// frequent mechanism — see videoListenProgress.ts). the rolling-window
-// pre-cache scheduler (preCacheScheduler.ts) takes over once playback
-// crosses the 50% mark; the immediate `preCacheNextVideos` call below
-// just mirrors queue.ts's equivalent immediate trigger for songs so the
-// *next* video is already warming before that threshold is reached.
+// given, records a video history entry, starts local watch-progress
+// tracking, and (phase 5c) creates a server-side playback session mirroring
+// the song side. the rolling-window pre-cache scheduler
+// (preCacheScheduler.ts) takes over once playback crosses the 50% mark;
+// the immediate `preCacheNextVideos` call below just mirrors queue.ts's
+// equivalent immediate trigger for songs so the *next* video is already
+// warming before that threshold is reached.
 import { setQueue } from "../../../app/services/storage/db";
 import { playMediaItem } from "../../../music/services/audio/player";
 import {
@@ -18,11 +18,16 @@ import type {
   VideoQueueHistoryEntry,
   VideoQueueSourceContext,
 } from "../../../app/services/storage/types";
-import { addVideoHistoryEntry } from "./videoQueueHistory";
+import { addVideoHistoryEntry, updateVideoHistoryServerSession } from "./videoQueueHistory";
 import { resumeVideoTracking, startVideoTracking } from "./videoListenProgress";
 import { startVideoRemoteSync } from "./videoServerProgressSync";
 import { preCacheNextVideos } from "../videoPreCache";
 import type { VideoSummary } from "../../data/types";
+import {
+  createServerSessions,
+  resumeServerSession,
+} from "../../../music/services/queue/serverSession";
+import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 
 export async function playVideoQueue(
   videos: (VideoSummary | QueuedVideo)[],
@@ -40,6 +45,18 @@ export async function playVideoQueue(
     if (entryId) {
       startVideoTracking(entryId);
       startVideoRemoteSync();
+      // create a server-side playback session for this (video-only) queue
+      // and link it to the video-side history entry — createServerSessions
+      // itself only links to the song-side history store, so the linking
+      // is done here instead (see queueHistory.ts's updateHistoryServerSession
+      // vs videoQueueHistory.ts's updateVideoHistoryServerSession).
+      void createServerSessions(items, source).then((created) => {
+        const first = created.entries().next().value;
+        if (first) {
+          const [remoteId, sessionId] = first;
+          void updateVideoHistoryServerSession(entryId, sessionId, remoteId);
+        }
+      });
     }
   }
 }
@@ -69,4 +86,18 @@ export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Pr
     current_video_position: entry.current_video_position || 0,
   });
   startVideoRemoteSync();
+
+  if (entry.server_session_id && entry.server_remote_id) {
+    const remote = await getRemoteById(entry.server_remote_id);
+    if (remote) {
+      await resumeServerSession(
+        entry.server_session_id,
+        { progress: entry.videos_completed || 0 },
+        remote,
+        { label: entry.label, sessionType: entry.type, entityId: entry.entity_id },
+        undefined,
+        items
+      );
+    }
+  }
 }

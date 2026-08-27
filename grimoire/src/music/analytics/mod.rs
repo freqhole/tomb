@@ -83,10 +83,11 @@ pub use api_types::{
 
 // Re-export session types and functions
 pub use sessions::{
-    create_listen_session, delete_listen_session, get_listen_session, list_listen_sessions,
-    update_listen_session_progress, update_listen_session_songs, update_listen_session_status,
-    CreateListenSessionRequest, DeleteListenSessionRequest, GetListenSessionRequest,
-    ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
-    ListenSessionType, UpdateListenSessionProgressRequest, UpdateListenSessionSongsRequest,
-    UpdateListenSessionStatusRequest,
+    create_playback_session, delete_playback_session, get_playback_session,
+    list_playback_sessions, update_playback_session_items, update_playback_session_progress,
+    update_playback_session_status, CreatePlaybackSessionRequest, DeletePlaybackSessionRequest,
+    GetPlaybackSessionRequest, ListPlaybackSessionsRequest, ListPlaybackSessionsResponse,
+    PlaybackSession, PlaybackSessionStatus, PlaybackSessionType, SessionItem,
+    UpdatePlaybackSessionItemsRequest, UpdatePlaybackSessionProgressRequest,
+    UpdatePlaybackSessionStatusRequest,
 };

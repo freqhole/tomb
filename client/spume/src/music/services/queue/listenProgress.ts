@@ -117,8 +117,9 @@ export function recordTimeProgress(
 export function markSongCompleted(songIndex: number, currentSong: Song | null = null): void {
   if (!activeHistoryEntryId()) return;
   completedSongs.add(songIndex);
-  // advance server progress to the next song
-  advanceServerProgress(songIndex, currentSong);
+  // advance server progress to the next song (resolves the item's global
+  // queue-order position itself — see serverSession.ts's advanceServerProgress)
+  advanceServerProgress(currentSong ? { kind: "song", song: currentSong } : null);
   // flush to IDB immediately and restart interval
   void flushAndRestartInterval();
 }

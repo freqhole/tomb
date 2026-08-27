@@ -746,12 +746,12 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
             ls.entity_id,
             ls.label,
             ls.status,
-            ls.song_ids,
-            ls.total_songs,
-            ls.songs_completed,
+            ls.items,
+            ls.total_items,
+            ls.items_completed,
             ls.total_duration_ms,
             CASE
-                WHEN ls.total_songs > 0 THEN MIN(ls.songs_completed * 100.0 / ls.total_songs, 100.0)
+                WHEN ls.total_items > 0 THEN MIN(ls.items_completed * 100.0 / ls.total_items, 100.0)
                 ELSE 0.0
             END as "progress_percent!: f64",
             CASE
@@ -774,8 +774,9 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                     (SELECT json_group_array(json_object('blob_id', ai.media_blob_id, 'is_primary', 1, 'blob_type', mb.blob_type))
                      FROM (
                          SELECT DISTINCT als.album_id
-                         FROM json_each(ls.song_ids) je
-                         JOIN album_songz als ON als.song_id = je.value
+                         FROM json_each(ls.items) je
+                         JOIN album_songz als ON als.song_id = json_extract(je.value, '$.entity_id')
+                         WHERE json_extract(je.value, '$.entity_type') = 'song'
                          LIMIT 4
                      ) distinct_albums
                      JOIN album_imagez ai ON ai.album_id = distinct_albums.album_id AND ai.is_primary = 1
@@ -805,7 +806,7 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                 WHEN ls.session_type = 'playlist' THEN ls.entity_id
                 ELSE NULL
             END as "playlist_id?: String"
-        FROM listen_sessionz ls
+        FROM playback_sessionz ls
         WHERE ls.id = ?
         "#,
         session_id
@@ -839,10 +840,13 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
     let session_type = Some(session.session_type);
     let session_status = Some(session.status);
     let progress_percent = Some(session.progress_percent);
-    let songs_completed = Some(session.songs_completed);
-    let total_songs = Some(session.total_songs);
+    // feed_eventz's own columns are still named songs_completed/total_songs/song_ids
+    // (that table is unrelated to this migration and keeps its song-oriented shape;
+    // for video/mixed sessions this now holds video/mixed item ids too).
+    let songs_completed = Some(session.items_completed);
+    let total_songs = Some(session.total_items);
     let total_duration_ms = Some(session.total_duration_ms);
-    let song_ids = session.song_ids;
+    let song_ids = session.items;
     let images = session.images;
     let collage_images = session.collage_images;
 

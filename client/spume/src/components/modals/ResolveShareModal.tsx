@@ -222,6 +222,10 @@ function entityRouteFor(payload: SharePayloadV1, remoteId: string): string {
       return `/${remoteId}/playlists/${encodeURIComponent(payload.i)}`;
     case "artist":
       return `/${remoteId}/artists/${encodeURIComponent(payload.i)}`;
+    case "video":
+      return `/${remoteId}/video/${encodeURIComponent(payload.i)}`;
+    case "video_series":
+      return `/${remoteId}/video/series/${encodeURIComponent(payload.i)}`;
     case "song":
       // song-detail route doesn't exist — land on the album page when we
       // know it (highlight is set separately), otherwise drop to feed.

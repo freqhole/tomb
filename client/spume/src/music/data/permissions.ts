@@ -67,10 +67,10 @@ export function canCreateFetchJob(): boolean {
 }
 
 /** can user create listen sessions? requires Member role (or local mode) */
-export function canCreateListenSession(): boolean {
+export function canCreatePlaybackSession(): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
-  return user ? permissions.canCreateListenSession(user.role) : false;
+  return user ? permissions.canCreatePlaybackSession(user.role) : false;
 }
 
 /** is user at least Member? (true in local mode) */
@@ -211,16 +211,16 @@ export function canReorderPlaylistSongs(playlistOwnerId: string | null): boolean
 }
 
 /** can user delete this listen session? owner or admin can delete */
-export function canDeleteListenSession(sessionOwnerId: string | null): boolean {
+export function canDeletePlaybackSession(sessionOwnerId: string | null): boolean {
   if (isLocalMode()) return true;
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canDeleteListenSession(user.userId, sessionOwnerId, user.role);
+  return permissions.canDeletePlaybackSession(user.userId, sessionOwnerId, user.role);
 }
 
 /** can user update this listen session? requires ownership (no admin override) */
-export function canUpdateListenSession(sessionOwnerId: string | null): boolean {
+export function canUpdatePlaybackSession(sessionOwnerId: string | null): boolean {
   const user = getCurrentUser();
   if (!user) return false;
-  return permissions.canUpdateListenSession(user.userId, sessionOwnerId);
+  return permissions.canUpdatePlaybackSession(user.userId, sessionOwnerId);
 }

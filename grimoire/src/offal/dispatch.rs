@@ -313,12 +313,12 @@ mod tests {
             "list_passkeys",
             "delete_passkey",
             "link_node",
-            // listen session writes - repository functions scope to caller.user_id
-            "update_listen_session_progress",
-            "update_listen_session_songs",
-            "update_listen_session_status",
-            // listen session delete - handler checks owner or admin
-            "delete_listen_session",
+            // playback session writes - repository functions scope to caller.user_id
+            "update_playback_session_progress",
+            "update_playback_session_items",
+            "update_playback_session_status",
+            // playback session delete - handler checks owner or admin
+            "delete_playback_session",
             // playlist mutations - handler checks owner or admin
             "update_playlist",
             "delete_playlist",

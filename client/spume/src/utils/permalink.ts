@@ -18,7 +18,15 @@
 import type { ShareTargetKind } from "../components/share/types";
 import { isCharnelMode } from "../app/services/charnel/mode";
 
-const VALID_KINDS: ShareTargetKind[] = ["album", "playlist", "song", "artist", "radio_station"];
+const VALID_KINDS: ShareTargetKind[] = [
+  "album",
+  "playlist",
+  "song",
+  "artist",
+  "radio_station",
+  "video",
+  "video_series",
+];
 
 const NODE_ID_RE = /^[0-9a-f]{64}$/i;
 
@@ -204,10 +212,7 @@ export function decodeShareToken(token: string): SharePayloadV1 {
 }
 
 /** build share urls from a payload. */
-export function buildShareUrls(
-  p: SharePayloadV1,
-  webHost: string = getShareWebHost(),
-): ShareUrls {
+export function buildShareUrls(p: SharePayloadV1, webHost: string = getShareWebHost()): ShareUrls {
   const token = encodeShareToken(p);
   const host = webHost.replace(/\/+$/, "");
   return {
@@ -265,13 +270,11 @@ function validatePayload(p: SharePayloadV1): void {
   }
   if (!p.s || (p.s.n === undefined && p.s.h === undefined)) {
     throw new Error(
-      "invalid share payload: at least one of s.n (node_id) or s.h (http origin) must be set",
+      "invalid share payload: at least one of s.n (node_id) or s.h (http origin) must be set"
     );
   }
   if (p.s.n !== undefined && !NODE_ID_RE.test(p.s.n)) {
-    throw new Error(
-      `invalid share payload: s.n must be 64 hex chars, got "${p.s.n}"`,
-    );
+    throw new Error(`invalid share payload: s.n must be 64 hex chars, got "${p.s.n}"`);
   }
   if (p.s.h !== undefined) {
     try {

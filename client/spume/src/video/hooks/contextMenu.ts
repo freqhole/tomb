@@ -237,6 +237,8 @@ export function useVideoContextMenu(
 }
 
 export interface VideoSeriesContextMenuOptions {
+  /** whether the series is currently favorited */
+  isFavorite?: boolean;
   /** callback after a successful edit save */
   onSave?: () => void;
   /** callback after a successful delete (e.g. navigate away) */
@@ -245,10 +247,9 @@ export interface VideoSeriesContextMenuOptions {
   customActions?: MenuAction[];
 }
 
-// note: no favorite/rating action here — `FavoriteTarget`/`RatingTarget`
-// (grimoire/src/users/favoritez/models.rs) only support the "video"
-// target, not a series-level one, so series can't be favorited/rated
-// today.
+// note: no rating action here — `RatingTarget`
+// (grimoire/src/users/favoritez/models.rs) only supports the "video"
+// target, not a series-level one, so series can't be rated today.
 export function useVideoSeriesContextMenu(
   series: VideoSeries,
   allVideos: VideoSummary[],
@@ -280,6 +281,8 @@ export function useVideoSeriesContextMenu(
 
     actions.push({ type: "separator" });
   }
+
+  actions.push(createFavoriteMenuAction("video_series", series.id, options.isFavorite ?? false));
 
   if (canUpdateVideo()) {
     actions.push({

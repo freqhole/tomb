@@ -278,7 +278,7 @@ pub async fn dispatch(
             Some(analytics::delete_feed_event(caller, body.clone()).await)
         }
 
-        // listen sessions
+        // playback sessions
         "/api/analytics/sessions" => Some(sessions::create(caller, body.clone()).await),
         "/api/analytics/sessions/list" => Some(sessions::list(caller, body.clone()).await),
         "/api/analytics/sessions/get" => Some(sessions::get(caller, body.clone()).await),
@@ -286,7 +286,7 @@ pub async fn dispatch(
         "/api/analytics/sessions/progress" => {
             Some(sessions::update_progress(caller, body.clone()).await)
         }
-        "/api/analytics/sessions/songs" => Some(sessions::update_songs(caller, body.clone()).await),
+        "/api/analytics/sessions/items" => Some(sessions::update_items(caller, body.clone()).await),
         "/api/analytics/sessions/status" => {
             Some(sessions::update_status(caller, body.clone()).await)
         }

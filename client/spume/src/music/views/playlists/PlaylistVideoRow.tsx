@@ -118,6 +118,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
         title={videoItem.video.title}
         subtitle={subtitle()}
         durationSeconds={videoItem.video.duration_seconds ?? undefined}
+        playCount={videoItem.video.play_count ?? null}
         isFavorite={isFavorite()}
         videoId={videoItem.video.id}
         onFavoriteToggle={props.onFavoriteToggle}

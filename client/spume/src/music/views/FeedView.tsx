@@ -16,7 +16,7 @@ import { useHistoryState } from "../../utils/historyState";
 import { getNavHeight, useViewportHeight } from "../../utils/viewport";
 import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
 import { isAdmin } from "../data/permissions";
-import type { FeedItem } from "../data/types";
+import type { FeedItem, PlaybackSession } from "../data/types";
 import {
   showAlbumEditor,
   showArtistEditor,
@@ -43,6 +43,12 @@ import {
 } from "../services/storage/blobResolver";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { routes } from "../utils/routing";
+import { videoToMediaItem, type MediaItem } from "../../app/services/storage/mediaItem";
+import { getVideoDataSource } from "../../video/data";
+import type { VideoSummary } from "../../video/data/types";
+import { videoQueueHistory } from "../../video/services/queue/videoQueueHistory";
+import { resumeVideoHistoryEntry } from "../../video/services/queue/playVideoQueue";
+import type { Song } from "../services/storage/types";
 
 export function FeedView() {
   const navigate = useNavigate();
@@ -195,20 +201,75 @@ export function FeedView() {
 
   // helper: fetch songs by IDs via data source (batch request)
   const fetchSongsByIds = async (songIds: string[]) => {
+    if (songIds.length === 0) return [];
     const dataSource = getDataSource();
     return dataSource.getSongsByIds?.(songIds) ?? [];
+  };
+
+  // helper: fetch videos by IDs (no batch endpoint on the video data source
+  // yet, so fetched individually in parallel — mirrors fetchSongsByIds)
+  const fetchVideosByIds = async (videoIds: string[]): Promise<VideoSummary[]> => {
+    if (videoIds.length === 0) return [];
+    const videoDataSource = getVideoDataSource();
+    const videos = await Promise.all(videoIds.map((id) => videoDataSource.getVideoById(id)));
+    return videos.filter((v): v is VideoSummary => v != null);
+  };
+
+  // helper: resolve a playback session's item list (song ∪ video, any mix)
+  // back into playable objects, preserving the session's original item order.
+  const fetchMediaItemsForSession = async (
+    session: PlaybackSession
+  ): Promise<Array<Song | MediaItem>> => {
+    const songIds = session.items.filter((i) => i.entity_type === "song").map((i) => i.entity_id);
+    const videoIds = session.items.filter((i) => i.entity_type === "video").map((i) => i.entity_id);
+
+    const [songs, videos] = await Promise.all([
+      fetchSongsByIds(songIds),
+      fetchVideosByIds(videoIds),
+    ]);
+
+    // songs may have been recorded with either their own id or sha256 as
+    // entity_id (see serverSession.ts's itemEntityId) — index by both.
+    const songById = new Map<string, Song>();
+    for (const s of songs) {
+      songById.set(s.id, s);
+      songById.set(s.sha256, s);
+    }
+    const videoById = new Map(videos.map((v) => [v.id, v] as const));
+
+    const items: Array<Song | MediaItem> = [];
+    for (const sessionItem of session.items) {
+      if (sessionItem.entity_type === "song") {
+        const song = songById.get(sessionItem.entity_id);
+        if (song) items.push(song);
+      } else if (sessionItem.entity_type === "video") {
+        const video = videoById.get(sessionItem.entity_id);
+        if (video) items.push(videoToMediaItem(video));
+      }
+    }
+    return items;
   };
 
   // helper: play a session — resume if active/paused, otherwise start fresh
   const playSession = async (item: FeedItem) => {
     if (!remote || !item.session_id) return;
 
-    // check IDB first for an existing local history entry that matches this server session
-    const existingEntry = queueHistory().find((e) => e.server_session_id === item.session_id);
-
-    if (existingEntry) {
+    // check IDB first for an existing local history entry that matches this
+    // server session — song-side history first (also covers mixed sessions,
+    // which are always linked to the song-side entry, see queue.ts), then
+    // video-side history (linked only for video-only sessions, see
+    // playVideoQueue.ts).
+    const existingSongEntry = queueHistory().find((e) => e.server_session_id === item.session_id);
+    if (existingSongEntry) {
       // found in local history — fast resume via IDB
-      void resumeHistoryEntry(existingEntry);
+      void resumeHistoryEntry(existingSongEntry);
+      return;
+    }
+    const existingVideoEntry = videoQueueHistory().find(
+      (e) => e.server_session_id === item.session_id
+    );
+    if (existingVideoEntry) {
+      void resumeVideoHistoryEntry(existingVideoEntry);
       return;
     }
 
@@ -226,40 +287,47 @@ export function FeedView() {
     try {
       // fetch the full session from server via data source
       const dataSource = getDataSource();
-      if (!dataSource.getListenSession) {
-        toast.error("listen sessions not supported");
+      if (!dataSource.getPlaybackSession) {
+        toast.error("playback sessions not supported");
         return;
       }
 
-      const session = await dataSource.getListenSession(item.session_id);
+      const session = await dataSource.getPlaybackSession(item.session_id);
 
       if (!session) {
         toast.error("failed to load session");
         return;
       }
-      const songs = await fetchSongsByIds(session.song_ids);
-      if (songs.length === 0) {
-        toast.error("no playable songs in session");
+      const mediaItems = await fetchMediaItemsForSession(session);
+      if (mediaItems.length === 0) {
+        toast.error("no playable items in session");
         return;
       }
+      // exact resume-position (seconds within the current item) tracking
+      // only exists for song sessions today (listenProgress.ts) — video/mixed
+      // sessions still resume at the right queue position, just not the
+      // exact playback position within that item.
+      const isSongOnlySession = session.items.every((i) => i.entity_type === "song");
 
-      // a session is effectively done if its status is "completed" or all songs were played
+      // a session is effectively done if its status is "completed" or all items were played
       const isEffectivelyComplete =
-        session.status === "completed" || session.songs_completed >= session.total_songs;
-      const canResume = !isEffectivelyComplete && session.current_song_index < songs.length;
+        session.status === "completed" || session.items_completed >= session.total_items;
+      const canResume = !isEffectivelyComplete && session.current_item_index < mediaItems.length;
 
       if (canResume) {
-        // resume: play from current song index
+        // resume: play from current item index
         // skip server session creation — resumeServerSession below handles tracking
-        const resumeProgress = {
-          listened_seconds: Math.round(session.listened_duration_ms / 1000),
-          songs_completed: session.songs_completed,
-          current_song_index: session.current_song_index,
-          current_song_position: Math.round((session.current_song_position_ms ?? 0) / 1000),
-        };
+        const resumeProgress = isSongOnlySession
+          ? {
+              listened_seconds: Math.round(session.played_duration_ms / 1000),
+              songs_completed: session.items_completed,
+              current_song_index: session.current_item_index,
+              current_song_position: Math.round((session.current_item_position_ms ?? 0) / 1000),
+            }
+          : undefined;
 
-        await playQueue(songs, {
-          startIndex: session.current_song_index,
+        await playQueue(mediaItems, {
+          startIndex: session.current_item_index,
           skipServerSession: true,
           resumeProgress,
           source: {
@@ -272,7 +340,7 @@ export function FeedView() {
         // resume the server session tracking
         const remote = getCurrentRemote();
         if (remote) {
-          await resumeServerSession(session.id, { progress: session.songs_completed }, remote, {
+          await resumeServerSession(session.id, { progress: session.items_completed }, remote, {
             label: session.label,
             sessionType: session.session_type,
             entityId: session.entity_id ?? undefined,
@@ -288,7 +356,7 @@ export function FeedView() {
         toast.info("resumed session");
       } else {
         // completed — start fresh as a new session
-        await playQueue(songs, {
+        await playQueue(mediaItems, {
           source: {
             type: session.session_type as any,
             label: session.label,
@@ -309,24 +377,24 @@ export function FeedView() {
 
     try {
       const dataSource = getDataSource();
-      if (!dataSource.getListenSession) {
-        toast.error("listen sessions not supported");
+      if (!dataSource.getPlaybackSession) {
+        toast.error("playback sessions not supported");
         return;
       }
 
-      const session = await dataSource.getListenSession(item.session_id);
+      const session = await dataSource.getPlaybackSession(item.session_id);
 
       if (!session) {
         toast.error("failed to load session");
         return;
       }
-      const songs = await fetchSongsByIds(session.song_ids);
-      if (songs.length === 0) {
-        toast.error("no playable songs in session");
+      const mediaItems = await fetchMediaItemsForSession(session);
+      if (mediaItems.length === 0) {
+        toast.error("no playable items in session");
         return;
       }
 
-      await playQueue(songs, {
+      await playQueue(mediaItems, {
         source: {
           type: session.session_type as any,
           label: session.label,
@@ -456,15 +524,13 @@ export function FeedView() {
 
     // for other types, open carousel or fall back to play
     await handleImageCarousel(item);
-    if (
-      !(
-        item.images &&
-        item.images.length > 0 &&
-        item.images.some(
-          (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
-        )
+    if (!(
+      item.images &&
+      item.images.length > 0 &&
+      item.images.some(
+        (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
       )
-    ) {
+    )) {
       await handlePlayItem(item);
     }
   };
@@ -563,8 +629,8 @@ export function FeedView() {
             onClick: async () => {
               try {
                 const dataSource = getDataSource();
-                if (isOwnSession && dataSource.deleteListenSession) {
-                  await dataSource.deleteListenSession(item.session_id!);
+                if (isOwnSession && dataSource.deletePlaybackSession) {
+                  await dataSource.deletePlaybackSession(item.session_id!);
                 } else if (isAdmin() && dataSource.deleteFeedEvent) {
                   await dataSource.deleteFeedEvent(item.id);
                 } else {
@@ -605,16 +671,16 @@ export function FeedView() {
           try {
             if (item.session_id) {
               const dataSource = getDataSource();
-              if (!dataSource.getListenSession) {
-                toast.error("listen sessions not supported");
+              if (!dataSource.getPlaybackSession) {
+                toast.error("playback sessions not supported");
                 return;
               }
-              const session = await dataSource.getListenSession(item.session_id);
+              const session = await dataSource.getPlaybackSession(item.session_id);
               if (session) {
-                const songs = await fetchSongsByIds(session.song_ids);
-                if (songs.length > 0) {
-                  await addToQueue(songs, {
-                    source: { type: "song", label: item.title },
+                const mediaItems = await fetchMediaItemsForSession(session);
+                if (mediaItems.length > 0) {
+                  await addToQueue(mediaItems, {
+                    source: { type: session.session_type as any, label: item.title },
                   });
                 }
               }
@@ -634,8 +700,8 @@ export function FeedView() {
           onClick: async () => {
             try {
               const dataSource = getDataSource();
-              if (isOwnSession && dataSource.deleteListenSession) {
-                await dataSource.deleteListenSession(item.session_id!);
+              if (isOwnSession && dataSource.deletePlaybackSession) {
+                await dataSource.deletePlaybackSession(item.session_id!);
               } else if (isAdmin() && dataSource.deleteFeedEvent) {
                 await dataSource.deleteFeedEvent(item.id);
               } else {

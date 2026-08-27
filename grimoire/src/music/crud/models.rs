@@ -11,6 +11,7 @@ use crate::music::crud::create_or_update::Genre;
 use crate::music::entities::{albums::Album, artists::Artist, songs::Song};
 use crate::users::FavoriteTarget;
 use crate::users::RatingTarget;
+use crate::video::{Video, VideoSeries};
 
 /// image metadata with primary indicator
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq)]
@@ -910,15 +911,18 @@ pub struct SetFavoriteResponse {
     pub message: String,
 }
 
-/// favorite item that can be a song, album, artist, or playlist
+/// favorite item that can be a song, album, artist, playlist, video, or
+/// video series
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FavoriteItem {
     Song(FavoriteSongResult),
     Album(FavoriteAlbumResult),
     Artist(FavoriteArtistResult),
     Playlist(FavoritePlaylistResult),
+    Video(FavoriteVideoResult),
+    VideoSeries(FavoriteVideoSeriesResult),
 }
 
 /// song favorite with full song metadata
@@ -947,6 +951,20 @@ pub struct FavoriteArtistResult {
 pub struct FavoritePlaylistResult {
     pub favorited_at: i64,
     pub playlist: PlaylistQueryResult,
+}
+
+/// video favorite with full video metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteVideoResult {
+    pub favorited_at: i64,
+    pub video: Video,
+}
+
+/// video series favorite with full series metadata
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct FavoriteVideoSeriesResult {
+    pub favorited_at: i64,
+    pub series: VideoSeries,
 }
 
 /// response for listing favorites

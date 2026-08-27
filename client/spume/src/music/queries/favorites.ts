@@ -275,5 +275,9 @@ function getQueryKeysToInvalidate(targetType: FavoriteTarget): Array<readonly un
       // (video domain owns its own query-key factory, not imported here to
       // keep music/queries free of a cross-domain dependency).
       return [queryKeys.favorites.all(), ["videos"]];
+    case "video_series":
+      // "video-series" matches video/queries/queryKeys.ts's
+      // videoQueryKeys.series prefix - same cross-domain rationale as above.
+      return [queryKeys.favorites.all(), ["video-series"]];
   }
 }

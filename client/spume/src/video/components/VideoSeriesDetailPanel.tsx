@@ -15,14 +15,20 @@ import { HeadingSection } from "../../components/layout/HeadingSection";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { TagChips } from "../../components/badges/TagChips";
 import { TaxonChips } from "../../components/badges/TaxonChips";
-import { formatDuration } from "../../utils/formatDuration";
+import { ShareButton } from "../../components/buttons/ShareButton";
+import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
+import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { useVideoSeriesDetailQuery } from "../queries/series";
 import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
 import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
 import { videoQueryKeys } from "../queries/queryKeys";
+import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
+import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue } from "../services/videoQueueActions";
+import { useLocalVideoPosterUrl } from "./VideoCard";
 import { showEditVideoSeries } from "../hooks/modals";
 import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
 import { canUpdateVideo } from "../data/permissions";
@@ -38,7 +44,9 @@ import {
   resolveBlobUrl,
   usesBlobResolver,
   withThumbSuffix,
+  isValidHttpUrl,
 } from "../../music/services/storage/blobResolver";
+import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoSeason, VideoSummary } from "../data/types";
 
@@ -56,6 +64,12 @@ function EpisodeRow(props: {
   const contextMenuActions = createMemo(() =>
     useVideoContextMenu(props.video, { showPlayActions: true, onSave: props.onTagsSaved })
   );
+  // mirrors VideoCard.tsx's local-poster handling: a local video's
+  // auto-imported poster lives in OPFS (poster_opfs_path), not the
+  // reliquary blob store poster_blob_id points at.
+  const localPosterUrl = useLocalVideoPosterUrl(() =>
+    props.video.source_type === "local" ? props.video.poster_opfs_path : null
+  );
 
   return (
     <ContextMenu actions={contextMenuActions()}>
@@ -67,15 +81,40 @@ function EpisodeRow(props: {
           {props.video.episode_number ?? props.index + 1}
         </span>
         <div class="relative w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
-          <MediaImage
-            remoteBlobId={props.video.poster_blob_id}
-            remoteServerId={props.video.remote_server_id}
-            alt={props.video.title}
-            showFallback={true}
-            thumbnailSize={50}
-            objectFit="cover"
-            class="w-full h-full"
-          />
+          <Show
+            when={props.video.source_type === "remote"}
+            fallback={
+              <Show
+                when={localPosterUrl()}
+                fallback={
+                  <MediaImage
+                    blobId={props.video.poster_blob_id}
+                    alt={props.video.title}
+                    showFallback={true}
+                    thumbnailSize={50}
+                    domainType="video"
+                    objectFit="cover"
+                    class="w-full h-full"
+                  />
+                }
+              >
+                {(url) => (
+                  <img src={url()} alt={props.video.title} class="w-full h-full object-cover" />
+                )}
+              </Show>
+            }
+          >
+            <MediaImage
+              remoteBlobId={props.video.poster_blob_id}
+              remoteServerId={props.video.remote_server_id}
+              alt={props.video.title}
+              showFallback={true}
+              thumbnailSize={50}
+              domainType="video"
+              objectFit="cover"
+              class="w-full h-full"
+            />
+          </Show>
           <div class="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
             <button
               onClick={(e) => {
@@ -93,6 +132,14 @@ function EpisodeRow(props: {
         <span class="flex-1 min-w-0 truncate text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors">
           {props.video.title}
         </span>
+        <Show when={props.video.play_count != null && props.video.play_count > 0}>
+          <span
+            class="text-xs text-[var(--color-text-muted)] flex-shrink-0"
+            title={`${props.video.play_count} plays`}
+          >
+            {props.video.play_count}×
+          </span>
+        </Show>
         <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">
           {formatDuration(props.video.duration_seconds)}
         </span>
@@ -114,6 +161,21 @@ export interface VideoSeriesDetailPanelProps {
 export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
   const queryClient = useQueryClient();
+  const currentRemoteFull = createCurrentRemoteFull();
+
+  // favorite status for this series (own bulk-status query, mirrors
+  // VideoDetailView's single-id useVideoFavoriteStatuses usage).
+  const seriesIds = createMemo(() => [props.seriesId]);
+  const favoriteStatusQuery = useVideoSeriesFavoriteStatuses(seriesIds);
+  const isFavorite = createMemo(() => favoriteStatusQuery.data?.has(props.seriesId) ?? false);
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+  const handleFavoriteToggle = (newIsFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video_series",
+      targetId: props.seriesId,
+      isFavorite: newIsFavorite,
+    });
+  };
 
   const handleTagsSaved = () => {
     void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
@@ -131,7 +193,12 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     beginImageCarouselLoading();
 
     const seen = new Set<string>();
-    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
+    const imageItems: Array<{
+      localBlobId?: string;
+      remoteBlobId?: string;
+      serverId?: string;
+      url?: string;
+    }> = [];
 
     const addImage = (img: ImageMetadata) => {
       if (img.blob_type === "waveform") return;
@@ -139,9 +206,10 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
       if (!key || seen.has(key)) return;
       seen.add(key);
       imageItems.push({
-        blobId: img.remote_blob_id || img.local_blob_id,
-        url: img.remote_url,
+        localBlobId: img.local_blob_id,
+        remoteBlobId: img.remote_blob_id,
         serverId: img.remote_server_id,
+        url: img.remote_url,
       });
     };
 
@@ -167,16 +235,27 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
       ? await usesBlobResolver(firstWithServerId.serverId!)
       : false;
 
+    // a local blob already on this device wins first (covers the local
+    // library / no-remote-selected case, where images never carry a
+    // server id at all), then a resolver-backed remote blob, then a
+    // plain already-resolved http(s) url.
     const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
-      if (needsResolution && item.blobId && item.serverId) {
+      if (item.localBlobId) {
+        const resolved = await getBlobObjectURL(item.localBlobId);
+        if (resolved) return { url: resolved };
+      }
+      if (needsResolution && item.remoteBlobId && item.serverId) {
         try {
-          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          const url = await resolveBlobUrl(item.remoteBlobId, item.serverId, "image");
           return { url };
         } catch {
-          return item.url ? { url: item.url } : null;
+          // fall through to the url check below
         }
       }
-      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+      if (isValidHttpUrl(item.url)) {
+        return { url: item.url!, thumbnailUrl: withThumbSuffix(item.url!, 200) };
+      }
+      return null;
     };
 
     await openImageCarouselFromResolvers(
@@ -214,13 +293,16 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   // any season-less videos) - taxons remain remote-only for now (video
   // taxons have no local/indexeddb storage yet, see useVideoTaxonsQuery).
   const allVideoIds = createMemo(() => allVideos().map((v) => v.id));
+  const totalDurationSeconds = createMemo(() =>
+    allVideos().reduce((sum, v) => sum + (v.duration_seconds ?? 0), 0)
+  );
   const aggregateTagsQuery = useVideoSeriesAggregateTagsQuery(() => props.seriesId, allVideoIds);
   const aggregateTaxonsQuery = useVideoSeriesAggregateTaxonsQuery(
     () => props.seriesId,
     allVideoIds
   );
 
-  // seasons expanded/collapsed by id - first season expanded by default.
+  // seasons expanded/collapsed by id - all seasons expanded by default.
   // reset whenever the selected series changes so a stale season id from
   // the previous series doesn't linger in the expanded set.
   const [expandedSeasonIds, setExpandedSeasonIds] = createSignal<Set<string>>(new Set());
@@ -233,7 +315,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   createEffect(() => {
     const list = seasons();
     if (list.length > 0 && expandedSeasonIds().size === 0) {
-      setExpandedSeasonIds(new Set([list[0].id]));
+      setExpandedSeasonIds(new Set(list.map((season) => season.id)));
     }
   });
 
@@ -308,6 +390,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     const series = detailQuery.data?.series;
     if (!series) return [];
     return useVideoSeriesContextMenu(series, allVideos(), {
+      isFavorite: isFavorite(),
       onDeleted: props.onDeleted,
     });
   });
@@ -374,6 +457,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         onClick={handleSeriesImageClick}
                       >
                         <MediaImage
+                          blobId={data().series.poster_blob_id}
                           remoteBlobId={data().series.poster_blob_id}
                           remoteServerId={data().series.remote_server_id}
                           alt={data().series.title}
@@ -393,6 +477,22 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           {data().series.description}
                         </p>
                       </Show>
+
+                      <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
+                        <Show when={seasons().length > 0}>
+                          <span>
+                            {seasons().length} {seasons().length === 1 ? "season" : "seasons"}
+                          </span>
+                          <span>•</span>
+                        </Show>
+                        <span>
+                          {allVideos().length} {allVideos().length === 1 ? "episode" : "episodes"}
+                        </span>
+                        <Show when={totalDurationSeconds() > 0}>
+                          <span>•</span>
+                          <span>{formatLongDuration(totalDurationSeconds())}</span>
+                        </Show>
+                      </div>
 
                       <TaxonChips
                         taxons={aggregateTaxonsQuery.data}
@@ -435,6 +535,15 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                             <Icon name={IconNames.edit} />
                           </button>
                         </Show>
+                        <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                        <ShareButton
+                          target={{
+                            kind: "video_series",
+                            id: data().series.id,
+                            displayTitle: data().series.title,
+                          }}
+                          source={currentRemoteFull}
+                        />
                       </div>
                     </div>
                   </div>
@@ -460,6 +569,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                   }}
                                 >
                                   <MediaImage
+                                    blobId={season.poster_blob_id}
                                     remoteBlobId={season.poster_blob_id}
                                     remoteServerId={season.remote_server_id}
                                     alt={seasonLabel(season)}

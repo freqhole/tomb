@@ -28,6 +28,7 @@ import { appState } from "../../../app/services/storage/db";
 import { videosOnly } from "../../../app/services/storage/mediaItem";
 import { currentTime, duration } from "../../../music/services/audio/playerState";
 import { markVideoCompleted, recordVideoTimeProgress } from "./videoListenProgress";
+import { queueAnalyticsEvent } from "../../../music/services/analytics/analyticsQueue";
 
 // max delta (seconds) between consecutive ticks attributed to actual
 // watching — anything larger is a seek, not watch time. mirrors the
@@ -102,6 +103,15 @@ export function installVideoPlaybackOrchestrator(): void {
       if (completionRecordedFor !== current_sha256 && progress >= COMPLETION_THRESHOLD) {
         completionRecordedFor = current_sha256;
         markVideoCompleted(videoIdx, currentVideo);
+
+        // locally-imported (OPFS) videos have no server to report a play to.
+        if (currentVideo.source_type === "remote" && currentVideo.remote_server_id) {
+          void queueAnalyticsEvent("video_play_complete", {
+            media_blob_id: currentVideo.media_blob_id,
+            video_id: currentVideo.id,
+            target_remote_id: currentVideo.remote_server_id,
+          });
+        }
       }
     });
   });

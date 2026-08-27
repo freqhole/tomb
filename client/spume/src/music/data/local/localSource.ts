@@ -40,6 +40,7 @@ import { getLocalLibraryName } from "../../../app/services/storage/db";
 import { deleteBlob, getBlobObjectURL, storeBlob } from "../../services/storage/blobs";
 import { deleteThumbnailFromOPFS } from "../../services/opfs/helpers";
 import { adaptAlbumFromIDB } from "./adapters";
+import { getVideoDataSource } from "../../../video/data";
 import {
   deletePlaylist as deletePlaylistFromDB,
   reorderLocalPlaylistItems,
@@ -1320,6 +1321,26 @@ export class LocalMusicDataSource implements MusicDataSource {
               updated_at: playlist.updated_at,
               is_favorite: playlist.is_favorite ?? false,
             },
+          });
+        }
+      } else if (favorite.target_type === "video") {
+        const dataSource = getVideoDataSource();
+        const video = await dataSource.getVideoById(favorite.target_id);
+        if (video) {
+          items.push({
+            type: "video",
+            favorited_at: favorite.favorited_at,
+            data: video,
+          });
+        }
+      } else if (favorite.target_type === "video_series") {
+        const dataSource = getVideoDataSource();
+        const series = await dataSource.getVideoSeriesById(favorite.target_id);
+        if (series) {
+          items.push({
+            type: "video_series",
+            favorited_at: favorite.favorited_at,
+            data: series,
           });
         }
       }

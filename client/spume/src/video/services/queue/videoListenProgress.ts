@@ -1,9 +1,9 @@
 // local video watch-progress tracking service
 // tracks which video history entry is "active" and accumulates watched time,
 // mirroring music/services/queue/listenProgress.ts's accumulate-then-flush
-// pattern. IDB-only: remote/server progress sync (e.g. via
-// client.video.upsertPlaybackProgress) is a separate, much-less-frequent
-// mechanism (periodic ~60s + beforeunload) — not implemented in this file.
+// pattern. IDB-only for the periodic ~5s accumulation; per-video completion
+// also advances the server-side playback session (phase 5c — see
+// markVideoCompleted below) the same way the song side does.
 
 import { createSignal } from "solid-js";
 import { error as errorLog } from "../../../utils/logger";
@@ -11,6 +11,7 @@ import { appState } from "../../../app/services/storage/db";
 import { videosOnly, type QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { videoQueueHistory, updateVideoHistoryProgress } from "./videoQueueHistory";
 import { isPlaying, setVisualPosition } from "../../../music/services/audio/playerState";
+import { advanceServerProgress } from "../../../music/services/queue/serverSession";
 
 // the currently active video history entry id being tracked
 const [activeVideoHistoryEntryId, setActiveVideoHistoryEntryId] = createSignal<string | null>(null);
@@ -106,15 +107,19 @@ export function recordVideoTimeProgress(
 }
 
 // mark a video as completed (>90% watched) or skipped.
-// flushes to IDB immediately and restarts the interval. unlike the song
-// version's markSongCompleted, this does not advance any server session —
-// remote video progress sync is a separate mechanism (see file header).
+// flushes to IDB immediately and restarts the interval, and (phase 5c)
+// advances the server-side playback session progress the same way the
+// song side's markSongCompleted does — advanceServerProgress resolves the
+// item's global queue position itself, so this works whether the video is
+// part of a video-only queue (playVideoQueue) or a mixed song+video queue
+// (playQueue).
 export function markVideoCompleted(
   videoIndex: number,
-  _currentVideo: QueuedVideo | null = null
+  currentVideo: QueuedVideo | null = null
 ): void {
   if (!activeVideoHistoryEntryId()) return;
   completedVideos.add(videoIndex);
+  advanceServerProgress(currentVideo ? { kind: "video", video: currentVideo } : null);
   void flushAndRestartInterval();
 }
 

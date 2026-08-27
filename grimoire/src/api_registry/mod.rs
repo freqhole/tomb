@@ -221,14 +221,15 @@ pub mod type_registry {
 
     // analytics types
     use crate::music::analytics::{
-        CreateListenSessionRequest, DeleteFeedEventRequest, DeleteListenSessionRequest, FeedItem,
-        FeedItemType, FeedRequest, FeedResponse, GetListenSessionRequest,
-        ListListenSessionsRequest, ListListenSessionsResponse, ListenSession, ListenSessionStatus,
-        ListenSessionType, ListeningHistoryItem, ListeningHistoryRequest, ListeningHistoryResponse,
-        OverviewStats, PlayAnalytics, RecordPlayRequest, RecordVideoPlayRequest, SessionSong,
-        SessionSummary, SongAnalyticsRequest, TopAlbum, TopAlbumsRequest, TopArtist,
-        TopArtistsRequest, TopSong, TopSongsRequest, UpdateListenSessionProgressRequest,
-        UpdateListenSessionSongsRequest, UpdateListenSessionStatusRequest, UserStats,
+        CreatePlaybackSessionRequest, DeleteFeedEventRequest, DeletePlaybackSessionRequest,
+        FeedItem, FeedItemType, FeedRequest, FeedResponse, GetPlaybackSessionRequest,
+        ListPlaybackSessionsRequest, ListPlaybackSessionsResponse, ListeningHistoryItem,
+        ListeningHistoryRequest, ListeningHistoryResponse, OverviewStats, PlayAnalytics,
+        PlaybackSession, PlaybackSessionStatus, PlaybackSessionType, RecordPlayRequest,
+        RecordVideoPlayRequest, SessionItem, SessionSong, SessionSummary, SongAnalyticsRequest,
+        TopAlbum, TopAlbumsRequest, TopArtist, TopArtistsRequest, TopSong, TopSongsRequest,
+        UpdatePlaybackSessionItemsRequest, UpdatePlaybackSessionProgressRequest,
+        UpdatePlaybackSessionStatusRequest, UserStats,
     };
 
     // musicbrainz types
@@ -693,30 +694,35 @@ pub mod type_registry {
         gen.add_schema::<UserStats>("UserStats");
         registered.insert("UserStats".to_string());
 
-        // listen session types
-        gen.add_schema::<ListenSession>("ListenSession");
-        registered.insert("ListenSession".to_string());
+        // playback session types
+        gen.add_schema::<SessionItem>("SessionItem");
+        registered.insert("SessionItem".to_string());
 
-        gen.add_schema::<ListenSessionType>("ListenSessionType");
-        registered.insert("ListenSessionType".to_string());
+        gen.add_schema::<PlaybackSession>("PlaybackSession");
+        registered.insert("PlaybackSession".to_string());
 
-        gen.add_schema::<ListenSessionStatus>("ListenSessionStatus");
-        registered.insert("ListenSessionStatus".to_string());
+        gen.add_schema::<PlaybackSessionType>("PlaybackSessionType");
+        registered.insert("PlaybackSessionType".to_string());
 
-        gen.add_schema::<CreateListenSessionRequest>("CreateListenSessionRequest");
-        registered.insert("CreateListenSessionRequest".to_string());
+        gen.add_schema::<PlaybackSessionStatus>("PlaybackSessionStatus");
+        registered.insert("PlaybackSessionStatus".to_string());
 
-        gen.add_schema::<UpdateListenSessionProgressRequest>("UpdateListenSessionProgressRequest");
-        registered.insert("UpdateListenSessionProgressRequest".to_string());
+        gen.add_schema::<CreatePlaybackSessionRequest>("CreatePlaybackSessionRequest");
+        registered.insert("CreatePlaybackSessionRequest".to_string());
 
-        gen.add_schema::<UpdateListenSessionSongsRequest>("UpdateListenSessionSongsRequest");
-        registered.insert("UpdateListenSessionSongsRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionProgressRequest>(
+            "UpdatePlaybackSessionProgressRequest",
+        );
+        registered.insert("UpdatePlaybackSessionProgressRequest".to_string());
 
-        gen.add_schema::<ListListenSessionsRequest>("ListListenSessionsRequest");
-        registered.insert("ListListenSessionsRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionItemsRequest>("UpdatePlaybackSessionItemsRequest");
+        registered.insert("UpdatePlaybackSessionItemsRequest".to_string());
 
-        gen.add_schema::<ListListenSessionsResponse>("ListListenSessionsResponse");
-        registered.insert("ListListenSessionsResponse".to_string());
+        gen.add_schema::<ListPlaybackSessionsRequest>("ListPlaybackSessionsRequest");
+        registered.insert("ListPlaybackSessionsRequest".to_string());
+
+        gen.add_schema::<ListPlaybackSessionsResponse>("ListPlaybackSessionsResponse");
+        registered.insert("ListPlaybackSessionsResponse".to_string());
 
         // musicbrainz types
         gen.add_schema::<SearchReleasesRequest>("SearchReleasesRequest");
@@ -1625,18 +1631,18 @@ pub mod type_registry {
         gen.add_schema::<StationFilter>("StationFilter");
         registered.insert("StationFilter".to_string());
 
-        // listen session request types
-        gen.add_schema::<GetListenSessionRequest>("GetListenSessionRequest");
-        registered.insert("GetListenSessionRequest".to_string());
+        // playback session request types
+        gen.add_schema::<GetPlaybackSessionRequest>("GetPlaybackSessionRequest");
+        registered.insert("GetPlaybackSessionRequest".to_string());
 
-        gen.add_schema::<DeleteListenSessionRequest>("DeleteListenSessionRequest");
-        registered.insert("DeleteListenSessionRequest".to_string());
+        gen.add_schema::<DeletePlaybackSessionRequest>("DeletePlaybackSessionRequest");
+        registered.insert("DeletePlaybackSessionRequest".to_string());
 
         gen.add_schema::<DeleteFeedEventRequest>("DeleteFeedEventRequest");
         registered.insert("DeleteFeedEventRequest".to_string());
 
-        gen.add_schema::<UpdateListenSessionStatusRequest>("UpdateListenSessionStatusRequest");
-        registered.insert("UpdateListenSessionStatusRequest".to_string());
+        gen.add_schema::<UpdatePlaybackSessionStatusRequest>("UpdatePlaybackSessionStatusRequest");
+        registered.insert("UpdatePlaybackSessionStatusRequest".to_string());
 
         // blob metadata request type
         gen.add_schema::<GetBlobMetadataRequest>("GetBlobMetadataRequest");

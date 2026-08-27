@@ -15,9 +15,15 @@ import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
-import { MediaImage } from "../../components/media/MediaImage";
+import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { VideoSeriesDetailPanel } from "../components/VideoSeriesDetailPanel";
+import { VideoSeriesCard } from "../components/VideoSeriesCard";
 import { useVideoSeriesListQuery } from "../queries/series";
+import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
+import { useToggleFavoriteMutation } from "../../music/queries/favorites";
+import { playVideoQueue } from "../services/queue/playVideoQueue";
+import { getVideoDataSource } from "../data";
 import { buildRoute } from "../../music/utils/routing";
 import type { VideoSeries } from "../data/types";
 
@@ -145,6 +151,7 @@ export function VideoSeriesView() {
       id: series.id,
       title: series.title,
       subtitle: series.description ?? undefined,
+      blobId: series.poster_blob_id,
       remoteBlobId: series.poster_blob_id,
       remoteServerId: series.remote_server_id,
       domainType: "video_series" as const,
@@ -196,6 +203,38 @@ export function VideoSeriesView() {
       setShowingDetailOnNarrow(true);
     }
     navigate(buildRoute(`/video/series/${series.id}`));
+  };
+
+  // favorite status + toggle for the "all series" grid's cards.
+  const seriesIds = createMemo(() => sortedSeries().map((s) => s.id));
+  const favoriteStatusesQuery = useVideoSeriesFavoriteStatuses(seriesIds);
+  const toggleFavoriteMutation = useToggleFavoriteMutation();
+  const handleSeriesFavoriteToggle = (seriesId: string, isFavorite: boolean) => {
+    toggleFavoriteMutation.mutate({
+      targetType: "video_series",
+      targetId: seriesId,
+      isFavorite,
+    });
+  };
+
+  const handleSeriesPlay = async (series: VideoSeries) => {
+    try {
+      const dataSource = getVideoDataSource();
+      const detail = await dataSource.getVideoSeriesDetail(series.id);
+      if (!detail) return;
+      const videos = [
+        ...detail.seasons.flatMap((season) => season.videos),
+        ...detail.unassignedVideos,
+      ];
+      if (videos.length === 0) return;
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series.title,
+        entity_id: series.id,
+      });
+    } catch (err) {
+      console.error("failed to play series:", err);
+    }
   };
 
   // handle back navigation on narrow
@@ -287,25 +326,19 @@ export function VideoSeriesView() {
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 wide:grid-cols-6 gap-4">
                 <For each={sortedSeries()}>
                   {(series) => (
-                    <div
-                      class="group cursor-pointer flex flex-col"
-                      onClick={() => handleSelectSeries(series)}
+                    <ContextMenu
+                      actions={useVideoSeriesContextMenu(series, [], {
+                        isFavorite: favoriteStatusesQuery.data?.has(series.id) ?? false,
+                      })}
                     >
-                      <div class="w-full aspect-square bg-[var(--color-bg-elevated)] rounded-lg mb-2 overflow-hidden">
-                        <MediaImage
-                          remoteBlobId={series.poster_blob_id}
-                          remoteServerId={series.remote_server_id}
-                          alt={series.title}
-                          showFallback={true}
-                          thumbnailSize={200}
-                          domainType="video_series"
-                          class="w-full h-full rounded-lg group-hover:rounded-none transition-all duration-300"
-                        />
-                      </div>
-                      <div class="text-sm font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors truncate">
-                        {series.title}
-                      </div>
-                    </div>
+                      <VideoSeriesCard
+                        series={series}
+                        onClick={handleSelectSeries}
+                        onPlay={handleSeriesPlay}
+                        isFavorite={favoriteStatusesQuery.data?.has(series.id) ?? false}
+                        onFavoriteToggle={handleSeriesFavoriteToggle}
+                      />
+                    </ContextMenu>
                   )}
                 </For>
               </div>

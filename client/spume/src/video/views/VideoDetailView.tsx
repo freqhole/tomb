@@ -12,6 +12,8 @@ import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
+import { ShareButton } from "../../components/buttons/ShareButton";
+import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import { formatDuration } from "../../utils/formatDuration";
 import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
@@ -43,7 +45,9 @@ import {
   resolveBlobUrl,
   usesBlobResolver,
   withThumbSuffix,
+  isValidHttpUrl,
 } from "../../music/services/storage/blobResolver";
+import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export function VideoDetailView() {
@@ -62,7 +66,12 @@ export function VideoDetailView() {
     beginImageCarouselLoading();
 
     const seen = new Set<string>();
-    const imageItems: Array<{ blobId?: string; url?: string; serverId?: string }> = [];
+    const imageItems: Array<{
+      localBlobId?: string;
+      remoteBlobId?: string;
+      serverId?: string;
+      url?: string;
+    }> = [];
 
     const addImage = (img: ImageMetadata) => {
       if (img.blob_type === "waveform") return;
@@ -70,9 +79,10 @@ export function VideoDetailView() {
       if (!key || seen.has(key)) return;
       seen.add(key);
       imageItems.push({
-        blobId: img.remote_blob_id || img.local_blob_id,
-        url: img.remote_url,
+        localBlobId: img.local_blob_id,
+        remoteBlobId: img.remote_blob_id,
         serverId: img.remote_server_id,
+        url: img.remote_url,
       });
     };
 
@@ -98,16 +108,27 @@ export function VideoDetailView() {
       ? await usesBlobResolver(firstWithServerId.serverId!)
       : false;
 
+    // a local blob already on this device wins first (covers the local
+    // library / no-remote-selected case, where images never carry a
+    // server id at all), then a resolver-backed remote blob, then a
+    // plain already-resolved http(s) url.
     const resolveOne = async (item: (typeof imageItems)[number]): Promise<ImageResolveResult> => {
-      if (needsResolution && item.blobId && item.serverId) {
+      if (item.localBlobId) {
+        const resolved = await getBlobObjectURL(item.localBlobId);
+        if (resolved) return { url: resolved };
+      }
+      if (needsResolution && item.remoteBlobId && item.serverId) {
         try {
-          const url = await resolveBlobUrl(item.blobId, item.serverId, "image");
+          const url = await resolveBlobUrl(item.remoteBlobId, item.serverId, "image");
           return { url };
         } catch {
-          return item.url ? { url: item.url } : null;
+          // fall through to the url check below
         }
       }
-      return item.url ? { url: item.url, thumbnailUrl: withThumbSuffix(item.url, 200) } : null;
+      if (isValidHttpUrl(item.url)) {
+        return { url: item.url!, thumbnailUrl: withThumbSuffix(item.url!, 200) };
+      }
+      return null;
     };
 
     await openImageCarouselFromResolvers(
@@ -121,6 +142,7 @@ export function VideoDetailView() {
 
   const [playPending, setPlayPending] = createSignal(false);
   const [queuePending, setQueuePending] = createSignal(false);
+  const currentRemoteFull = createCurrentRemoteFull();
 
   // favorite status query for this video
   const videoIds = createMemo(() => {
@@ -308,6 +330,10 @@ export function VideoDetailView() {
                     </button>
                   </Show>
                   <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                  <ShareButton
+                    target={{ kind: "video", id: video().id, displayTitle: video().title }}
+                    source={currentRemoteFull}
+                  />
                   <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                 </div>
               </div>

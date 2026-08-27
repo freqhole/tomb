@@ -58,7 +58,8 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
             created_by,
             updated_by,
             deleted_by,
-            '[]' as "images: JsonVec<ImageMetadata>""#,
+            '[]' as "images: JsonVec<ImageMetadata>",
+            NULL as "play_count: i64""#,
         req.series_id,
         req.season_id,
         req.episode_number,
@@ -130,7 +131,8 @@ pub async fn get_video(id: &str) -> GrimoireResponse<Video> {
             (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
          FROM videoz
          WHERE id = ? AND deleted_at IS NULL"#,
         id
@@ -194,6 +196,7 @@ pub async fn get_video_with_metadata(
         created_by_username: Option<String>,
         updated_by_username: Option<String>,
         images: String,
+        play_count: Option<i64>,
     }
 
     let result = sqlx::query_as::<_, QueryRow>(
@@ -224,7 +227,8 @@ pub async fn get_video_with_metadata(
             COALESCE((SELECT json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type))
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = v.id
-                   ORDER BY is_primary DESC, created_at DESC)), '[]') as images
+                   ORDER BY is_primary DESC, created_at DESC)), '[]') as images,
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = v.id) as play_count
          FROM videoz v
          LEFT JOIN media_blobz b ON v.media_blob_id = b.id
          LEFT JOIN user_accountz cu ON v.created_by = cu.id
@@ -281,6 +285,7 @@ pub async fn get_video_with_metadata(
         updated_by: row.updated_by,
         deleted_by: row.deleted_by,
         images: Some(JsonVec(images)),
+        play_count: row.play_count,
     };
 
     let video_with_metadata = crate::video::VideoWithMetadata {
@@ -335,7 +340,8 @@ pub async fn list_videos_by_series(series_id: &str) -> GrimoireResponse<Vec<Vide
             (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
          FROM videoz
          WHERE series_id = ? AND deleted_at IS NULL
          ORDER BY
@@ -392,7 +398,8 @@ pub async fn list_videos_by_season(season_id: &str) -> GrimoireResponse<Vec<Vide
             (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
          FROM videoz
          WHERE season_id = ? AND deleted_at IS NULL
          ORDER BY episode_number ASC, created_at ASC"#,
@@ -450,7 +457,8 @@ pub async fn list_videos_unattached(
             (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
              FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
                    WHERE entity_type = 'video' AND entity_id = videoz.id
-                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>"
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
          FROM videoz
          WHERE series_id IS NULL AND deleted_at IS NULL
          ORDER BY created_at DESC
@@ -515,7 +523,8 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 created_by,
                 updated_by,
                 deleted_by,
-                '[]' as "images: JsonVec<ImageMetadata>""#,
+                '[]' as "images: JsonVec<ImageMetadata>",
+                (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64""#,
         req.series_id,
         req.season_id,
         req.episode_number,

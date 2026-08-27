@@ -149,3 +149,62 @@ export async function clearVideoQueueHistory(): Promise<void> {
     errorLog("video/queueHistory", "clear failed:", error);
   }
 }
+
+// update the server session info on a history entry (called after creating
+// a server session) — mirrors music/services/queue/queueHistory.ts's
+// updateHistoryServerSession.
+export async function updateVideoHistoryServerSession(
+  id: string,
+  serverSessionId: string,
+  serverRemoteId: string
+): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_VIDEO_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: VideoQueueHistoryEntry = {
+      ...entry,
+      server_session_id: serverSessionId,
+      server_remote_id: serverRemoteId,
+    };
+
+    await db.put(STORE_VIDEO_QUEUE_HISTORY, updated);
+
+    setVideoQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, server_session_id: serverSessionId, server_remote_id: serverRemoteId }
+          : e
+      )
+    );
+  } catch (error) {
+    errorLog("video/queueHistory", "update server session failed:", error);
+  }
+}
+
+// clear the server session info from a history entry (called when server
+// session is no longer valid)
+export async function clearVideoHistoryServerSession(id: string): Promise<void> {
+  try {
+    const db = await initAppDB();
+    const entry = await db.get(STORE_VIDEO_QUEUE_HISTORY, id);
+    if (!entry) return;
+
+    const updated: VideoQueueHistoryEntry = {
+      ...entry,
+      server_session_id: undefined,
+      server_remote_id: undefined,
+    };
+
+    await db.put(STORE_VIDEO_QUEUE_HISTORY, updated);
+
+    setVideoQueueHistory((prev) =>
+      prev.map((e) =>
+        e.id === id ? { ...e, server_session_id: undefined, server_remote_id: undefined } : e
+      )
+    );
+  } catch (error) {
+    errorLog("video/queueHistory", "clear server session failed:", error);
+  }
+}

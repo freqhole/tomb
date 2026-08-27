@@ -39,7 +39,7 @@ import { clearAllQueueProgress, clearQueueItemProgress } from "./queueProgress";
 import {
   createServerSession,
   stopServerSession,
-  updateServerSessionSongs,
+  updateServerSessionItems,
   activeServerSessionId,
   activeSessionMatchesSource,
   reconnectServerSession,
@@ -274,7 +274,7 @@ export async function playQueue(
         }
       }
       if (!options?.skipServerSession) {
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
     }
     return;
@@ -315,9 +315,9 @@ export async function playQueue(
       }
       if (!options?.skipServerSession) {
         if (reuseSession) {
-          void updateServerSessionSongs(finalSongs, entryId ?? undefined);
+          void updateServerSessionItems(finalItems, entryId ?? undefined);
         } else {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
     }
@@ -344,7 +344,7 @@ export async function playQueue(
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
         if (!options?.skipServerSession) {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
       return;
@@ -367,7 +367,7 @@ export async function playQueue(
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
         if (!options?.skipServerSession) {
-          void createServerSession(finalSongs, options.source, entryId ?? undefined);
+          void createServerSession(finalItems, options.source, entryId ?? undefined);
         }
       }
       return;
@@ -426,9 +426,9 @@ async function playQueueInternal(
     if (existingEntryId) {
       void updateHistoryEntrySongs(existingEntryId, newQueueSongs);
       if (activeServerSessionId()) {
-        void updateServerSessionSongs(newQueueSongs);
+        void updateServerSessionItems(newQueue);
       } else if (!options?.skipServerSession) {
-        void createServerSession(newQueueSongs, options.source, existingEntryId);
+        void createServerSession(newQueue, options.source, existingEntryId);
       }
     } else {
       const entryId = await addHistoryEntry(newQueueSongs, options.source, options.resumeProgress);
@@ -440,7 +440,7 @@ async function playQueueInternal(
         }
       }
       if (!options?.skipServerSession) {
-        void createServerSession(newQueueSongs, options.source, entryId ?? undefined);
+        void createServerSession(newQueue, options.source, entryId ?? undefined);
       }
     }
   }
@@ -517,7 +517,7 @@ export async function addToQueue(
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
       return;
     }
@@ -539,7 +539,7 @@ export async function addToQueue(
       if (options?.source) {
         const entryId = await addHistoryEntry(finalSongs, options.source);
         if (entryId) startTracking(entryId);
-        void createServerSession(finalSongs, options.source, entryId ?? undefined);
+        void createServerSession(finalItems, options.source, entryId ?? undefined);
       }
       return;
     }
@@ -626,10 +626,10 @@ async function addToQueueInternal(
       void updateHistoryEntrySongs(existingEntryId, newQueueSongs);
       // sync server session: update active session with full queue
       if (activeServerSessionId()) {
-        void updateServerSessionSongs(newQueueSongs);
+        void updateServerSessionItems(newQueue);
       } else {
         // no active server session — create new and link to existing history entry
-        void createServerSession(newQueueSongs, source, existingEntryId);
+        void createServerSession(newQueue, source, existingEntryId);
       }
     } else {
       // no active entry — create a new one and start tracking
@@ -638,7 +638,7 @@ async function addToQueueInternal(
         startTracking(entryId);
       }
       // create new server session linked to the new history entry
-      void createServerSession(newQueueSongs, source, entryId ?? undefined);
+      void createServerSession(newQueue, source, entryId ?? undefined);
     }
   }
 }
@@ -698,7 +698,7 @@ export async function removeFromQueue(index: number): Promise<void> {
     if (entryId) {
       void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueueSongs);
+    void updateServerSessionItems(newQueue);
   } else {
     stopTracking();
     void stopServerSession("abandoned");
@@ -743,7 +743,7 @@ export async function clearSongsAbove(index: number): Promise<void> {
     if (entryId) {
       void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueueSongs);
+    void updateServerSessionItems(newQueue);
   } else {
     stopTracking();
     void stopServerSession("abandoned");
@@ -794,7 +794,7 @@ export async function clearSongsBelow(index: number): Promise<void> {
     if (entryId) {
       void updateHistoryEntrySongs(entryId, newQueueSongs);
     }
-    void updateServerSessionSongs(newQueueSongs);
+    void updateServerSessionItems(newQueue);
   }
 }
 
@@ -814,7 +814,7 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
   if (entryId) {
     void updateHistoryEntrySongs(entryId, newQueueSongs);
   }
-  void updateServerSessionSongs(newQueueSongs);
+  void updateServerSessionItems(newQueue);
 }
 
 // clear the entire queue and stop playback

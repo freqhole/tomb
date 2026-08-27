@@ -6,6 +6,8 @@ import {
   AlbumQueryResultSchema,
   ArtistQueryResultSchema,
   PlaylistQueryResultSchema,
+  VideoSchema,
+  VideoSeriesSchema,
 } from "../codegen/schema.js";
 
 // discriminated union for favorite items
@@ -31,6 +33,16 @@ const FavoriteItemSchema = z.discriminatedUnion("type", [
     favorited_at: z.number(),
     playlist: PlaylistQueryResultSchema,
   }),
+  z.object({
+    type: z.literal("video"),
+    favorited_at: z.number(),
+    video: VideoSchema,
+  }),
+  z.object({
+    type: z.literal("video_series"),
+    favorited_at: z.number(),
+    series: VideoSeriesSchema,
+  }),
 ]);
 
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
@@ -44,9 +56,7 @@ const ListFavoritesResponseSchema = z.object({
   limit: z.number(),
 });
 
-export type ListFavoritesResponse = z.infer<
-  typeof ListFavoritesResponseSchema
->;
+export type ListFavoritesResponse = z.infer<typeof ListFavoritesResponseSchema>;
 
 // export schemas for runtime validation if needed
 export { FavoriteItemSchema, ListFavoritesResponseSchema };

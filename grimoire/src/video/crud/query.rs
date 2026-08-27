@@ -407,6 +407,12 @@ pub async fn query_videos(
         ),
         Alias::new("images"),
     );
+    query.expr_as(
+        Expr::cust(
+            "(SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id)",
+        ),
+        Alias::new("play_count"),
+    );
     apply_filters(&mut query);
 
     let sort_direction = match params.sort_direction.as_deref() {

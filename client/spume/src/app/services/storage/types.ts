@@ -74,7 +74,8 @@ export interface QueueHistoryEntry {
 }
 
 // analytics event — queued locally for offline-first sync to server
-export type AnalyticsEventType = "play_complete" | "favorite" | "unfavorite" | "rate";
+export type AnalyticsEventType =
+  "play_complete" | "video_play_complete" | "favorite" | "unfavorite" | "rate";
 
 export type AnalyticsEventStatus = "pending" | "sending" | "failed" | "sent";
 
@@ -84,6 +85,7 @@ export interface AnalyticsEvent {
   payload: {
     media_blob_id?: string;
     song_id?: string;
+    video_id?: string;
     session_id?: string;
     event_data?: Record<string, unknown>;
     // routing: which remote this event should be sent to
@@ -108,9 +110,11 @@ export interface QueueSourceContext {
 
 // --- video queue history (parallel to the song history above) ---
 // kept as fully separate types/store from QueueHistoryEntry, which stays
-// song-only by design (see music/services/queue/queueHistory.ts). no
-// server_session fields yet — video remote progress sync is a separate,
-// much-less-frequent mechanism (see video/services/queue/videoListenProgress.ts).
+// song-only by design (see music/services/queue/queueHistory.ts). server
+// session linkage mirrors the song side (phase 5c of
+// docs/playlist-unification-plan.md) — see
+// video/services/queue/videoQueueHistory.ts's
+// updateVideoHistoryServerSession/clearVideoHistoryServerSession.
 export type VideoQueueHistorySourceType = "video" | "series" | "season" | "shuffle" | "playlist";
 
 // source context passed to addVideoHistoryEntry/playVideoQueue for history tracking
@@ -137,6 +141,10 @@ export interface VideoQueueHistoryEntry {
   videos_completed: number; // videos where >90% was watched
   current_video_index: number; // which video we're on (for resume)
   current_video_position: number; // position in current video (for resume)
+  // server session tracking (for reconnection after page reload) — mirrors
+  // QueueHistoryEntry's fields above
+  server_session_id?: string; // active server-side playback session id
+  server_remote_id?: string; // remote_server_id the session is on
 }
 
 // remote types - re-export from centralized zod schemas
@@ -173,7 +181,8 @@ export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
 export const STORE_VIDEO_QUEUE_HISTORY = "video_queue_history"; // capped at 200 entries by videoQueueHistory.ts
 
-export type SharedItemKind = "album" | "playlist" | "song" | "artist" | "radio_station";
+export type SharedItemKind =
+  "album" | "playlist" | "song" | "artist" | "radio_station" | "video" | "video_series";
 
 export interface SharedItemEntry {
   // deterministic dedupe key from (kind, id, parent, source)

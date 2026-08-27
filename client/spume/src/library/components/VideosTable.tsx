@@ -143,6 +143,9 @@ function VideoRow(props: {
       <td class="px-2 py-1 text-[var(--color-text-muted)]">
         {formatDuration(props.video.duration_seconds)}
       </td>
+      <td class="px-2 py-1 text-[var(--color-text-muted)]">
+        {props.video.play_count ? props.video.play_count : ""}
+      </td>
       <td class="px-2 py-1 text-[var(--color-text-muted)] whitespace-nowrap">{addedLabel()}</td>
       <Show when={props.onVideoRatingChange}>
         <td class="px-2 py-1" onClick={(e) => e.stopPropagation()}>
@@ -438,6 +441,7 @@ export function VideosTable(props: VideosTableProps) {
                 <th class="px-2 py-2 font-medium w-32">taxons</th>
                 <th class="px-2 py-2 font-medium w-28">tags</th>
                 <th class="px-2 py-2 font-medium w-20">duration</th>
+                <th class="px-2 py-2 font-medium w-16">plays</th>
                 <th class="px-2 py-2 font-medium w-24">added</th>
                 <Show when={props.onVideoRatingChange}>
                   <th class="px-2 py-2 font-medium w-24">rating</th>

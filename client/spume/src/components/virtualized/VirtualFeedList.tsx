@@ -72,6 +72,34 @@ function entityLabel(item: FeedItem): string {
   return "";
 }
 
+// video-only session_type values — video_series/video_season are named
+// entity groupings (mirrors album/artist/playlist), "video" is an ad-hoc
+// video queue (mirrors genre/shuffle/radio).
+const VIDEO_SESSION_TYPES = new Set(["video", "video_series", "video_season"]);
+
+// session icon — video-flavored sessions get the video icon, everything
+// else (song sessions, and "mixed" for lack of a dedicated combined icon)
+// keeps the existing headphones icon.
+function sessionIcon(sessionType: string | null): IconName {
+  return sessionType && VIDEO_SESSION_TYPES.has(sessionType) ? "video" : "headphones";
+}
+
+// "a listening session" / "a watching session" / "a listening & watching
+// session" — matches how the session's items actually skew.
+function sessionEntityLabel(sessionType: string | null): string {
+  if (sessionType === "mixed") return "a listening & watching session";
+  if (sessionType && VIDEO_SESSION_TYPES.has(sessionType)) return "a watching session";
+  return "a listening session";
+}
+
+// "tracks" / "videos" / "items" — the word used next to a session's
+// completed/total item counts.
+function sessionItemWord(sessionType: string | null): string {
+  if (sessionType === "mixed") return "items";
+  if (sessionType && VIDEO_SESSION_TYPES.has(sessionType)) return "videos";
+  return "tracks";
+}
+
 export interface VirtualFeedListProps {
   items: FeedItem[];
   height: number;
@@ -309,7 +337,13 @@ function FeedRow(props: {
   const [isRowHovered, setIsRowHovered] = createSignal(false);
   const [isThumbHovered, setIsThumbHovered] = createSignal(false);
 
-  const typeInfo = () => feedTypeInfo(props.item.feed_type);
+  const typeInfo = () => {
+    const info = feedTypeInfo(props.item.feed_type);
+    if (props.item.feed_type === "listen_session") {
+      return { ...info, icon: sessionIcon(props.item.session_type) };
+    }
+    return info;
+  };
   const images = () => props.item.images;
   const collageImages = () => props.item.collage_images;
 
@@ -320,8 +354,16 @@ function FeedRow(props: {
     // don't use collage if session has a specific entity type that should show its own image
     if (props.item.feed_type === "listen_session") {
       const sessionType = props.item.session_type;
-      // genre and shuffle can use collage, others should use entity image when available
-      if (sessionType === "playlist" || sessionType === "artist" || sessionType === "album") {
+      // genre/shuffle/radio/ad-hoc-video queues can use collage, named entity
+      // groupings (playlist/artist/album, and their video equivalents) should
+      // use entity image when available
+      if (
+        sessionType === "playlist" ||
+        sessionType === "artist" ||
+        sessionType === "album" ||
+        sessionType === "video_series" ||
+        sessionType === "video_season"
+      ) {
         // use entity image if available
         return !(images() && images()!.length > 0);
       }
@@ -383,7 +425,7 @@ function FeedRow(props: {
         return {
           user,
           verb: item.session_status === "active" ? "is having" : "had",
-          entity: "a listening session",
+          entity: sessionEntityLabel(item.session_type),
         };
       case "new_image": {
         const count = item.image_count ?? 1;
@@ -648,7 +690,9 @@ function FeedRow(props: {
             </div>
             <span class="text-[10px] text-[var(--color-text-muted)] flex-shrink-0 tabular-nums">
               {props.item.songs_completed}/{props.item.total_songs}
-              {(props.item.total_songs ?? 0) > 1 ? ` tracks \u00b7 ` : ` \u00b7 `}
+              {(props.item.total_songs ?? 0) > 1
+                ? ` ${sessionItemWord(props.item.session_type)} \u00b7 `
+                : ` \u00b7 `}
               {Math.round(progressPercent())}%
             </span>
           </div>
@@ -659,7 +703,10 @@ function FeedRow(props: {
           <div class="text-[11px] text-[var(--color-text-muted)]">
             {props.item.session_status}
             {(props.item.total_songs ?? 0) > 1 ? (
-              <> &middot; {props.item.total_songs} tracks</>
+              <>
+                {" "}
+                &middot; {props.item.total_songs} {sessionItemWord(props.item.session_type)}
+              </>
             ) : null}
           </div>
         </Show>

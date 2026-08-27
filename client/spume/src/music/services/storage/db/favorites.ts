@@ -4,7 +4,7 @@ import type { Favorite, Song } from "../types";
 import { STORE_FAVORITES, STORE_SONGS } from "../types";
 
 export async function setFavorite(
-  targetType: "song" | "album" | "artist" | "playlist" | "video",
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series",
   targetId: string,
   isFavorite: boolean
 ): Promise<void> {
@@ -23,7 +23,7 @@ export async function setFavorite(
 }
 
 export async function checkFavorite(
-  targetType: "song" | "album" | "artist" | "playlist" | "video",
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series",
   targetId: string
 ): Promise<boolean> {
   const db = await initMusicDB();
@@ -36,7 +36,7 @@ export async function checkFavorite(
 // denormalized `is_favorite` field on their own records and must resolve
 // favorite status from this shared favorites store instead.
 export async function getFavoritedTargetIds(
-  targetType: "song" | "album" | "artist" | "playlist" | "video"
+  targetType: "song" | "album" | "artist" | "playlist" | "video" | "video_series"
 ): Promise<Set<string>> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_FAVORITES).store.index("by_target_type");

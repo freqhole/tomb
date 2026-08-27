@@ -1472,15 +1472,18 @@ export const CreateKnockRequestSchema = z.object({
 });
 export type CreateKnockRequest = z.infer<typeof CreateKnockRequestSchema>;
 
-export const CreateListenSessionRequestSchema = z.object({
+export const CreatePlaybackSessionRequestSchema = z.object({
   session_type: z.string(),
   entity_id: z.string().nullish(),
   label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
   total_duration_ms: z.number()
 });
-export type CreateListenSessionRequest = z.infer<typeof CreateListenSessionRequestSchema>;
+export type CreatePlaybackSessionRequest = z.infer<typeof CreatePlaybackSessionRequestSchema>;
 
 export const CreatePlaylistRequestSchema = z.object({
   id: z.string().nullish(),
@@ -1601,15 +1604,15 @@ export const DeleteKnockRequestSchema = z.object({
 });
 export type DeleteKnockRequest = z.infer<typeof DeleteKnockRequestSchema>;
 
-export const DeleteListenSessionRequestSchema = z.object({
-  id: z.string()
-});
-export type DeleteListenSessionRequest = z.infer<typeof DeleteListenSessionRequestSchema>;
-
 export const DeletePasskeyRequestSchema = z.object({
   credential_id: z.string()
 });
 export type DeletePasskeyRequest = z.infer<typeof DeletePasskeyRequestSchema>;
+
+export const DeletePlaybackSessionRequestSchema = z.object({
+  id: z.string()
+});
+export type DeletePlaybackSessionRequest = z.infer<typeof DeletePlaybackSessionRequestSchema>;
 
 export const DeletePlaylistRequestSchema = z.object({
   playlist_id: z.string()
@@ -2361,6 +2364,51 @@ export const FavoriteItemSchema = z.union([z.intersection(z.object({
   is_favorite: z.boolean().nullish(),
   play_count: z.number().nullish()
 })
+})), z.intersection(z.object({
+  type: z.literal('Video')
+}), z.object({
+  favorited_at: z.number(),
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('VideoSeries')
+}), z.object({
+  favorited_at: z.number(),
+  series: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+})
 }))]);
 export type FavoriteItem = z.infer<typeof FavoriteItemSchema>;
 
@@ -2894,7 +2942,7 @@ export const GetEntityUrlsRequestSchema = z.object({
 export type GetEntityUrlsRequest = z.infer<typeof GetEntityUrlsRequestSchema>;
 
 export const GetFavoriteStatusBulkRequestSchema = z.object({
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   target_ids: z.array(z.string())
 });
 export type GetFavoriteStatusBulkRequest = z.infer<typeof GetFavoriteStatusBulkRequestSchema>;
@@ -2938,16 +2986,16 @@ export const GetKnockRequestSchema = z.object({
 });
 export type GetKnockRequest = z.infer<typeof GetKnockRequestSchema>;
 
-export const GetListenSessionRequestSchema = z.object({
-  id: z.string()
-});
-export type GetListenSessionRequest = z.infer<typeof GetListenSessionRequestSchema>;
-
 export const GetPlaybackProgressRequestSchema = z.object({
   entity_type: z.string(),
   entity_id: z.string()
 });
 export type GetPlaybackProgressRequest = z.infer<typeof GetPlaybackProgressRequestSchema>;
+
+export const GetPlaybackSessionRequestSchema = z.object({
+  id: z.string()
+});
+export type GetPlaybackSessionRequest = z.infer<typeof GetPlaybackSessionRequestSchema>;
 
 export const GetPlaylistRequestSchema = z.object({
   id: z.string()
@@ -3298,7 +3346,7 @@ export type ListEntityTypeTagsRequest = z.infer<typeof ListEntityTypeTagsRequest
 
 export const ListFavoritesRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")]).nullish(),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]).nullish(),
   limit: z.number().nullish(),
   offset: z.number().nullish()
 });
@@ -3600,6 +3648,51 @@ export const ListFavoritesResponseSchema = z.object({
   is_favorite: z.boolean().nullish(),
   play_count: z.number().nullish()
 })
+})), z.intersection(z.object({
+  type: z.literal('Video')
+}), z.object({
+  favorited_at: z.number(),
+  video: z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})
+})), z.intersection(z.object({
+  type: z.literal('VideoSeries')
+}), z.object({
+  favorited_at: z.number(),
+  series: z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish()
+})
 }))])),
   total_count: z.number(),
   has_more: z.boolean(),
@@ -3616,38 +3709,6 @@ export const ListJobsRequestSchema = z.object({
 });
 export type ListJobsRequest = z.infer<typeof ListJobsRequestSchema>;
 
-export const ListListenSessionsRequestSchema = z.object({
-  user_id: z.string().nullish(),
-  status: z.string().nullish(),
-  limit: z.number().nullish(),
-  offset: z.number().nullish()
-});
-export type ListListenSessionsRequest = z.infer<typeof ListListenSessionsRequestSchema>;
-
-export const ListListenSessionsResponseSchema = z.object({
-  items: z.array(z.object({
-  id: z.string(),
-  user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
-  entity_id: z.string().nullish(),
-  label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
-  songs_completed: z.number(),
-  total_duration_ms: z.number(),
-  listened_duration_ms: z.number(),
-  current_song_index: z.number(),
-  current_song_position_ms: z.number(),
-  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
-  created_at: z.number(),
-  updated_at: z.number(),
-  username: z.string().nullish(),
-  progress_percent: z.number().nullish()
-})),
-  total: z.number()
-});
-export type ListListenSessionsResponse = z.infer<typeof ListListenSessionsResponseSchema>;
-
 export const ListPendingReviewRequestSchema = z.object({
   session_id: z.string().nullish()
 });
@@ -3657,6 +3718,41 @@ export const ListPlaybackProgressRequestSchema = z.object({
   limit: z.number().nullish()
 });
 export type ListPlaybackProgressRequest = z.infer<typeof ListPlaybackProgressRequestSchema>;
+
+export const ListPlaybackSessionsRequestSchema = z.object({
+  user_id: z.string().nullish(),
+  status: z.string().nullish(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type ListPlaybackSessionsRequest = z.infer<typeof ListPlaybackSessionsRequestSchema>;
+
+export const ListPlaybackSessionsResponseSchema = z.object({
+  items: z.array(z.object({
+  id: z.string(),
+  user_id: z.string(),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]),
+  entity_id: z.string().nullish(),
+  label: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
+  items_completed: z.number(),
+  total_duration_ms: z.number(),
+  played_duration_ms: z.number(),
+  current_item_index: z.number(),
+  current_item_position_ms: z.number(),
+  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
+  created_at: z.number(),
+  updated_at: z.number(),
+  username: z.string().nullish(),
+  progress_percent: z.number().nullish()
+})),
+  total: z.number()
+});
+export type ListPlaybackSessionsResponse = z.infer<typeof ListPlaybackSessionsResponseSchema>;
 
 export const ListPlaylistItemsRequestSchema = z.object({
   playlist_id: z.string()
@@ -3781,33 +3877,6 @@ export const ListVideosUnattachedRequestSchema = z.object({
   offset: z.number().nullish()
 });
 export type ListVideosUnattachedRequest = z.infer<typeof ListVideosUnattachedRequestSchema>;
-
-export const ListenSessionSchema = z.object({
-  id: z.string(),
-  user_id: z.string(),
-  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]),
-  entity_id: z.string().nullish(),
-  label: z.string(),
-  song_ids: z.array(z.string()),
-  total_songs: z.number(),
-  songs_completed: z.number(),
-  total_duration_ms: z.number(),
-  listened_duration_ms: z.number(),
-  current_song_index: z.number(),
-  current_song_position_ms: z.number(),
-  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
-  created_at: z.number(),
-  updated_at: z.number(),
-  username: z.string().nullish(),
-  progress_percent: z.number().nullish()
-});
-export type ListenSession = z.infer<typeof ListenSessionSchema>;
-
-export const ListenSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
-export type ListenSessionStatus = z.infer<typeof ListenSessionStatusSchema>;
-
-export const ListenSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio")]);
-export type ListenSessionType = z.infer<typeof ListenSessionTypeSchema>;
 
 export const ListeningHistoryItemSchema = z.object({
   id: z.string(),
@@ -4382,6 +4451,36 @@ export const PlaybackProgressSchema = z.object({
   updated_at: z.number()
 });
 export type PlaybackProgress = z.infer<typeof PlaybackProgressSchema>;
+
+export const PlaybackSessionSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  session_type: z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]),
+  entity_id: z.string().nullish(),
+  label: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  total_items: z.number(),
+  items_completed: z.number(),
+  total_duration_ms: z.number(),
+  played_duration_ms: z.number(),
+  current_item_index: z.number(),
+  current_item_position_ms: z.number(),
+  status: z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]),
+  created_at: z.number(),
+  updated_at: z.number(),
+  username: z.string().nullish(),
+  progress_percent: z.number().nullish()
+});
+export type PlaybackSession = z.infer<typeof PlaybackSessionSchema>;
+
+export const PlaybackSessionStatusSchema = z.union([z.literal("active"), z.literal("paused"), z.literal("completed"), z.literal("abandoned")]);
+export type PlaybackSessionStatus = z.infer<typeof PlaybackSessionStatusSchema>;
+
+export const PlaybackSessionTypeSchema = z.union([z.literal("song"), z.literal("album"), z.literal("artist"), z.literal("taxon"), z.literal("playlist"), z.literal("shuffle"), z.literal("radio"), z.literal("video"), z.literal("video_series"), z.literal("video_season"), z.literal("mixed")]);
+export type PlaybackSessionType = z.infer<typeof PlaybackSessionTypeSchema>;
 
 export const PlayerCommandSchema = z.union([
 z.object({ kind: z.literal("load"), paths: z.array(z.string()) }),
@@ -5418,6 +5517,14 @@ export const RecordPlayRequestSchema = z.object({
 });
 export type RecordPlayRequest = z.infer<typeof RecordPlayRequestSchema>;
 
+export const RecordVideoPlayRequestSchema = z.object({
+  media_blob_id: z.string(),
+  video_id: z.string(),
+  session_id: z.string().nullish(),
+  event_data: z.any().nullish()
+});
+export type RecordVideoPlayRequest = z.infer<typeof RecordVideoPlayRequestSchema>;
+
 export const RedeemInviteRequestSchema = z.object({
   invite_code: z.string(),
   username: z.string().nullish(),
@@ -5858,7 +5965,8 @@ export const SeasonWithVideosSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 }))
 });
 export type SeasonWithVideos = z.infer<typeof SeasonWithVideosSchema>;
@@ -5916,7 +6024,8 @@ export const SeriesDetailSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 }))
 })),
   unassigned_videos: z.array(z.object({
@@ -5941,7 +6050,8 @@ export const SeriesDetailSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 }))
 });
 export type SeriesDetail = z.infer<typeof SeriesDetailSchema>;
@@ -5982,6 +6092,12 @@ export const ServerInfoResponseSchema = z.object({
   fetch_video_enabled: z.boolean().nullish()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
+
+export const SessionItemSchema = z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+});
+export type SessionItem = z.infer<typeof SessionItemSchema>;
 
 export const SessionSongSchema = z.object({
   song_id: z.string(),
@@ -6032,7 +6148,7 @@ export type SetAlbumTaxonsRequest = z.infer<typeof SetAlbumTaxonsRequestSchema>;
 
 export const SetFavoriteRequestSchema = z.object({
   user_id: z.string().nullish(),
-  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video")]),
+  target_type: z.union([z.literal("song"), z.literal("artist"), z.literal("album"), z.literal("taxon"), z.literal("playlist"), z.literal("video"), z.literal("video_series")]),
   target_id: z.string(),
   is_favorite: z.boolean()
 });
@@ -7023,32 +7139,35 @@ export const UpdateArtistRequestSchema = z.object({
 });
 export type UpdateArtistRequest = z.infer<typeof UpdateArtistRequestSchema>;
 
-export const UpdateListenSessionProgressRequestSchema = z.object({
-  id: z.string(),
-  progress: z.number()
-});
-export type UpdateListenSessionProgressRequest = z.infer<typeof UpdateListenSessionProgressRequestSchema>;
-
-export const UpdateListenSessionSongsRequestSchema = z.object({
-  id: z.string(),
-  song_ids: z.array(z.string()),
-  label: z.string(),
-  total_songs: z.number(),
-  total_duration_ms: z.number()
-});
-export type UpdateListenSessionSongsRequest = z.infer<typeof UpdateListenSessionSongsRequestSchema>;
-
-export const UpdateListenSessionStatusRequestSchema = z.object({
-  id: z.string(),
-  status: z.string()
-});
-export type UpdateListenSessionStatusRequest = z.infer<typeof UpdateListenSessionStatusRequestSchema>;
-
 export const UpdatePasskeyNameRequestSchema = z.object({
   credential_id: z.string(),
   name: z.string().nullish()
 });
 export type UpdatePasskeyNameRequest = z.infer<typeof UpdatePasskeyNameRequestSchema>;
+
+export const UpdatePlaybackSessionItemsRequestSchema = z.object({
+  id: z.string(),
+  items: z.array(z.object({
+  entity_type: z.string(),
+  entity_id: z.string()
+})),
+  label: z.string(),
+  total_items: z.number(),
+  total_duration_ms: z.number()
+});
+export type UpdatePlaybackSessionItemsRequest = z.infer<typeof UpdatePlaybackSessionItemsRequestSchema>;
+
+export const UpdatePlaybackSessionProgressRequestSchema = z.object({
+  id: z.string(),
+  progress: z.number()
+});
+export type UpdatePlaybackSessionProgressRequest = z.infer<typeof UpdatePlaybackSessionProgressRequestSchema>;
+
+export const UpdatePlaybackSessionStatusRequestSchema = z.object({
+  id: z.string(),
+  status: z.string()
+});
+export type UpdatePlaybackSessionStatusRequest = z.infer<typeof UpdatePlaybackSessionStatusRequestSchema>;
 
 export const UpdatePlaylistRequestSchema = z.object({
   playlist_id: z.string(),
@@ -7348,7 +7467,8 @@ export const VideoSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 });
 export type Video = z.infer<typeof VideoSchema>;
 
@@ -7458,7 +7578,8 @@ export const VideoWithMetadataSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 }),
   created_by_username: z.string().nullish(),
   updated_by_username: z.string().nullish(),
@@ -7495,7 +7616,8 @@ export const VideosQueryResultSchema = z.object({
   blob_id: z.string(),
   is_primary: z.number(),
   blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
-})).nullish()
+})).nullish(),
+  play_count: z.number().nullish()
 })),
   total_count: z.number(),
   has_more: z.boolean(),
