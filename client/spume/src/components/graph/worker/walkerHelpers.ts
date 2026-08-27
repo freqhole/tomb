@@ -85,16 +85,16 @@ export function nodeRadius(role: string, childCount: number): number {
     // breathing room around a fat catalog. 3 albums → 27 (unchanged),
     // 7 → ~37, 15 → ~46, 30+ → caps at ~51.
     case "artist":
-      return 27 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 5, 24);
+      return 32 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 5, 24);
     case "album":
-      return 16;
+      return 20;
     case "video":
-      return 19;
+      return 23;
     case "video_season":
-      return 21 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 3, 12);
+      return 25 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 3, 14);
     case "video_series":
       // sits just above the season tier, not as big as artist/remote.
-      return 19 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 2.5, 10);
+      return 24 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 2.5, 12);
     case "ghost_artist":
       return 8; // text-only, small footprint just for layout
     default:

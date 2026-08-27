@@ -56,6 +56,68 @@ function remapBreadcrumbToLeaders(crumb: string[]): string[] {
   return remapped.filter((id, i) => i === 0 || id !== remapped[i - 1]);
 }
 
+// ---- build the ancestor chain for a node not already on the breadcrumb ----
+//
+// the naive "expand" logic (walk back if found in breadcrumb, else append)
+// only works when every clickable node is either a breadcrumb ancestor or a
+// direct child of the current pivot. the auto-expand cascade (getVisible())
+// now surfaces nodes several hops below the pivot (e.g. a video_series deep
+// under a small taxon hub), so a click can target a node that's neither —
+// naively appending it left stale, unrelated branches (e.g. a sibling
+// relation hub from a previous pivot) stranded in the breadcrumb with no
+// real path to the new pivot, which read as a "disconnected" node once
+// visible() drew breadcrumb-set members without a coherent edge chain.
+//
+// "recently_added"/"unassigned"/"era"/"beloved"/"favorite(s)" relation hubs
+// (createPivotHandler's maybeLoad*ForPivot loaders) wire entities directly
+// to themselves as flat browse shortcuts, *alongside* the entity's real
+// taxonomy/series parent chain — so a video/album can have several
+// candidate parents in parentsOf. these synthetic hubs are keyed
+// `relation::{remoteId}::{kind}`; matching by that suffix instead of a
+// role check because they otherwise look like any other relation node.
+const SYNTHETIC_RELATION_KINDS = new Set([
+  "recently_added",
+  "unassigned",
+  "era",
+  "beloved",
+  "favorite",
+  "favorites",
+]);
+function isSyntheticHubParent(id: string): boolean {
+  const parts = id.split("::");
+  return parts.length === 3 && parts[0] === "relation" && SYNTHETIC_RELATION_KINDS.has(parts[2]);
+}
+
+// walks up parentsOf from `id`, preferring — at each step — a parent that's
+// already on the current breadcrumb (so the common, expected "walk forward
+// from pivot's child" case still resolves in one hop). when no breadcrumb
+// parent exists, prefers a non-synthetic-hub parent over a synthetic one so
+// e.g. a video's real "trek stuff" taxon chain wins over an incidental
+// "recently added"/"unassigned" browse-shortcut edge (array order there is
+// merge/fetch order, not meaning). returns the full chain from the shared
+// ancestor (or root, if none of the walked-up parents are on the
+// breadcrumb) down to `id`, in root→...→id order.
+function ancestorChainTo(id: string): string[] {
+  const chain: string[] = [id];
+  const seen = new Set<string>([id]);
+  let cur = id;
+  for (;;) {
+    const parents = parentsOf.get(cur) ?? [];
+    if (parents.length === 0) break;
+    const next =
+      parents.find((p) => state.breadcrumb.includes(p)) ??
+      parents.find((p) => !isSyntheticHubParent(p)) ??
+      parents[0];
+    if (seen.has(next)) break; // cycle guard
+    seen.add(next);
+    chain.push(next);
+    cur = next;
+    if (state.breadcrumb.includes(next)) break; // reached the existing path
+  }
+  chain.reverse();
+  return chain;
+}
+
 // ---- rebuild graph index (call after fullGraph changes) --------------------
 
 function indexGraph() {
@@ -106,7 +168,7 @@ function indexGraph() {
   clusterMembers.clear();
   clusterRemotes.clear();
   const artistByKey = new Map<string, string[]>(); // slug(label) -> [artistId]
-  const albumByKey  = new Map<string, string[]>(); // slug(artistLabel)::slug(albumLabel) -> [albumId]
+  const albumByKey = new Map<string, string[]>(); // slug(artistLabel)::slug(albumLabel) -> [albumId]
 
   // index artists first so albums can look up their parent's slug
   for (const n of state.fullGraph.nodes) {
@@ -127,9 +189,7 @@ function indexGraph() {
     // foreign-remote nodes into it). matches `relation::{remoteId}::unassigned`.
     const inUnassigned = parents.some((pid) => pid.endsWith("::unassigned"));
     if (inUnassigned) continue;
-    const artistParent = parents
-      .map((pid) => nodeMap.get(pid))
-      .find((p) => p?.role === "artist");
+    const artistParent = parents.map((pid) => nodeMap.get(pid)).find((p) => p?.role === "artist");
     if (!artistParent) continue;
     const k = `${slug(artistParent.label)}::${slug(n.label)}`;
     if (!k) continue;
@@ -218,8 +278,16 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         // walk back: trim breadcrumb to this node
         state.breadcrumb = state.breadcrumb.slice(0, idx + 1);
       } else {
-        // walk forward: append (only allowed from pivot's children)
-        state.breadcrumb = [...state.breadcrumb, leadId];
+        // walk forward, but rebuild via the real ancestor chain rather than
+        // blindly appending — the target may be an auto-expand-revealed
+        // node several hops below the pivot, or an unrelated sibling from a
+        // different branch entirely, neither of which is safe to just tack
+        // onto the end of the current breadcrumb (see ancestorChainTo doc).
+        const chain = ancestorChainTo(leadId);
+        const anchor = chain[0];
+        const anchorIdx = state.breadcrumb.indexOf(anchor);
+        state.breadcrumb =
+          anchorIdx >= 0 ? [...state.breadcrumb.slice(0, anchorIdx + 1), ...chain.slice(1)] : chain;
       }
 
       buildSim();
@@ -267,13 +335,13 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       // corners don't register. floored at 12 screen pixels (12/k in
       // world units) so small nodes stay clickable when zoomed out.
       const INRADIUS: Record<string, number> = {
-        root:     0.42, // freqhole mark — narrow at bottom
-        remote:   0.95, // rounded square — corners stay clickable
-        relation: 0.5,  // hexagon
-        value:    0.5,  // octagon
-        group:    0.5,  // 7-sided polygon, same inradius as octagon
-        artist:   0.5,  // circle
-        album:    0.95, // square — corners stay clickable
+        root: 0.42, // freqhole mark — narrow at bottom
+        remote: 0.95, // rounded square — corners stay clickable
+        relation: 0.5, // hexagon
+        value: 0.5, // octagon
+        group: 0.5, // 7-sided polygon, same inradius as octagon
+        artist: 0.5, // circle
+        album: 0.95, // square — corners stay clickable
       };
       const minR = 12 / Math.max(msg.k, 0.05);
       let best: string | null = null;
@@ -284,9 +352,31 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
         const dx = (n.x ?? 0) - msg.x;
         const dy = (n.y ?? 0) - msg.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const factor = INRADIUS[n.role] ?? 0.5;
-        const hitR = Math.max(n.radius * factor, minR);
-        if (dist <= hitR && dist < bestDist) {
+        let hit: boolean;
+        if (n.role === "video" || n.role === "video_series" || n.role === "video_season") {
+          // these are 16:9 rounded rects (see shapes.ts), not circles — a
+          // single circular inradius factor can't fit both the wide (1.175r)
+          // and short (0.66r) axes at once, so clicks near the left/right
+          // edges of the card were silently missing. hit-test the actual
+          // rectangle instead.
+          const px = msg.x - (n.x ?? 0);
+          const py = msg.y - (n.y ?? 0);
+          let halfW = Math.max(n.radius * 1.175, minR);
+          let halfH = Math.max(n.radius * 0.66, minR);
+          if (n.role === "video_series") {
+            // widen toward the top-right to also cover the "peeking" back
+            // cards drawn behind the front card (drawing.ts), which extend
+            // up to radius*0.32 beyond it in that direction.
+            if (px > 0) halfW += n.radius * 0.32;
+            if (py < 0) halfH += n.radius * 0.32;
+          }
+          hit = Math.abs(px) <= halfW && Math.abs(py) <= halfH;
+        } else {
+          const factor = INRADIUS[n.role] ?? 0.5;
+          const hitR = Math.max(n.radius * factor, minR);
+          hit = dist <= hitR;
+        }
+        if (hit && dist < bestDist) {
           bestDist = dist;
           best = n.id;
         }
@@ -298,7 +388,7 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
     case "merge": {
       const existingIds = new Set(state.fullGraph.nodes.map((n) => n.id));
       const existingEdgeKeys = new Set(
-        state.fullGraph.edges.map((e) => `${e.source as string}::${e.target as string}`),
+        state.fullGraph.edges.map((e) => `${e.source as string}::${e.target as string}`)
       );
       for (const n of msg.addNodes) {
         if (!existingIds.has(n.id)) {
@@ -329,7 +419,7 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       const drop = new Set(msg.nodeIds);
       state.fullGraph.nodes = state.fullGraph.nodes.filter((n) => !drop.has(n.id));
       state.fullGraph.edges = state.fullGraph.edges.filter(
-        (e) => !drop.has(e.source as string) && !drop.has(e.target as string),
+        (e) => !drop.has(e.source as string) && !drop.has(e.target as string)
       );
       // also prune from breadcrumb so we don't strand the pivot on a
       // node that no longer exists.

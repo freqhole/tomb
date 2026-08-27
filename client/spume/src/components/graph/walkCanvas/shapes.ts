@@ -123,20 +123,33 @@ export function nodeShapePath(
       break;
     }
     case "video_series": {
-      // front (dominant) card only — the two "peeking" back cards are
-      // drawn separately as outline squares by drawNode (see drawing.ts)
-      // before this shape's own fill+stroke pass, so they read as layered
-      // behind it. this keeps the hit-test/fill contract here a single
-      // simple shape, matching every other role. 16:9 (same ratio as
-      // "video") rather than square — series are meant to read as a
-      // stack of widescreen video cards, not a photo album; the "bigger"
-      // half of the size bump comes from `nodeRadius.ts`'s larger base r
-      // for this role, not from the multipliers here.
+      // front (dominant) card only when gap===0 (the fill/hit-test pass) —
+      // the two "peeking" back cards are drawn separately by drawNode (see
+      // drawing.ts) before this shape's own fill+stroke pass, so they read
+      // as layered behind it. 16:9 (same ratio as "video") rather than
+      // square — series are meant to read as a stack of widescreen video
+      // cards, not a photo album; the "bigger" half of the size bump comes
+      // from `nodeRadius.ts`'s larger base r for this role, not from the
+      // multipliers here.
+      //
+      // ring passes (gap>0, from WalkCanvas's hover/selection outline)
+      // additionally widen toward the top-right by the same offset the
+      // peek cards use (radius*0.32, see drawing.ts), so the ring hugs the
+      // full icon (front + peeks) instead of just the front card — a
+      // symmetric gap left the ring floating away from the front card on
+      // the bottom-left while clipping/crowding the peek cards up top-right.
       const halfW = (r + gap) * 1.175;
       const halfH = (r + gap) * 0.66;
       const cornerR = Math.max(2, halfH * 0.18);
+      const peekExtra = gap > 0 ? r * 0.32 : 0;
       ctx.beginPath();
-      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      ctx.roundRect(
+        x - halfW,
+        y - halfH - peekExtra,
+        halfW * 2 + peekExtra,
+        halfH * 2 + peekExtra,
+        cornerR
+      );
       break;
     }
     case "video_season": {

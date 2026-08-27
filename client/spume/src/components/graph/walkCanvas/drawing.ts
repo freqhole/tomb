@@ -176,14 +176,22 @@ export function drawNode(
               : 2
             : 1;
 
-  // video_series: draw the two "peeking" back cards as outline 16:9
-  // rectangles (matching the front card's ratio) before the front card's
-  // own fill+stroke pass below, so they read as layered behind it
+  // video_series: draw the two "peeking" back cards as opaque-black-filled
+  // 16:9 rectangles (matching the front card's ratio) before the front
+  // card's own fill+stroke pass below, so they read as layered behind it
   // (mirrors VideoSeriesIcon's dominant-front + thin-peeks silhouette,
-  // without reusing the SVG path directly on canvas).
+  // without reusing the SVG path directly on canvas). filled (not just
+  // outlined) so edges/lines passing behind the node are visually
+  // occluded by the peek cards, matching the front card's own opacity.
+  // stroke intentionally does NOT use the pivot/hover/selection-emphasis
+  // color+width computed above (that's reserved for the front card only,
+  // just below) — giving the peek cards their own emphasis ring made all
+  // three rectangles' edges bold at once, reading as overlapping/crossed
+  // outlines instead of one clean silhouette ring around the icon.
   if (n.role === "video_series") {
     const step = radius * 0.16;
     ctx.save();
+    ctx.strokeStyle = color;
     ctx.lineWidth = Math.max(1, radius * 0.08);
     for (const mul of [2, 1]) {
       const halfW = radius * 1.175;
@@ -193,6 +201,8 @@ export function drawNode(
       const cornerR = Math.max(1, halfH * 0.18);
       ctx.beginPath();
       ctx.roundRect(px - halfW, py - halfH, halfW * 2, halfH * 2, cornerR);
+      ctx.fillStyle = "#000000";
+      ctx.fill();
       ctx.stroke();
     }
     ctx.restore();

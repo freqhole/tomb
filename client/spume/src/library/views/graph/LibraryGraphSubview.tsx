@@ -126,6 +126,8 @@ import {
   groupNodeId,
   artistNodeId,
   albumNodeId,
+  videoNodeId,
+  videoSeriesNodeId,
   type RelationKind,
 } from "../../../components/graph/data/nodeIds";
 import type { WalkNode, WalkEdge } from "../../../components/graph/types";
@@ -1295,15 +1297,22 @@ function Inner(props: {
     if (!client) return;
     const unsub = client.onVisibleIds((ids) => {
       setVisibleIds(ids);
-      // when any group has been eagerly expanded, drive album loading
-      // for every visible value/group so the worker's subtree DFS can
-      // surface the resulting artist + album nodes on the next pass.
-      // maybeLoadAlbumsForPivot dedupes via albumsLoadedByPivot.
-      if (eagerHubIds().size > 0) {
-        for (const id of ids) {
-          if (id.startsWith("value::") || id.startsWith("group::")) {
-            void maybeLoadAlbumsForPivot(id);
-          }
+      // drive lazy loading for every visible taxon hub, not just ones the
+      // user has manually eager-expanded: the worker's getVisible() only
+      // ever surfaces a relation hub's values (or a value/group's albums/
+      // videos) once that data is merged in, so a small hub that hasn't
+      // been clicked into yet would otherwise sit there with a low child
+      // count and nothing to show — this is what actually lets the
+      // worker's own small-hub auto-expand (walkerLayout.ts) cascade
+      // without an explicit click. all of these dedupe against their own
+      // *LoadedBy*/*FetchPromises maps, so re-firing per visible-ids tick
+      // is cheap.
+      for (const id of ids) {
+        if (id.startsWith("relation::")) {
+          void maybeLoadTaxonsForPivot(id);
+        } else if (id.startsWith("value::") || id.startsWith("group::")) {
+          void maybeLoadAlbumsForPivot(id);
+          void maybeLoadVideosForPivot(id);
         }
       }
       // prefetch related-artist edges for every visible artist node so
@@ -2854,6 +2863,7 @@ function Inner(props: {
     findArtistNodeId,
     maybeLoadTaxonsForPivot,
     maybeLoadAlbumsForPivot,
+    maybeLoadVideosForPivot,
     maybeLoadRelatedArtistsForPivot,
     reloadUnassignedPage,
     resetMergedState,
@@ -2976,6 +2986,9 @@ function Inner(props: {
       artist_name?: string;
       album_id?: string;
       album_title?: string;
+      series_id?: string;
+      series_name?: string;
+      video_count?: number;
     };
 
     if (s.suggestion_type === "playlist") return null;
@@ -3036,6 +3049,52 @@ function Inner(props: {
       stubEdges.push({ source: parentId, target: albumId });
       ancestors.push(albumId);
       return { nodeId: albumId, ancestors, taxonRelHubId: null, stubNodes, stubEdges };
+    }
+
+    if (s.suggestion_type === "video") {
+      if (!s.entity_id) return null;
+      const vId = videoNodeId(remoteId, s.entity_id);
+      const stubNodes: WalkNode[] = [];
+      const stubEdges: WalkEdge[] = [];
+      let parentId: string = rHub;
+      const ancestors: string[] = [rHub];
+      if (meta.series_id) {
+        const serId = videoSeriesNodeId(remoteId, meta.series_id);
+        stubNodes.push({
+          id: serId,
+          role: "video_series",
+          label: meta.series_name ?? "unknown series",
+          parentId: rHub,
+          childCount: 1,
+        });
+        stubEdges.push({ source: rHub, target: serId });
+        parentId = serId;
+        ancestors.push(serId);
+      }
+      stubNodes.push({ id: vId, role: "video", label: s.display, parentId, childCount: 0 });
+      stubEdges.push({ source: parentId, target: vId });
+      ancestors.push(vId);
+      return { nodeId: vId, ancestors, taxonRelHubId: null, stubNodes, stubEdges };
+    }
+
+    if (s.suggestion_type === "video_series") {
+      if (!s.entity_id) return null;
+      const serId = videoSeriesNodeId(remoteId, s.entity_id);
+      return {
+        nodeId: serId,
+        ancestors: [rHub, serId],
+        taxonRelHubId: null,
+        stubNodes: [
+          {
+            id: serId,
+            role: "video_series",
+            label: s.display,
+            parentId: rHub,
+            childCount: meta.video_count ?? 0,
+          },
+        ],
+        stubEdges: [{ source: rHub, target: serId }],
+      };
     }
 
     // taxon
@@ -3115,7 +3174,12 @@ function Inner(props: {
     // renders alongside the seeded leaf.
     for (const id of ancestors) {
       if (id === nodeId) continue;
-      if (id.startsWith("artist::") || id.startsWith("value::") || id.startsWith("group::")) {
+      if (
+        id.startsWith("artist::") ||
+        id.startsWith("value::") ||
+        id.startsWith("group::") ||
+        id.startsWith("video_series::")
+      ) {
         handlePivot(id);
       }
     }

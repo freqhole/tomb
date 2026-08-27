@@ -198,6 +198,18 @@ export function getVisible(): Set<string> {
   // in the merge/remove handlers), the auto-expansion check below finds
   // the correct leader id rather than silently skipping the album ring.
   const breadcrumbSet = new Set(state.breadcrumb.map(leaderOf));
+  // surface every direct parent hub of the pivot itself — not just the
+  // single ancestor chain picked for the breadcrumb (see ancestorChainTo
+  // in walker.worker.ts, which only picks one "best" path for navigation).
+  // an entity can have several real incoming edges at once: its real
+  // taxonomy/series parent AND synthetic browse-shortcut hubs like
+  // "recently added"/"unassigned"/"era"/"beloved" (createPivotHandler's
+  // maybeLoad*ForPivot loaders wire those directly to the entity too).
+  // all of them should draw a wire to the pivot, not just the one that
+  // happened to become its breadcrumb ancestor.
+  for (const parentId of parentsOf.get(piv) ?? []) {
+    visible.add(parentId);
+  }
   // honor eager-expansion requests: long-press / "expand all" on a hub
   // walks the entire descendant taxon subtree from that hub, surfacing\n  // every value/group taxon plus every artist found along the way. each
   // surfaced artist is then treated as auto-expand source for its albums.
@@ -228,6 +240,58 @@ export function getVisible(): Set<string> {
           stack.push(childId);
         }
       }
+    }
+  }
+  // auto-expand small taxon hubs so, once the user has actually pivoted
+  // INTO a given hub, browsing its low-cardinality children doesn't force
+  // a click-in + click-back for every single one. seeded only from the
+  // current pivot's own (already-visible) direct children — never from
+  // unrelated nodes that merely happen to be visible for other reasons
+  // (e.g. sibling relation hubs sitting next to the pivot) — so that
+  // navigating back to a shallower pivot naturally "closes" this bloom
+  // instead of leaving stale, off-branch nodes stuck visible. also
+  // skipped entirely when the pivot IS the remote hub: relation hubs
+  // (genre/mood/era/etc.) are the top-level taxonomy menu and should
+  // stay a manual click regardless of how few values a given kind has.
+  const AUTO_EXPAND_MAX_CHILDREN = 12;
+  const AUTO_EXPAND_MAX_DEPTH = 4;
+  if (pivRole !== "remote") {
+    const isSmallHub = (wn: { role: string; childCount: number } | undefined): boolean =>
+      !!wn &&
+      (wn.role === "relation" ||
+        wn.role === "value" ||
+        wn.role === "group" ||
+        wn.role === "video_series" ||
+        wn.role === "video_season") &&
+      wn.childCount > 0 &&
+      wn.childCount <= AUTO_EXPAND_MAX_CHILDREN;
+    let frontier = clusterChildrenOf(piv).filter((id) => isSmallHub(nodeMap.get(id)));
+    const seen = new Set<string>(frontier);
+    for (let depth = 0; depth < AUTO_EXPAND_MAX_DEPTH && frontier.length > 0; depth++) {
+      const next: string[] = [];
+      for (const hubId of frontier) {
+        for (const childId of clusterChildrenOf(hubId)) {
+          if (seen.has(childId)) continue;
+          seen.add(childId);
+          const child = nodeMap.get(childId);
+          if (!child) continue;
+          if (
+            (child.role === "value" || child.role === "relation") &&
+            child.childCount === 0 &&
+            !child.lazy
+          )
+            continue;
+          if (child.role === "album") continue; // handled via artist pass below
+          visible.add(childId);
+          if (child.role === "artist") {
+            eagerArtists.add(childId);
+          }
+          if (isSmallHub(child)) {
+            next.push(childId);
+          }
+        }
+      }
+      frontier = next;
     }
   }
   for (const id of [...visible]) {
