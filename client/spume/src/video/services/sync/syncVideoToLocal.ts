@@ -1,23 +1,71 @@
 // sync-to-local for remote video playback — mirrors the essential shape of
 // music/services/sync/syncSongToLocal.ts, deliberately scoped down: dedup
 // by the video's own id (not a content hash — `Video` has no sha256 field
-// yet), no progress UI, no pause/resume, no P2P-specific optimization
-// beyond what `resolveBlobUrl` already gives us for free (a P2P/charnel
-// blob already fetched for playback is served from its Cache API entry,
-// not re-downloaded).
+// yet), no pause/resume, no P2P-specific optimization beyond what
+// `resolveBlobUrl`/`preCacheP2PBlob` already give us for free (a P2P/
+// charnel blob already fetched for playback is served from its Cache API
+// entry, not re-downloaded). download progress reuses the same generic
+// loading-set/progress tracking (keyed by video.id) that the on-demand
+// playback path (videoBlobAccess.ts) already wires up, via preCacheP2PBlob/
+// preCacheBlob rather than a raw untracked fetch.
 //
 // fired (fire-and-forget) from VideoBackend.loadAndPlay whenever a remote
 // video is played and the "sync queue to local" setting is on.
 
-import { resolveBlobUrl } from "../../../music/services/storage/blobResolver";
+import {
+  resolveBlobUrl,
+  usesBlobResolver,
+  preCacheP2PBlob,
+} from "../../../music/services/storage/blobResolver";
+import { preCacheBlob, getCachedBlob } from "../../../music/services/cache/blobCache";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
+import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { addLocalVideo, getLocalVideoById } from "../storage/db/videos";
 import { markVideoSynced } from "../syncState";
 import { writeVideoPosterToOPFS, writeVideoToOPFS } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../videoBlobAccess";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { debug, warn } from "../../../utils/logger";
+
+/** fetch the full video blob, tracking download progress under `video.id`
+ *  via the same generic loading-set/progress machinery the on-demand
+ *  playback path uses (see videoBlobAccess.ts's HTTP branch and
+ *  blobResolver.ts's P2P branch) — never a plain untracked fetch. */
+async function fetchVideoBlobWithProgress(
+  video: QueuedVideo,
+  remoteId: string,
+  blobId: string
+): Promise<Blob> {
+  if (await usesBlobResolver(remoteId)) {
+    // P2P/charnel: preCacheP2PBlob tracks addToLoadingSet/updateLoadingProgress
+    // itself (type "video", trackingId=video.id) while warming the cache.
+    await preCacheP2PBlob(blobId, remoteId, video.id, "video");
+    const cached = await getCachedBlob(remoteId, blobId);
+    if (cached) return cached.blob();
+    // fallback: preCacheP2PBlob failed silently (e.g. remote unreachable) —
+    // resolve directly, without progress, rather than give up entirely.
+    const url = await resolveBlobUrl(blobId, remoteId, "video");
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
+    return response.blob();
+  }
+
+  // plain HTTP remote: preCacheBlob streams into the Cache API with real
+  // received/total progress (same call videoBlobAccess.ts's HTTP path uses).
+  const remote = await getRemoteById(remoteId);
+  if (!remote?.base_url) {
+    throw new Error(`remote ${remoteId} has no base_url`);
+  }
+  const directUrl = `${remote.base_url}/api/blobs/${blobId}`;
+  await preCacheBlob(directUrl, "video", remoteId, blobId, 3, video.id);
+  const cached = await getCachedBlob(remoteId, blobId);
+  if (cached) return cached.blob();
+  // fallback: caching failed — fetch directly without progress.
+  const response = await fetch(directUrl);
+  if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
+  return response.blob();
+}
 
 const MIME_TO_EXTENSION: Record<string, string> = {
   "video/mp4": "mp4",
@@ -62,16 +110,13 @@ export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
     }
 
     const blobId = await resolvePlaybackBlobId(video, video.remote_server_id);
-    const videoUrl = await resolveBlobUrl(blobId, video.remote_server_id, "video");
-    const videoResponse = await fetch(videoUrl);
-    if (!videoResponse.ok) {
-      warn(
-        "videoSync",
-        `fetch failed for video ${video.id} (status ${videoResponse.status}), skipping sync`
-      );
+    let videoBlob: Blob;
+    try {
+      videoBlob = await fetchVideoBlobWithProgress(video, video.remote_server_id, blobId);
+    } catch (err) {
+      warn("videoSync", `fetch failed for video ${video.id}, skipping sync:`, err);
       return;
     }
-    const videoBlob = await videoResponse.blob();
     const extension = extensionFromMime(videoBlob.type);
     const opfsPath = await writeVideoToOPFS(videoBlob, video.id, extension);
 

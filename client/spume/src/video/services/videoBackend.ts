@@ -25,7 +25,17 @@ import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { installVideoPlaybackOrchestrator } from "./queue/videoPlaybackOrchestrator";
 import { error as errorLog, debug } from "../../utils/logger";
 import { registerWatchdog } from "../../music/services/audio/mediaSessionBridge";
-import { isPlaying } from "../../music/services/audio/playerState";
+import {
+  isPlaying,
+  pendingUpNextSha256,
+  setPendingUpNextSha256,
+} from "../../music/services/audio/playerState";
+import {
+  addToLoadingSet,
+  updateLoadingProgress,
+  removeFromLoadingSet,
+} from "../../music/services/download";
+import type { BlobProgressCallback } from "@freqhole/api-client";
 
 // video-side counterpart of `music/services/audio/player.ts`'s
 // `installPlaybackOrchestrator()` call — installed here (rather than in
@@ -182,17 +192,47 @@ export class VideoBackend implements PlayerBackend {
 
     this.emit({ kind: "state", state: "loading" });
 
+    // track download progress under the video's own `id` (never sha256/
+    // blake3 — those are song/content-hash concepts, videos have no
+    // content-hash field yet) so the queue-row underline + playerbar ring
+    // (both keyed generically, see downloadState.ts) light up for remote
+    // video playback the same way they already do for songs.
+    addToLoadingSet(video.id);
+    updateLoadingProgress(video.id, null); // indeterminate until we get total size
+    const onProgress: BlobProgressCallback = (received, total) => {
+      if (total > 0) {
+        updateLoadingProgress(video.id, received / total);
+      }
+    };
+
+    // mirrors htmlAudio.ts's `setPendingUpNextSha256` — `setCurrentSong`
+    // below (which is what AppLayout's `currentVideoData`/`current_sha256`
+    // reads react to) only happens *after* the fetch resolves, so without
+    // this the playerbar's `mediaTransferProgress` memo has no id to look
+    // up while the download is actually in flight.
+    setPendingUpNextSha256(video.id);
+
     let url: string;
     try {
-      url = await getVideoURL(video);
+      url = await getVideoURL(video, onProgress);
     } catch (err) {
       errorLog(
         "player.video",
         `getVideoURL failed for "${video.title}":`,
         err instanceof Error ? err.message : err
       );
+      if (pendingUpNextSha256() === video.id) {
+        setPendingUpNextSha256(null);
+      }
       this.emit({ kind: "state", state: "stopped" });
       throw err;
+    } finally {
+      removeFromLoadingSet(video.id);
+    }
+
+    // user may have switched to a different item while we were downloading.
+    if (pendingUpNextSha256() === video.id) {
+      setPendingUpNextSha256(null);
     }
 
     this.currentVideoId = video.id;

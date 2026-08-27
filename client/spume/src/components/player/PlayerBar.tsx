@@ -57,6 +57,12 @@ export interface PlayerBarProps {
   isLoading?: boolean;
   /** whether there's a pending "up next" song loading (shows spinner but keeps current song info) */
   hasUpNext?: boolean;
+  /** live download/transfer progress (0..1) of the currently-playing song
+   * or video's own blob fetch, if known (shared loadingIds/progress map —
+   * see music/services/download). drives the play/pause loading ring as a
+   * determinate fill instead of a plain indeterminate spin, same treatment
+   * as `externalStorageProgress` below but for the single active item. */
+  mediaTransferProgress?: number | null;
   /** current time in seconds */
   currentTime: number;
   /** total duration in seconds */
@@ -198,6 +204,14 @@ export function PlayerBar(props: PlayerBarProps) {
   const externalStorageTitle = () => {
     const p = props.externalStorageProgress;
     return p ? `syncing to removable storage (${p.current}/${p.total})` : "removable storage";
+  };
+  // percent complete for the play/pause loading ring, or null to fall back
+  // to the plain indeterminate spin (no progress known yet, e.g. still
+  // waiting on a content-length header).
+  const mediaTransferProgressPct = () => {
+    const p = props.mediaTransferProgress;
+    if (typeof p !== "number") return null;
+    return Math.min(100, Math.max(0, p * 100));
   };
   // true while a click on the thumbnail is still resolving image urls
   // for the carousel — shows a spinner instead of the carousel icon.
@@ -571,17 +585,23 @@ export function PlayerBar(props: PlayerBarProps) {
             </Show>
 
             <div class="relative">
-              {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
+              {/* loading ring - gradient arc (shows for isLoading OR hasUpNext),
+                  determinate fill once mediaTransferProgress is known */}
               <Show when={props.isLoading || props.hasUpNext}>
                 <div
                   class="absolute inset-[-4px] rounded-full pointer-events-none"
                   style={{
                     background:
-                      "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                      mediaTransferProgressPct() !== null
+                        ? `conic-gradient(from -90deg, #ec4899 ${mediaTransferProgressPct()}%, #ec489930 ${mediaTransferProgressPct()}%)`
+                        : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                     mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                     "-webkit-mask":
                       "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                    animation: "spin 1.5s linear infinite",
+                    animation:
+                      mediaTransferProgressPct() !== null ? undefined : "spin 1.5s linear infinite",
+                    transition:
+                      mediaTransferProgressPct() !== null ? "background 150ms ease-out" : undefined,
                   }}
                 />
               </Show>
@@ -813,17 +833,23 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
 
           <div class="relative">
-            {/* loading ring - gradient arc (shows for isLoading OR hasUpNext) */}
+            {/* loading ring - gradient arc (shows for isLoading OR hasUpNext),
+                determinate fill once mediaTransferProgress is known */}
             <Show when={props.isLoading || props.hasUpNext}>
               <div
                 class="absolute inset-[-4px] rounded-full pointer-events-none"
                 style={{
                   background:
-                    "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                    mediaTransferProgressPct() !== null
+                      ? `conic-gradient(from -90deg, #ec4899 ${mediaTransferProgressPct()}%, #ec489930 ${mediaTransferProgressPct()}%)`
+                      : "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
                   mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
                   "-webkit-mask":
                     "radial-gradient(farthest-side, transparent calc(100% - 3px), black calc(100% - 3px))",
-                  animation: "spin 1.5s linear infinite",
+                  animation:
+                    mediaTransferProgressPct() !== null ? undefined : "spin 1.5s linear infinite",
+                  transition:
+                    mediaTransferProgressPct() !== null ? "background 150ms ease-out" : undefined,
                 }}
               />
             </Show>

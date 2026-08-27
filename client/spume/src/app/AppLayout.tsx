@@ -64,7 +64,12 @@ import {
   clearExternalMediaSession,
   setExternalMediaSession,
 } from "../music/services/audio/mediaSessionBridge";
-import { getVisibleLoadingIds, isSongSyncedLocally } from "../music/services/download";
+import {
+  getVisibleLoadingIds,
+  isSongSyncedLocally,
+  getLoadingProgress,
+  getLoadingIds,
+} from "../music/services/download";
 import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
@@ -280,6 +285,33 @@ export function AppLayout(props: AppLayoutProps) {
       loadingSet.add(currentSha256);
     }
     return loadingSet;
+  });
+
+  // download/transfer progress (0..1) of whichever item is currently
+  // loading — the active video takes priority (no video is ever also the
+  // current song). gated on the download module's own tracked-ids set
+  // (getLoadingIds, NOT the playback-level `isLoading` signal above —
+  // that one only flips true once decoding starts, well *after* the blob
+  // fetch this progress reflects has already finished for some backends,
+  // e.g. htmlAudio.ts's synthetic "loading" state is emitted post-fetch).
+  // prefers `pendingUpNextSha256` (despite the name, holds a `mediaItemKey`
+  // — song sha256 OR video id — for whichever item is actively being
+  // fetched, set before appState().current_sha256 flips over — see
+  // htmlAudio.ts and videoBackend.ts) so progress shows for the *incoming*
+  // item, not a stale current one. drives the playerbar's play/pause ring
+  // as a determinate fill instead of a plain indeterminate spin.
+  const mediaTransferProgress = createMemo<number | null>(() => {
+    const videoId = currentVideoData()?.id;
+    if (videoId && getLoadingIds().has(videoId)) {
+      const p = getLoadingProgress(videoId);
+      return typeof p === "number" ? p : null;
+    }
+    const sha256 = pendingUpNextSha256() ?? appState()?.current_sha256;
+    if (sha256 && getLoadingIds().has(sha256)) {
+      const p = getLoadingProgress(sha256);
+      return typeof p === "number" ? p : null;
+    }
+    return null;
   });
 
   // connection progress state (shared module)
@@ -1665,6 +1697,7 @@ export function AppLayout(props: AppLayoutProps) {
                 song={barSong()}
                 isPlaying={barIsPlaying()}
                 isLoading={debouncedBarIsLoading()}
+                mediaTransferProgress={mediaTransferProgress()}
                 hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
                 currentTime={barCurrentTime()}
                 duration={barDuration()}

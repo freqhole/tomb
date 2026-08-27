@@ -85,9 +85,47 @@ export async function getVideoURL(
   const blobId = await resolvePlaybackBlobId(video, remoteId);
 
   // P2P/tauri-managed remotes: resolveBlobUrl already checks the Cache
-  // API before fetching from the peer.
+  // API before fetching from the peer. unlike Song, Video carries no
+  // blake3/size/mime of its own, but the transport's verified-streaming
+  // progress path (WasmTransport.fetchBlobWithProgress) needs a blake3 to
+  // even attempt real progress, and needs totalBytes to report anything
+  // other than a stuck indeterminate value — so look both up via the
+  // same blob_metadata route syncSongToLocal.ts already uses, whenever a
+  // caller actually wants progress.
   if (await usesBlobResolver(remoteId)) {
-    return resolveBlobUrl(blobId, remoteId, "video", onProgress);
+    let blake3: string | undefined;
+    let totalBytes: number | undefined;
+    let mimeType: string | undefined;
+    if (onProgress) {
+      try {
+        const remote = await getRemoteById(remoteId);
+        if (remote) {
+          const client = await getClientForRemote(remote);
+          const metadataResult = await client.music.blobMetadata({ id: blobId });
+          if (metadataResult.success && metadataResult.data) {
+            blake3 = metadataResult.data.blake3 ?? undefined;
+            totalBytes = metadataResult.data.size ?? undefined;
+            mimeType = metadataResult.data.mime ?? undefined;
+          }
+        }
+      } catch (err) {
+        warn(
+          "videoBlobAccess",
+          `failed to fetch blob metadata for ${blobId}, progress will stay indeterminate:`,
+          err
+        );
+      }
+    }
+    return resolveBlobUrl(
+      blobId,
+      remoteId,
+      "video",
+      onProgress,
+      undefined,
+      blake3,
+      totalBytes,
+      mimeType
+    );
   }
 
   // plain HTTP remote: resolveBlobUrl returns a raw direct URL for this
