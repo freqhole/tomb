@@ -108,6 +108,8 @@ export interface VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    clear_series_id?: boolean;
+    clear_season_id?: boolean;
   }): Promise<void>;
   deleteVideo?(videoId: string): Promise<void>;
   createVideoSeries?(params: {
@@ -127,6 +129,13 @@ export interface VideoDataSource {
     title?: string | null;
     description?: string | null;
   }): Promise<VideoSeason>;
+  updateVideoSeason?(params: {
+    season_id: string;
+    season_number?: number;
+    title?: string | null;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }): Promise<void>;
 
   // image operations — generic entity_imagez routes (mirrors
   // music/data/types.ts's MusicDataSource image methods)

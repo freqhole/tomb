@@ -166,6 +166,12 @@ pub async fn upload_music_handler(
         width: None,
         height: None,
         blake3: Some(blake3_hash), // computed at ingest for P2P streaming
+        // this handler always writes the file to disk before calling
+        // create_media_blob, so if sha256 dedup finds an existing blob
+        // with a *different* real local_path, the file just written here
+        // is a genuine duplicate upload of already-owned content - purge
+        // it instead of relocating the existing blob to point at it.
+        delete_duplicate_local_path: true,
     })
     .await?;
 

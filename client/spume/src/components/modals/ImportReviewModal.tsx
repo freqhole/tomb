@@ -25,6 +25,7 @@ export interface ImportReviewModalProps {
   onComplete: () => void;
   onMergeAlbums: (sourceIds: string[], targetId: string) => void;
   onMoveSong: (songId: string, toAlbumId: string) => void;
+  onCreateAlbumForSong: (songId: string, title: string, artistName: string | null) => void;
   onMarkReviewed: (albumId: string) => void;
   /** render prop for the per-album editor - caller provides the actual editor */
   renderAlbumEditor?: (editorProps: AlbumEditorRenderProps) => JSX.Element;
@@ -338,6 +339,7 @@ export function ImportReviewModal(props: ImportReviewModalProps) {
             albums={props.albums}
             onMerge={props.onMergeAlbums}
             onMoveSong={props.onMoveSong}
+            onCreateAlbumForSong={props.onCreateAlbumForSong}
             onConfirm={() => {
               setStage("metadata");
               setAlbumIndex(0);

@@ -542,6 +542,7 @@ export type FeedItemType =
   | "recent_album"
   | "recent_rating"
   | "recent_playlist"
+  | "recent_video"
   | "listen_session"
   | "new_image";
 
@@ -553,6 +554,7 @@ export interface FeedItem {
   album_id: string | null;
   artist_id: string | null;
   playlist_id: string | null;
+  video_id: string | null;
   // generic entity id for session types with no dedicated FK column
   // above (genre, shuffle, radio) — see listen_sessionz.entity_id.
   entity_id: string | null;

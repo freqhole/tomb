@@ -49,8 +49,7 @@ import { getDefaultRoute } from "../../music/utils/routing";
 import { debug } from "../../utils/logger";
 
 interface RoutesProps {
-  onAddMusic: () => void;
-  onAddVideo?: () => void;
+  onAddMedia: () => void;
   onSongDoubleClick: (song: any) => void;
   onImportReview?: (sessionId: string) => void;
 }
@@ -172,36 +171,36 @@ export function routes(props: RoutesProps) {
               path="/songs"
               component={() => (
                 <SongsView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onSongDoubleClick={props.onSongDoubleClick}
                 />
               )}
             />
-            <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+            <Route path="/albums" component={() => <AlbumsView onAddMedia={props.onAddMedia} />} />
             <Route path="/albums/:id" component={AlbumDetailView} />
             <Route
               path="/artists/:id?"
               component={() => (
                 <ArtistsView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
                 />
               )}
             />
             <Route
               path="/playlists/:id?"
-              component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+              component={() => <PlaylistsView onAddMedia={props.onAddMedia} />}
             />
             <Route
               path="/favorites"
               component={() => (
                 <FavoritesView
-                  onAddMusic={props.onAddMusic}
+                  onAddMedia={props.onAddMedia}
                   onSongDoubleClick={props.onSongDoubleClick}
                 />
               )}
             />
-            <Route path="/video" component={() => <VideosView onAddVideo={props.onAddVideo} />} />
+            <Route path="/video" component={() => <VideosView onAddMedia={props.onAddMedia} />} />
             <Route path="/video/:videoId" component={VideoDetailView} />
             <Route path="/video/series/:id?" component={VideoSeriesView} />
           </Route>
@@ -214,36 +213,36 @@ export function routes(props: RoutesProps) {
             path="/songs"
             component={() => (
               <SongsView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onSongDoubleClick={props.onSongDoubleClick}
               />
             )}
           />
-          <Route path="/albums" component={() => <AlbumsView onAddMusic={props.onAddMusic} />} />
+          <Route path="/albums" component={() => <AlbumsView onAddMedia={props.onAddMedia} />} />
           <Route path="/albums/:id" component={AlbumDetailView} />
           <Route
             path="/artists/:id?"
             component={() => (
               <ArtistsView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onArtistClick={(artistId) => debug("routes", "artist clicked:", artistId)}
               />
             )}
           />
           <Route
             path="/playlists/:id?"
-            component={() => <PlaylistsView onAddMusic={props.onAddMusic} />}
+            component={() => <PlaylistsView onAddMedia={props.onAddMedia} />}
           />
           <Route
             path="/favorites"
             component={() => (
               <FavoritesView
-                onAddMusic={props.onAddMusic}
+                onAddMedia={props.onAddMedia}
                 onSongDoubleClick={props.onSongDoubleClick}
               />
             )}
           />
-          <Route path="/video" component={() => <VideosView onAddVideo={props.onAddVideo} />} />
+          <Route path="/video" component={() => <VideosView onAddMedia={props.onAddMedia} />} />
           <Route path="/video/:videoId" component={VideoDetailView} />
           <Route path="/video/series/:id?" component={VideoSeriesView} />
         </Route>

@@ -47,6 +47,8 @@ function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
       return { color: entityColors.favorite, icon: "favorite" };
     case "recent_album":
       return { color: entityColors.album, icon: "album" };
+    case "recent_video":
+      return { color: entityColors.video, icon: "video" };
     case "recent_rating":
       return { color: entityColors.rating, icon: "star" };
     case "recent_playlist":
@@ -410,6 +412,8 @@ function FeedRow(props: {
           return { user, verb: "added", entity: `${count} ${songWord} to an album` };
         }
       }
+      case "recent_video":
+        return { user, verb: "added", entity: "a new video" };
       case "recent_rating":
         return { user, verb: "rated", entity: entity || "a song" };
       case "recent_playlist": {

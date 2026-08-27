@@ -68,10 +68,18 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
 
     // spawn yt-dlp with --flat-playlist so each playlist entry is emitted
     // immediately as a single line rather than waiting for per-video page loads.
+    // also inject --ignore-errors (unless already present) so a playlist
+    // containing some private/removed videos doesn't abort the whole
+    // precheck - the empty-check below already tolerates a non-zero exit
+    // when some entries were extracted anyway, but this avoids yt-dlp
+    // bailing out early before reaching later playlist entries.
     let mut command = Command::new(cmd);
     command.args(args);
     if !precheck_cmd.contains("--flat-playlist") {
         command.arg("--flat-playlist");
+    }
+    if !precheck_cmd.contains("--ignore-errors") && !precheck_cmd.contains(" -i ") {
+        command.arg("--ignore-errors");
     }
     command
         .arg("--")

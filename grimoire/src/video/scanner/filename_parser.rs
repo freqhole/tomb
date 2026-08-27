@@ -40,6 +40,22 @@ pub struct ParsedVideoFilename {
     pub season: Option<i64>,
     pub episode: Option<i64>,
     pub title: Option<String>,
+    /// text before the season/episode marker, cleaned - a series-title
+    /// candidate for filenames that embed the show name directly (e.g. a
+    /// yt-dlp download named "Show Name-S2E07: Episode Title | ..."),
+    /// unlike locally-organized files where the show name usually IS the
+    /// whole filename (already covered by `title` above) or comes from a
+    /// parent directory instead (see `parse_directory_context`). `None`
+    /// when no season/episode marker was found, or the prefix was empty.
+    pub series_title: Option<String>,
+    /// text after the season/episode marker, cleaned - an episode-title
+    /// candidate for the same yt-dlp-style filenames above. YouTube full-
+    /// episode uploads commonly pack extra branding/promo text after the
+    /// real episode title, separated by a boundary token (`|`, `•`, `--`,
+    /// etc - see `EPISODE_TITLE_BOUNDARY_PATTERN`) - only the text before
+    /// the first such boundary is kept. `None` when no season/episode
+    /// marker was found, or the suffix was empty.
+    pub episode_title: Option<String>,
 }
 
 impl ParsedVideoFilename {
@@ -65,10 +81,28 @@ pub struct DirectoryContext {
     pub series_title: Option<String>,
     /// season number parsed from a `Season N`-named directory, if present
     /// - a stronger signal than a filename-parsed season number when the
-    /// two disagree, since directory structure is deliberate organization
-    /// rather than an inconsistent release-naming convention.
+    ///   two disagree, since directory structure is deliberate organization
+    ///   rather than an inconsistent release-naming convention.
     pub season_override: Option<i64>,
 }
+
+/// a trailing `[VIDEO_ID]`/`(VIDEO_ID)` token, as produced by yt-dlp's
+/// `%(title)s-[%(id)s]` output template.
+static YOUTUBE_ID_SUFFIX_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[\[(][A-Za-z0-9_-]{8,15}[\])]\s*$").unwrap());
+
+/// separators that plausibly mark the boundary between a real episode
+/// title and trailing platform boilerplate/branding text (e.g. youtube's
+/// "Title | Full Episode Show Name | Network", "Title • Network", or
+/// "Title -- Network"). deliberately excludes a bare single "-"/" - ",
+/// since that's common punctuation WITHIN a real title (e.g.
+/// "Merry-Go-Round") - the season/episode marker itself (matched by
+/// `SEASON_EPISODE_PATTERNS` above) is the primary, much more reliable
+/// signal for where a title starts/ends, so this boundary list is
+/// intentionally conservative rather than exhaustive.
+static EPISODE_TITLE_BOUNDARY_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\s*(?:\||\u2022|\u00b7|\u2016|--+|\u2013|\u2014)\s*").unwrap()
+});
 
 /// ordered season/episode regexes - first match wins. compiled once.
 static SEASON_EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
@@ -103,6 +137,15 @@ pub fn parse_video_filename_str(filename: &str) -> ParsedVideoFilename {
     parse_video_filename_inner(stem)
 }
 
+/// parse season/episode/title from an already extension-less stem string
+/// (e.g. a title string derived elsewhere, with no filename extension left
+/// to strip) - unlike [`parse_video_filename_str`], does not attempt to
+/// trim a trailing `.ext`, so it's safe to call on strings that may
+/// contain literal periods (e.g. a yt-dlp video's title).
+pub fn parse_video_filename_stem(stem: &str) -> ParsedVideoFilename {
+    parse_video_filename_inner(stem)
+}
+
 /// parse season/episode/title from a video file path's filename.
 pub fn parse_video_filename(file_path: &Path) -> ParsedVideoFilename {
     let stem = match file_path.file_stem().and_then(|s| s.to_str()) {
@@ -132,10 +175,27 @@ fn parse_video_filename_inner(stem: &str) -> ParsedVideoFilename {
             title_source.push_str(&stem[whole_match.end()..]);
 
             let title = clean_title(&title_source);
+
+            let prefix = clean_title(&stem[..whole_match.start()]);
+            let series_title = if prefix.is_empty() { None } else { Some(prefix) };
+
+            // YouTube full-episode uploads commonly pack extra branding/
+            // promo text after the real episode title, separated by one of
+            // a handful of common boundary tokens (not just `|`) - only
+            // the text before the first such boundary is a plausible title.
+            let suffix_first_segment = EPISODE_TITLE_BOUNDARY_PATTERN
+                .split(&stem[whole_match.end()..])
+                .next()
+                .unwrap_or_default();
+            let suffix = clean_title(suffix_first_segment.trim_start_matches(':'));
+            let episode_title = if suffix.is_empty() { None } else { Some(suffix) };
+
             return ParsedVideoFilename {
                 season,
                 episode,
                 title: if title.is_empty() { None } else { Some(title) },
+                series_title,
+                episode_title,
             };
         }
     }
@@ -147,7 +207,21 @@ fn parse_video_filename_inner(stem: &str) -> ParsedVideoFilename {
         season: None,
         episode: None,
         title: if title.is_empty() { None } else { Some(title) },
+        series_title: None,
+        episode_title: None,
     }
+}
+
+/// strip a trailing bracketed/parenthesized id token (e.g. yt-dlp's
+/// `[VIDEO_ID]` filename suffix from its `%(title)s-[%(id)s]` output
+/// template) from a title string. YouTube ids are 11 characters, but a
+/// slightly wider range is matched for robustness against other platforms/
+/// templates.
+pub fn strip_youtube_video_id(title: &str) -> String {
+    let stripped = YOUTUBE_ID_SUFFIX_PATTERN.replace(title, "");
+    stripped
+        .trim_matches(|c: char| c.is_whitespace() || c == '-')
+        .to_string()
 }
 
 /// clean a title candidate: underscores/dots become spaces, leading/
@@ -316,6 +390,52 @@ mod tests {
     }
 
     #[test]
+    fn test_yt_dlp_style_series_and_episode_title_split() {
+        // uploader-%(title)s-[%(id)s] style yt-dlp filename
+        let parsed = parse_video_filename_stem(
+            "Aqua Teen Hunger Force-S2E07: Super Sirloin | Full Episode Aqua Teen Hunger Force | adult swim-[cJflurmelhY]",
+        );
+        assert_eq!(parsed.season, Some(2));
+        assert_eq!(parsed.episode, Some(7));
+        assert_eq!(parsed.series_title, Some("Aqua Teen Hunger Force".to_string()));
+        assert_eq!(parsed.episode_title, Some("Super Sirloin".to_string()));
+    }
+
+    #[test]
+    fn test_strip_youtube_video_id() {
+        assert_eq!(
+            strip_youtube_video_id("Super Sirloin-[cJflurmelhY]"),
+            "Super Sirloin"
+        );
+        assert_eq!(strip_youtube_video_id("Some Movie (2020)"), "Some Movie (2020)");
+    }
+
+    #[test]
+    fn test_episode_title_boundary_bullet_separator() {
+        let parsed = parse_video_filename_stem(
+            "Some Show-S1E03: The Big Reveal • Some Show Full Episodes • Network-[abc123XYZ89]",
+        );
+        assert_eq!(parsed.season, Some(1));
+        assert_eq!(parsed.episode, Some(3));
+        assert_eq!(parsed.episode_title, Some("The Big Reveal".to_string()));
+    }
+
+    #[test]
+    fn test_episode_title_boundary_double_dash_separator() {
+        let parsed = parse_video_filename_stem("Some Show-S1E03: The Big Reveal -- Network");
+        assert_eq!(parsed.episode_title, Some("The Big Reveal".to_string()));
+    }
+
+    #[test]
+    fn test_episode_title_single_hyphen_not_treated_as_boundary() {
+        // a single "-" inside the real title (not a boundary token) must
+        // survive intact - only the multi-char/dedicated boundary tokens
+        // in EPISODE_TITLE_BOUNDARY_PATTERN should split.
+        let parsed = parse_video_filename_stem("Some Show-S1E03: Merry-Go-Round");
+        assert_eq!(parsed.episode_title, Some("Merry-Go-Round".to_string()));
+    }
+
+    #[test]
     fn test_empty_filename() {
         let parsed = parse_video_filename_str("");
         assert_eq!(parsed, ParsedVideoFilename::empty());
@@ -350,6 +470,7 @@ mod tests {
             season: Some(1),
             episode: None,
             title: None,
+            ..Default::default()
         }
         .has_data());
     }

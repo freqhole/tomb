@@ -16,6 +16,7 @@ import {
   getAllLocalVideoSeasons,
   getLocalVideoSeasons,
   getOrCreateLocalVideoSeason,
+  updateLocalVideoSeason,
 } from "../../services/storage/db/seasons";
 import { purgeVideoFromOPFS } from "../../services/opfs/helpers";
 import { getAllTags as getAllLocalVideoTags } from "../../services/storage/db/tags";
@@ -152,9 +153,18 @@ export class LocalVideoDataSource implements VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    clear_series_id?: boolean;
+    clear_season_id?: boolean;
   }): Promise<void> {
-    const { video_id, ...updates } = params;
-    await updateLocalVideo(video_id, updates);
+    const { video_id, clear_series_id, clear_season_id, ...updates } = params;
+    // the local (indexeddb) store always applies fields as given (no
+    // COALESCE ambiguity), so an explicit clear is just passing null -
+    // the flags only matter for the remote/SQL data source.
+    await updateLocalVideo(video_id, {
+      ...updates,
+      series_id: clear_series_id ? null : updates.series_id,
+      season_id: clear_series_id || clear_season_id ? null : updates.season_id,
+    });
   }
 
   async deleteVideo(videoId: string): Promise<void> {
@@ -194,6 +204,17 @@ export class LocalVideoDataSource implements VideoDataSource {
     description?: string | null;
   }): Promise<VideoSeason> {
     return getOrCreateLocalVideoSeason(params);
+  }
+
+  async updateVideoSeason(params: {
+    season_id: string;
+    season_number?: number;
+    title?: string | null;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }): Promise<void> {
+    const { season_id, ...updates } = params;
+    await updateLocalVideoSeason(season_id, updates);
   }
 
   // image operations — local storage using OPFS, mirroring

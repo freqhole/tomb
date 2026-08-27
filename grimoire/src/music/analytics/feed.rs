@@ -39,11 +39,13 @@ pub enum FeedItemType {
     RecentVideoWatch,
     /// a video was recently favorited
     RecentVideoFavorite,
+    /// a video was recently added to the library
+    RecentVideo,
 }
 
 impl ZodSchemaTrait for FeedItemType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")])"#.to_string()
+        r#"z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")])"#.to_string()
     }
 }
 
@@ -146,6 +148,7 @@ fn map_feed_event_type(feed_type: &str) -> FeedItemType {
         }
         "favorite_video" => FeedItemType::RecentVideoFavorite,
         "video_watch" => FeedItemType::RecentVideoWatch,
+        "video" => FeedItemType::RecentVideo,
         "rating_song" | "rating_album" | "rating_artist" => FeedItemType::RecentRating,
         "new_image_song" | "new_image_album" | "new_image_artist" | "new_image_playlist" => {
             FeedItemType::NewImage
@@ -171,6 +174,7 @@ fn feed_item_type_to_event_types(item_type: &FeedItemType) -> Vec<&'static str> 
         }
         FeedItemType::RecentVideoFavorite => vec!["favorite_video"],
         FeedItemType::RecentVideoWatch => vec!["video_watch"],
+        FeedItemType::RecentVideo => vec!["video"],
         FeedItemType::RecentRating => vec!["rating_song", "rating_album", "rating_artist"],
         FeedItemType::NewImage => vec![
             "new_image_song",

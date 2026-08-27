@@ -1371,6 +1371,7 @@ async fn resolve_sync_image_ref(
             width: None,
             height: None,
             blake3: None,
+            delete_duplicate_local_path: false,
         })
         .await?;
         Ok(Some(blob.id))

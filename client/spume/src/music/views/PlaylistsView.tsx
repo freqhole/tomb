@@ -26,7 +26,7 @@ import { isTouchDevice } from "../../utils/isMobile";
 import { PlaylistDetailPanel } from "./playlists/PlaylistDetailPanel";
 
 export interface PlaylistsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
 }
 
 export function PlaylistsView(_props: PlaylistsViewProps) {

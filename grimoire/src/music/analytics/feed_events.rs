@@ -38,11 +38,12 @@ pub enum FeedEventType {
     NewImagePlaylist,
     FavoriteVideo,
     VideoWatch,
+    Video,
 }
 
 impl ZodSchemaTrait for FeedEventType {
     fn zod_schema() -> String {
-        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch")])"#.to_string()
+        r#"z.union([z.literal("album"), z.literal("artist"), z.literal("playlist"), z.literal("session"), z.literal("favorite_song"), z.literal("favorite_album"), z.literal("favorite_artist"), z.literal("favorite_playlist"), z.literal("rating_song"), z.literal("rating_album"), z.literal("rating_artist"), z.literal("new_image_song"), z.literal("new_image_album"), z.literal("new_image_artist"), z.literal("new_image_playlist"), z.literal("favorite_video"), z.literal("video_watch"), z.literal("video")])"#.to_string()
     }
 }
 
@@ -66,6 +67,7 @@ impl std::fmt::Display for FeedEventType {
             FeedEventType::NewImagePlaylist => write!(f, "new_image_playlist"),
             FeedEventType::FavoriteVideo => write!(f, "favorite_video"),
             FeedEventType::VideoWatch => write!(f, "video_watch"),
+            FeedEventType::Video => write!(f, "video"),
         }
     }
 }
@@ -92,6 +94,7 @@ impl TryFrom<&str> for FeedEventType {
             "new_image_playlist" => Ok(FeedEventType::NewImagePlaylist),
             "favorite_video" => Ok(FeedEventType::FavoriteVideo),
             "video_watch" => Ok(FeedEventType::VideoWatch),
+            "video" => Ok(FeedEventType::Video),
             _ => Err(format!("unknown feed event type: {}", s)),
         }
     }
@@ -1213,6 +1216,91 @@ pub async fn delete_favorite_feed_event(
     }
 }
 
+/// create or update a "new video added" feed event - mirrors
+/// `upsert_album_feed_event`, fired once per video import (see
+/// `video::importer::import_video_file`'s caller).
+pub async fn upsert_video_feed_event(
+    video_id: &str,
+    user_id: &str,
+    username: &str,
+) -> GrimoireResponse<FeedEventResult> {
+    if should_skip_feed_event(user_id).await {
+        return GrimoireResponse::success(
+            "skipped feed event for service account",
+            FeedEventResult::Skipped,
+        );
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            v.title,
+            v.description,
+            CASE
+                WHEN v.poster_blob_id IS NOT NULL THEN
+                    json_array(json_object('blob_id', v.poster_blob_id, 'is_primary', 1, 'blob_type', 'image'))
+                ELSE '[]'
+            END as "images!: String",
+            COALESCE((SELECT json_group_array(json_object('id', eu.id, 'name', eu.name, 'url', eu.url))
+             FROM entity_urlz eu WHERE eu.entity_type = 'video' AND eu.entity_id = v.id), '[]') as "urls!: String"
+        FROM videoz v WHERE v.id = ? AND v.deleted_at IS NULL
+        "#,
+        video_id
+    )
+    .fetch_optional(&pool)
+    .await;
+
+    let data = match row {
+        Ok(Some(d)) => d,
+        Ok(None) => return GrimoireResponse::failure("video not found", vec![]),
+        Err(e) => return GrimoireResponse::failure("failed to fetch video data", vec![e.into()]),
+    };
+
+    let feed_type = FeedEventType::Video.to_string();
+
+    let result = sqlx::query_scalar!(
+        r#"
+        INSERT INTO feed_eventz (
+            feed_type, video_id, created_by_user_id, created_by_username,
+            title, description, images, urls
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (video_id, created_by_user_id) WHERE feed_type = 'video' AND video_id IS NOT NULL
+        DO UPDATE SET
+            title = excluded.title,
+            description = excluded.description,
+            images = excluded.images,
+            urls = excluded.urls,
+            updated_at = unixepoch()
+        RETURNING id
+        "#,
+        feed_type,
+        video_id,
+        user_id,
+        username,
+        data.title,
+        data.description,
+        data.images,
+        data.urls
+    )
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(id) => GrimoireResponse::success(
+            "video feed event upserted",
+            FeedEventResult::Created(id.expect("insert should return id")),
+        ),
+        Err(e) => GrimoireResponse::failure("failed to upsert video feed event", vec![e.into()]),
+    }
+}
+
 /// create or update a video watch feed event
 ///
 /// called once a video's playback progress crosses the "counts as watched"
@@ -1294,7 +1382,9 @@ pub async fn create_video_watch_feed_event(
             "video watch feed event upserted",
             FeedEventResult::Created(id.expect("insert should return id")),
         ),
-        Err(e) => GrimoireResponse::failure("failed to upsert video watch feed event", vec![e.into()]),
+        Err(e) => {
+            GrimoireResponse::failure("failed to upsert video watch feed event", vec![e.into()])
+        }
     }
 }
 

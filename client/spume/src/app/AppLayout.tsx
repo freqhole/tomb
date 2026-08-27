@@ -117,8 +117,8 @@ import { IconNames, type IconName } from "../components/icons/registry";
 import { routes, matchRoute, getDefaultRoute, hasFeedView } from "../music/utils/routing";
 import { confirmState, closeConfirm, resolveConfirm, confirm } from "./services/confirmState";
 import { playlistSelectorState, closePlaylistSelector } from "../music/hooks/playlistSelectorState";
-import { openAddMusic, showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
-import { openAddVideo } from "../video/hooks/modals";
+import { showShareModal, useIsAnyModalOpen } from "../music/hooks/modals";
+import { openAddMedia } from "./hooks/mediaModal";
 import {
   appState,
   setQueueOpen,
@@ -1119,8 +1119,7 @@ export function AppLayout(props: AppLayoutProps) {
         }
         onViewAllPlaylists={handleViewAllPlaylists}
         onCreatePlaylist={handleCreatePlaylist}
-        onAddMusic={() => openAddMusic()}
-        onAddVideo={() => openAddVideo()}
+        onAddMedia={() => openAddMedia()}
         pageTitle={getPageInfo().title}
         pageCount={getPageInfo().count}
         viewOptions={viewOptions()}

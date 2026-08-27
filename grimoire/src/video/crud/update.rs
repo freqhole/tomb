@@ -27,6 +27,14 @@ pub struct UpdateVideosRequest {
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
     pub updated_by: Option<String>,
+    /// force `series_id`/`season_id` to `NULL` on every video in the list -
+    /// see `UpdateVideoRequest::clear_series_id` for why plain `COALESCE`
+    /// can't express this via `series_id: None` alone.
+    #[serde(default)]
+    pub clear_series_id: bool,
+    /// force `season_id` to `NULL` on every video in the list.
+    #[serde(default)]
+    pub clear_season_id: bool,
 }
 
 /// a single video's failure reason within a bulk update - preserves the
@@ -74,23 +82,21 @@ pub async fn update_videos(req: UpdateVideosRequest) -> GrimoireResponse<UpdateV
     if need_old_series || need_old_season {
         if let Ok(pool) = database::connect().await {
             for video_id in &req.video_ids {
-                if let Ok(row) = sqlx::query!(
+                if let Ok(Some(row)) = sqlx::query!(
                     "SELECT series_id, season_id FROM videoz WHERE id = ?",
                     video_id
                 )
                 .fetch_optional(&pool)
                 .await
                 {
-                    if let Some(row) = row {
-                        if need_old_series {
-                            if let Some(id) = row.series_id {
-                                old_series_ids.push(id);
-                            }
+                    if need_old_series {
+                        if let Some(id) = row.series_id {
+                            old_series_ids.push(id);
                         }
-                        if need_old_season {
-                            if let Some(id) = row.season_id {
-                                old_season_ids.push(id);
-                            }
+                    }
+                    if need_old_season {
+                        if let Some(id) = row.season_id {
+                            old_season_ids.push(id);
                         }
                     }
                 }
@@ -111,6 +117,8 @@ pub async fn update_videos(req: UpdateVideosRequest) -> GrimoireResponse<UpdateV
             duration_seconds: req.duration_seconds,
             release_date: req.release_date.clone(),
             updated_by: req.updated_by.clone(),
+            clear_series_id: req.clear_series_id,
+            clear_season_id: req.clear_season_id,
         })
         .await;
 

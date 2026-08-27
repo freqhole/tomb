@@ -22,8 +22,10 @@ export interface VideoSeasonSelection {
 }
 
 export interface VideoSeasonAutocompleteProps {
-  /** series the season belongs to - no seasons load (and the field is
-   * effectively disabled) until this is set */
+  /** series the season belongs to - existing seasons only load once this
+   * is set (eg. a pending, not-yet-created series has none to offer),
+   * but the field stays typeable either way so a new season can still be
+   * queued up alongside a pending new series. */
   seriesId?: string;
   /** current display text, eg. "season 3 - finale" */
   value?: string;
@@ -185,7 +187,10 @@ export function VideoSeasonAutocomplete(props: VideoSeasonAutocompleteProps) {
     return `create new: ${formatSeasonLabel(season_number, title)}`;
   };
 
-  const disabled = createMemo(() => props.disabled || !props.seriesId);
+  // NOT gated on props.seriesId - a pending (not-yet-created) series has
+  // no seasons to fetch but should still let the user type/queue one up;
+  // callers already hide this field entirely until a series is chosen.
+  const disabled = createMemo(() => !!props.disabled);
 
   return (
     <div ref={containerEl} class={`relative ${props.class ?? ""}`}>

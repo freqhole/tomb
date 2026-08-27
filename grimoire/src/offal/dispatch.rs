@@ -331,6 +331,11 @@ mod tests {
             "patch_album_review",
             "merge_albums_review",
             "move_song_review",
+            // video import review mutations - same pattern, scoped to the
+            // caller having uploaded at least one video in the target group
+            "mark_video_group_reviewed",
+            "patch_video_group_review",
+            "move_video_review",
         ];
 
         let allowlist: HashSet<&str> = HANDLER_ENFORCED_OWNER_ROUTES.iter().copied().collect();

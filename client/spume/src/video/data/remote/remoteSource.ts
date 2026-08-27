@@ -246,6 +246,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
     series_id?: string | null;
     season_id?: string | null;
     content_type?: string;
+    clear_series_id?: boolean;
+    clear_season_id?: boolean;
   }): Promise<void> {
     const client = await this.getClient();
     const result = await client.video.updateVideos({
@@ -257,6 +259,8 @@ export class RemoteVideoDataSource implements VideoDataSource {
       series_id: params.series_id,
       season_id: params.season_id,
       content_type: params.content_type,
+      clear_series_id: params.clear_series_id,
+      clear_season_id: params.clear_season_id,
     });
     if (!result.success) this.failRequest(result);
     if (result.data.videos_failed.length > 0) {
@@ -313,6 +317,18 @@ export class RemoteVideoDataSource implements VideoDataSource {
     });
     if (!result.success) this.failRequest(result);
     return result.data;
+  }
+
+  async updateVideoSeason(params: {
+    season_id: string;
+    season_number?: number;
+    title?: string | null;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.updateVideoSeason(params);
+    if (!result.success) this.failRequest(result);
   }
 
   // image operations — same generic entity_imagez routes albums use,

@@ -2,7 +2,7 @@ import { Button } from "./buttons/Button";
 import { Icon } from "./icons/registry";
 
 export interface EmptyStateProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onAddRemote: () => void;
   onGoToRadio: () => void;
 }
@@ -25,8 +25,8 @@ export function EmptyState(props: EmptyStateProps) {
         </p>
 
         <div class="flex gap-3 justify-center">
-          <Button variant="secondary" onClick={props.onAddMusic}>
-            add music
+          <Button variant="secondary" onClick={props.onAddMedia}>
+            add media
           </Button>
 
           <Button variant="primary" onClick={props.onAddRemote}>

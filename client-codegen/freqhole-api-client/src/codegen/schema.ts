@@ -2596,7 +2596,7 @@ export type FavoriteStatusItem = z.infer<typeof FavoriteStatusItemSchema>;
 
 export const FeedItemSchema = z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -2649,13 +2649,13 @@ export const FeedItemSchema = z.object({
 });
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
-export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]);
+export const FeedItemTypeSchema = z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]);
 export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
 
 export const FeedRequestSchema = z.object({
   limit: z.number().nullish(),
   offset: z.number().nullish(),
-  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")])).nullish(),
+  feed_types: z.array(z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")])).nullish(),
   user_id: z.string().nullish()
 });
 export type FeedRequest = z.infer<typeof FeedRequestSchema>;
@@ -2663,7 +2663,7 @@ export type FeedRequest = z.infer<typeof FeedRequestSchema>;
 export const FeedResponseSchema = z.object({
   items: z.array(z.object({
   id: z.string(),
-  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite")]),
+  feed_type: z.union([z.literal("recent_listen"), z.literal("recent_favorite"), z.literal("recent_album"), z.literal("recent_rating"), z.literal("recent_playlist"), z.literal("listen_session"), z.literal("new_image"), z.literal("recent_video_watch"), z.literal("recent_video_favorite"), z.literal("recent_video")]),
   song_id: z.string().nullish(),
   album_id: z.string().nullish(),
   artist_id: z.string().nullish(),
@@ -3715,6 +3715,11 @@ export const ListPendingReviewRequestSchema = z.object({
 });
 export type ListPendingReviewRequest = z.infer<typeof ListPendingReviewRequestSchema>;
 
+export const ListPendingVideoReviewRequestSchema = z.object({
+  session_id: z.string().nullish()
+});
+export type ListPendingVideoReviewRequest = z.infer<typeof ListPendingVideoReviewRequestSchema>;
+
 export const ListPlaybackProgressRequestSchema = z.object({
   limit: z.number().nullish()
 });
@@ -3936,6 +3941,12 @@ export const MarkAlbumReviewedRequestSchema = z.object({
   session_id: z.string()
 });
 export type MarkAlbumReviewedRequest = z.infer<typeof MarkAlbumReviewedRequestSchema>;
+
+export const MarkVideoGroupReviewedRequestSchema = z.object({
+  group_key: z.string(),
+  session_id: z.string()
+});
+export type MarkVideoGroupReviewedRequest = z.infer<typeof MarkVideoGroupReviewedRequestSchema>;
 
 export const MbAlbumDetailParamsSchema = z.object({
   album_id: z.string(),
@@ -4324,9 +4335,24 @@ export type MergedKeyMatch = z.infer<typeof MergedKeyMatchSchema>;
 export const MoveSongReviewRequestSchema = z.object({
   session_id: z.string(),
   song_id: z.string(),
-  to_album_id: z.string()
+  to_album_id: z.string().nullish(),
+  new_album_title: z.string().nullish(),
+  new_album_artist_name: z.string().nullish()
 });
 export type MoveSongReviewRequest = z.infer<typeof MoveSongReviewRequestSchema>;
+
+export const MoveVideoReviewRequestSchema = z.object({
+  video_id: z.string(),
+  to_series_id: z.string().nullish(),
+  to_season_id: z.string().nullish(),
+  content_type: z.string().nullish(),
+  new_series_title: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish()
+});
+export type MoveVideoReviewRequest = z.infer<typeof MoveVideoReviewRequestSchema>;
 
 export const MusicImportResponseSchema = z.object({
   session_id: z.string(),
@@ -4398,6 +4424,25 @@ export const PatchAlbumReviewRequestSchema = z.object({
 });
 export type PatchAlbumReviewRequest = z.infer<typeof PatchAlbumReviewRequestSchema>;
 
+export const PatchVideoGroupReviewRequestSchema = z.object({
+  group_key: z.string(),
+  session_id: z.string(),
+  series_title: z.string().nullish(),
+  series_description: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  season_id: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish(),
+  content_type: z.string().nullish()
+})).nullish()
+});
+export type PatchVideoGroupReviewRequest = z.infer<typeof PatchVideoGroupReviewRequestSchema>;
+
 export const PendingReviewAlbumSchema = z.object({
   album_id: z.string(),
   title: z.string(),
@@ -4424,6 +4469,58 @@ export const PendingReviewSessionSchema = z.object({
 }))
 });
 export type PendingReviewSession = z.infer<typeof PendingReviewSessionSchema>;
+
+export const PendingReviewVideoSummarySchema = z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+});
+export type PendingReviewVideoSummary = z.infer<typeof PendingReviewVideoSummarySchema>;
+
+export const PendingVideoReviewGroupSchema = z.object({
+  group_key: z.string(),
+  series_id: z.string().nullish(),
+  series_title: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+})),
+  pending_blob_count: z.number()
+});
+export type PendingVideoReviewGroup = z.infer<typeof PendingVideoReviewGroupSchema>;
+
+export const PendingVideoReviewSessionSchema = z.object({
+  session_id: z.string(),
+  created_at: z.number(),
+  uploader_username: z.string().nullish(),
+  groups: z.array(z.object({
+  group_key: z.string(),
+  series_id: z.string().nullish(),
+  series_title: z.string().nullish(),
+  poster_blob_id: z.string().nullish(),
+  videos: z.array(z.object({
+  video_id: z.string(),
+  title: z.string(),
+  content_type: z.string(),
+  season_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  episode_number: z.number().nullish()
+})),
+  pending_blob_count: z.number()
+}))
+});
+export type PendingVideoReviewSession = z.infer<typeof PendingVideoReviewSessionSchema>;
 
 export const PlayAnalyticsSchema = z.object({
   song_id: z.string(),
@@ -7420,7 +7517,9 @@ export const UpdateVideoRequestSchema = z.object({
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
-  updated_by: z.string().nullish()
+  updated_by: z.string().nullish(),
+  clear_series_id: z.boolean(),
+  clear_season_id: z.boolean()
 });
 export type UpdateVideoRequest = z.infer<typeof UpdateVideoRequestSchema>;
 
@@ -7453,7 +7552,9 @@ export const UpdateVideosRequestSchema = z.object({
   poster_blob_id: z.string().nullish(),
   duration_seconds: z.number().nullish(),
   release_date: z.string().nullish(),
-  updated_by: z.string().nullish()
+  updated_by: z.string().nullish(),
+  clear_series_id: z.boolean(),
+  clear_season_id: z.boolean()
 });
 export type UpdateVideosRequest = z.infer<typeof UpdateVideosRequestSchema>;
 
@@ -7547,6 +7648,11 @@ export const VideoSchema = z.object({
 });
 export type Video = z.infer<typeof VideoSchema>;
 
+export const VideoImportReviewOkSchema = z.object({
+  ok: z.boolean()
+});
+export type VideoImportReviewOk = z.infer<typeof VideoImportReviewOkSchema>;
+
 export const VideoMetadataHintsSchema = z.object({
   series_id: z.string().nullish(),
   season_id: z.string().nullish(),
@@ -7554,6 +7660,18 @@ export const VideoMetadataHintsSchema = z.object({
   title: z.string().nullish()
 });
 export type VideoMetadataHints = z.infer<typeof VideoMetadataHintsSchema>;
+
+export const VideoPendingRequestSchema = z.object({
+  video_id: z.string()
+});
+export type VideoPendingRequest = z.infer<typeof VideoPendingRequestSchema>;
+
+export const VideoPendingResponseSchema = z.object({
+  session_id: z.string().nullish(),
+  pending_count: z.number(),
+  created_at: z.number().nullish()
+});
+export type VideoPendingResponse = z.infer<typeof VideoPendingResponseSchema>;
 
 export const VideoRenditionSchema = z.object({
   blob_id: z.string(),
@@ -7563,6 +7681,19 @@ export const VideoRenditionSchema = z.object({
   skipped: z.boolean()
 });
 export type VideoRendition = z.infer<typeof VideoRenditionSchema>;
+
+export const VideoReviewPatchSchema = z.object({
+  video_id: z.string(),
+  title: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  season_id: z.string().nullish(),
+  new_season: z.object({
+  season_number: z.number(),
+  title: z.string().nullish()
+}).nullish(),
+  content_type: z.string().nullish()
+});
+export type VideoReviewPatch = z.infer<typeof VideoReviewPatchSchema>;
 
 export const VideoSearchResultSchema = z.object({
   id: z.string(),

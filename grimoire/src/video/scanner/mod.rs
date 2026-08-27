@@ -14,6 +14,8 @@ use crate::music::scanner::scan_directory_and_create_jobs;
 pub use crate::music::scanner::DirectoryScanOutcome;
 use crate::GrimoireResponse;
 
+pub mod filename_parser;
+
 /// scan a directory for video files and create import jobs.
 ///
 /// mirrors `crate::music::scanner::scan_directory`'s signature and

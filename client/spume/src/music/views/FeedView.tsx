@@ -196,6 +196,8 @@ export function FeedView() {
       navigate(routes.artist(item.artist_id));
     } else if (item.playlist_id) {
       navigate(routes.playlist(item.playlist_id));
+    } else if (item.video_id) {
+      navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
     }
   };
 
@@ -564,6 +566,12 @@ export function FeedView() {
           await playPlaylistById(item.playlist_id, item.title);
         }
         break;
+
+      case "recent_video":
+        if (item.video_id) {
+          navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
+        }
+        break;
     }
   };
 
@@ -819,6 +827,14 @@ export function FeedView() {
         label: "go to playlist",
         icon: IconNames.playlist,
         onClick: () => navigate(routes.playlist(item.playlist_id!)),
+      });
+    }
+
+    if (item.video_id) {
+      navActions.push({
+        label: "go to video",
+        icon: IconNames.video,
+        onClick: () => navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id!)),
       });
     }
 

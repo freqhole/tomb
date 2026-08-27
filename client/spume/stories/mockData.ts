@@ -109,16 +109,15 @@ const pinkArtists: Artist[] = [
 // sprinkle picsum-seeded portraits onto roughly half of the json-loaded
 // artists so the artists list shows a realistic mix of avatars + initials
 // fallbacks (matches the real ArtistsView visual rhythm).
-const jsonArtists: Artist[] = (mockDataJson.artists as Artist[]).map(
-  (a, i) => (i % 2 === 0 ? { ...a, images: [`https://picsum.photos/seed/artist-${a.id}/400/400`] } : a)
+const jsonArtists: Artist[] = (mockDataJson.artists as Artist[]).map((a, i) =>
+  i % 2 === 0 ? { ...a, images: [`https://picsum.photos/seed/artist-${a.id}/400/400`] } : a
 );
 export const mockArtists: Artist[] = [...pinkArtists, ...jsonArtists];
 export const mockAlbums: Album[] = mockDataJson.albums;
 export const mockSongs: Song[] = mockDataJson.songs;
 export const mockGenres: Genre[] = mockDataJson.genres;
 export const mockPlaylists: Playlist[] = mockDataJson.playlists;
-export const mockPlaylistSongs: Record<string, string[]> =
-  mockDataJson.playlistSongs;
+export const mockPlaylistSongs: Record<string, string[]> = mockDataJson.playlistSongs;
 export const mockLibraryStats: LibraryStats = mockDataJson.library;
 export const mockTags: Tag[] = mockDataJson.tags;
 
@@ -211,38 +210,27 @@ export function getPlaylistSongs(playlistId: string): Song[] {
 
 // helper to get songs by artist
 export function getSongsByArtist(artistName: string): Song[] {
-  return mockSongs.filter(
-    (song) => song.artist.toLowerCase() === artistName.toLowerCase(),
-  );
+  return mockSongs.filter((song) => song.artist.toLowerCase() === artistName.toLowerCase());
 }
 
 // helper to get albums by artist
 export function getAlbumsByArtist(artistName: string): Album[] {
-  return mockAlbums.filter(
-    (album) => album.artist.toLowerCase() === artistName.toLowerCase(),
-  );
+  return mockAlbums.filter((album) => album.artist.toLowerCase() === artistName.toLowerCase());
 }
-
 
 // helper to get songs by album
 export function getSongsByAlbum(albumTitle: string): Song[] {
-  return mockSongs.filter(
-    (song) => song.album.toLowerCase() === albumTitle.toLowerCase(),
-  );
+  return mockSongs.filter((song) => song.album.toLowerCase() === albumTitle.toLowerCase());
 }
 
 // helper to get artist by name
 export function getArtistByName(name: string): Artist | undefined {
-  return mockArtists.find(
-    (artist) => artist.name.toLowerCase() === name.toLowerCase(),
-  );
+  return mockArtists.find((artist) => artist.name.toLowerCase() === name.toLowerCase());
 }
 
 // helper to get genre by name
 export function getGenreByName(name: string): Genre | undefined {
-  return mockGenres.find(
-    (genre) => genre.name.toLowerCase() === name.toLowerCase(),
-  );
+  return mockGenres.find((genre) => genre.name.toLowerCase() === name.toLowerCase());
 }
 
 // helper to format duration from seconds to MM:SS or H:MM:SS
@@ -273,12 +261,8 @@ export function generateBulkSongs(count: number): DomainSong[] {
     // some albums have 2 discs
     const hasMultipleDiscs = albumIndex % 3 === 0;
     const tracksPerDisc = hasMultipleDiscs ? 6 : songsPerAlbum;
-    const discNumber = hasMultipleDiscs
-      ? Math.floor(trackInAlbum / tracksPerDisc) + 1
-      : 1;
-    const trackNumber = hasMultipleDiscs
-      ? (trackInAlbum % tracksPerDisc) + 1
-      : trackInAlbum + 1;
+    const discNumber = hasMultipleDiscs ? Math.floor(trackInAlbum / tracksPerDisc) + 1 : 1;
+    const trackNumber = hasMultipleDiscs ? (trackInAlbum % tracksPerDisc) + 1 : trackInAlbum + 1;
 
     const durationSeconds =
       Math.floor(Math.random() * 5) * 60 + Math.floor(Math.random() * 60) + 120;
@@ -372,17 +356,14 @@ export function generateBulkAlbums(count: number): Array<{
 
   return Array.from({ length: count }, (_, i) => {
     const totalSeconds =
-      (Math.floor(Math.random() * 60) + 20) * 60 +
-      Math.floor(Math.random() * 60);
+      (Math.floor(Math.random() * 60) + 20) * 60 + Math.floor(Math.random() * 60);
 
     return {
       id: `album-${i}`,
       title: albumNames[i % albumNames.length],
       domainType: "album" as const,
       imageUrl:
-        i % 3 === 0
-          ? null
-          : placeholderImage(`album-${i}`, albumNames[i % albumNames.length]),
+        i % 3 === 0 ? null : placeholderImage(`album-${i}`, albumNames[i % albumNames.length]),
       artist: artistNames[i % artistNames.length],
       album: albumNames[i % albumNames.length],
       year: 1970 + Math.floor(Math.random() * 50),
@@ -505,6 +486,7 @@ export function generateFeedItems(
       album_id: !isPlaylist ? `album-${Math.floor(r4 * 100)}` : null,
       artist_id: `artist-${Math.floor(r5 * 50)}`,
       playlist_id: isPlaylist ? `playlist-${Math.floor(r3 * 20)}` : null,
+      video_id: null,
       entity_id: isSession ? `album-${Math.floor(r4 * 100)}` : null,
       title: isSession
         ? `${artist} session`
@@ -813,9 +795,10 @@ export function generateQueueHistory(
     const type = types[i % types.length];
     const songCount = type === "song" ? 1 : 4 + Math.floor(r1 * 12);
     const songs = (songSource ?? []).slice(0, songCount);
-    const totalSeconds = songs.length > 0
-      ? songs.reduce((s, song) => s + (song.duration_seconds ?? 180), 0)
-      : songCount * 200;
+    const totalSeconds =
+      songs.length > 0
+        ? songs.reduce((s, song) => s + (song.duration_seconds ?? 180), 0)
+        : songCount * 200;
     const progress = r2;
     const songsCompleted = Math.floor(progress * songCount);
     const currentIndex = Math.min(songCount - 1, songsCompleted);
@@ -881,7 +864,7 @@ export function generateQueueHistory(
       total_seconds: totalSeconds,
       songs_completed: songsCompleted,
       current_song_index: currentIndex,
-      current_song_position: Math.floor((listened % 200)),
+      current_song_position: Math.floor(listened % 200),
       radio_station_ref: radioRef,
     });
   }
@@ -900,8 +883,7 @@ export function generateQueueHistory(
 import { createSignal as _createSignal } from "solid-js";
 
 export type DemoLibraryMode = "empty" | "populated";
-export const [demoLibraryMode, setDemoLibraryMode] =
-  _createSignal<DemoLibraryMode>("populated");
+export const [demoLibraryMode, setDemoLibraryMode] = _createSignal<DemoLibraryMode>("populated");
 
 // 0..1 progress for the fake-scan animation. consumers can render a bar
 // off this signal during the add-music step.
@@ -909,12 +891,14 @@ export const [fakeScanProgress, setFakeScanProgress] = _createSignal(0);
 export const [fakeScanRunning, setFakeScanRunning] = _createSignal(false);
 
 /** simple async fake-scan: progresses 0->1 over `durationMs`, then flips to populated. */
-export function runFakeLibraryScan(opts: {
-  durationMs?: number;
-  onProgress?: (pct: number) => void;
-  /** if false, leave libraryMode at "empty" after scan completes (caller flips later) */
-  flipToPopulated?: boolean;
-} = {}): Promise<void> {
+export function runFakeLibraryScan(
+  opts: {
+    durationMs?: number;
+    onProgress?: (pct: number) => void;
+    /** if false, leave libraryMode at "empty" after scan completes (caller flips later) */
+    flipToPopulated?: boolean;
+  } = {}
+): Promise<void> {
   const duration = opts.durationMs ?? 2000;
   const flip = opts.flipToPopulated ?? true;
   setDemoLibraryMode("empty");

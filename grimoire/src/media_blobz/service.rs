@@ -179,8 +179,19 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
             // same path-relocation logic as the active-existing branch:
             // when the resurrected blob is being re-ingested from a new
             // on-disk path, point local_path / filename at the new home
-            // and refresh cheap-skip metadata.
+            // and refresh cheap-skip metadata - unless the caller flagged
+            // this as a fresh duplicate download/upload *and* the resurrected
+            // row already has a different real file of its own, in which
+            // case the new file is purged from disk instead (see
+            // `purge_duplicate_local_file`). a `None` old path means there's
+            // no existing file to prefer keeping, so that case always
+            // relocates regardless of the flag - purging then would discard
+            // the only copy of the content.
             let final_row = match (&req.local_path, &undeleted_with_metadata.local_path) {
+                (Some(new_p), Some(old)) if old != new_p && req.delete_duplicate_local_path => {
+                    purge_duplicate_local_file(&undeleted_with_metadata, new_p).await;
+                    undeleted_with_metadata
+                }
                 (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
                     let mut relocated =
                         maybe_relocate_existing_blob(&pool, &undeleted_with_metadata, &req).await?;
@@ -211,7 +222,18 @@ pub async fn create_media_blob(mut req: CreateMediaBlobRequest) -> GrimoireResul
         // upload-only callers (data only, no local_path) never trigger
         // this branch, so existing on-disk paths aren't accidentally
         // clobbered.
+        //
+        // when the caller flagged this as a fresh duplicate download/upload
+        // (`delete_duplicate_local_path`) *and* the existing blob already has
+        // a different real file of its own, skip relocation entirely and
+        // purge the just-arrived duplicate file instead - see
+        // `purge_duplicate_local_file`. a `None` existing path always
+        // relocates regardless of the flag (nothing to prefer keeping yet).
         let relocated = match (&req.local_path, &existing_blob.local_path) {
+            (Some(new_p), Some(old)) if old != new_p && req.delete_duplicate_local_path => {
+                purge_duplicate_local_file(&existing_blob, new_p).await;
+                existing_blob
+            }
             (Some(new_p), old) if old.as_deref() != Some(new_p.as_str()) => {
                 maybe_relocate_existing_blob(&pool, &existing_blob, &req).await?
             }
@@ -710,6 +732,123 @@ pub async fn update_blob_local_path(
             .unwrap_or_default();
 
     Ok(blob_with_metadata)
+}
+
+/// like `update_blob_local_path`, but when the blob already has a
+/// *different*, real (non-null) `local_path`, this is a network-received
+/// duplicate (upload of already-owned content, or a re-upload of something
+/// that was soft-deleted and just got undeleted elsewhere) rather than a
+/// first-time path assignment - purge the just-arrived duplicate file
+/// instead of clobbering the row to point at it, mirroring
+/// `create_media_blob`'s `delete_duplicate_local_path` handling. a `None`
+/// existing path always sets normally (nothing to prefer keeping yet), so
+/// this is safe to use unconditionally in place of every
+/// `update_blob_local_path` call following a network/job-driven file write.
+pub async fn set_blob_local_path_or_purge_duplicate(
+    id: &str,
+    new_local_path: &str,
+    updated_by: Option<String>,
+) -> GrimoireResult<MediaBlob> {
+    let current = get_media_blob(id).await?;
+    match current.local_path.as_deref() {
+        Some(old) if old != new_local_path => {
+            purge_duplicate_local_file(&current, new_local_path).await;
+            Ok(current)
+        }
+        _ => update_blob_local_path(id, new_local_path, updated_by).await,
+    }
+}
+
+/// returns true only when `candidate` canonicalizes to a path inside one of
+/// the app's own managed download/upload scratch directories: the
+/// configured `fetch_music`/`fetch_video` output dirs, or the
+/// `{data_dir}/fetch` fallback the upload handlers (`offal::upload`,
+/// `server::upload::music`) use when those aren't configured - the same
+/// directory tree both yt-dlp downloads and network file uploads write
+/// into (see e.g. `server/src/upload/music.rs`'s `output_dir` resolution).
+///
+/// this is a hard, unconditional safety gate for
+/// `purge_duplicate_local_file` - it is checked independently of whatever
+/// the caller claims, so a bug or bad flag upstream can never cause a file
+/// outside the app's own scratch space to be deleted. any ambiguity
+/// (path doesn't exist, canonicalize fails) resolves to `false` (refuse to
+/// delete), never `true`.
+fn is_within_managed_scratch_dir(candidate: &str) -> bool {
+    let candidate_canon = match std::fs::canonicalize(candidate) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "is_within_managed_scratch_dir: failed to canonicalize candidate path {}: {}",
+                candidate,
+                e
+            );
+            return false;
+        }
+    };
+
+    let cfg = config::get_config();
+    let mut roots = vec![cfg.data_dir.join("fetch")];
+    if let Some(server) = cfg.server.as_ref() {
+        if let Some(dir) = server.fetch_music.as_ref().and_then(|f| f.output_dir.as_deref()) {
+            roots.push(std::path::PathBuf::from(dir));
+        }
+        if let Some(dir) = server.fetch_video.as_ref().and_then(|f| f.output_dir.as_deref()) {
+            roots.push(std::path::PathBuf::from(dir));
+        }
+    }
+
+    roots
+        .into_iter()
+        .filter_map(|dir| std::fs::canonicalize(dir).ok())
+        .any(|dir| candidate_canon.starts_with(&dir))
+}
+
+/// delete a freshly-downloaded/uploaded duplicate file from disk instead of
+/// pointing `existing` at it.
+///
+/// callers only reach this once they've already confirmed `new_path` is a
+/// second on-disk copy of content `existing` already owns (same sha256,
+/// different path) - so this always operates on a genuine, already-verified
+/// content duplicate, never a guess.
+///
+/// deliberately best-effort / non-fatal: a failed delete here must not fail
+/// the caller's larger operation (there's already a perfectly good blob to
+/// return/point at) - it only leaks the duplicate file, the same
+/// (pre-existing) outcome as before this fix existed. errors and refusals
+/// are logged so they're visible/diagnosable.
+async fn purge_duplicate_local_file(existing: &MediaBlob, new_path: &str) {
+    // defense in depth: never delete anything outside the app's own
+    // managed scratch directories, regardless of caller intent.
+    if !is_within_managed_scratch_dir(new_path) {
+        tracing::warn!(
+            "refusing to delete duplicate file outside managed scratch dirs: existing_id={}, sha256={}, path={}",
+            existing.id,
+            existing.sha256,
+            new_path
+        );
+        return;
+    }
+
+    match tokio::fs::remove_file(new_path).await {
+        Ok(()) => {
+            tracing::info!(
+                "deleted duplicate file (kept existing blob {} at {:?}): {}",
+                existing.id,
+                existing.local_path,
+                new_path
+            );
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // already gone - nothing to clean up
+        }
+        Err(e) => {
+            tracing::warn!(
+                "failed to delete duplicate file {}: {}",
+                new_path,
+                e
+            );
+        }
+    }
 }
 
 /// update an existing media_blobz row's `local_path` (and `filename` when

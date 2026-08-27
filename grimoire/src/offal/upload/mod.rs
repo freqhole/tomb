@@ -25,7 +25,7 @@ use crate::jobs::{
     JobType, ProcessFileParams,
 };
 use crate::media_blobz::{
-    create_media_blob, get_media_blob_by_sha256, update_blob_local_path, BlobType,
+    create_media_blob, get_media_blob_by_sha256, set_blob_local_path_or_purge_duplicate, BlobType,
     CreateMediaBlobRequest, MediaBlob,
 };
 use crate::media_domain::MediaDomain;
@@ -326,6 +326,7 @@ pub async fn upload_music(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         width: None,
         height: None,
         blake3: Some(blake3_hash),
+        delete_duplicate_local_path: false,
     })
     .await
     {
@@ -663,6 +664,7 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         width: None,
         height: None,
         blake3: Some(blake3_hash),
+        delete_duplicate_local_path: false,
     })
     .await
     {
@@ -984,6 +986,7 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         width: None,
         height: None,
         blake3: None,
+        delete_duplicate_local_path: false,
     })
     .await
     {
@@ -2152,6 +2155,7 @@ pub async fn pull_audio_blob_to_local_storage(
         width: None,
         height: None,
         blake3: Some(blake3.to_string()),
+        delete_duplicate_local_path: false,
     })
     .await
     {
@@ -2180,10 +2184,12 @@ pub async fn pull_audio_blob_to_local_storage(
     tracing::info!("file at {}", full_path.display());
 
     // persist local_path on the media_blob row so future requests
-    // (e.g. ensure_blob_by_blake3, blob data serving) can locate the file.
+    // (e.g. ensure_blob_by_blake3, blob data serving) can locate the file -
+    // purges the just-renamed file instead if it's a duplicate of an
+    // already-owned file elsewhere (see the function's doc comment).
     // skip when dedup'd to a pre-existing blob that already has a path set.
     let blob = if blob.local_path.as_deref() != Some(full_path.to_string_lossy().as_ref()) {
-        match update_blob_local_path(
+        match set_blob_local_path_or_purge_duplicate(
             &blob.id,
             &full_path.to_string_lossy(),
             Some(caller.user_id.clone()),
@@ -2205,9 +2211,20 @@ pub async fn pull_audio_blob_to_local_storage(
         blob
     };
 
+    // report the path callers should actually use going forward: the
+    // blob's own local_path once it's set/kept-pointing-at-existing above,
+    // falling back to full_path only if that update somehow failed (in
+    // which case full_path is still the best guess, since nothing was
+    // purged in that branch).
+    let result_path = blob
+        .local_path
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or(full_path);
+
     Ok(PullAudioBlobResult {
         blob,
-        local_path: full_path,
+        local_path: result_path,
         mime: mime_type,
         sha256: hash,
         size,

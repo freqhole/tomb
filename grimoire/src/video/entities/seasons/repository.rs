@@ -72,6 +72,90 @@ pub async fn create_video_season(req: CreateVideoSeasonRequest) -> GrimoireRespo
     GrimoireResponse::success("Video season created successfully", season)
 }
 
+/// find a video season by its (series_id, season_number) pair - used by
+/// the yt-dlp series-detection importer path to resolve a filename-parsed
+/// season number against an existing season before creating a new one.
+pub async fn find_video_season_by_number(
+    series_id: &str,
+    season_number: i64,
+) -> GrimoireResponse<Option<VideoSeason>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let season_opt = match sqlx::query_as!(
+        VideoSeason,
+        r#"SELECT
+            id as "id!",
+            series_id as "series_id!",
+            season_number as "season_number!",
+            title,
+            description,
+            poster_blob_id,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at
+         FROM video_seasonz
+         WHERE series_id = ? AND season_number = ? AND deleted_at IS NULL
+         LIMIT 1"#,
+        series_id,
+        season_number
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(opt) => opt,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to find video season by number",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    GrimoireResponse::success("Video season lookup completed", season_opt)
+}
+
+/// find an existing (series_id, season_number) season, or create one - the
+/// review-flow counterpart to `create_video_season` that lets an uploader
+/// without curation permissions introduce a brand new season as part of
+/// reviewing their own import, without going through that admin-gated
+/// route (see `offal::video::import_review`).
+pub async fn find_or_create_video_season(
+    series_id: &str,
+    season_number: i64,
+    title: Option<String>,
+) -> GrimoireResponse<VideoSeason> {
+    match find_video_season_by_number(series_id, season_number).await {
+        GrimoireResponse {
+            success: true,
+            data: Some(Some(existing)),
+            ..
+        } => GrimoireResponse::success("Video season lookup completed", existing),
+        GrimoireResponse {
+            success: true,
+            data: Some(None),
+            ..
+        } => {
+            create_video_season(CreateVideoSeasonRequest {
+                series_id: series_id.to_string(),
+                season_number,
+                title,
+                description: None,
+                poster_blob_id: None,
+            })
+            .await
+        }
+        response => GrimoireResponse::failure("failed to look up video season", response.errors),
+    }
+}
+
 /// get video season by id
 pub async fn get_video_season(id: &str) -> GrimoireResponse<VideoSeason> {
     let pool = match database::connect().await {

@@ -452,7 +452,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                   <div class="flex gap-4 wide:gap-6 p-4 wide:p-6">
                     <ContextMenu actions={seriesContextMenuActions()}>
                       <div
-                        class="w-48 wide:w-96 aspect-video bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden cursor-pointer"
+                        class={`w-48 wide:w-96 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
+                          data().series.poster_blob_id ? "" : "bg-[var(--color-bg-elevated)]"
+                        }`}
                         title="view series images"
                         onClick={handleSeriesImageClick}
                       >

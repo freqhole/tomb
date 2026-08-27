@@ -18,12 +18,14 @@ pub use scanner::scan_directory;
 // series/season/video CRUD (create/get/list/update). deletes are exposed
 // from `crud::delete` instead, since they cascade + clean up side tables.
 pub use entities::seasons::{
-    create_video_season, get_video_season, list_video_seasons, update_video_season,
-    CreateVideoSeasonRequest, UpdateVideoSeasonRequest, VideoSeason,
+    create_video_season, find_or_create_video_season, find_video_season_by_number,
+    get_video_season, list_video_seasons, update_video_season, CreateVideoSeasonRequest,
+    UpdateVideoSeasonRequest, VideoSeason,
 };
 pub use entities::series::{
-    create_video_series, get_video_series, list_video_seriez, update_video_series,
-    CreateVideoSeriesRequest, UpdateVideoSeriesRequest, VideoSeries,
+    create_video_series, find_or_create_video_series, find_video_series_by_title,
+    get_video_series, list_video_seriez, update_video_series, CreateVideoSeriesRequest,
+    UpdateVideoSeriesRequest, VideoSeries,
 };
 pub use entities::videos::{
     create_video, get_video, get_video_with_metadata, list_recently_added_videos,
@@ -72,3 +74,13 @@ pub use search::{
     get_video_series_suggestions, get_video_suggestions, search_video_seriez, search_videos,
     VideoSearchResult, VideoSeriesSearchResult,
 };
+
+// import review (grouped by detected series) - mirrors
+// `crate::music::entities::import_review`
+pub use entities::import_review::{
+    ListPendingVideoReviewRequest, MarkVideoGroupReviewedRequest, MoveVideoReviewRequest,
+    PatchVideoGroupReviewRequest, PendingReviewVideoSummary, PendingVideoReviewGroup,
+    PendingVideoReviewSession, VideoImportReviewOk, VideoPendingRequest, VideoPendingResponse,
+    VideoReviewPatch,
+};
+pub use entities::import_review::repository as import_review_repository;

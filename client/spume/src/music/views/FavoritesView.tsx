@@ -34,7 +34,7 @@ import { routes, buildRoute } from "../utils/routing";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 
 export interface FavoritesViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onSongDoubleClick?: (song: Song) => void;
 }
 

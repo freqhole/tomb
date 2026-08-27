@@ -3,6 +3,7 @@
 // an offscreen <video> element's loadedmetadata event (instead of an audio-decode
 // step) and a poster thumbnail is captured by seeking the video and drawing the
 // frame to a canvas.
+import { createSignal } from "solid-js";
 import {
   isOPFSSupported,
   writeVideoPosterToOPFS,
@@ -11,6 +12,7 @@ import {
 import { addLocalVideo } from "../services/storage/db/videos";
 import { isCharnelMode } from "../../app/services/charnel";
 import { debug, warn } from "../../utils/logger";
+import type { LocalImportProgress } from "../../music/import";
 
 export interface VideoImportResult {
   imported: number;
@@ -20,6 +22,30 @@ export interface VideoImportResult {
 interface ExtractedVideoMetadata {
   durationSeconds: number;
   posterBlob: Blob | null;
+}
+
+const IDLE_PROGRESS: LocalImportProgress = {
+  phase: "idle",
+  current: 0,
+  total: 0,
+  currentFile: "",
+  addedCount: 0,
+  skippedCount: 0,
+};
+
+// reactive signal for video local import progress - mirrors music's
+// localImportProgress (see music/import/localImport.ts).
+const [localVideoImportProgress, setLocalVideoImportProgress] =
+  createSignal<LocalImportProgress>(IDLE_PROGRESS);
+
+/** get reactive video local import progress */
+export function getLocalVideoImportProgress() {
+  return localVideoImportProgress();
+}
+
+/** reset video local import progress to idle */
+export function clearLocalVideoImportProgress() {
+  setLocalVideoImportProgress(IDLE_PROGRESS);
 }
 
 // mime-to-extension fallback used only when a file's name has no extension.
@@ -97,6 +123,15 @@ async function extractVideoMetadata(file: File): Promise<ExtractedVideoMetadata>
 // import video files from a file picker (or dropped files) into the local library
 export async function importVideoFiles(files: File[]): Promise<VideoImportResult> {
   if (!isOPFSSupported()) {
+    setLocalVideoImportProgress({
+      phase: "error",
+      current: 0,
+      total: files.length,
+      currentFile: "",
+      addedCount: 0,
+      skippedCount: 0,
+      errorMessage: "opfs not supported in this browser",
+    });
     return { imported: 0, errors: ["opfs not supported in this browser"] };
   }
 
@@ -107,18 +142,41 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
   // music's charnel-mode sync path), so fail up front with a clear message
   // instead of throwing fileHandle.createWritable-is-not-a-function per file.
   if (isCharnelMode()) {
-    return {
-      imported: 0,
-      errors: [
-        "local video import isn't supported in the desktop app yet — use a remote server to add videos",
-      ],
-    };
+    const msg =
+      "local video import isn't supported in the desktop app yet — use a remote server to add videos";
+    setLocalVideoImportProgress({
+      phase: "error",
+      current: 0,
+      total: files.length,
+      currentFile: "",
+      addedCount: 0,
+      skippedCount: 0,
+      errorMessage: msg,
+    });
+    return { imported: 0, errors: [msg] };
   }
 
   let imported = 0;
   const errors: string[] = [];
 
-  for (const file of files) {
+  setLocalVideoImportProgress({
+    phase: "saving",
+    current: 0,
+    total: files.length,
+    currentFile: files[0]?.name ?? "",
+    addedCount: 0,
+    skippedCount: 0,
+  });
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    setLocalVideoImportProgress((prev) => ({
+      ...prev,
+      phase: "saving",
+      current: i + 1,
+      currentFile: file.name,
+      addedCount: imported,
+    }));
     try {
       const id = crypto.randomUUID();
       const extension = guessVideoExtension(file);
@@ -159,6 +217,15 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       errors.push(`${file.name}: ${msg}`);
     }
   }
+
+  setLocalVideoImportProgress({
+    phase: "done",
+    current: files.length,
+    total: files.length,
+    currentFile: "",
+    addedCount: imported,
+    skippedCount: 0,
+  });
 
   return { imported, errors };
 }

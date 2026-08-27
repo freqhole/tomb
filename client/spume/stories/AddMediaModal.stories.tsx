@@ -1,6 +1,6 @@
 import { createSignal, Show, For } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { AddMusicModal } from "../src/components/modals/AddMusicModal";
+import { AddMediaModal } from "../src/components/modals/AddMediaModal";
 import { ImportReviewModal } from "../src/components/modals/ImportReviewModal";
 import {
   ImportAlbumEditorPanel,
@@ -11,10 +11,10 @@ import { Modal } from "../src/components/modals/Modal";
 import { Tab, TabList, TabPanel, Tabs } from "../src/components/navigation/Tabs";
 
 const meta = {
-  title: "Components/Overlays/AddMusicModal",
-  component: AddMusicModal,
+  title: "Components/Overlays/AddMediaModal",
+  component: AddMediaModal,
   tags: ["autodocs"],
-} satisfies Meta<typeof AddMusicModal>;
+} satisfies Meta<typeof AddMediaModal>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -23,16 +23,29 @@ export const Interactive: Story = {
   render: () => {
     const [isOpen, setIsOpen] = createSignal(true);
 
-    const handleFilesSelected = (files: FileList) => {
+    const handleMusicFilesSelected = (files: FileList) => {
       console.log(
-        "files selected:",
+        "music files selected:",
         Array.from(files).map((f) => f.name)
       );
       setIsOpen(false);
     };
 
-    const handleUrlsSubmitted = (urls: string[]) => {
-      console.log("urls submitted:", urls);
+    const handleVideoFilesSelected = (files: FileList) => {
+      console.log(
+        "video files selected:",
+        Array.from(files).map((f) => f.name)
+      );
+      setIsOpen(false);
+    };
+
+    const handleMusicUrlsSubmitted = (urls: string[]) => {
+      console.log("music urls submitted:", urls);
+      setIsOpen(false);
+    };
+
+    const handleVideoUrlsSubmitted = (urls: string[]) => {
+      console.log("video urls submitted:", urls);
       setIsOpen(false);
     };
 
@@ -42,14 +55,17 @@ export const Interactive: Story = {
           class="px-4 py-2 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] rounded"
           onClick={() => setIsOpen(true)}
         >
-          open add music modal
+          open add media modal
         </button>
 
-        <AddMusicModal
+        <AddMediaModal
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
-          onFilesSelected={handleFilesSelected}
-          onUrlsSubmitted={handleUrlsSubmitted}
+          onMusicFilesSelected={handleMusicFilesSelected}
+          onVideoFilesSelected={handleVideoFilesSelected}
+          onMusicUrlsSubmitted={handleMusicUrlsSubmitted}
+          onVideoUrlsSubmitted={handleVideoUrlsSubmitted}
+          fetchVideoEnabled
         />
       </div>
     );
@@ -62,12 +78,18 @@ export const FilesTab: Story = {
 
     return (
       <div class="min-h-screen bg-[var(--color-bg-primary)]">
-        <AddMusicModal
+        <AddMediaModal
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
-          onFilesSelected={(files) =>
+          onMusicFilesSelected={(files) =>
             console.log(
-              "files:",
+              "music files:",
+              Array.from(files).map((f) => f.name)
+            )
+          }
+          onVideoFilesSelected={(files) =>
+            console.log(
+              "video files:",
               Array.from(files).map((f) => f.name)
             )
           }
@@ -83,10 +105,34 @@ export const UrlsTab: Story = {
 
     return (
       <div class="min-h-screen bg-[var(--color-bg-primary)]">
-        <AddMusicModal
+        <AddMediaModal
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
-          onUrlsSubmitted={(urls) => console.log("urls:", urls)}
+          onMusicUrlsSubmitted={(urls) => console.log("music urls:", urls)}
+        />
+      </div>
+    );
+  },
+};
+
+// -------------------------------------------------------------------------
+// story: urls tab with video fetching enabled - shows the music/video/both
+// domain toggle (no precheck configured here, so the toggle renders on the
+// idle paste screen rather than after a confirm step).
+// -------------------------------------------------------------------------
+
+export const UrlsTabWithVideoToggle: Story = {
+  render: () => {
+    const [isOpen, setIsOpen] = createSignal(true);
+
+    return (
+      <div class="min-h-screen bg-[var(--color-bg-primary)]">
+        <AddMediaModal
+          isOpen={isOpen()}
+          onClose={() => setIsOpen(false)}
+          fetchVideoEnabled
+          onMusicUrlsSubmitted={(urls) => console.log("music urls:", urls)}
+          onVideoUrlsSubmitted={(urls) => console.log("video urls:", urls)}
         />
       </div>
     );
@@ -139,7 +185,7 @@ function toEditState(album: ImportReviewAlbum): ImportAlbumEdit {
 }
 
 // -------------------------------------------------------------------------
-// story: add music modal with a conditional "review" tab
+// story: add media modal with a conditional "review" tab (music only)
 //
 // this story simulates how the review tab will look when there are pending
 // sessions. the tab appears alongside "upload files" and "download urls"
@@ -156,11 +202,11 @@ export const WithReviewTab: Story = {
 
     return (
       <div class="min-h-screen bg-[var(--color-bg-primary)]">
-        {/* standalone modal shell simulating AddMusicModal with 3 tabs */}
+        {/* standalone modal shell simulating AddMediaModal with 3 tabs */}
         <Modal
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
-          title="add music"
+          title="add media"
           size="lg"
           scrollBody
         >
@@ -236,6 +282,7 @@ export const WithReviewTab: Story = {
           albums={pendingSessions()}
           onMergeAlbums={(src, tgt) => console.log("merge", src, "->", tgt)}
           onMoveSong={(sid, aid) => console.log("move", sid, "->", aid)}
+          onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
           onMarkReviewed={(id) => console.log("reviewed:", id)}
           onComplete={() => setShowReviewModal(false)}
           renderAlbumEditor={(editorProps) => {
@@ -249,7 +296,7 @@ export const WithReviewTab: Story = {
 };
 
 // -------------------------------------------------------------------------
-// story: the standalone AddMusicModal (no review tab - no pending sessions)
+// story: the standalone AddMediaModal (no review tab - no pending sessions)
 // -------------------------------------------------------------------------
 
 export const WithPendingReviewCard: Story = {
@@ -258,10 +305,10 @@ export const WithPendingReviewCard: Story = {
 
     return (
       <div class="min-h-screen bg-[var(--color-bg-primary)]">
-        <AddMusicModal
+        <AddMediaModal
           isOpen={isOpen()}
           onClose={() => setIsOpen(false)}
-          onUrlsSubmitted={(urls) => console.log("urls:", urls)}
+          onMusicUrlsSubmitted={(urls) => console.log("urls:", urls)}
         />
       </div>
     );

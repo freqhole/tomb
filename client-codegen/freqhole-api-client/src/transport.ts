@@ -4,12 +4,7 @@
 // FreqholeClient uses a transport to make requests, then handles
 // Zod validation on top.
 
-import type {
-  CloseReason,
-  EventFilter,
-  JobEvent,
-  JobStateSnapshot,
-} from "./codegen/schema.js";
+import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 
 /**
  * response from a transport request
@@ -44,9 +39,18 @@ export interface Transport {
    * upload a file via FormData
    * @param path - API path (e.g., /api/upload/music)
    * @param formData - FormData with file and metadata
+   * @param onProgress - optional callback with (loaded, total) bytes sent so
+   *   far. only HttpTransport can report real values (via XHR's upload
+   *   progress event - plain fetch has no cross-browser upload progress
+   *   API); P2P/tauri transports accept but ignore it since their upload
+   *   path doesn't stream raw bytes over a trackable request body.
    * @returns response with status code and body string
    */
-  upload(path: string, formData: FormData): Promise<TransportResponse>;
+  upload(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse>;
 
   /**
    * fetch a blob by ID
@@ -121,10 +125,7 @@ export interface Transport {
    * optional `return()` path on the iterator). transports that don't
    * override use the default polling fallback (see `pollingJobEvents`).
    */
-  subscribeJobEvents?(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent>;
+  subscribeJobEvents?(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent>;
 }
 
 /**
@@ -172,28 +173,48 @@ export class HttpTransport implements Transport {
     };
   }
 
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
     const url = this.baseUrl + path;
-    const headers: Record<string, string> = {};
 
-    // don't set Content-Type - browser sets it with boundary for FormData
-    if (this.apiKey) {
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    // plain fetch has no cross-browser upload-progress event, so only
+    // reach for XHR when a caller actually wants progress reported.
+    if (!onProgress) {
+      const headers: Record<string, string> = {};
+      // don't set Content-Type - browser sets it with boundary for FormData
+      if (this.apiKey) {
+        headers["Authorization"] = `Bearer ${this.apiKey}`;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: formData,
+        credentials: this.apiKey ? "omit" : "include",
+      });
+      const responseBody = await response.text();
+      return { status: response.status, body: responseBody };
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: formData,
-      credentials: this.apiKey ? "omit" : "include",
+    return new Promise<TransportResponse>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url);
+      if (this.apiKey) {
+        xhr.setRequestHeader("Authorization", `Bearer ${this.apiKey}`);
+      }
+      xhr.withCredentials = !this.apiKey;
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      });
+      xhr.addEventListener("load", () => {
+        resolve({ status: xhr.status, body: xhr.responseText });
+      });
+      xhr.addEventListener("error", () => reject(new Error("upload failed: network error")));
+      xhr.addEventListener("abort", () => reject(new Error("upload failed: aborted")));
+      xhr.send(formData);
     });
-
-    const responseBody = await response.text();
-
-    return {
-      status: response.status,
-      body: responseBody,
-    };
   }
 
   async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
@@ -235,10 +256,7 @@ export class HttpTransport implements Transport {
     return snapshotJobEventsViaRequest(this, filter);
   }
 
-  subscribeJobEvents(
-    filter?: EventFilter,
-    signal?: AbortSignal,
-  ): AsyncIterable<JobEvent> {
+  subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return pollingJobEvents(this, filter, signal);
   }
 }
@@ -257,11 +275,7 @@ export async function snapshotJobEventsViaRequest(
   filter?: EventFilter,
 ): Promise<JobStateSnapshot[]> {
   const body = JSON.stringify(filter ?? {});
-  const resp = await transport.request(
-    "POST",
-    "/api/jobs/events/snapshot",
-    body,
-  );
+  const resp = await transport.request("POST", "/api/jobs/events/snapshot", body);
   if (resp.status >= 400 || resp.status === 0) {
     throw new Error(`snapshotJobEvents failed: status ${resp.status}`);
   }

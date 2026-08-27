@@ -347,11 +347,14 @@ pub mod type_registry {
     use crate::playlists::PlaylistItem;
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
-        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, PlaybackProgress,
-        SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
+        CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, ListPendingVideoReviewRequest,
+        MarkVideoGroupReviewedRequest, MoveVideoReviewRequest, PatchVideoGroupReviewRequest,
+        PendingReviewVideoSummary, PendingVideoReviewGroup, PendingVideoReviewSession,
+        PlaybackProgress, SeasonWithVideos, SeriesDetail, SeriesQueryResult, UpdateVideoRequest,
         UpdateVideoSeasonRequest, UpdateVideoSeriesRequest, UpdateVideosRequest,
-        UpdateVideosResult, Video, VideoSearchResult, VideoSeason, VideoSeries,
-        VideoSeriesSearchResult, VideoWithMetadata, VideosQueryResult,
+        UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest, VideoPendingResponse,
+        VideoReviewPatch, VideoSearchResult, VideoSeason, VideoSeries, VideoSeriesSearchResult,
+        VideoWithMetadata, VideosQueryResult,
     };
 
     // video domain offal request/response types (phase 2-3)
@@ -1729,5 +1732,29 @@ pub mod type_registry {
         registered.insert("AlbumPendingRequest".to_string());
         gen.add_schema::<AlbumPendingResponse>("AlbumPendingResponse");
         registered.insert("AlbumPendingResponse".to_string());
+
+        // video import review types (grouped by detected series)
+        gen.add_schema::<ListPendingVideoReviewRequest>("ListPendingVideoReviewRequest");
+        registered.insert("ListPendingVideoReviewRequest".to_string());
+        gen.add_schema::<PendingReviewVideoSummary>("PendingReviewVideoSummary");
+        registered.insert("PendingReviewVideoSummary".to_string());
+        gen.add_schema::<PendingVideoReviewGroup>("PendingVideoReviewGroup");
+        registered.insert("PendingVideoReviewGroup".to_string());
+        gen.add_schema::<PendingVideoReviewSession>("PendingVideoReviewSession");
+        registered.insert("PendingVideoReviewSession".to_string());
+        gen.add_schema::<MarkVideoGroupReviewedRequest>("MarkVideoGroupReviewedRequest");
+        registered.insert("MarkVideoGroupReviewedRequest".to_string());
+        gen.add_schema::<VideoReviewPatch>("VideoReviewPatch");
+        registered.insert("VideoReviewPatch".to_string());
+        gen.add_schema::<PatchVideoGroupReviewRequest>("PatchVideoGroupReviewRequest");
+        registered.insert("PatchVideoGroupReviewRequest".to_string());
+        gen.add_schema::<MoveVideoReviewRequest>("MoveVideoReviewRequest");
+        registered.insert("MoveVideoReviewRequest".to_string());
+        gen.add_schema::<VideoImportReviewOk>("VideoImportReviewOk");
+        registered.insert("VideoImportReviewOk".to_string());
+        gen.add_schema::<VideoPendingRequest>("VideoPendingRequest");
+        registered.insert("VideoPendingRequest".to_string());
+        gen.add_schema::<VideoPendingResponse>("VideoPendingResponse");
+        registered.insert("VideoPendingResponse".to_string());
     }
 }

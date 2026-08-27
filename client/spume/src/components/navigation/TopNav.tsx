@@ -167,10 +167,8 @@ export interface TopNavProps {
   pageCount?: number;
   /** view options for the view selector flyout */
   viewOptions?: ViewOption[];
-  /** callback for add music action */
-  onAddMusic?: () => void;
-  /** callback for add video action */
-  onAddVideo?: () => void;
+  /** callback for add media action */
+  onAddMedia?: () => void;
   /** additional classes */
   class?: string;
 }
@@ -1059,20 +1057,12 @@ export function TopNav(props: TopNavProps) {
                           </Show>
                         </div>
                         <div class="flex items-center gap-2">
-                          <Show when={props.onAddMusic && canUploadMusic()}>
+                          <Show when={props.onAddMedia && (canUploadMusic() || canUploadVideo())}>
                             <button
                               class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
-                              onClick={() => props.onAddMusic?.()}
+                              onClick={() => props.onAddMedia?.()}
                             >
-                              add music
-                            </button>
-                          </Show>
-                          <Show when={props.onAddVideo && canUploadVideo()}>
-                            <button
-                              class="px-3 py-1.5 text-xs text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 rounded transition-colors border border-[var(--color-accent-500)]/30 bg-transparent cursor-pointer font-medium whitespace-nowrap"
-                              onClick={() => props.onAddVideo?.()}
-                            >
-                              add video
+                              add media
                             </button>
                           </Show>
                         </div>

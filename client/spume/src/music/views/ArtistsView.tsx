@@ -44,7 +44,7 @@ import {
 } from "../services/storage/blobResolver";
 
 export interface ArtistsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onArtistClick?: (artistId: string) => void;
 }
 
@@ -718,7 +718,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                         <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                           add music to import local audio files or download from urls
                         </p>
-                        <Button variant="primary" onClick={props.onAddMusic}>
+                        <Button variant="primary" onClick={props.onAddMedia}>
                           add music
                         </Button>
                       </div>

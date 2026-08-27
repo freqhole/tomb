@@ -31,7 +31,7 @@ import { videoQueryKeys } from "../queries/queryKeys";
 import type { VideoQueryParams, VideoSummary } from "../data/types";
 
 export interface VideosViewProps {
-  onAddVideo?: () => void;
+  onAddMedia?: () => void;
 }
 
 type VideoSortField = NonNullable<VideoQueryParams["sort_by"]>;
@@ -362,8 +362,8 @@ export function VideosView(props: VideosViewProps) {
                   <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                     add videos to import local video files
                   </p>
-                  <Show when={props.onAddVideo}>
-                    <Button variant="primary" onClick={props.onAddVideo}>
+                  <Show when={props.onAddMedia}>
+                    <Button variant="primary" onClick={props.onAddMedia}>
                       add video
                     </Button>
                   </Show>

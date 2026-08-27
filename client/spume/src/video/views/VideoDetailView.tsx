@@ -341,7 +341,11 @@ export function VideoDetailView() {
               {/* poster */}
               <ContextMenu actions={videoContextMenuActions()}>
                 <div
-                  class="w-48 wide:w-96 aspect-video mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 cursor-pointer"
+                  class={`w-48 wide:w-96 aspect-video mx-auto wide:mx-0 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
+                    (video().source_type === "remote" ? video().poster_blob_id : localPosterUrl())
+                      ? ""
+                      : "bg-[var(--color-bg-base)]"
+                  }`}
                   title="view video images"
                   onClick={handleVideoImageClick}
                 >

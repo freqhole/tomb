@@ -150,6 +150,9 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
         file_size,
         file_modified_at,
         job.created_by.clone(),
+        // `source_url` is only set when this ProcessFile job was spawned by
+        // a FetchMedia (yt-dlp) job - see ProcessFileParams's doc comment.
+        params.source_url.is_some(),
     )
     .await
     {
@@ -190,6 +193,7 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
             None,
             job.created_by.clone(),
             Some(job),
+            params.source_url.as_deref(),
         )
         .await?;
 

@@ -56,12 +56,16 @@ export function createUploadMethods(transport: Transport) {
     /**
      * upload a music file
      * returns job information for async processing
+     * @param onProgress - optional callback with (loaded, total) bytes sent so far
      */
-    music: async (file: File | Blob): Promise<SafeParseResult<s.MusicUploadResponse>> => {
+    music: async (
+      file: File | Blob,
+      onProgress?: (loaded: number, total: number) => void,
+    ): Promise<SafeParseResult<s.MusicUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await transport.upload("/api/upload/music", formData);
+      const response = await transport.upload("/api/upload/music", formData, onProgress);
       return parseResponse(response.body, response.status, MusicUploadResponseSchema);
     },
 
@@ -92,12 +96,16 @@ export function createUploadMethods(transport: Transport) {
     /**
      * upload a video file
      * returns job information for async processing
+     * @param onProgress - optional callback with (loaded, total) bytes sent so far
      */
-    video: async (file: File | Blob): Promise<SafeParseResult<s.VideoUploadResponse>> => {
+    video: async (
+      file: File | Blob,
+      onProgress?: (loaded: number, total: number) => void,
+    ): Promise<SafeParseResult<s.VideoUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await transport.upload("/api/upload/video", formData);
+      const response = await transport.upload("/api/upload/video", formData, onProgress);
       return parseResponse(response.body, response.status, VideoUploadResponseSchema);
     },
 

@@ -367,20 +367,11 @@ export {
   type TagSelectorOptions,
 } from "../../app/state/tagSelectorState";
 
-// add music modal
-const [addMusicOpen, setAddMusicOpen] = createSignal(false);
-
-export function openAddMusic() {
-  setAddMusicOpen(true);
-}
-
-export function closeAddMusic() {
-  setAddMusicOpen(false);
-}
-
-export function useAddMusicState() {
-  return addMusicOpen;
-}
+// note: the add-music/add-video modal signals used to live here and in
+// video/hooks/modals.ts respectively — both were replaced by the unified
+// add-media modal state in app/hooks/mediaModal.ts (openAddMedia/
+// closeAddMedia/useAddMediaState), which still uses pushModal/popModal
+// above for escape-key handling.
 
 // share modal — global mount, opened from toolbars and context menus.
 // kept generic via a `source` accessor so callers can pass either a

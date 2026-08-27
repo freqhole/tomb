@@ -62,3 +62,21 @@ export async function getOrCreateLocalVideoSeason(input: {
   if (existing) return existing;
   return createLocalVideoSeason(input);
 }
+
+export async function updateLocalVideoSeason(
+  seasonId: string,
+  updates: {
+    season_number?: number;
+    title?: string | null;
+    description?: string | null;
+    poster_blob_id?: string | null;
+  }
+): Promise<void> {
+  const db = await getVideoDB();
+  const existing = (await db.get(STORE_VIDEO_SEASONS, seasonId)) as VideoSeason | undefined;
+  if (!existing) {
+    throw new Error(`video season not found: ${seasonId}`);
+  }
+  const updated: VideoSeason = { ...existing, ...updates, updated_at: Date.now() };
+  await db.put(STORE_VIDEO_SEASONS, updated);
+}

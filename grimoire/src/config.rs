@@ -1629,6 +1629,7 @@ pub async fn ensure_server_image_blob(config_path: &Path) -> Result<String, Conf
         width: None,
         height: None,
         blake3: None,
+        delete_duplicate_local_path: false,
     };
 
     let blob = create_media_blob(request)

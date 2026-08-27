@@ -4,9 +4,9 @@
 // `uploadJobs` store is a private singleton scoped to that file, so reusing it
 // directly would mix video jobs into the music modal's progress list (and vice
 // versa) — a new instance is required, though the generic `UploadJobStatus`
-// union is reused rather than redefined. no url-fetch / pending-review support
-// here (video doesn't have those flows yet).
+// union is reused rather than redefined.
 import { createStore, produce } from "solid-js/store";
+import type { FreqholeClient } from "@freqhole/api-client";
 import { getClientForRemote } from "../../app/api/client";
 import { JobPoller } from "../../app/services/jobs/jobService";
 import { toast } from "../../components/feedback/Toast";
@@ -38,6 +38,13 @@ export interface VideoUploadJob {
   createdAt: number;
   /** remote id this job ran against */
   remoteId?: string;
+  /** job session id - set after completion; used to open import review */
+  sessionId?: string;
+  /** upload transfer progress (0..1) while status is "uploading" - only
+   * populated on transports that can report real byte-level progress
+   * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
+   * uploads, which don't stream a trackable request body. */
+  progress?: number;
 }
 
 // reactive store for all tracked video upload jobs (own instance — see module note above)
@@ -89,11 +96,47 @@ function updateJobStatus(
   );
 }
 
+// resolve a completed job's session_id (used to open import review) - a
+// trimmed version of music/import/remoteImport.ts's `resolveJobEntities`
+// (video review only needs the session id, not entity ids).
+async function resolveVideoJobSessionId(
+  client: FreqholeClient,
+  jobId: string
+): Promise<string | undefined> {
+  try {
+    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
+    if (!statusResp.success || !statusResp.data) return undefined;
+    return statusResp.data.jobs[jobId]?.session_id ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function updateJobSessionId(id: string, sessionId: string | undefined) {
+  if (!sessionId) return;
+  setVideoUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.sessionId = sessionId;
+    })
+  );
+}
+
 function updateJobStage(id: string, stage: string | undefined) {
   setVideoUploadJobs(
     (j) => j.id === id,
     produce((j) => {
       j.stage = stage;
+    })
+  );
+}
+
+// update a tracked job's upload transfer progress (0..1).
+function updateJobProgress(id: string, progress: number) {
+  setVideoUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.progress = progress;
     })
   );
 }
@@ -146,7 +189,9 @@ export async function uploadVideoFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.video(file);
+        const result = await client.upload.video(file, (loaded, total) => {
+          if (total > 0) updateJobProgress(trackId, loaded / total);
+        });
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
           updateJobStatus(trackId, "failed", { error: errMsg });
@@ -164,6 +209,9 @@ export async function uploadVideoFilesToRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
+          void resolveVideoJobSessionId(client, jobId).then((sid) =>
+            updateJobSessionId(trackId, sid)
+          );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
@@ -230,6 +278,9 @@ export async function uploadVideoPathsToRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
+          void resolveVideoJobSessionId(client, jobId).then((sid) =>
+            updateJobSessionId(trackId, sid)
+          );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });
@@ -331,6 +382,9 @@ export async function fetchVideoUrlsOnRemote(
         });
         if (pollResult.status === "completed") {
           updateJobStatus(trackId, "completed");
+          void resolveVideoJobSessionId(client, jobId).then((sid) =>
+            updateJobSessionId(trackId, sid)
+          );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", { error: "taking a long time, check back later" });

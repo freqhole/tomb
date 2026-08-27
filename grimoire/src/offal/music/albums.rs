@@ -933,6 +933,7 @@ pub async fn ingest_remote_image_inner(
                 width: processed_w,
                 height: processed_h,
                 blake3: Some(blake3_hash),
+                delete_duplicate_local_path: false,
             })
             .await
             {
@@ -985,8 +986,10 @@ pub async fn ingest_remote_image_inner(
                     )],
                 );
             }
-            // record local_path on the blob row
-            let _ = crate::media_blobz::update_blob_local_path(
+            // record local_path on the blob row - purges the just-written
+            // file instead if it's a duplicate of an already-owned file
+            // elsewhere (see set_blob_local_path_or_purge_duplicate's doc).
+            let _ = crate::media_blobz::set_blob_local_path_or_purge_duplicate(
                 &blob.id,
                 full_path.to_string_lossy().as_ref(),
                 Some(created_by_id.to_string()),

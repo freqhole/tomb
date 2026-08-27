@@ -251,6 +251,7 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             width: None,
             height: None,
             blake3,
+            delete_duplicate_local_path: false,
         })
         .await
         {

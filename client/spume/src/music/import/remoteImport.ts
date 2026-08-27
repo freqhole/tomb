@@ -60,6 +60,11 @@ export interface UploadJob {
    * carries per-file counts (ProcessDirectory jobs) rather than a single
    * song outcome. */
   resultSummary?: string;
+  /** upload transfer progress (0..1) while status is "uploading" - only
+   * populated on transports that can report real byte-level progress
+   * (HttpTransport via XHR); stays undefined (indeterminate) on P2P/tauri
+   * uploads, which don't stream a trackable request body. */
+  progress?: number;
 }
 
 // reactive store for all tracked upload jobs
@@ -120,6 +125,16 @@ function updateJobStage(id: string, stage: string | undefined) {
     (j) => j.id === id,
     produce((j) => {
       j.stage = stage;
+    })
+  );
+}
+
+// update a tracked job's upload transfer progress (0..1).
+function updateJobProgress(id: string, progress: number) {
+  setUploadJobs(
+    (j) => j.id === id,
+    produce((j) => {
+      j.progress = progress;
     })
   );
 }
@@ -322,7 +337,9 @@ export async function uploadFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.music(file);
+        const result = await client.upload.music(file, (loaded, total) => {
+          if (total > 0) updateJobProgress(trackId, loaded / total);
+        });
         if (!result.success) {
           // extract error message from the ZodError
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";

@@ -6,7 +6,7 @@
 //! branch calls into.
 
 use crate::jobs::{Job, JobError};
-use crate::media_blobz::update_blob_local_path;
+use crate::media_blobz::set_blob_local_path_or_purge_duplicate;
 use crate::video::importer::import_video_file;
 use std::path::Path;
 use tracing::info;
@@ -51,10 +51,7 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
     match tokio::fs::metadata(file_path).await {
         Ok(metadata) => {
             if !metadata.is_file() {
-                tracing::warn!(
-                    "upload path is not a regular file: {}",
-                    local_path_str
-                );
+                tracing::warn!("upload path is not a regular file: {}", local_path_str);
                 return Err(JobError::ProcessingFailedFinal {
                     reason: "uploaded file is not a regular file".to_string(),
                     error_type: "file_not_found".to_string(),
@@ -64,7 +61,8 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             tracing::warn!(
                 "permission denied reading upload path {}: {}",
-                local_path_str, e
+                local_path_str,
+                e
             );
             return Err(JobError::ProcessingFailedFinal {
                 reason: "the server does not have permission to read this file".to_string(),
@@ -79,15 +77,22 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
             });
         }
         Err(e) => {
-            tracing::warn!("failed to read metadata for upload path {}: {}", local_path_str, e);
+            tracing::warn!(
+                "failed to read metadata for upload path {}: {}",
+                local_path_str,
+                e
+            );
             return Err(JobError::ProcessingFailed {
                 reason: "failed to read file metadata".to_string(),
             });
         }
     }
 
+    // purges the just-uploaded file instead if it's a duplicate of an
+    // already-owned file elsewhere (see the function's doc comment).
     if let Err(e) =
-        update_blob_local_path(&blob_id, local_path_str, Some("job_processor".to_string())).await
+        set_blob_local_path_or_purge_duplicate(&blob_id, local_path_str, Some("job_processor".to_string()))
+            .await
     {
         // may already be set - not fatal, mirrors ImportMusic's handling
         info!(
@@ -104,6 +109,7 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
         filename,
         job.created_by.clone(),
         Some(job),
+        None,
     )
     .await?;
 

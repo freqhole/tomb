@@ -93,11 +93,20 @@ pub(crate) async fn stream_sha256_hash(file_path: &str) -> Result<String, std::i
 ///
 /// Creates a media blob record from an audio file path.
 /// Calculates SHA256 hash of the actual file contents for deduplication.
+///
+/// `is_fetch_download` should be true only when `file_path` is a file that
+/// was just downloaded by the yt-dlp fetch pipeline (i.e. lives under the
+/// configured `fetch_music`/`fetch_video` output dir) - when true, a
+/// same-content duplicate hit deletes this fresh download instead of
+/// relocating the pre-existing blob to point at it. false for scanner
+/// rediscovery / user uploads, which must keep the existing relocate
+/// behavior.
 pub async fn create_media_blob_from_file(
     file_path: &str,
     file_size: u64,
     file_modified_at: i64,
     created_by: Option<String>,
+    is_fetch_download: bool,
 ) -> GrimoireResponse<String> {
     let file_name = Path::new(file_path)
         .file_name()
@@ -175,6 +184,9 @@ pub async fn create_media_blob_from_file(
         width: None,
         height: None,
         blake3, // computed at ingest for audio files
+        // only a fresh yt-dlp download should ever purge a duplicate file
+        // from disk instead of relocating - see the field's doc comment.
+        delete_duplicate_local_path: is_fetch_download,
     };
 
     match media_blobz::create_media_blob(request).await {
@@ -510,6 +522,7 @@ pub async fn create_image_blob_from_webp_data(
         width: None,
         height: None,
         blake3: None, // create_media_blob computes this from the bytes above
+        delete_duplicate_local_path: false,
     };
 
     match media_blobz::create_media_blob(request).await {

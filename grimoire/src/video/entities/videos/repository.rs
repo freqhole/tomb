@@ -700,11 +700,14 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
         }
     };
 
+    let clear_series_flag = req.clear_series_id as i64;
+    let clear_season_flag = (req.clear_series_id || req.clear_season_id) as i64;
+
     let video = match sqlx::query_as!(
         Video,
         r#"UPDATE videoz
-            SET series_id = COALESCE(?, series_id),
-                season_id = COALESCE(?, season_id),
+            SET series_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, series_id) END,
+                season_id = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(?, season_id) END,
                 episode_number = COALESCE(?, episode_number),
                 content_type = COALESCE(?, content_type),
                 title = COALESCE(?, title),
@@ -735,7 +738,9 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
                 deleted_by,
                 '[]' as "images: JsonVec<ImageMetadata>",
                 (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64""#,
+        clear_series_flag,
         req.series_id,
+        clear_season_flag,
         req.season_id,
         req.episode_number,
         req.content_type,

@@ -45,12 +45,19 @@ struct VideoProperties {
 
 /// import a video file: probe, dedupe, create the video row, extract
 /// poster/subtitles, and enqueue transcoding.
+///
+/// `source_url` is the yt-dlp download url when this import came from a url
+/// fetch (`None` for scanned/uploaded files) - when present, the imported
+/// title is run through series/season/episode detection (see
+/// `video::scanner::filename_parser`) and a "source" entity url is recorded
+/// on the resulting video.
 pub async fn import_video_file(
     media_blob_id: &str,
     file_path: &Path,
     original_filename: Option<&str>,
     created_by: Option<String>,
     job: Option<&Job>,
+    source_url: Option<&str>,
 ) -> Result<VideoImportResult, JobError> {
     let config = get_config();
 
@@ -97,19 +104,66 @@ pub async fn import_video_file(
     // `file_path` is the on-disk storage path, named after the media blob's
     // id (not the original filename), so falling back to it as a title
     // source would show a uuid instead of a human-readable name.
-    let title = original_filename
-        .map(|s| Path::new(s))
+    let raw_title = original_filename
+        .map(Path::new)
         .or(Some(file_path))
         .and_then(|p| p.file_stem())
         .and_then(|s| s.to_str())
         .unwrap_or("untitled")
         .to_string();
 
+    // a yt-dlp url fetch is a "clip" by default (unless series detection
+    // below finds a match) - scanned/uploaded standalone videos keep the
+    // existing "movie"/"series" defaults handled inside `create_video`.
+    let mut content_type = source_url.map(|_| "clip".to_string());
+    let mut series_id = None;
+    let mut season_id = None;
+    let mut episode_number = None;
+    let mut title = raw_title.clone();
+
+    if source_url.is_some() {
+        let parsed = crate::video::scanner::filename_parser::parse_video_filename_stem(&raw_title);
+        if let (Some(season), Some(episode), Some(detected_series_title)) = (
+            parsed.season,
+            parsed.episode,
+            parsed.series_title.clone().filter(|t| !t.is_empty()),
+        ) {
+            match resolve_series_and_season(&detected_series_title, season, created_by.clone()).await
+            {
+                Some((resolved_series_id, resolved_season_id)) => {
+                    series_id = Some(resolved_series_id);
+                    season_id = Some(resolved_season_id);
+                    episode_number = Some(episode);
+                    content_type = None; // let create_video default to "series"
+                }
+                None => {
+                    info!(
+                        "series '{}' detected but could not be resolved/created - importing as a clip",
+                        detected_series_title
+                    );
+                }
+            }
+        }
+
+        // prefer the parsed episode title (real episode name, promo/
+        // boilerplate text after a `|` stripped), falling back to the
+        // detected series title, then the raw filename-derived title.
+        if let Some(episode_title) = parsed.episode_title.filter(|t| !t.is_empty()) {
+            title = episode_title;
+        } else if let Some(series_title) = parsed.series_title.filter(|t| !t.is_empty()) {
+            title = series_title;
+        }
+        title = crate::video::scanner::filename_parser::strip_youtube_video_id(&title);
+        if title.is_empty() {
+            title = raw_title;
+        }
+    }
+
     let create_req = CreateVideoRequest {
-        series_id: None,
-        season_id: None,
-        episode_number: None,
-        content_type: None,
+        series_id,
+        season_id,
+        episode_number,
+        content_type,
         title,
         description: None,
         media_blob_id: media_blob_id.to_string(),
@@ -118,6 +172,7 @@ pub async fn import_video_file(
         release_date: None,
         created_by: created_by.clone(),
     };
+
 
     let video = match create_video(create_req).await {
         response if response.success => {
@@ -172,6 +227,41 @@ pub async fn import_video_file(
             });
         }
     };
+
+    // register this blob in the import review queue if the job has a
+    // session - mirrors music's `file_processor`/`upload_processors` call
+    // sites (same shared `import_blobz` table, keyed on media_blob_id).
+    if let Some(session_id) = job.and_then(|j| j.session_id.as_deref()) {
+        if let Ok(pool) = crate::database::connect().await {
+            let _ = sqlx::query!(
+                "INSERT OR IGNORE INTO import_blobz (media_blob_id, session_id) VALUES (?, ?)",
+                media_blob_id,
+                session_id
+            )
+            .execute(&pool)
+            .await;
+        }
+    }
+
+    // record the download url used to fetch this video (yt-dlp fetch path
+    // only) as a "source" entity url - mirrors music's equivalent
+    // `add_entity_url("album", ...)` call for fetched albums.
+    if let Some(url) = source_url {
+        let url_resp = crate::video::add_entity_url(
+            crate::video::VideoEntityType::Video,
+            &video.id,
+            Some("source".to_string()),
+            url,
+            created_by.clone(),
+        )
+        .await;
+        if !url_resp.success {
+            warn!(
+                "failed to record source url for video {}: {}",
+                video.id, url_resp.message
+            );
+        }
+    }
 
     // apply any directory tag rules (set up via `jobs::add_directory_tags`,
     // e.g. from the scan-directory tags field) that match this file's path -
@@ -229,6 +319,8 @@ pub async fn import_video_file(
                 duration_seconds: None,
                 release_date: None,
                 updated_by: created_by.clone(),
+                clear_series_id: false,
+                clear_season_id: false,
             })
             .await;
             if update_resp.success {
@@ -269,6 +361,31 @@ pub async fn import_video_file(
             None
         }
     };
+
+    // fire a "new video added" feed event - mirrors music's
+    // upsert_album_feed_event call after a fresh song/album import.
+    if let Some(user_id) = created_by.clone() {
+        let video_id = video.id.clone();
+        tokio::spawn(async move {
+            let pool = match crate::database::connect().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            let username = sqlx::query_scalar!(
+                r#"SELECT username FROM user_accountz WHERE id = ?"#,
+                user_id
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "unknown".to_string());
+            let _ = crate::music::analytics::feed_events::upsert_video_feed_event(
+                &video_id, &user_id, &username,
+            )
+            .await;
+        });
+    }
 
     // inline waveform generation (best-effort - mirrors music's
     // `create_audio_waveform_blob` pipeline exactly: ffmpeg's `showwavespic`
@@ -407,6 +524,101 @@ pub async fn import_video_file(
     })
 }
 
+/// resolve (or create) the video series/season for a detected series
+/// title + season number, used by the yt-dlp series-detection path in
+/// `import_video_file`. returns `None` (falling back to a plain "clip")
+/// when lookup/creation fails for any reason.
+async fn resolve_series_and_season(
+    series_title: &str,
+    season_number: i64,
+    created_by: Option<String>,
+) -> Option<(String, String)> {
+    let series_id = match crate::video::find_video_series_by_title(series_title).await {
+        resp if !resp.success => {
+            warn!(
+                "failed to look up video series '{}': {}",
+                series_title, resp.message
+            );
+            return None;
+        }
+        resp => match resp.data.flatten() {
+            Some(existing) => existing.id,
+            None => {
+                let create_resp = crate::video::create_video_series(
+                    crate::video::CreateVideoSeriesRequest {
+                        title: series_title.to_string(),
+                        description: None,
+                        poster_blob_id: None,
+                        created_by: created_by.clone(),
+                    },
+                )
+                .await;
+                match create_resp.data {
+                    Some(series) => series.id,
+                    None => {
+                        warn!(
+                            "failed to create video series '{}': {}",
+                            series_title, create_resp.message
+                        );
+                        return None;
+                    }
+                }
+            }
+        },
+    };
+
+    let season_id = match crate::video::find_video_season_by_number(&series_id, season_number).await
+    {
+        resp if !resp.success => {
+            warn!(
+                "failed to look up season {} for series {}: {}",
+                season_number, series_id, resp.message
+            );
+            return None;
+        }
+        resp => match resp.data.flatten() {
+            Some(existing) => existing.id,
+            None => {
+                let create_resp = crate::video::create_video_season(
+                    crate::video::CreateVideoSeasonRequest {
+                        series_id: series_id.clone(),
+                        season_number,
+                        title: None,
+                        description: None,
+                        poster_blob_id: None,
+                    },
+                )
+                .await;
+                match create_resp.data {
+                    Some(season) => season.id,
+                    None => {
+                        // race: another import created this exact season
+                        // concurrently - `create_video_season` returns a
+                        // `duplicate_video_season` error rather than
+                        // failing outright in that case, so re-fetch it.
+                        match crate::video::find_video_season_by_number(&series_id, season_number)
+                            .await
+                            .data
+                            .flatten()
+                        {
+                            Some(existing) => existing.id,
+                            None => {
+                                warn!(
+                                    "failed to create video season {} for series {}: {}",
+                                    season_number, series_id, create_resp.message
+                                );
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    };
+
+    Some((series_id, season_id))
+}
+
 /// look up an existing (non-deleted) video by its media_blob_id.
 async fn find_video_by_media_blob_id(media_blob_id: &str) -> Result<Option<String>, JobError> {
     let pool = crate::database::connect().await?;
@@ -424,7 +636,7 @@ async fn find_video_by_media_blob_id(media_blob_id: &str) -> Result<Option<Strin
 
 /// true if a (soft-deleted) videoz row already references this media_blob_id
 /// - distinguishes "this exact file was imported before and deleted" from
-/// any other unique-constraint conflict, for a clearer error message.
+///   any other unique-constraint conflict, for a clearer error message.
 async fn was_video_soft_deleted(media_blob_id: &str) -> Result<bool, JobError> {
     let pool = crate::database::connect().await?;
     let found = sqlx::query_scalar!(
@@ -742,6 +954,7 @@ async fn extract_video_poster(
         width: None,
         height: None,
         blake3: Some(blake3),
+        delete_duplicate_local_path: false,
     })
     .await?;
 
@@ -830,6 +1043,7 @@ async fn extract_subtitle_track(
         width: None,
         height: None,
         blake3: Some(blake3),
+        delete_duplicate_local_path: false,
     })
     .await?;
 

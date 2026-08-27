@@ -284,6 +284,7 @@ export const FullFlow: Story = {
               albums={albumList()}
               onMergeAlbums={handleMerge}
               onMoveSong={(sid, aid) => console.log("move", sid, "->", aid)}
+              onCreateAlbumForSong={(sid, title, artist) => console.log("create album", title, artist, "for", sid)}
               onMarkReviewed={(id) => console.log("marked reviewed:", id)}
               onComplete={() => {
                 setIsOpen(false);
@@ -325,6 +326,7 @@ export const SingleAlbumFastPath: Story = {
               albums={singleAlbum}
               onMergeAlbums={() => {}}
               onMoveSong={() => {}}
+              onCreateAlbumForSong={() => {}}
               onMarkReviewed={(id) => console.log("reviewed:", id)}
               onComplete={() => {
                 setIsOpen(false);
@@ -369,6 +371,7 @@ export const MetadataStageLastAlbum: Story = {
           albums={twoAlbums}
           onMergeAlbums={() => {}}
           onMoveSong={() => {}}
+          onCreateAlbumForSong={() => {}}
           onMarkReviewed={(id) => console.log("reviewed:", id)}
           onComplete={() => setIsOpen(false)}
           renderAlbumEditor={(p) => <FullEditor {...p} />}

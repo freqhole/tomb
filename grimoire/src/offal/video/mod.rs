@@ -2,6 +2,7 @@
 //!
 //! covers: video series, seasons, and videos (episodes/movies/clips).
 
+pub mod import_review;
 pub mod progress;
 pub mod relations;
 pub mod seasons;
@@ -21,6 +22,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(videos::ROUTES);
     all.extend_from_slice(progress::ROUTES);
     all.extend_from_slice(relations::ROUTES);
+    all.extend_from_slice(import_review::ROUTES);
     all
 }
 
@@ -89,6 +91,23 @@ pub async fn dispatch(
         }
         "/api/video/relations/unassigned-videos" => {
             Some(relations::unassigned_videos(caller, body.clone()).await)
+        }
+
+        // import review (grouped by detected series)
+        "/api/video/import/pending" => {
+            Some(import_review::list_pending(caller, body.clone()).await)
+        }
+        "/api/video/import/mark-reviewed" => {
+            Some(import_review::mark_reviewed(caller, body.clone()).await)
+        }
+        "/api/video/import/patch-group" => {
+            Some(import_review::patch_group(caller, body.clone()).await)
+        }
+        "/api/video/import/move-video" => {
+            Some(import_review::move_video(caller, body.clone()).await)
+        }
+        "/api/video/import/video-pending" => {
+            Some(import_review::video_pending(caller, body.clone()).await)
         }
 
         _ => None,

@@ -11,7 +11,8 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::{
-    get_media_blob_with_data, mirror_insert_bytes, update_blob_content, update_blob_local_path,
+    get_media_blob_with_data, mirror_insert_bytes, set_blob_local_path_or_purge_duplicate,
+    update_blob_content,
 };
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::albums::add_album_image;
@@ -409,8 +410,15 @@ pub async fn process_import_music_job(job: &Job) -> Result<Option<Value>, JobErr
         });
     }
 
-    // update blob with local_path (in case it wasn't set during upload)
-    match update_blob_local_path(&blob_id, local_path_str, Some("job_processor".to_string())).await
+    // update blob with local_path (in case it wasn't set during upload) -
+    // purges the just-uploaded file instead if it's a duplicate of an
+    // already-owned file elsewhere (see the function's doc comment).
+    match set_blob_local_path_or_purge_duplicate(
+        &blob_id,
+        local_path_str,
+        Some("job_processor".to_string()),
+    )
+    .await
     {
         Ok(_) => {
             info!(

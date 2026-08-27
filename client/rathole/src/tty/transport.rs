@@ -336,6 +336,8 @@ impl Transport for LocalTransport {
             duration_seconds: None,
             release_date: None,
             updated_by: Some(self.caller.user_id.clone()),
+            clear_series_id: false,
+            clear_season_id: false,
         };
         let resp = update_videos(req).await;
         if !resp.success {

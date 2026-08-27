@@ -142,6 +142,34 @@ export function useCreateVideoSeasonMutation() {
   }));
 }
 
+export interface UpdateVideoSeasonMutationParams {
+  season_id: string;
+  series_id: string;
+  season_number?: number;
+  title?: string | null;
+  description?: string | null;
+  poster_blob_id?: string | null;
+}
+
+export function useUpdateVideoSeasonMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: UpdateVideoSeasonMutationParams) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.updateVideoSeason) {
+        throw new Error("current data source does not support updating video seasons");
+      }
+      const { series_id: _series_id, ...updateParams } = params;
+      await dataSource.updateVideoSeason(updateParams);
+    },
+    onSuccess: (_result, params) => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.seasons(params.series_id) });
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.detail(params.series_id) });
+    },
+  }));
+}
+
 export interface UpdateVideoSeriesMutationParams {
   series_id: string;
   title?: string;

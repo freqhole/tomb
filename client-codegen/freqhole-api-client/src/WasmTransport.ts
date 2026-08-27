@@ -316,7 +316,16 @@ export class WasmTransport implements Transport {
     }
   }
 
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    _onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
+    // no byte-level progress possible here - unlike CharnelTransport's tauri
+    // IPC path (which self-chunks and can report per-chunk progress), the
+    // midden wasm binding's `import_blob(bytes)` is a single opaque call
+    // with no progress callback exposed, and the base64 fallback also sends
+    // one JSON request.
     const file = formData.get("file") as File | null;
     if (!file) {
       return {

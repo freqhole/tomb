@@ -601,6 +601,8 @@ export function EditVideoModal(props: EditVideoModalProps) {
         series_id: seriesId,
         season_id: seasonId,
         content_type: seriesId ? "series" : data.content_type,
+        clear_series_id: !seriesId,
+        clear_season_id: !seasonId,
       });
 
       if (urlsChanged()) {

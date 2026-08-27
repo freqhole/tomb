@@ -45,7 +45,7 @@ import { queryClient } from "../../queryClient";
 import { toast } from "../../components/feedback/Toast";
 
 export interface AlbumsViewProps {
-  onAddMusic: () => void;
+  onAddMedia: () => void;
   onAlbumClick?: (albumId: string) => void;
 }
 
@@ -522,7 +522,7 @@ export function AlbumsView(props: AlbumsViewProps) {
                     <p class="text-sm text-[var(--color-text-tertiary)] mb-6">
                       add music to import local audio files or download from urls
                     </p>
-                    <Button variant="primary" onClick={props.onAddMusic}>
+                    <Button variant="primary" onClick={props.onAddMedia}>
                       add music
                     </Button>
                   </div>

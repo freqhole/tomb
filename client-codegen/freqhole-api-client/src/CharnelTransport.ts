@@ -264,7 +264,11 @@ export class CharnelTransport implements Transport {
    * FsStore -> remote pull) - see uploadByPath() for the filesystem-path variant.
    * for other uploads (images), uses base64 encoding (small enough to be fine).
    */
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
     // extract file from form data
     const file = formData.get("file") as File | null;
     if (!file) {
@@ -287,8 +291,10 @@ export class CharnelTransport implements Transport {
     // for music/video uploads, import bytes into iroh-blobs store and use the
     // blake3 pull model (same as uploadByPath but from in-memory bytes).
     // this supports Android where file picker returns File objects, not paths.
+    // the import is already chunked (see uploadMediaViaBytes), so real
+    // per-chunk progress is reported here, same as HttpTransport's XHR path.
     if (path === "/api/upload/music" || path === "/api/upload/video") {
-      return this.uploadMediaViaBytes(path, file);
+      return this.uploadMediaViaBytes(path, file, onProgress);
     }
 
     // for non-media uploads (images etc), use base64 (small enough)
@@ -385,8 +391,19 @@ export class CharnelTransport implements Transport {
    * tauri IPC is JSON-only and a single large base64 payload OOMs the
    * webview; it also keeps memory bounded on both sides (the receiver
    * accumulates chunks in a temp file on disk, not in memory).
+   *
+   * `onProgress`, if given, is called after each chunk finishes uploading
+   * with (bytes sent so far, file.size) - this is real, byte-level progress
+   * driven by the same chunk loop that does the actual IPC transfer, not an
+   * estimate. only covers the local-import phase (client -> local FsStore);
+   * the remote peer's own pull afterwards has no progress signal exposed
+   * back to this client.
    */
-  private async uploadMediaViaBytes(path: string, file: File): Promise<TransportResponse> {
+  private async uploadMediaViaBytes(
+    path: string,
+    file: File,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
     const inv = await ensureInvoke();
 
     console.debug("[P2P] uploadMediaViaBytes: streaming file", file.name, file.size, "bytes");
@@ -402,6 +419,7 @@ export class CharnelTransport implements Transport {
           const chunkBytes = new Uint8Array(await slice.arrayBuffer());
           const b64 = bytesToBase64(chunkBytes);
           await inv("p2p_import_chunk", { uploadId, data: b64 });
+          onProgress?.(Math.min(offset + chunkBytes.length, file.size), file.size);
         }
       } catch (err) {
         // best-effort cleanup of the partial temp file on the receiver side.

@@ -25,7 +25,7 @@
 
 import { debug } from "./logger";
 
-export type FileKind = "audio" | "image" | "video";
+export type FileKind = "audio" | "image" | "video" | "media";
 
 export interface PickedFile {
   /** display filename (best-effort — derived from path/uri when native picker doesn't surface one) */
@@ -63,47 +63,51 @@ const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
 // mirrors grimoire/src/config.rs's default_supported_video_formats()
 export const VIDEO_EXTS = ["mp4", "mkv", "webm", "mov", "avi"];
 
+const AUDIO_ACCEPT_LIST = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/flac",
+  "audio/x-flac",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/m4a",
+  "audio/ogg",
+  "audio/aac",
+  "audio/x-aac",
+  ".mp3",
+  ".flac",
+  ".wav",
+  ".m4a",
+  ".ogg",
+  ".aac",
+  ".alac",
+  ".wma",
+];
+const VIDEO_ACCEPT_LIST = [
+  "video/mp4",
+  "video/x-matroska",
+  "video/webm",
+  "video/quicktime",
+  "video/x-msvideo",
+  ".mp4",
+  ".mkv",
+  ".webm",
+  ".mov",
+  ".avi",
+];
+
 // accept attribute for <input type=file> on the web.
 // ios safari mishandles `audio/*` wildcard — it grays out audio files and
 // enables video files instead. listing explicit mime types + extensions fixes
 // this while still working everywhere else.
 const WEB_ACCEPT: Record<FileKind, string> = {
-  audio: [
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/flac",
-    "audio/x-flac",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/wave",
-    "audio/mp4",
-    "audio/x-m4a",
-    "audio/m4a",
-    "audio/ogg",
-    "audio/aac",
-    "audio/x-aac",
-    ".mp3",
-    ".flac",
-    ".wav",
-    ".m4a",
-    ".ogg",
-    ".aac",
-    ".alac",
-    ".wma",
-  ].join(","),
+  audio: AUDIO_ACCEPT_LIST.join(","),
   image: "image/*",
-  video: [
-    "video/mp4",
-    "video/x-matroska",
-    "video/webm",
-    "video/quicktime",
-    "video/x-msvideo",
-    ".mp4",
-    ".mkv",
-    ".webm",
-    ".mov",
-    ".avi",
-  ].join(","),
+  video: VIDEO_ACCEPT_LIST.join(","),
+  media: [...AUDIO_ACCEPT_LIST, ...VIDEO_ACCEPT_LIST].join(","),
 };
 
 // rough mime guess from extension for wrapping read bytes into a `File`.
@@ -126,6 +130,9 @@ function guessMime(name: string, kind: FileKind): string {
     if (ext === "avi") return "video/x-msvideo";
     return "video/mp4";
   }
+  if (kind === "media") {
+    return VIDEO_EXTS.includes(ext) ? guessMime(name, "video") : guessMime(name, "audio");
+  }
   if (ext === "mp3") return "audio/mpeg";
   if (ext === "flac") return "audio/flac";
   if (ext === "wav") return "audio/wav";
@@ -133,6 +140,31 @@ function guessMime(name: string, kind: FileKind): string {
   if (ext === "ogg") return "audio/ogg";
   if (ext === "aac") return "audio/aac";
   return "audio/*";
+}
+
+/**
+ * classify a filename into the music or video domain by extension alone
+ * (used for tauri paths, which have no `File.type` to consult). returns
+ * null for an unrecognized extension — callers should skip/warn on those
+ * rather than guessing.
+ */
+export function classifyFileName(name: string): "music" | "video" | null {
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  if (VIDEO_EXTS.includes(ext)) return "video";
+  if (AUDIO_EXTS.includes(ext)) return "music";
+  return null;
+}
+
+/**
+ * classify a `File` into the music or video domain — mime type first (more
+ * reliable when present, e.g. web file inputs/drag-drop), falling back to
+ * the filename extension (tauri-read files sometimes carry a generic/empty
+ * `type`). returns null when neither signal matches a known media type.
+ */
+export function classifyFile(file: File): "music" | "video" | null {
+  if (file.type.startsWith("audio/")) return "music";
+  if (file.type.startsWith("video/")) return "video";
+  return classifyFileName(file.name);
 }
 
 // derive a displayable filename from a path or content:// uri.
@@ -264,9 +296,22 @@ async function pickViaInputElement(opts: PickFilesOptions): Promise<PickedFile[]
 
 async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]> {
   const dialog = await loadDialog();
-  const filterName = opts.kind === "audio" ? "audio" : opts.kind === "video" ? "video" : "images";
+  const filterName =
+    opts.kind === "audio"
+      ? "audio"
+      : opts.kind === "video"
+        ? "video"
+        : opts.kind === "media"
+          ? "media"
+          : "images";
   const filterExts =
-    opts.kind === "audio" ? AUDIO_EXTS : opts.kind === "video" ? VIDEO_EXTS : IMAGE_EXTS;
+    opts.kind === "audio"
+      ? AUDIO_EXTS
+      : opts.kind === "video"
+        ? VIDEO_EXTS
+        : opts.kind === "media"
+          ? [...AUDIO_EXTS, ...VIDEO_EXTS]
+          : IMAGE_EXTS;
   const filters = [{ name: filterName, extensions: filterExts }];
   const title =
     opts.title ??
@@ -274,7 +319,9 @@ async function pickViaTauriDialog(opts: PickFilesOptions): Promise<PickedFile[]>
       ? "select music files"
       : opts.kind === "video"
         ? "select video files"
-        : "select image");
+        : opts.kind === "media"
+          ? "select media files"
+          : "select image");
 
   const selected = await dialog.open({
     multiple: !!opts.multiple,

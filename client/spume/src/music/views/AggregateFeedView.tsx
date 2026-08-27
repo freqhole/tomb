@@ -64,6 +64,7 @@ function adaptFeedResponse(
       album_id: item.album_id ?? null,
       artist_id: item.artist_id ?? null,
       playlist_id: item.playlist_id ?? null,
+      video_id: item.video_id ?? null,
       entity_id: item.entity_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
@@ -563,6 +564,8 @@ export function AggregateFeedView() {
       navigate(`/${item.remote_id}/artists/${item.artist_id}`);
     } else if (item.remote_id && item.playlist_id) {
       navigate(`/${item.remote_id}/playlists/${item.playlist_id}`);
+    } else if (item.remote_id && item.video_id) {
+      navigate(`/${item.remote_id}/video/${item.video_id}`);
     }
   };
 
@@ -642,6 +645,13 @@ export function AggregateFeedView() {
         label: "go to playlist",
         icon: IconNames.playlist,
         onClick: () => navigate(`${prefix}/playlists/${item.playlist_id}`),
+      });
+    }
+    if (item.video_id) {
+      actions.push({
+        label: "go to video",
+        icon: IconNames.video,
+        onClick: () => navigate(`${prefix}/video/${item.video_id}`),
       });
     }
 

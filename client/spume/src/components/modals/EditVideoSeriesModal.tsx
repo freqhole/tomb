@@ -2,7 +2,7 @@
 // (entity_imagez-backed, mirrors AlbumEditorModal.tsx's image handling).
 // no legacy single-poster upload control: poster_blob_id now just mirrors
 // whichever image is primary, kept in sync server-side.
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
 import { EntityImages } from "../layout/EntityImages";
@@ -14,9 +14,12 @@ import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { queryClient } from "../../queryClient";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
+import type { VideoSeason } from "../../video/data/types";
 import {
   useVideoSeriesDetailQuery,
   useUpdateVideoSeriesMutation,
+  useVideoSeasonsQuery,
+  useUpdateVideoSeasonMutation,
 } from "../../video/queries/series";
 import { Modal } from "./Modal";
 
@@ -42,10 +45,35 @@ interface FormData {
 export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
   const detailQuery = useVideoSeriesDetailQuery(() => props.seriesId);
   const updateMutation = useUpdateVideoSeriesMutation();
+  const seasonsQuery = useVideoSeasonsQuery(() => props.seriesId);
+  const updateSeasonMutation = useUpdateVideoSeasonMutation();
 
   const [formData, setFormData] = createSignal<FormData>({ title: "", description: "" });
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedSeriesId, setLoadedSeriesId] = createSignal<string | null>(null);
+
+  // per-season rename state - keyed by season id so multiple rows can be
+  // in flight/erroring independently (a shared mutation's isPending/error
+  // would only ever reflect the single most recent call).
+  const [seasonDrafts, setSeasonDrafts] = createSignal<Record<string, string>>({});
+  const [seasonSaving, setSeasonSaving] = createSignal<Record<string, boolean>>({});
+  const [seasonErrors, setSeasonErrors] = createSignal<Record<string, string>>({});
+
+  const seasonTitleDraft = (season: VideoSeason) => seasonDrafts()[season.id] ?? season.title ?? "";
+
+  const seasonHasChange = (season: VideoSeason) =>
+    seasonTitleDraft(season).trim() !== (season.title ?? "");
+
+  const handleSeasonTitleInput = (seasonId: string, value: string) => {
+    setSeasonDrafts((prev) => ({ ...prev, [seasonId]: value }));
+    setSeasonErrors((prev) => {
+      if (!(seasonId in prev)) return prev;
+      const { [seasonId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const anySeasonSaving = createMemo(() => Object.values(seasonSaving()).some(Boolean));
 
   // images — fetched/mutated immediately (not deferred to save), mirrors
   // AlbumEditorModal.tsx's image handling
@@ -86,9 +114,11 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
 
   const hasChanges = createMemo(() => {
     const initial = initialData();
-    if (!initial) return false;
-    const current = formData();
-    return current.title !== initial.title || current.description !== initial.description;
+    const seriesChanged =
+      !!initial &&
+      (formData().title !== initial.title || formData().description !== initial.description);
+    const seasonsChanged = (seasonsQuery.data ?? []).some((season) => seasonHasChange(season));
+    return seriesChanged || seasonsChanged;
   });
 
   const handleFieldChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
@@ -200,18 +230,42 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
 
   const handleSave = async () => {
     const data = formData();
+    let ok = true;
+
     try {
       await updateMutation.mutateAsync({
         series_id: props.seriesId,
         title: data.title,
         description: data.description || null,
       });
-      toast.success("series updated");
-      props.onSave?.();
     } catch (err) {
       console.error("failed to update video series:", err);
       toast.error("failed to update series");
+      ok = false;
     }
+
+    const changedSeasons = (seasonsQuery.data ?? []).filter((season) => seasonHasChange(season));
+    for (const season of changedSeasons) {
+      const title = seasonTitleDraft(season).trim();
+      setSeasonSaving((prev) => ({ ...prev, [season.id]: true }));
+      try {
+        await updateSeasonMutation.mutateAsync({
+          season_id: season.id,
+          series_id: props.seriesId,
+          title: title || null,
+        });
+      } catch (err) {
+        console.error("failed to rename season:", err);
+        setSeasonErrors((prev) => ({ ...prev, [season.id]: "failed to save" }));
+        ok = false;
+      } finally {
+        setSeasonSaving((prev) => ({ ...prev, [season.id]: false }));
+      }
+    }
+
+    if (!ok) return;
+    toast.success("series updated");
+    props.onSave?.();
   };
 
   // invalidate on close regardless of whether save was clicked — image
@@ -255,6 +309,34 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
             />
           </div>
 
+          {/* seasons — rename only; season_number/create/delete aren't
+              editable here (mirrors update_video_season's admin-only,
+              rename-focused server route). drafts are batched into the
+              main save button below (not saved per-row on blur), so a
+              season edit can't be silently lost by clicking save/cancel
+              before the field loses focus. */}
+          <Show when={seasonsQuery.data && seasonsQuery.data.length > 0}>
+            <div class="border-t border-[var(--color-border-default)] pt-4">
+              <label class="block text-sm text-[var(--color-text-secondary)] mb-2">
+                season titles (optional)
+              </label>
+              <div class="flex flex-col gap-3">
+                <For each={seasonsQuery.data}>
+                  {(season) => (
+                    <TextInput
+                      label={`season ${season.season_number}`}
+                      value={seasonTitleDraft(season)}
+                      oninput={(e) => handleSeasonTitleInput(season.id, e.currentTarget.value)}
+                      placeholder={`e.g. "the ${season.season_number === 1 ? "pilot" : "reunion"} special" — leave blank for none`}
+                      disabled={!canUpdateVideo() || seasonSaving()[season.id]}
+                      error={seasonErrors()[season.id]}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
+
           {/* images */}
           <div class="border-t border-[var(--color-border-default)] pt-4">
             <EntityImages
@@ -281,9 +363,9 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
           <Button
             onClick={() => void handleSave()}
             variant="primary"
-            disabled={!hasChanges() || updateMutation.isPending}
+            disabled={!hasChanges() || updateMutation.isPending || anySeasonSaving()}
           >
-            {updateMutation.isPending ? "saving..." : "save"}
+            {updateMutation.isPending || anySeasonSaving() ? "saving..." : "save"}
           </Button>
         </Show>
       </div>

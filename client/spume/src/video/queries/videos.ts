@@ -109,6 +109,13 @@ export interface UpdateVideoMutationParams {
   series_id?: string | null;
   season_id?: string | null;
   content_type?: string;
+  /** force series_id (and season_id) to NULL - passing series_id: null
+   * alone is NOT enough on the remote data source (COALESCE-on-write
+   * can't tell "no change" from "clear"). ignored by the local data
+   * source, which always applies null fields as-is. */
+  clear_series_id?: boolean;
+  /** force season_id to NULL. */
+  clear_season_id?: boolean;
 }
 
 export function useUpdateVideoMutation() {

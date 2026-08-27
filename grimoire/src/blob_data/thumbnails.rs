@@ -316,6 +316,7 @@ pub async fn generate_sized_thumbnails(
             width: Some(size as i64),
             height: Some(size as i64),
             blake3: None, // create_media_blob computes this from the bytes above
+            delete_duplicate_local_path: false,
         };
 
         match media_blobz::create_media_blob(request).await {

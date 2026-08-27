@@ -6,8 +6,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ConfigChangedToast } from "../components/feedback/ConfigChangedToast";
 import { toast } from "../components/feedback/Toast";
 import { UpdateAvailableToast } from "../components/feedback/UpdateAvailableToast";
-import { AddMusicModal } from "../components/modals/AddMusicModal";
-import { AddVideoModal } from "../components/modals/AddVideoModal";
+import { AddMediaModal } from "../components/modals/AddMediaModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
@@ -26,16 +25,13 @@ import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
 import {
-  closeAddMusic,
   hideAlbumEditor,
   hideArtistEditor,
   hideImageCarousel,
   hideSongEditor,
   hideTagSelector,
   hideShareModal,
-  openAddMusic,
   showSongEditor,
-  useAddMusicState,
   useAlbumEditorState,
   useArtistEditorState,
   useImageCarouselState,
@@ -43,6 +39,7 @@ import {
   useSongEditorState,
   useTagSelectorState,
 } from "../music/hooks/modals";
+import { openAddMedia, closeAddMedia, useAddMediaState } from "./hooks/mediaModal";
 import {
   clearCompletedJobs,
   clearLocalImportProgress,
@@ -55,15 +52,16 @@ import {
   uploadPathsToRemote,
 } from "../music/import";
 import {
-  closeAddVideo,
   hideEditVideo,
   hideEditVideoSeries,
-  openAddVideo,
-  useAddVideoState,
   useEditVideoState,
   useEditVideoSeriesState,
 } from "../video/hooks/modals";
-import { importVideoFiles } from "../video/import/localImport";
+import {
+  clearLocalVideoImportProgress,
+  getLocalVideoImportProgress,
+  importVideoFiles,
+} from "../video/import/localImport";
 import { initVideoSyncState } from "../video/services/syncState";
 import {
   clearCompletedVideoJobs,
@@ -128,11 +126,13 @@ import { useFetchVideoEnabledQuery } from "../music/hooks/useFetchVideoEnabled";
 import { useImportReview } from "../music/hooks/useImportReview";
 import { ImportReviewModal } from "../components/modals/ImportReviewModal";
 import { ImportReviewEditor } from "../components/import/ImportReviewEditor";
+import { useVideoImportReview } from "../video/hooks/useVideoImportReview";
+import { ImportVideoReviewModal } from "../components/modals/ImportVideoReviewModal";
+import { ImportVideoReviewEditor } from "../components/import/ImportVideoReviewEditor";
 
 export function App() {
   const queryClient = useQueryClient();
-  const isAddMusicOpen = useAddMusicState();
-  const isAddVideoOpen = useAddVideoState();
+  const isAddMediaOpen = useAddMediaState();
   const [isAddRemoteOpen, setIsAddRemoteOpen] = createSignal(false);
   const [addRemoteInitialValue, setAddRemoteInitialValue] = createSignal<string | undefined>();
   // session id for the import review modal - set when user clicks "review now"
@@ -146,10 +146,25 @@ export function App() {
     setReviewRemote(getCurrentRemote() ?? null);
     setReviewSessionId(sid);
   }
-  // incremented when the review modal closes - triggers AddMusicModal to refetch pending sessions
+  // incremented when the review modal closes - triggers AddMediaModal to refetch pending sessions
   const [reviewRefetchKey, setReviewRefetchKey] = createSignal(0);
-  // last session id that completed review - triggers AddMusicModal to auto-dismiss its card
+  // last session id that completed review - triggers AddMediaModal to auto-dismiss its card
   const [completedReviewSessionId, setCompletedReviewSessionId] = createSignal<string | null>(null);
+
+  // session id for the video import review modal - set when user clicks "review now"
+  const [reviewVideoSessionId, setReviewVideoSessionId] = createSignal<string | null>(null);
+  // the remote that owns the video review session - captured at start time, same reasoning as reviewRemote
+  const [reviewVideoRemote, setReviewVideoRemote] = createSignal<CurrentRemoteInfo | null>(null);
+
+  // open a video review session, capturing the active remote at this moment
+  function openReviewVideoSession(sid: string) {
+    setReviewVideoRemote(getCurrentRemote() ?? null);
+    setReviewVideoSessionId(sid);
+  }
+  // last video session id that completed review - triggers AddMediaModal to auto-dismiss its card
+  const [completedVideoReviewSessionId, setCompletedVideoReviewSessionId] = createSignal<
+    string | null
+  >(null);
   // signals the AddRemoteModal to auto-complete setup for a peer (device-linked / knock-accepted)
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
@@ -181,9 +196,17 @@ export function App() {
   // map of albumId -> save fn registered by ImportReviewEditor instances
   const editorSaveFns = new Map<string, () => Promise<void>>();
 
+  // video import review - same pattern as importReview above
+  const videoImportReview = useVideoImportReview(
+    () => reviewVideoSessionId(),
+    () => reviewVideoRemote()
+  );
+  // map of groupKey -> save fn registered by ImportVideoReviewEditor instances
+  const videoEditorSaveFns = new Map<string, () => Promise<void>>();
+
   // when albums drain to zero while the modal is open (e.g. after a merge
   // marks everything reviewed server-side), treat it as a completion so the
-  // add-music modal re-opens for the next pending session.
+  // add-media modal re-opens for the next pending session.
   createEffect(() => {
     if (reviewSessionId() && !importReview.loading() && importReview.albums().length === 0) {
       const sid = reviewSessionId();
@@ -191,7 +214,23 @@ export function App() {
       setReviewSessionId(null);
       setReviewRemote(null);
       setReviewRefetchKey((k) => k + 1);
-      openAddMusic();
+      openAddMedia();
+    }
+  });
+
+  // same as above, for video review groups
+  createEffect(() => {
+    if (
+      reviewVideoSessionId() &&
+      !videoImportReview.loading() &&
+      videoImportReview.groups().length === 0
+    ) {
+      const sid = reviewVideoSessionId();
+      if (sid) setCompletedVideoReviewSessionId(sid);
+      setReviewVideoSessionId(null);
+      setReviewVideoRemote(null);
+      setReviewRefetchKey((k) => k + 1);
+      openAddMedia();
     }
   });
   // radio works with zero remotes (anyone with a node id can listen)
@@ -1036,10 +1075,12 @@ export function App() {
     }
   };
 
-  const handleCloseAddMusic = () => {
+  const handleCloseAddMedia = () => {
     clearCompletedJobs();
     clearLocalImportProgress();
-    closeAddMusic();
+    clearLocalVideoImportProgress();
+    clearCompletedVideoJobs();
+    closeAddMedia();
   };
 
   // callback for when any remote video job completes — invalidate video queries
@@ -1174,11 +1215,6 @@ export function App() {
     }
   };
 
-  const handleCloseAddVideo = () => {
-    clearCompletedVideoJobs();
-    closeAddVideo();
-  };
-
   const handleSongDoubleClick = async (song: Song) => {
     // add song to end of queue and play it
     await addToQueue([song], { startPlaying: true, source: { type: "song", label: song.title } });
@@ -1203,7 +1239,7 @@ export function App() {
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
               <EmptyState
-                onAddMusic={() => openAddMusic()}
+                onAddMedia={() => openAddMedia()}
                 onAddRemote={() => setIsAddRemoteOpen(true)}
                 onGoToRadio={() => {
                   window.location.hash = `/radio`;
@@ -1214,49 +1250,46 @@ export function App() {
         >
           <HashRouter>
             {routes({
-              onAddMusic: () => openAddMusic(),
-              onAddVideo: () => openAddVideo(),
+              onAddMedia: () => openAddMedia(),
               onSongDoubleClick: handleSongDoubleClick,
               onImportReview: (sid) => {
                 openReviewSession(sid);
-                handleCloseAddMusic();
+                handleCloseAddMedia();
               },
             })}
           </HashRouter>
         </Show>
       </Show>
 
-      <AddMusicModal
-        isOpen={isAddMusicOpen()}
-        onClose={handleCloseAddMusic}
-        onFilesSelected={handleFilesSelected}
-        onPathsSelected={handlePathsSelected}
-        onUrlsSubmitted={handleUrlsSubmitted}
+      <AddMediaModal
+        isOpen={isAddMediaOpen()}
+        onClose={handleCloseAddMedia}
+        onMusicFilesSelected={handleFilesSelected}
+        onMusicPathsSelected={handlePathsSelected}
+        onMusicUrlsSubmitted={handleUrlsSubmitted}
+        onVideoFilesSelected={handleVideoFilesSelected}
+        onVideoPathsSelected={handleVideoPathsSelected}
+        onVideoUrlsSubmitted={handleVideoUrlsSubmitted}
         remoteName={getCurrentRemote()?.name}
         useCharnelDialog={isCharnelMode()}
-        uploadJobs={getUploadJobs()}
+        musicUploadJobs={getUploadJobs()}
+        videoUploadJobs={getVideoUploadJobs()}
         localImportProgress={getLocalImportProgress()}
+        videoLocalImportProgress={getLocalVideoImportProgress()}
         fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
+        fetchVideoEnabled={fetchVideoEnabledQuery.data ?? false}
         onReviewSession={(sid) => {
           openReviewSession(sid);
-          handleCloseAddMusic();
+          handleCloseAddMedia();
         }}
         refetchReviewKey={reviewRefetchKey()}
         isAdmin={isAdmin()}
         dismissedReviewSessionId={completedReviewSessionId()}
-      />
-
-      <AddVideoModal
-        isOpen={isAddVideoOpen()}
-        onClose={handleCloseAddVideo}
-        onFilesSelected={handleVideoFilesSelected}
-        onPathsSelected={handleVideoPathsSelected}
-        onUrlsSubmitted={handleVideoUrlsSubmitted}
-        remoteName={getCurrentRemote()?.name}
-        useCharnelDialog={isCharnelMode()}
-        uploadJobs={getVideoUploadJobs()}
-        fetchPrecheckEnabled={fetchPrecheckEnabledQuery.data ?? false}
-        fetchVideoEnabled={fetchVideoEnabledQuery.data ?? false}
+        onReviewVideoSession={(sid) => {
+          openReviewVideoSession(sid);
+          handleCloseAddMedia();
+        }}
+        dismissedVideoReviewSessionId={completedVideoReviewSessionId()}
       />
 
       <Show when={useEditVideoState()()}>
@@ -1292,9 +1325,9 @@ export function App() {
           setReviewSessionId(null);
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
-          // re-open the add music modal so the user can pick the next
+          // re-open the add media modal so the user can pick the next
           // pending review without having to open it manually
-          openAddMusic();
+          openAddMedia();
         }}
         albums={importReview.albums()}
         onComplete={() => {
@@ -1304,13 +1337,16 @@ export function App() {
           setReviewRemote(null);
           setReviewRefetchKey((k) => k + 1);
           // re-open to let the user pick the next pending review
-          openAddMusic();
+          openAddMedia();
         }}
         onMergeAlbums={(sourceIds: string[], targetId: string) =>
           void importReview.mergeAlbums(sourceIds, targetId)
         }
         onMoveSong={(songId: string, toAlbumId: string) =>
           void importReview.moveSong(songId, toAlbumId)
+        }
+        onCreateAlbumForSong={(songId: string, title: string, artistName: string | null) =>
+          void importReview.moveSong(songId, null, title, artistName)
         }
         onMarkReviewed={async (albumId: string) => {
           // flush any pending edits from the editor before marking reviewed
@@ -1337,6 +1373,55 @@ export function App() {
               sessionId={reviewSessionId()!}
               onRegisterSave={(id, fn) => editorSaveFns.set(id, fn)}
               onUnregisterSave={(id) => editorSaveFns.delete(id)}
+            />
+          );
+        }}
+      />
+
+      <ImportVideoReviewModal
+        isOpen={reviewVideoSessionId() !== null}
+        loading={videoImportReview.loading()}
+        onClose={() => {
+          setReviewVideoSessionId(null);
+          setReviewVideoRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open the add media modal so the user can pick the next
+          // pending review without having to open it manually
+          openAddMedia();
+        }}
+        groups={videoImportReview.groups()}
+        onComplete={() => {
+          const sid = reviewVideoSessionId();
+          if (sid) setCompletedVideoReviewSessionId(sid);
+          setReviewVideoSessionId(null);
+          setReviewVideoRemote(null);
+          setReviewRefetchKey((k) => k + 1);
+          // re-open to let the user pick the next pending review
+          openAddMedia();
+        }}
+        onMoveVideo={(videoId: string, toSeriesId: string | null) =>
+          void videoImportReview.moveVideo(videoId, toSeriesId)
+        }
+        onMarkReviewed={async (groupKey: string) => {
+          // flush any pending edits from the editor before marking reviewed -
+          // let a failure propagate so the modal doesn't advance past a
+          // group that didn't actually save (its own inline error shows why).
+          const saveFn = videoEditorSaveFns.get(groupKey);
+          if (saveFn) {
+            await saveFn();
+          } else {
+            // no editor registered (e.g. grouping stage) - just mark reviewed
+            await videoImportReview.markReviewed(groupKey);
+          }
+        }}
+        renderGroupEditor={(editorProps) => {
+          if (!reviewVideoRemote() || !reviewVideoSessionId()) return <></>;
+          return (
+            <ImportVideoReviewEditor
+              {...editorProps}
+              reviewHandle={videoImportReview}
+              onRegisterSave={(id, fn) => videoEditorSaveFns.set(id, fn)}
+              onUnregisterSave={(id) => videoEditorSaveFns.delete(id)}
             />
           );
         }}

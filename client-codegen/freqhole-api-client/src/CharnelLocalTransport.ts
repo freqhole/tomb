@@ -155,7 +155,18 @@ export class CharnelLocalTransport implements Transport {
    * for tauri-local, we use wait_for_completion to block until the job
    * finishes, avoiding the need for polling from the client side.
    */
-  async upload(path: string, formData: FormData): Promise<TransportResponse> {
+  async upload(
+    path: string,
+    formData: FormData,
+    _onProgress?: (loaded: number, total: number) => void,
+  ): Promise<TransportResponse> {
+    // no byte-level progress possible here - unlike CharnelTransport (P2P),
+    // which already chunks the file for android/memory reasons and can
+    // report progress per chunk, this local-dispatch path reads the whole
+    // file into one base64 JSON body and sends it as a single IPC call.
+    // chunking this too would need a new local (non-P2P) equivalent of the
+    // `-by-blake3` upload route, since that route currently requires a
+    // `node_id` and always pulls from a remote peer.
     // extract file and other fields from FormData
     const file = formData.get("file") as File | null;
     if (!file) {

@@ -126,11 +126,19 @@ fn run_precheck_command<'a>(
 
         let (cmd, args) = parts.split_first().unwrap();
 
-        // build command, optionally injecting --flat-playlist for fast precheck
+        // build command, optionally injecting --flat-playlist for fast precheck.
+        // always inject --ignore-errors (unless already present) so a
+        // playlist containing some private/removed/unavailable videos still
+        // precheck-succeeds for every video yt-dlp *can* extract - without
+        // it, yt-dlp exits non-zero on the first bad video and prechecking
+        // an otherwise-fine playlist fails outright.
         let mut command = Command::new(cmd);
         command.args(args);
         if flat_playlist && !precheck_cmd.contains("--flat-playlist") {
             command.arg("--flat-playlist");
+        }
+        if !precheck_cmd.contains("--ignore-errors") && !precheck_cmd.contains(" -i ") {
+            command.arg("--ignore-errors");
         }
         command.arg("--").arg(url);
 
@@ -138,11 +146,6 @@ fn run_precheck_command<'a>(
             .output()
             .await
             .map_err(|e| format!("failed to execute precheck command: {}", e))?;
-
-        if !output.status.success() {
-            let error_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("precheck command failed: {}", error_msg));
-        }
 
         // parse output - one JSON object per line
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -160,8 +163,23 @@ fn run_precheck_command<'a>(
             }
         }
 
+        // mirror download_media's handling: with --ignore-errors, a non-zero
+        // exit can still mean "some videos failed, the rest are fine" (e.g. a
+        // playlist with private/removed videos mixed in with valid ones) -
+        // trust whatever metadata was actually extracted over the exit code,
+        // and only treat this as a hard failure when nothing came back.
         if metadata_list.is_empty() {
-            return Err("no metadata extracted from URL".to_string());
+            let error_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("precheck command failed: {}", error_msg));
+        }
+
+        if !output.status.success() {
+            warn!(
+                "precheck command exited non-zero but extracted {} item(s) anyway for {}: {}",
+                metadata_list.len(),
+                url,
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
         info!(

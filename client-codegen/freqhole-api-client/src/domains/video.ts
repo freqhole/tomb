@@ -396,6 +396,67 @@ export function createVideoMethods(call: CallFn) {
         params,
       );
     },
+
+    // import review (grouped by detected series)
+    listPendingVideoImportReview: (params: s.ListPendingVideoReviewRequest) => {
+      return call(
+        "video",
+        "list_pending_video_import_review",
+        routes.video.list_pending_video_import_review.resp,
+        routes.video.list_pending_video_import_review.req,
+        routes.video.list_pending_video_import_review.method,
+        routes.video.list_pending_video_import_review.path,
+        params,
+      );
+    },
+
+    markVideoGroupReviewed: (params: s.MarkVideoGroupReviewedRequest) => {
+      return call(
+        "video",
+        "mark_video_group_reviewed",
+        routes.video.mark_video_group_reviewed.resp,
+        routes.video.mark_video_group_reviewed.req,
+        routes.video.mark_video_group_reviewed.method,
+        routes.video.mark_video_group_reviewed.path,
+        params,
+      );
+    },
+
+    patchVideoGroupReview: (params: s.PatchVideoGroupReviewRequest) => {
+      return call(
+        "video",
+        "patch_video_group_review",
+        routes.video.patch_video_group_review.resp,
+        routes.video.patch_video_group_review.req,
+        routes.video.patch_video_group_review.method,
+        routes.video.patch_video_group_review.path,
+        params,
+      );
+    },
+
+    moveVideoReview: (params: s.MoveVideoReviewRequest) => {
+      return call(
+        "video",
+        "move_video_review",
+        routes.video.move_video_review.resp,
+        routes.video.move_video_review.req,
+        routes.video.move_video_review.method,
+        routes.video.move_video_review.path,
+        params,
+      );
+    },
+
+    videoPending: (params: s.VideoPendingRequest) => {
+      return call(
+        "video",
+        "video_pending",
+        routes.video.video_pending.resp,
+        routes.video.video_pending.req,
+        routes.video.video_pending.method,
+        routes.video.video_pending.path,
+        params,
+      );
+    },
   };
 }
 

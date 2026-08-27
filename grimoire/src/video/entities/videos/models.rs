@@ -75,6 +75,19 @@ pub struct UpdateVideoRequest {
     pub duration_seconds: Option<f64>,
     pub release_date: Option<String>,
     pub updated_by: Option<String>,
+    /// force `series_id` (and `season_id`, since a video can't have a
+    /// season without a series) to `NULL` regardless of `series_id`'s
+    /// value - plain `COALESCE`-on-write can't distinguish "no change"
+    /// from "clear", so this is required to actually detach a video from
+    /// its series (e.g. reclassifying a series episode as a standalone
+    /// movie/clip).
+    #[serde(default)]
+    pub clear_series_id: bool,
+    /// force `season_id` to `NULL` regardless of `season_id`'s value
+    /// (e.g. converting a full episode into a season-less docuseries
+    /// entry). implied by `clear_series_id` as well.
+    #[serde(default)]
+    pub clear_season_id: bool,
 }
 
 /// video with enriched metadata from the media blob (codec, container, bitrate, etc.)
