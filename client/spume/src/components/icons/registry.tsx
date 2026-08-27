@@ -406,14 +406,19 @@ export const VideoIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
-// video series: two stacked cards (episodes) with a play badge on the
-// front card
+// video series: three stacked cards (episodes) — the back two are line-art
+// outlines, the front one is solid-filled with a play triangle cut out of it
+// (fill-rule evenodd) so it reads as a distinct, playable "top of the stack"
 export const VideoSeriesIcon = (props: IconProps) => (
   <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Video series"}>
-    <rect x="7" y="3" width="14" height="10" rx="2" />
-    <rect x="3" y="8" width="15" height="13" rx="2" />
-    <circle cx="10" cy="15.5" r="3.5" />
-    <polygon points="8.8,13.3 8.8,17.7 12.3,15.5" fill="currentColor" stroke="none" />
+    <rect x="9" y="1" width="13" height="9" rx="2" />
+    <rect x="6" y="5" width="14" height="10" rx="2" />
+    <path
+      fill-rule="evenodd"
+      fill="currentColor"
+      stroke="none"
+      d="M5.5,9 H15.5 A2.5,2.5 0 0 1 18,11.5 V17.5 A2.5,2.5 0 0 1 15.5,20 H5.5 A2.5,2.5 0 0 1 3,17.5 V11.5 A2.5,2.5 0 0 1 5.5,9 Z M7.3,12.6 L7.3,16.4 L10.8,14.5 Z"
+    />
   </StrokeBaseIcon>
 );
 

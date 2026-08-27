@@ -38,13 +38,6 @@ export function rootId(): string {
   return "root";
 }
 
-/** synthetic video-domain root, parented directly under the library root
- *  alongside the remote hubs. one per graph (not per-remote) since there
- *  is no per-remote video data feeding the graph yet. */
-export function videoRootId(): string {
-  return "video_root";
-}
-
 export function remoteHubId(remoteId: string): string {
   return `remote::${remoteId}`;
 }
@@ -86,7 +79,6 @@ export function ghostArtistId(name: string): string {
 
 export type ParsedNodeId =
   | { kind: "root" }
-  | { kind: "video_root" }
   | { kind: "remote"; remoteId: string }
   | { kind: "relation"; remoteId: string; relationKind: RelationKind }
   | { kind: "value"; remoteId: string; relationKind: RelationKind; valueSlug: string }
@@ -97,7 +89,6 @@ export type ParsedNodeId =
 
 export function parseNodeId(id: string): ParsedNodeId {
   if (id === "root") return { kind: "root" };
-  if (id === "video_root") return { kind: "video_root" };
 
   const parts = id.split("::");
   const [prefix, ...rest] = parts;

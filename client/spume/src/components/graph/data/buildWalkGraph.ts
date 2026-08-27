@@ -5,14 +5,7 @@
 // the worker expects plain JSON (see S13 in graph2-integration.md).
 
 import type { WalkGraph, WalkNode, WalkEdge, AlbumNodeData, ArtistNodeData } from "../types";
-import {
-  rootId,
-  videoRootId,
-  remoteHubId,
-  relationHubId,
-  artistNodeId,
-  albumNodeId,
-} from "./nodeIds";
+import { rootId, remoteHubId, relationHubId, artistNodeId, albumNodeId } from "./nodeIds";
 
 export interface BuildWalkGraphInput {
   remoteIds: string[];
@@ -29,10 +22,6 @@ export interface BuildWalkGraphInput {
    *  so renames (web local-library AppState, charnel toml server.name) are
    *  reflected in the graph viz. falls back to remoteId when unset. */
   remoteNamesById?: Map<string, string>;
-  /** total count of videos across all sources (local + remotes). used
-   *  for the video_root node's childCount so it scales visually based
-   *  on library size. defaults to 0 when unset. */
-  videoCount?: number;
 }
 
 export interface BuildWalkGraphOutput {
@@ -84,20 +73,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
 
   // ---- root ----------------------------------------------------------------
   const rId = rootId();
-  nodes.push({ id: rId, role: "root", label: "root", parentId: null, childCount: remoteIds.length + 1 });
-
-  // ---- video domain root --------------------------------------------------
-  // single synthetic video root (not per-remote yet — that's deferred).
-  // childCount now reflects real video library size from the input.
-  const vId = videoRootId();
-  nodes.push({
-    id: vId,
-    role: "video_root",
-    label: "video",
-    parentId: rId,
-    childCount: input.videoCount ?? 0,
-  });
-  edges.push({ source: rId, target: vId });
+  nodes.push({ id: rId, role: "root", label: "root", parentId: null, childCount: remoteIds.length });
 
   for (const remoteId of remoteIds) {
     const albums  = albumsByRemote.get(remoteId)  ?? [];

@@ -225,15 +225,7 @@ export interface ViewportTransform {
 // ---- walk explorer types (graph2 / bloom-walker stack) ---------------------
 
 export type NodeRole =
-  | "root"
-  | "video_root"
-  | "remote"
-  | "relation"
-  | "value"
-  | "group"
-  | "artist"
-  | "album"
-  | "ghost_artist";
+  "root" | "remote" | "relation" | "value" | "group" | "artist" | "album" | "ghost_artist";
 
 export interface WalkNode {
   id: string;

@@ -154,8 +154,8 @@ export function drawNode(
       ? (valueKind(n.id) && valueKindStroke(valueKind(n.id)!)) || null
       : null;
   ctx.strokeStyle =
-    n.role === "root" || n.role === "video_root" || n.role === "remote"
-      ? color // root/video_root/remote: stroke matches the fill (override pivot ring)
+    n.role === "root" || n.role === "remote"
+      ? color // root/remote: stroke matches the fill (override pivot ring)
       : n.isPivot
         ? PIVOT_RING_COLOR
         : n.isBreadcrumb
@@ -164,7 +164,7 @@ export function drawNode(
             ? valueStroke
             : color;
   ctx.lineWidth =
-    n.role === "root" || n.role === "video_root" || n.role === "remote"
+    n.role === "root" || n.role === "remote"
       ? 1
       : n.isPivot
         ? 3

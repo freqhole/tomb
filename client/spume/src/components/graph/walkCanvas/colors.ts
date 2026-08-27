@@ -1,6 +1,5 @@
 export const ROLE_COLOR: Record<string, string> = {
   root: "#ff00ff",
-  video_root: "#3b82f6",
   remote: "#ec4899",
   relation: "#0891b2",
   value: "#059669",
@@ -90,7 +89,6 @@ export function readableTextColor(bg: string): string {
  *  the parent hub's color instead of a uniform amber. */
 export const ROLE_RANK: Record<string, number> = {
   root: 0,
-  video_root: 1,
   remote: 1,
   relation: 2,
   value: 3,
