@@ -21,10 +21,12 @@ pub struct GetVideoSeasonRequest {
     pub id: String,
 }
 
-/// request for listing every season in a series
+/// request for listing seasons. `series_id = None` returns every season
+/// in the library (bulk graph-viz fetch); `Some(id)` scopes to one series.
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct ListVideoSeasonsRequest {
-    pub series_id: String,
+    #[serde(default)]
+    pub series_id: Option<String>,
 }
 
 /// request for deleting a video season
@@ -108,7 +110,8 @@ pub async fn create(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 
-/// list every season in a series
+/// list seasons - every season in the library when `series_id` is
+/// omitted, or every season in one series when it's set.
 ///
 /// path: POST /api/video/seasons/list
 pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
@@ -126,7 +129,7 @@ pub async fn list(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVal
         }
     };
 
-    let response = list_video_seasons(&req.series_id).await;
+    let response = list_video_seasons(req.series_id.as_deref()).await;
     response.map(|data| serde_json::to_value(data).unwrap())
 }
 

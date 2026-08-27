@@ -988,6 +988,10 @@ pub struct ListBelovedRequest {}
 pub struct ListBelovedResponse {
     pub album_ids: Vec<String>,
     pub artist_ids: Vec<String>,
+    /// directly favorited video ids (`user_favoritez.target_type = 'video'`).
+    /// no song-favorite-style derivation for video: there's no equivalent
+    /// intermediate entity to derive from.
+    pub video_ids: Vec<String>,
 }
 
 // ============================================================================

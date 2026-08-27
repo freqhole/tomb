@@ -1,8 +1,14 @@
 import type { QueryClient } from "@tanstack/solid-query";
 import type { Remote } from "../../../../app/services/storage/schemas/remote";
-import type { AlbumNodeData, ArtistNodeData } from "../../../../components/graph/types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  VideoNodeData,
+} from "../../../../components/graph/types";
 import type { GraphDriver } from "../../../../components/graph/drivers/GraphDriver";
 import type { WalkNode, WalkEdge } from "../../../../components/graph/types";
+import type { ApiVideo } from "../../../../app/api/client";
+import type { GraphDomain } from "../GraphDomainFilter";
 import {
   parseNodeId,
   slug,
@@ -12,6 +18,8 @@ import {
   groupNodeId,
   artistNodeId,
   albumNodeId,
+  videoNodeId,
+  videoSeriesNodeId,
   ghostArtistId,
   type RelationKind,
 } from "../../../../components/graph/data/nodeIds";
@@ -20,6 +28,7 @@ import { adaptQueryAlbumItem } from "../adaptQueryAlbumItem";
 import {
   queryTaxons as queryLocalTaxons,
   getAlbumIdsByTaxon as getLocalAlbumIdsByTaxon,
+  getEntityIdsByTaxon as getLocalEntityIdsByTaxon,
   listUnassignedLocalAlbumIds,
 } from "../../../../music/services/storage/db/taxons";
 
@@ -38,9 +47,18 @@ export interface PivotHandlerDeps {
   setSelectedId: (next: string | null) => void;
   nodesByRemote: () => Map<string, AlbumNodeData[]>;
   appendAlbumsToRemote: (remoteId: string, incoming: AlbumNodeData[]) => number;
-  setFetchingByRemote: (
-    updater: (prev: Map<string, boolean>) => Map<string, boolean>
-  ) => void;
+  /** already-loaded video nodes per remote (including the synthetic local
+   *  remote). local taxon-hub video pivot loading has no per-taxon query
+   *  endpoint, so it filters this eagerly-loaded set by id instead of
+   *  fetching. */
+  videosByRemote: () => Map<string, VideoNodeData[]>;
+  /** video counterpart of appendAlbumsToRemote, used by the video taxon-hub
+   *  pivot loaders below. */
+  appendVideosToRemote: (remoteId: string, incoming: VideoNodeData[]) => number;
+  /** which graph domains (music/video) are currently toggled on. video pivot
+   *  loaders skip network fetches entirely when video is off. */
+  activeDomains: () => Set<GraphDomain>;
+  setFetchingByRemote: (updater: (prev: Map<string, boolean>) => Map<string, boolean>) => void;
   setFetchingNodeFlag: (nodeId: string, fetching: boolean) => void;
   recordRelatedEdge: (aId: string, bId: string, status: "accepted" | "pending") => void;
   taxonsLoadedByHub: Set<string>;
@@ -80,6 +98,9 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     setSelectedId,
     nodesByRemote,
     appendAlbumsToRemote,
+    videosByRemote,
+    appendVideosToRemote,
+    activeDomains,
     setFetchingNodeFlag,
     recordRelatedEdge,
     taxonsLoadedByHub,
@@ -96,7 +117,13 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   // kinds that are NOT backed by a queryable taxon: "favorites" is a per-user
   // flag. "era" and "recently_added" are synthesised in list_taxon_kinds so
   // they render as first-class hubs but have no queryable taxonz rows.
-  const NON_TAXON_KINDS = new Set<string>(["favorites", "beloved", "era", "recently_added", "unassigned"]);
+  const NON_TAXON_KINDS = new Set<string>([
+    "favorites",
+    "beloved",
+    "era",
+    "recently_added",
+    "unassigned",
+  ]);
 
   // pivot-loader dedup sets for synthesized hubs.
   const eraBinsLoadedByHub = new Set<string>();
@@ -105,6 +132,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   const recentlyAddedFetchPromises = new Map<string, Promise<void>>();
   const unassignedLoadedByHub = new Set<string>();
   const unassignedFetchPromises = new Map<string, Promise<void>>();
+  // video content for the unassigned hub isn't paginated (see
+  // loadUnassignedPage) — fetched once per hub-load, tracked separately
+  // from unassignedLoadedByHub so reloadUnassignedPage (album page nav)
+  // doesn't re-trigger the video fetch on every page turn.
+  const unassignedVideosLoadedByHub = new Set<string>();
   const belovedLoadedByHub = new Set<string>();
   const belovedFetchPromises = new Map<string, Promise<void>>();
   // raw API offset cursor per page index. index [i] gives the offset to
@@ -148,10 +180,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
   // helpers mirror the remote query/merge dance but read from the
   // taxons / album_taxons stores directly.
 
-  const loadLocalTaxonsForHub = async (
-    nodeId: string,
-    kind: RelationKind,
-  ): Promise<void> => {
+  const loadLocalTaxonsForHub = async (nodeId: string, kind: RelationKind): Promise<void> => {
     setFetchingNodeFlag(nodeId, true);
     try {
       const rows = await queryLocalTaxons({
@@ -161,17 +190,23 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       });
       const relHubId = relationHubId(LOCAL_PIVOT_REMOTE_ID, kind);
 
-      // album counts per taxon — needed for childCount + read-mode
-      // empty-leaf filtering. cheap to compute since both stores are
-      // local; one indexed lookup per taxon.
-      const countByTaxonId = new Map<string, number>();
-      const albumIdsByTaxonId = new Map<string, string[]>();
+      // album + video counts per taxon — needed for childCount +
+      // read-mode empty-leaf filtering. cheap to compute since both
+      // stores are local; one indexed lookup per taxon per domain. a
+      // taxon tagged only on videos (album count 0) must still render
+      // so loadLocalVideosForPivot has a node to fan out from — mirrors
+      // maybeLoadTaxonsForPivot's combinedCount for peer remotes.
+      const albumCountByTaxonId = new Map<string, number>();
+      const videoCountByTaxonId = new Map<string, number>();
       await Promise.all(
         rows.map(async (r) => {
-          const ids = await getLocalAlbumIdsByTaxon(r.taxon_id);
-          countByTaxonId.set(r.taxon_id, ids.length);
-          albumIdsByTaxonId.set(r.taxon_id, ids);
-        }),
+          const [albumIds, videoIds] = await Promise.all([
+            getLocalAlbumIdsByTaxon(r.taxon_id),
+            getLocalEntityIdsByTaxon("video", r.taxon_id),
+          ]);
+          albumCountByTaxonId.set(r.taxon_id, albumIds.length);
+          videoCountByTaxonId.set(r.taxon_id, videoIds.length);
+        })
       );
 
       const labelMap = new Map<string, string>();
@@ -191,9 +226,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       const addEdges: WalkEdge[] = [];
       const freshNodeIds = new Set<string>();
       for (const r of rows) {
-        const count = countByTaxonId.get(r.taxon_id) ?? 0;
-        cache.set(slug(r.label), { id: r.taxon_id, label: r.label, albumCount: count });
-        if (count <= 0 && !editMode?.()) continue;
+        const albumCount = albumCountByTaxonId.get(r.taxon_id) ?? 0;
+        const videoCount = videoCountByTaxonId.get(r.taxon_id) ?? 0;
+        const combinedCount = albumCount + videoCount;
+        cache.set(slug(r.label), { id: r.taxon_id, label: r.label, albumCount });
+        if (combinedCount <= 0 && !editMode?.()) continue;
         const tnId = valueNodeId(LOCAL_PIVOT_REMOTE_ID, kind, r.label);
         freshNodeIds.add(tnId);
         addNodes.push({
@@ -201,7 +238,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           role: "value",
           label: r.label,
           parentId: relHubId,
-          childCount: count,
+          childCount: combinedCount,
           lazy: true,
         });
         addEdges.push({ source: relHubId, target: tnId });
@@ -223,7 +260,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
 
   const loadLocalAlbumsForPivot = async (
     nodeId: string,
-    parsed: ReturnType<typeof parseNodeId>,
+    parsed: ReturnType<typeof parseNodeId>
   ): Promise<void> => {
     setFetchingNodeFlag(nodeId, true);
     try {
@@ -268,6 +305,50 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     }
   };
 
+  // video counterpart of loadLocalAlbumsForPivot: fans a taxon value hub
+  // out to already-loaded local video nodes (videosByRemote is populated
+  // eagerly by LibraryGraphSubview's loadVideosForLocal — there's no
+  // per-taxon local video query endpoint to fetch against, unlike the
+  // peer path's client.video.videosByValue).
+  const loadLocalVideosForPivot = async (
+    nodeId: string,
+    parsed: ReturnType<typeof parseNodeId>
+  ): Promise<void> => {
+    if (parsed.kind !== "value" && parsed.kind !== "group") return;
+    setFetchingNodeFlag(nodeId, true);
+    try {
+      const remoteId = LOCAL_PIVOT_REMOTE_ID;
+      const relHubId = relationHubId(remoteId, parsed.relationKind);
+      if (!taxonItemsByHub.has(relHubId)) {
+        await loadLocalTaxonsForHub(relHubId, parsed.relationKind);
+      }
+      const cache = taxonItemsByHub.get(relHubId);
+      const entry = cache?.get(parsed.valueSlug);
+      if (!entry) return;
+      const videoIds = new Set(await getLocalEntityIdsByTaxon("video", entry.id));
+      if (videoIds.size === 0) return;
+      const localVideos = videosByRemote().get(remoteId) ?? [];
+      const matchingVideos = localVideos.filter((v) => videoIds.has(v.videoId));
+      if (parsed.kind === "value" && matchingVideos.length > 0) {
+        const addEdges: WalkEdge[] = [];
+        const seenSeries = new Set<string>();
+        for (const video of matchingVideos) {
+          addEdges.push({ source: nodeId, target: video.id });
+          if (video.seriesId && !seenSeries.has(video.seriesId)) {
+            seenSeries.add(video.seriesId);
+            addEdges.push({
+              source: nodeId,
+              target: videoSeriesNodeId(remoteId, video.seriesId),
+            });
+          }
+        }
+        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+      }
+    } finally {
+      setFetchingNodeFlag(nodeId, false);
+    }
+  };
+
   const maybeLoadTaxonsForPivot = async (nodeId: string): Promise<void> => {
     let parsed: ReturnType<typeof parseNodeId>;
     try {
@@ -283,7 +364,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     if (parsed.remoteId === LOCAL_PIVOT_REMOTE_ID) {
       const promise = loadLocalTaxonsForHub(nodeId, parsed.relationKind);
       taxonFetchPromises.set(nodeId, promise);
-      try { await promise; } finally { taxonFetchPromises.delete(nodeId); }
+      try {
+        await promise;
+      } finally {
+        taxonFetchPromises.delete(nodeId);
+      }
       return;
     }
     if (offlineByRemote().get(parsed.remoteId) === true) return;
@@ -353,8 +438,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           });
           const isGroup = childIdSet.has(item.id);
           // hide empty leaf taxons in read mode; show them in edit mode
-          // so newly-created placeholders are visible immediately.
-          if (!isGroup && item.album_count <= 0 && !editMode?.()) continue;
+          // so newly-created placeholders are visible immediately. a
+          // taxon tagged only on videos (album_count 0) must still
+          // render so maybeLoadVideosForPivot has a node to fan out from.
+          const combinedCount = item.album_count + item.video_count;
+          if (!isGroup && combinedCount <= 0 && !editMode?.()) continue;
           const taxonNodeId = isGroup
             ? groupNodeId(remoteId, kind, item.label)
             : valueNodeId(remoteId, kind, item.label);
@@ -368,7 +456,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
                 ? item.label
                 : (item.slug ?? item.id).replace(/_/g, " "),
             parentId: relHubId,
-            childCount: item.album_count,
+            childCount: combinedCount,
             lazy: true,
             tint: isGroup ? (taxonColorById.get(item.id) ?? undefined) : undefined,
           });
@@ -551,7 +639,8 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         if (!result.success || !result.data) return;
         const albumIds = result.data.album_ids ?? [];
         const artistIds = result.data.artist_ids ?? [];
-        if (albumIds.length === 0 && artistIds.length === 0) {
+        const videoIds = activeDomains().has("video") ? (result.data.video_ids ?? []) : [];
+        if (albumIds.length === 0 && artistIds.length === 0 && videoIds.length === 0) {
           belovedLoadedByHub.add(relHubId);
           return;
         }
@@ -562,7 +651,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             role: "relation",
             label: "beloved",
             parentId: rhId,
-            childCount: albumIds.length + artistIds.length,
+            childCount: albumIds.length + artistIds.length + videoIds.length,
           },
         ];
         const addEdges: WalkEdge[] = [{ source: rhId, target: relHubId }];
@@ -571,6 +660,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         }
         for (const bareAlbumId of albumIds) {
           addEdges.push({ source: relHubId, target: albumNodeId(remoteId, bareAlbumId) });
+        }
+        // videos are eagerly loaded per-remote (like albums/artists), so
+        // just edge to the existing video node - no fetch/append needed.
+        for (const bareVideoId of videoIds) {
+          addEdges.push({ source: relHubId, target: videoNodeId(remoteId, bareVideoId) });
         }
         walkerClient()?.merge(addNodes, addEdges);
         belovedLoadedByHub.add(relHubId);
@@ -677,16 +771,22 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       setFetchingNodeFlag(relHubId, true);
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.music.recentlyAddedAlbums({ limit: null });
-        if (!result.success || !result.data) return;
-        if (result.data.albums.length === 0) {
+        const wantVideos = activeDomains().has("video");
+        const [albumsResult, videosResult] = await Promise.all([
+          client.music.recentlyAddedAlbums({ limit: null }),
+          wantVideos ? client.video.recentlyAddedVideos({ limit: null }) : Promise.resolve(null),
+        ]);
+        const rawAlbums = albumsResult.success && albumsResult.data ? albumsResult.data.albums : [];
+        const rawVideos =
+          videosResult && videosResult.success && videosResult.data ? videosResult.data.videos : [];
+        if (rawAlbums.length === 0 && rawVideos.length === 0) {
           recentlyAddedLoadedByHub.add(relHubId);
           return;
         }
-        const adapted: AlbumNodeData[] = result.data.albums.map((item) =>
-          adaptQueryAlbumItem(item, remote)
-        );
+        const adapted: AlbumNodeData[] = rawAlbums.map((item) => adaptQueryAlbumItem(item, remote));
         appendAlbumsToRemote(remoteId, adapted);
+        const adaptedVideos = rawVideos.map((v) => videoToNodeData(v, remoteId));
+        if (adaptedVideos.length > 0) appendVideosToRemote(remoteId, adaptedVideos);
         const rhId = remoteHubId(remoteId);
         const addNodes: WalkNode[] = [
           {
@@ -694,7 +794,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             role: "relation",
             label: "recently added",
             parentId: rhId,
-            childCount: adapted.length,
+            childCount: adapted.length + adaptedVideos.length,
             lazy: true,
           },
         ];
@@ -714,6 +814,17 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             addEdges.push({
               source: relHubId,
               target: `artist::${remoteId}::${album.artistId}`,
+            });
+          }
+        }
+        const seenSeries = new Set<string>();
+        for (const video of adaptedVideos) {
+          addEdges.push({ source: relHubId, target: video.id });
+          if (video.seriesId && !seenSeries.has(video.seriesId)) {
+            seenSeries.add(video.seriesId);
+            addEdges.push({
+              source: relHubId,
+              target: videoSeriesNodeId(remoteId, video.seriesId),
             });
           }
         }
@@ -894,7 +1005,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         // artist blocks until the page is full; always take at least
         // the first block so we advance even when one artist owns more
         // unassigned albums than fits in pageSize.
-        type RawAlbum = typeof albums[number];
+        type RawAlbum = (typeof albums)[number];
         const blocks: { artistKey: string; rows: RawAlbum[] }[] = [];
         const blockIndex = new Map<string, number>();
         for (const item of albums) {
@@ -972,6 +1083,35 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           }
         }
         unassignedPageNodeIdsByHub.set(relHubId, pageNodeIds);
+        // unassigned videos aren't paginated like albums (no artist-block
+        // trimming equivalent) — fetched once per hub-load, on the first
+        // page only, and left out of pageNodeIds so later album page swaps
+        // don't evict them.
+        if (activeDomains().has("video") && !unassignedVideosLoadedByHub.has(relHubId)) {
+          try {
+            const videosResult = await client.video.unassignedVideos({ limit: 500, offset: 0 });
+            if (videosResult.success && videosResult.data) {
+              const adaptedVideos = videosResult.data.videos.map((v) =>
+                videoToNodeData(v, remoteId)
+              );
+              if (adaptedVideos.length > 0) appendVideosToRemote(remoteId, adaptedVideos);
+              const seenSeries = new Set<string>();
+              for (const video of adaptedVideos) {
+                addEdges.push({ source: relHubId, target: video.id });
+                if (video.seriesId && !seenSeries.has(video.seriesId)) {
+                  seenSeries.add(video.seriesId);
+                  addEdges.push({
+                    source: relHubId,
+                    target: videoSeriesNodeId(remoteId, video.seriesId),
+                  });
+                }
+              }
+            }
+            unassignedVideosLoadedByHub.add(relHubId);
+          } catch (err) {
+            console.warn("lazy unassigned-videos fetch failed", { relHubId, err });
+          }
+        }
         walkerClient()?.merge(addNodes, addEdges);
         onUnassignedPageInfo?.(relHubId, {
           total,
@@ -1109,6 +1249,105 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     } finally {
       setFetchingNodeFlag(nodeId, false);
     }
+  };
+
+  // converts an `ApiVideo` (the wire shape `videosByValue`/
+  // `recentlyAddedVideos`/`unassignedVideos` return) into a `VideoNodeData`.
+  // mirrors adaptVideo.ts's role but for the relations-endpoint payload
+  // shape (full grimoire `Video`, not the video data source's `VideoSummary`).
+  const videoToNodeData = (v: ApiVideo, remoteId: string): VideoNodeData => ({
+    id: videoNodeId(remoteId, v.id),
+    kind: "video",
+    videoId: v.id,
+    title: v.title,
+    seriesId: v.series_id ?? null,
+    seasonId: v.season_id ?? null,
+    posterBlobId: v.poster_blob_id ?? null,
+    posterOpfsPath: null,
+    remoteServerId: remoteId,
+  });
+
+  // dedup + in-flight tracking for the generic taxon-value video pivot
+  // loader below. mirrors albumsLoadedByPivot but video-scoped, since
+  // video pivot loading is entirely separate from the album one (a value
+  // hub fans out to BOTH albums and videos independently).
+  const videosLoadedByPivot = new Set<string>();
+  const videoFetchPromises = new Map<string, Promise<void>>();
+
+  // lazy video-content loader for generic categorical taxon hubs (genre/
+  // mood/style/label/tag). fires alongside maybeLoadAlbumsForPivot when a
+  // value/group node becomes the pivot and the video domain is toggled on.
+  // fetches the tagged video set via videosByValue, merges the video
+  // nodes into videosByRemote (so buildResult/buildWalkGraph pick them up
+  // on next recompute), and wires value -> video edges directly (plus
+  // value -> series when a matched video's series is known) — mirrors
+  // maybeLoadAlbumsForPivot's value -> album / value -> artist edges.
+  // video/series nodes are NOT eagerly wired to the remote hub anymore
+  // (see buildWalkGraph.ts) — this pivot loader (plus the recently-added/
+  // unassigned branches below) is now the only path that surfaces them.
+  const maybeLoadVideosForPivot = async (nodeId: string): Promise<void> => {
+    if (!activeDomains().has("video")) return;
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "value" && parsed.kind !== "group") return;
+    if (NON_TAXON_KINDS.has(parsed.relationKind)) return;
+    if (videosLoadedByPivot.has(nodeId)) return;
+    const inFlight = videoFetchPromises.get(nodeId);
+    if (inFlight) return inFlight;
+    if (parsed.remoteId === LOCAL_PIVOT_REMOTE_ID) {
+      videosLoadedByPivot.add(nodeId);
+      try {
+        await loadLocalVideosForPivot(nodeId, parsed);
+      } catch (err) {
+        console.warn("local pivot video fetch failed", { nodeId, err });
+        videosLoadedByPivot.delete(nodeId);
+      }
+      return;
+    }
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+    const promise = (async () => {
+      setFetchingNodeFlag(nodeId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const result = await client.video.videosByValue({
+          kind: parsed.relationKind,
+          value_norm: parsed.valueSlug,
+          limit: 500,
+          offset: 0,
+        });
+        if (!result.success || !result.data) return;
+        const remoteId = parsed.remoteId;
+        const adapted = result.data.videos.map((v) => videoToNodeData(v, remoteId));
+        appendVideosToRemote(remoteId, adapted);
+        const addEdges: WalkEdge[] = [];
+        const seenSeries = new Set<string>();
+        for (const video of adapted) {
+          addEdges.push({ source: nodeId, target: video.id });
+          if (video.seriesId && !seenSeries.has(video.seriesId)) {
+            seenSeries.add(video.seriesId);
+            addEdges.push({
+              source: nodeId,
+              target: videoSeriesNodeId(remoteId, video.seriesId),
+            });
+          }
+        }
+        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+        videosLoadedByPivot.add(nodeId);
+      } catch (err) {
+        console.warn("lazy video fetch failed", { nodeId, err });
+      } finally {
+        setFetchingNodeFlag(nodeId, false);
+        videoFetchPromises.delete(nodeId);
+      }
+    })();
+    videoFetchPromises.set(nodeId, promise);
+    return promise;
   };
 
   const findArtistNodeId = (artistId: string): string | null => {
@@ -1360,6 +1599,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     void maybeLoadUnassignedForPivot(nodeId);
     void maybeLoadBelovedForPivot(nodeId);
     void maybeLoadAlbumsForPivot(nodeId);
+    void maybeLoadVideosForPivot(nodeId);
     void maybeLoadRelatedArtistsForPivot(nodeId);
     void maybeLoadRelationsForEntityPivot(nodeId);
   };
@@ -1369,11 +1609,19 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       let isTaxonNode = false;
       try {
         const p = parseNodeId(nodeId);
+        // video_series/video_season live in videoNodesById, not the
+        // nodesById map lookupNode checks, so they'd otherwise always
+        // fail the lookup above and have their just-set selection wiped
+        // out immediately after WalkCanvas's onSelect call — same
+        // reasoning as the taxon-node kinds below (hub-like, has its own
+        // popover, no reason to clear the selection on pivot).
         isTaxonNode =
           p.kind === "value" ||
           p.kind === "group" ||
           p.kind === "relation" ||
-          p.kind === "remote";
+          p.kind === "remote" ||
+          p.kind === "video_series" ||
+          p.kind === "video_season";
       } catch {
         // non-parseable id — treat as hub pivot
       }
@@ -1406,6 +1654,9 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     unassignedPageSizeAnchorByHub.clear();
     unassignedPageNodeIdsByHub.clear();
     unassignedExhaustedByHub.clear();
+    unassignedVideosLoadedByHub.clear();
+    videosLoadedByPivot.clear();
+    videoFetchPromises.clear();
     belovedLoadedByHub.clear();
     belovedFetchPromises.clear();
     relatedArtistsLoadedByPivot.clear();
@@ -1421,6 +1672,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     findArtistNodeId,
     maybeLoadTaxonsForPivot,
     maybeLoadAlbumsForPivot,
+    maybeLoadVideosForPivot,
     maybeLoadRelatedArtistsForPivot,
     reloadUnassignedPage,
     resetMergedState,

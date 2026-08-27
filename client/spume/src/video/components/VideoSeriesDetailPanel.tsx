@@ -452,7 +452,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                   <div class="flex gap-4 wide:gap-6 p-4 wide:p-6">
                     <ContextMenu actions={seriesContextMenuActions()}>
                       <div
-                        class="w-32 h-32 wide:w-64 wide:h-64 bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden cursor-pointer"
+                        class="w-48 wide:w-96 aspect-video bg-[var(--color-bg-elevated)] rounded-lg flex-shrink-0 overflow-hidden cursor-pointer"
                         title="view series images"
                         onClick={handleSeriesImageClick}
                       >
@@ -464,7 +464,8 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           showFallback={true}
                           thumbnailSize={200}
                           domainType="video_series"
-                          class="w-full h-full object-cover"
+                          objectFit="contain"
+                          class="w-full h-full"
                         />
                       </div>
                     </ContextMenu>

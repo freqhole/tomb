@@ -451,7 +451,7 @@ export function AlbumDetailPopover(props: AlbumDetailPopoverProps) {
   );
 }
 
-function ActionButton(props: {
+export function ActionButton(props: {
   icon: string;
   label: string;
   onClick: () => void;

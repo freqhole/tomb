@@ -84,15 +84,16 @@ pub async fn list(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValu
     }
 }
 
-/// list "beloved" album + artist ids — favorited by any user on this
-/// remote (direct favorites unioned with song-favorite-derived ids).
+/// list "beloved" album + artist + video ids — favorited by any user on
+/// this remote (direct favorites unioned with song-favorite-derived ids).
 pub async fn list_beloved(_caller: &Caller, _body: JsonValue) -> GrimoireResponse<JsonValue> {
     let response = FavoritesService::new().list_beloved_ids().await;
     match response.data {
-        Some((album_ids, artist_ids)) => {
+        Some((album_ids, artist_ids, video_ids)) => {
             let payload = ListBelovedResponse {
                 album_ids,
                 artist_ids,
+                video_ids,
             };
             GrimoireResponse::success(&response.message, serde_json::to_value(payload).unwrap())
         }

@@ -3335,7 +3335,8 @@ export type ListBelovedRequest = z.infer<typeof ListBelovedRequestSchema>;
 
 export const ListBelovedResponseSchema = z.object({
   album_ids: z.array(z.string()),
-  artist_ids: z.array(z.string())
+  artist_ids: z.array(z.string()),
+  video_ids: z.array(z.string())
 });
 export type ListBelovedResponse = z.infer<typeof ListBelovedResponseSchema>;
 
@@ -3852,7 +3853,7 @@ export const ListTaxonsByKindRequestSchema = z.object({
 export type ListTaxonsByKindRequest = z.infer<typeof ListTaxonsByKindRequestSchema>;
 
 export const ListVideoSeasonsRequestSchema = z.object({
-  series_id: z.string()
+  series_id: z.string().nullish()
 });
 export type ListVideoSeasonsRequest = z.infer<typeof ListVideoSeasonsRequestSchema>;
 
@@ -5509,6 +5510,41 @@ export const RecentlyAddedAlbumsResponseSchema = z.object({
 });
 export type RecentlyAddedAlbumsResponse = z.infer<typeof RecentlyAddedAlbumsResponseSchema>;
 
+export const RecentlyAddedVideosRequestSchema = z.object({
+  limit: z.number().nullish()
+});
+export type RecentlyAddedVideosRequest = z.infer<typeof RecentlyAddedVideosRequestSchema>;
+
+export const RecentlyAddedVideosResponseSchema = z.object({
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type RecentlyAddedVideosResponse = z.infer<typeof RecentlyAddedVideosResponseSchema>;
+
 export const RecordPlayRequestSchema = z.object({
   media_blob_id: z.string(),
   song_id: z.string(),
@@ -6812,6 +6848,7 @@ export const TaxonKindSchema = z.object({
   is_user_defined: z.boolean(),
   created_at: z.number(),
   album_count: z.number(),
+  video_count: z.number(),
   domain: z.string()
 });
 export type TaxonKind = z.infer<typeof TaxonKindSchema>;
@@ -6847,7 +6884,8 @@ export const TaxonWithStatsSchema = z.object({
   created_at: z.number(),
   album_count: z.number(),
   song_count: z.number(),
-  total_duration: z.number()
+  total_duration: z.number(),
+  video_count: z.number()
 });
 export type TaxonWithStats = z.infer<typeof TaxonWithStatsSchema>;
 
@@ -6861,7 +6899,8 @@ export const TaxonsQueryResultSchema = z.object({
   created_at: z.number(),
   album_count: z.number(),
   song_count: z.number(),
-  total_duration: z.number()
+  total_duration: z.number(),
+  video_count: z.number()
 })),
   total_count: z.number(),
   has_more: z.boolean(),
@@ -7018,6 +7057,42 @@ export const UnassignedAlbumsResponseSchema = z.object({
   count: z.number()
 });
 export type UnassignedAlbumsResponse = z.infer<typeof UnassignedAlbumsResponseSchema>;
+
+export const UnassignedVideosRequestSchema = z.object({
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type UnassignedVideosRequest = z.infer<typeof UnassignedVideosRequestSchema>;
+
+export const UnassignedVideosResponseSchema = z.object({
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type UnassignedVideosResponse = z.infer<typeof UnassignedVideosResponseSchema>;
 
 export const UpdateAlbumRequestSchema = z.object({
   album_id: z.string(),
@@ -7592,6 +7667,46 @@ export const VideoWithMetadataSchema = z.object({
   frame_rate: z.number().nullish()
 });
 export type VideoWithMetadata = z.infer<typeof VideoWithMetadataSchema>;
+
+export const VideosByValueRequestSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  limit: z.number().nullish(),
+  offset: z.number().nullish()
+});
+export type VideosByValueRequest = z.infer<typeof VideosByValueRequestSchema>;
+
+export const VideosByValueResponseSchema = z.object({
+  kind: z.string(),
+  value_norm: z.string(),
+  videos: z.array(z.object({
+  id: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  content_type: z.string(),
+  title: z.string(),
+  description: z.string().nullish(),
+  media_blob_id: z.string(),
+  poster_blob_id: z.string().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  deleted_at: z.number().nullish(),
+  created_by: z.string().nullish(),
+  updated_by: z.string().nullish(),
+  deleted_by: z.string().nullish(),
+  images: z.array(z.object({
+  blob_id: z.string(),
+  is_primary: z.number(),
+  blob_type: z.union([z.literal("original"), z.literal("thumbnail"), z.literal("waveform"), z.literal("preview"), z.literal("rendition"), z.literal("subtitle")])
+})).nullish(),
+  play_count: z.number().nullish()
+})),
+  count: z.number()
+});
+export type VideosByValueResponse = z.infer<typeof VideosByValueResponseSchema>;
 
 export const VideosQueryResultSchema = z.object({
   items: z.array(z.object({

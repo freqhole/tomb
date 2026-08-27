@@ -169,6 +169,74 @@ export interface ArtistNodeData {
 /** node union as carried through the graph pipeline. */
 export type GraphNodeData = AlbumNodeData | ArtistNodeData;
 
+/** a single video, mixed into the walk graph either as a season's child
+ *  (attached under its `VideoSeasonNodeData` node), a series' direct
+ *  child when it has a series but no season (`series_id` set,
+ *  `season_id` null), or, when it has neither, directly on the remote
+ *  hub (mirrors `AlbumNodeData`'s orphan-album attachment). kept
+ *  deliberately minimal (no taxons) for the phase-2 "direct remote/
+ *  series edges" cut described in docs/graph-viz-video-domain-plan.md
+ *  — taxon-driven pivot loading for video is a later phase. image
+ *  resolution follows the video domain's own convention (blobId/
+ *  remoteServerId pair for MediaImage), not music's `ImageMetadata`. */
+export interface VideoNodeData {
+  /** namespaced id: `video::${remoteId}::${videoId}` (see nodeIds.ts). */
+  id: string;
+  kind: "video";
+  /** bare local video id. */
+  videoId: string;
+  title: string;
+  /** bare local series id, or null for a standalone/unassigned video. */
+  seriesId: string | null;
+  /** bare local season id, or null when the video isn't attached to a
+   *  season (either standalone or season-less-but-series-attached). */
+  seasonId: string | null;
+  posterBlobId: string | null;
+  /** raw opfs file path for an auto-extracted local poster thumbnail
+   *  (see `ImageMetadata.local_opfs_path`) — set only for locally
+   *  imported videos, null otherwise. */
+  posterOpfsPath: string | null;
+  remoteServerId: string | null;
+  sourceRemoteIds?: string[];
+}
+
+/** a video season, mixed into the walk graph as a `VideoSeriesNodeData`
+ *  child (parallels how a video attaches under a season). `videoCount`
+ *  drives the same sqrt-scaled radius growth used for series/artists. */
+export interface VideoSeasonNodeData {
+  /** namespaced id: `video_season::${remoteId}::${seasonId}` (see nodeIds.ts). */
+  id: string;
+  kind: "video_season";
+  /** bare local season id. */
+  seasonId: string;
+  /** bare local series id this season belongs to. */
+  seriesId: string;
+  title: string;
+  seasonNumber: number;
+  posterBlobId: string | null;
+  remoteServerId: string | null;
+  /** number of in-library videos attributed to this season. */
+  videoCount: number;
+  sourceRemoteIds?: string[];
+}
+
+/** a video series, mixed into the walk graph as a remote-hub child (like
+ *  `ArtistNodeData`). `videoCount` drives the same sqrt-scaled radius
+ *  growth `nodeRadius`/`walkerHelpers` already give artists. */
+export interface VideoSeriesNodeData {
+  /** namespaced id: `video_series::${remoteId}::${seriesId}` (see nodeIds.ts). */
+  id: string;
+  kind: "video_series";
+  /** bare local series id. */
+  seriesId: string;
+  title: string;
+  posterBlobId: string | null;
+  remoteServerId: string | null;
+  /** number of in-library videos attributed to this series. */
+  videoCount: number;
+  sourceRemoteIds?: string[];
+}
+
 /** alias for `ArtistNodeData` that better reflects its current
  *  scope (true artists + the three hub silhouettes). prefer this
  *  name in new code; the legacy name stays exported for back-compat
@@ -225,7 +293,17 @@ export interface ViewportTransform {
 // ---- walk explorer types (graph2 / bloom-walker stack) ---------------------
 
 export type NodeRole =
-  "root" | "remote" | "relation" | "value" | "group" | "artist" | "album" | "ghost_artist";
+  | "root"
+  | "remote"
+  | "relation"
+  | "value"
+  | "group"
+  | "artist"
+  | "album"
+  | "ghost_artist"
+  | "video"
+  | "video_series"
+  | "video_season";
 
 export interface WalkNode {
   id: string;

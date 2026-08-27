@@ -42,7 +42,7 @@ pub async fn get_series_detail(series_id: &str) -> GrimoireResponse<SeriesDetail
     }
     let series = series_response.data.expect("success response has data");
 
-    let seasons_response = seasons::list_video_seasons(series_id).await;
+    let seasons_response = seasons::list_video_seasons(Some(series_id)).await;
     if !seasons_response.success {
         return GrimoireResponse::failure(seasons_response.message, seasons_response.errors);
     }

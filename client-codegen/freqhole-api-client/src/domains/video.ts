@@ -204,6 +204,53 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    // universal-domain relation hubs (era/recently_added/unassigned +
+    // generic categorical hubs like genre/mood/style), mirrors music's
+    // recentlyAddedAlbums/albumsByValue/unassignedAlbums.
+
+    // top-N most recently added videos, flat (not clustered by series)
+    // by created_at desc.
+    recentlyAddedVideos: (params: s.RecentlyAddedVideosRequest) => {
+      return call(
+        "video",
+        "recently_added_videos",
+        routes.video.recently_added_videos.resp,
+        routes.video.recently_added_videos.req,
+        routes.video.recently_added_videos.method,
+        routes.video.recently_added_videos.path,
+        params,
+      );
+    },
+
+    // fan out the synthesized "unassigned" hub to its member videos
+    // (videos with no entity_taxonz rows at all).
+    unassignedVideos: (params: s.UnassignedVideosRequest) => {
+      return call(
+        "video",
+        "unassigned_videos",
+        routes.video.unassigned_videos.resp,
+        routes.video.unassigned_videos.req,
+        routes.video.unassigned_videos.method,
+        routes.video.unassigned_videos.path,
+        params,
+      );
+    },
+
+    // fetch a (taxon_kind, taxon_value) hub's full video member set -
+    // used when the graph drills into a generic categorical relation
+    // hub (genre/mood/style/label/tag) with the video domain active.
+    videosByValue: (params: s.VideosByValueRequest) => {
+      return call(
+        "video",
+        "videos_by_value",
+        routes.video.videos_by_value.resp,
+        routes.video.videos_by_value.req,
+        routes.video.videos_by_value.method,
+        routes.video.videos_by_value.path,
+        params,
+      );
+    },
+
     // video series
     queryVideoSeries: (params: s.QueryParams) => {
       return call(

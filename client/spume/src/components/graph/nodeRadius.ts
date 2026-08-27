@@ -24,6 +24,13 @@ export function nodeDisplayRadius(role: NodeRole, childCount: number): number {
       return 27;
     case "album":
       return 16;
+    case "video":
+      return 19;
+    case "video_season":
+      return 21 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 3, 12);
+    case "video_series":
+      // sits just above the season tier, not as big as artist/remote.
+      return 19 + Math.min(Math.sqrt(Math.max(0, childCount - 3)) * 2.5, 10);
     default:
       return 14;
   }

@@ -17,18 +17,12 @@ import {
   resolveBlobUrl,
   type ThumbnailSize,
 } from "../../music/services/storage/blobResolver";
-import {
-  getBlobObjectURL,
-  getCachedBlobObjectURL,
-} from "../../music/services/storage/blobs";
+import { getBlobObjectURL, getCachedBlobObjectURL } from "../../music/services/storage/blobs";
 import { isCharnelManagedRemoteSync } from "../../music/services/storage/transportCache";
 import type { ImageMetadata } from "../../music/services/storage/types";
+import { readVideoPosterFromOPFS } from "../../video/services/opfs/helpers";
 import { bump, gauge, timing } from "./perfLog";
-import {
-  atlasEntryStatus,
-  getAtlasThumb,
-  isAtlasEligible,
-} from "./thumbAtlas";
+import { atlasEntryStatus, getAtlasThumb, isAtlasEligible } from "./thumbAtlas";
 
 // what we hand to canvas drawImage. we deliberately store the
 // HTMLImageElement and not an ImageBitmap: we tried promoting
@@ -138,6 +132,7 @@ const resolvedFor = {
 
 function imageKey(img: ImageMetadata, size: ThumbnailSize | undefined): string {
   return [
+    img.local_opfs_path ?? "",
     img.local_blob_id ?? "",
     img.remote_server_id ?? "",
     img.remote_blob_id ?? "",
@@ -153,10 +148,7 @@ const DEFAULT_THUMB: ThumbnailSize = 200;
  * `onReady` when decoded. returns a drawable (ImageBitmap when supported,
  * HTMLImageElement otherwise) if already decoded.
  */
-export function getImage(
-  url: string,
-  onReady?: () => void
-): DrawableImage | null {
+export function getImage(url: string, onReady?: () => void): DrawableImage | null {
   const hit = cache.get(url);
   if (hit) {
     if (hit.state === "ready") {
@@ -211,8 +203,7 @@ export function getImage(
         fireReady();
       };
       const decodeOk =
-        typeof (img as HTMLImageElement & { decode?: () => Promise<void> })
-          .decode === "function";
+        typeof (img as HTMLImageElement & { decode?: () => Promise<void> }).decode === "function";
       if (decodeOk) {
         img
           .decode()
@@ -272,6 +263,36 @@ export function getImageFor(
   const memoed = resolvedFor.get(memoKey);
   if (memoed) return getImage(memoed, onReady);
 
+  // (0) auto-extracted local video poster, raw opfs file with no blob-store
+  // entry at all — revoked object urls aren't a concern here since the
+  // cache holds the url (and the decoded <img>) for the app's lifetime.
+  if (image.local_opfs_path) {
+    const path = image.local_opfs_path;
+    const key = `opfs:${path}`;
+    if (!failed.has(key)) {
+      if (!resolving.has(key)) {
+        resolving.add(key);
+        void readVideoPosterFromOPFS(path)
+          .then((file) => {
+            const url = URL.createObjectURL(file);
+            resolvedFor.set(memoKey, url);
+            getImage(url, onReady);
+          })
+          .catch(() => {
+            failed.add(key);
+            if (onReady) onReady();
+          })
+          .finally(() => {
+            resolving.delete(key);
+          });
+      }
+      return null;
+    }
+    // opfs read is known-bad for this path: fall through (no other
+    // source applies to an auto-extracted video poster, so this ends
+    // up returning null below).
+  }
+
   // (1) local opfs blob. mirror MediaImage: try sync cache first, then
   // an async `getBlobObjectURL`. if the lookup fails (charnel-managed
   // blobs live in sqlite, not opfs), mark the key as failed and fall
@@ -316,10 +337,7 @@ export function getImageFor(
   // then either use a plain http url directly or kick off an async
   // transport fetch.
   if (image.remote_blob_id && image.remote_server_id) {
-    const p2pCached = getCachedP2PBlobUrl(
-      image.remote_blob_id,
-      image.remote_server_id
-    );
+    const p2pCached = getCachedP2PBlobUrl(image.remote_blob_id, image.remote_server_id);
     if (p2pCached) {
       resolvedFor.set(memoKey, p2pCached);
       return getImage(p2pCached, onReady);
@@ -353,11 +371,7 @@ export function getImageFor(
         bump("img.atlas.hit");
         return canvas;
       }
-      const status = atlasEntryStatus(
-        image.remote_server_id,
-        image.remote_blob_id,
-        thumbSize
-      );
+      const status = atlasEntryStatus(image.remote_server_id, image.remote_blob_id, thumbSize);
       if (status === "loading" || status === "absent") {
         // batch is still in flight (absent = just enqueued, listener
         // already registered by getAtlasThumb). don't kick off a
@@ -369,11 +383,7 @@ export function getImageFor(
       bump("img.atlas.miss");
     }
 
-    if (
-      isP2P === false &&
-      !isCharnel &&
-      isValidHttpUrl(image.remote_url)
-    ) {
+    if (isP2P === false && !isCharnel && isValidHttpUrl(image.remote_url)) {
       // foreign http url — use as-is. /thumb/:size is a charnel-server
       // convention and breaks arbitrary origins (picsum, etc.).
       const url = image.remote_url!;

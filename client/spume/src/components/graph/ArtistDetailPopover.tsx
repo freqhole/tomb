@@ -15,6 +15,7 @@ import { MarqueeText } from "../text/MarqueeText";
 import { MediaImage } from "../media/MediaImage";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { AlbumNodeView } from "./AlbumNodeView";
+import { ActionButton } from "./AlbumDetailPopover";
 import { RemoteSplitButton, type ContributingRemote } from "./RemoteSplitButton";
 
 export interface ArtistDetailPopoverProps {
@@ -52,6 +53,14 @@ export interface ArtistDetailPopoverProps {
   /** notifies parent that the user picked a different artist in the
    *  carousel — e.g. so the canvas selection can follow. */
   onFocusArtist?: (artist: ArtistNodeData) => void;
+  // playback actions — same set as AlbumDetailPopover, playing every
+  // in-library song across every album by this artist.
+  onPlay?: (artist: ArtistNodeData) => void;
+  onShuffle?: (artist: ArtistNodeData) => void;
+  onAddToQueue?: (artist: ArtistNodeData) => void;
+  /** when true, the play/shuffle/queue buttons are disabled and show a
+   *  loading indicator — used while songs are being fetched from the remote. */
+  isLoadingPlay?: boolean;
   /** optional biography string. when present, rendered (clamped) below
    *  the action row. the parent owns hydration — e.g. fetching the
    *  full artist record for the current selection via getArtist. */
@@ -135,7 +144,13 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
   const artist = createMemo(() => list()[idx()]);
   const hasCarousel = () => list().length > 1;
   const hasFavoriteToggle = () => props.isFavorite !== undefined && !!props.onToggleFavorite;
-  const hasAnyAction = () => !!props.onViewArtist || !!props.onEdit || hasFavoriteToggle();
+  const hasAnyAction = () =>
+    !!props.onPlay ||
+    !!props.onShuffle ||
+    !!props.onAddToQueue ||
+    !!props.onViewArtist ||
+    !!props.onEdit ||
+    hasFavoriteToggle();
   // bios from upstream sources (musicbrainz, last.fm, discogs) often
   // contain HTML — anchor tags around references, occasional <br>,
   // etc. strip tags and decode the handful of entities we actually
@@ -227,6 +242,30 @@ export function ArtistDetailPopover(props: ArtistDetailPopoverProps) {
 
         <Show when={hasAnyAction()}>
           <div class="px-3 pb-2 flex flex-wrap items-center gap-1">
+            <Show when={props.onPlay}>
+              <ActionButton
+                icon={props.isLoadingPlay ? IconNames.loader : IconNames.play}
+                label={props.isLoadingPlay ? "loading..." : "play"}
+                onClick={() => !props.isLoadingPlay && props.onPlay?.(artist()!)}
+                disabled={props.isLoadingPlay}
+              />
+            </Show>
+            <Show when={props.onShuffle}>
+              <ActionButton
+                icon={IconNames.shuffle}
+                label="shuffle"
+                onClick={() => !props.isLoadingPlay && props.onShuffle?.(artist()!)}
+                disabled={props.isLoadingPlay}
+              />
+            </Show>
+            <Show when={props.onAddToQueue}>
+              <ActionButton
+                icon={IconNames.queue}
+                label="queue"
+                onClick={() => !props.isLoadingPlay && props.onAddToQueue?.(artist()!)}
+                disabled={props.isLoadingPlay}
+              />
+            </Show>
             <Show when={hasFavoriteToggle()}>
               <FavoriteHeart
                 isFavorite={!!props.isFavorite}

@@ -80,6 +80,11 @@ export interface VideoDataSource {
   }): Promise<PaginatedVideoSeries>;
   getVideoSeriesById(id: string): Promise<VideoSeries | null>;
   getVideoSeasons(seriesId: string): Promise<VideoSeason[]>;
+  /** every non-deleted season in the library, across every series - one
+   *  call instead of one `getVideoSeasons` per series. used by graph viz
+   *  to build the season tier (see docs/graph-viz-video-domain-plan.md
+   *  phase 5a). */
+  getAllVideoSeasons(): Promise<VideoSeason[]>;
   getVideosBySeason(seasonId: string): Promise<VideoSummary[]>;
   getVideosBySeries(seriesId: string): Promise<VideoSummary[]>;
   /** full series detail in one call: the series, every season (each with

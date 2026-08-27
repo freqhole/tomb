@@ -122,7 +122,13 @@ pub async fn get_video_season(id: &str) -> GrimoireResponse<VideoSeason> {
 }
 
 /// list every season in a series, ordered by season number, non-deleted only
-pub async fn list_video_seasons(series_id: &str) -> GrimoireResponse<Vec<VideoSeason>> {
+/// list seasons. `series_id = Some(id)` scopes to one series (the
+/// original per-series usage); `None` returns every non-deleted season
+/// in the library in one call, ordered by series then season number -
+/// used by graph viz bulk loading so it doesn't have to make one
+/// `list_video_seasons` round trip per series (see
+/// docs/graph-viz-video-domain-plan.md).
+pub async fn list_video_seasons(series_id: Option<&str>) -> GrimoireResponse<Vec<VideoSeason>> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -146,8 +152,9 @@ pub async fn list_video_seasons(series_id: &str) -> GrimoireResponse<Vec<VideoSe
             updated_at as "updated_at!",
             deleted_at
          FROM video_seasonz
-         WHERE series_id = ? AND deleted_at IS NULL
-         ORDER BY season_number ASC"#,
+         WHERE deleted_at IS NULL
+           AND (?1 IS NULL OR series_id = ?1)
+         ORDER BY series_id ASC, season_number ASC"#,
         series_id
     )
     .fetch_all(&pool)

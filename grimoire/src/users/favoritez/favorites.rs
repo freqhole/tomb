@@ -451,10 +451,13 @@ impl FavoritesService {
         }
     }
 
-    /// list distinct album + artist ids "beloved" by any user on this
-    /// remote — direct album/artist favorites unioned with album/artist
-    /// ids derived from song favorites. soft-deleted rows are excluded.
-    pub async fn list_beloved_ids(&self) -> GrimoireResponse<(Vec<String>, Vec<String>)> {
+    /// list distinct album + artist + video ids "beloved" by any user on
+    /// this remote — direct album/artist/video favorites unioned with
+    /// album/artist ids derived from song favorites. soft-deleted rows are
+    /// excluded.
+    pub async fn list_beloved_ids(
+        &self,
+    ) -> GrimoireResponse<(Vec<String>, Vec<String>, Vec<String>)> {
         let pool = match database::connect().await {
             Ok(pool) => pool,
             Err(err) => {
@@ -539,12 +542,43 @@ impl FavoritesService {
             }
         };
 
+        // direct video favorites. no derivation from a smaller entity (like
+        // song -> album/artist above) - videos have no such intermediate.
+        let video_rows = sqlx::query!(
+            r#"
+            SELECT DISTINCT v.id as "id!"
+              FROM videoz v
+             WHERE v.deleted_at IS NULL
+               AND EXISTS (
+                 SELECT 1 FROM user_favoritez f
+                  WHERE f.target_type = 'video' AND f.target_id = v.id
+               )
+            "#
+        )
+        .fetch_all(&pool)
+        .await;
+        let video_ids: Vec<String> = match video_rows {
+            Ok(rows) => rows.into_iter().map(|r| r.id).collect(),
+            Err(err) => {
+                let detail = err.to_string();
+                return GrimoireResponse::failure(
+                    "failed to list beloved videos",
+                    vec![crate::error::ErrorDetail::new(
+                        "db_error",
+                        "database error",
+                        &detail,
+                    )],
+                );
+            }
+        };
+
         let msg = format!(
-            "found {} beloved albums, {} beloved artists",
+            "found {} beloved albums, {} beloved artists, {} beloved videos",
             album_ids.len(),
-            artist_ids.len()
+            artist_ids.len(),
+            video_ids.len()
         );
-        GrimoireResponse::success(&msg, (album_ids, artist_ids))
+        GrimoireResponse::success(&msg, (album_ids, artist_ids, video_ids))
     }
 }
 

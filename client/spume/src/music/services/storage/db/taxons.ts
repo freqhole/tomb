@@ -356,6 +356,43 @@ export async function countAlbumsByKindForRemote(
   return { byKind, unassigned };
 }
 
+// distinct-video counts per kind_slug for a single remote. mirrors
+// `countAlbumsByKindForRemote` but scans the generic `entity_taxons`
+// junction (filtered to entity_type "video") instead of the
+// album-specific junction — local video taxon tagging lives there (see
+// `linkEntityTaxon`/`getEntityIdsByTaxon`). no "unassigned videos" tally
+// here yet (would need cross-referencing the separate video-domain
+// indexeddb for the full local video id list); only kind-level counts
+// are needed for hub childCount/visibility today.
+export async function countVideosByKindForRemote(
+  remoteId: string
+): Promise<{ byKind: Map<string, number> }> {
+  const db = await initMusicDB();
+  const taxons = (await db.getAllFromIndex(STORE_TAXONS, "by_remote_id", remoteId)) as TaxonRow[];
+  const kindByTaxon = new Map<string, string>();
+  for (const t of taxons) kindByTaxon.set(t.taxon_id, t.kind_slug);
+  const junctions = (await db.getAllFromIndex(
+    STORE_ENTITY_TAXONS,
+    "by_entity_type",
+    "video"
+  )) as EntityTaxonRow[];
+  const seenByKind = new Map<string, Set<string>>();
+  for (const j of junctions) {
+    if (j.remote_id !== remoteId) continue;
+    const kind = kindByTaxon.get(j.taxon_id);
+    if (!kind) continue;
+    let set = seenByKind.get(kind);
+    if (!set) {
+      set = new Set();
+      seenByKind.set(kind, set);
+    }
+    set.add(j.entity_id);
+  }
+  const byKind = new Map<string, number>();
+  for (const [k, set] of seenByKind) byKind.set(k, set.size);
+  return { byKind };
+}
+
 // list every local album_id that has no junction row (i.e. albums
 // with no taxon assignments at all). only meaningful for the local
 // remote; peers' unassigned lists come from their server.

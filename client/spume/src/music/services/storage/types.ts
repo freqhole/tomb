@@ -9,6 +9,11 @@ export interface ImageMetadata {
   remote_blob_id?: string; // server blob ID (from API)
   remote_url?: string; // for remote images (already includes base URL)
   remote_server_id?: string; // which remote server this image is from (for P2P resolution)
+  // raw opfs file path (e.g. "video-posters/id.jpg") for an auto-extracted
+  // local video thumbnail — these have no blob-store entry at all (see
+  // video/services/opfs/helpers.ts's readVideoPosterFromOPFS), unlike
+  // every other local image source above.
+  local_opfs_path?: string;
   is_primary: boolean; // primary/featured image
   blob_type: "thumbnail" | "waveform" | "original" | "preview" | "rendition" | "subtitle"; // image type
 }

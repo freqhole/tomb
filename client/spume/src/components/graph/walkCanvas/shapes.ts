@@ -112,6 +112,44 @@ export function nodeShapePath(
       ctx.rect(x - half, y - half, half * 2, half * 2);
       break;
     }
+    case "video": {
+      // 16:9 rounded rect — area tuned to roughly match an album square
+      // at the same r, for fair visual weight in the force layout.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      break;
+    }
+    case "video_series": {
+      // front (dominant) card only — the two "peeking" back cards are
+      // drawn separately as outline squares by drawNode (see drawing.ts)
+      // before this shape's own fill+stroke pass, so they read as layered
+      // behind it. this keeps the hit-test/fill contract here a single
+      // simple shape, matching every other role. 16:9 (same ratio as
+      // "video") rather than square — series are meant to read as a
+      // stack of widescreen video cards, not a photo album; the "bigger"
+      // half of the size bump comes from `nodeRadius.ts`'s larger base r
+      // for this role, not from the multipliers here.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      break;
+    }
+    case "video_season": {
+      // same 16:9 ratio as "video"/"video_series" — sits visually between
+      // them via a smaller base r from `nodeRadius.ts`, not a different
+      // aspect ratio.
+      const halfW = (r + gap) * 1.175;
+      const halfH = (r + gap) * 0.66;
+      const cornerR = Math.max(2, halfH * 0.18);
+      ctx.beginPath();
+      ctx.roundRect(x - halfW, y - halfH, halfW * 2, halfH * 2, cornerR);
+      break;
+    }
     case "artist":
     default:
       ctx.beginPath();
@@ -164,6 +202,36 @@ export function shapePolyline(
         { x: cx + half, y: cy - half },
         { x: cx + half, y: cy + half },
         { x: cx - half, y: cy + half },
+      ];
+    }
+    case "video": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
+      ];
+    }
+    case "video_series": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
+      ];
+    }
+    case "video_season": {
+      const halfW = r * 1.175 + outset;
+      const halfH = r * 0.66 + outset;
+      return [
+        { x: cx - halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy - halfH },
+        { x: cx + halfW, y: cy + halfH },
+        { x: cx - halfW, y: cy + halfH },
       ];
     }
     case "artist":

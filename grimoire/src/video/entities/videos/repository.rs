@@ -478,6 +478,216 @@ pub async fn list_videos_unattached(
     GrimoireResponse::success("Videos retrieved successfully", videos)
 }
 
+/// list the N most-recently-added videos (flat, non-clustered by series -
+/// unlike `query_videos`' default sort, this is a true top-N by
+/// `created_at`). used by the graph view's synthesized "recently added"
+/// hub, mirroring `music::entities::relations::list_recently_added_albums`.
+pub async fn list_recently_added_videos(limit: Option<u32>) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let limit = limit.unwrap_or(200).min(1000) as i64;
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
+         FROM videoz
+         WHERE deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT ?"#,
+        limit
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
+/// list videos with no `entity_taxonz` rows at all (across any taxon
+/// kind). mirrors `music::entities::relations::list_unassigned_albums`'
+/// "no taxon links whatsoever" semantics. only considers leaf `video`
+/// entities (not series/season) - matches the count computed by
+/// `taxonomy::repository::list_taxon_kinds`'s synthesized "unassigned"
+/// hub.
+pub async fn list_unassigned_videos(
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let limit = limit.unwrap_or(200).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
+         FROM videoz
+         WHERE deleted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM entity_taxonz et
+             JOIN taxonz t ON t.id = et.taxon_id
+             WHERE et.entity_type = 'video' AND et.entity_id = videoz.id AND t.deleted_at IS NULL
+           )
+         ORDER BY created_at DESC
+         LIMIT ? OFFSET ?"#,
+        limit,
+        offset
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
+/// list videos linked to a taxon identified by `(kind_slug, value)`,
+/// matching by the taxon's slug or label (case-insensitive) - mirrors
+/// `music::entities::relations::list_albums_by_taxon_value`. used when
+/// the graph drills into a (universal-domain) relation hub's value node
+/// and needs that value's video members from a remote.
+pub async fn list_videos_by_taxon_value(
+    kind_slug: &str,
+    value: &str,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> GrimoireResponse<Vec<Video>> {
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+    let limit = limit.unwrap_or(200).min(1000) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+
+    let videos = match sqlx::query_as!(
+        Video,
+        r#"SELECT
+            id as "id!",
+            series_id,
+            season_id,
+            episode_number,
+            content_type as "content_type!",
+            title as "title!",
+            description,
+            media_blob_id as "media_blob_id!",
+            poster_blob_id,
+            duration_seconds,
+            release_date,
+            created_at as "created_at!",
+            updated_at as "updated_at!",
+            deleted_at,
+            created_by,
+            updated_by,
+            deleted_by,
+            (SELECT COALESCE(json_group_array(json_object('blob_id', media_blob_id, 'is_primary', is_primary, 'blob_type', blob_type)), '[]')
+             FROM (SELECT media_blob_id, is_primary, blob_type FROM entity_imagez
+                   WHERE entity_type = 'video' AND entity_id = videoz.id
+                   ORDER BY is_primary DESC, created_at DESC)) as "images: JsonVec<ImageMetadata>",
+            (SELECT COUNT(*) FROM play_eventz WHERE entity_type = 'video' AND entity_id = videoz.id) as "play_count: i64"
+         FROM videoz
+         WHERE deleted_at IS NULL
+           AND id IN (
+             SELECT DISTINCT et.entity_id
+               FROM entity_taxonz et
+               JOIN taxonz t      ON t.id = et.taxon_id
+               JOIN taxon_kindz k ON k.id = t.kind_id
+              WHERE et.entity_type = 'video'
+                AND k.slug = ?1
+                AND (t.slug = ?2 OR LOWER(t.label) = LOWER(?2))
+                AND t.deleted_at IS NULL
+                AND k.deleted_at IS NULL
+           )
+         ORDER BY created_at DESC
+         LIMIT ?3 OFFSET ?4"#,
+        kind_slug,
+        value,
+        limit,
+        offset
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(videos) => videos,
+        Err(e) => {
+            return GrimoireResponse::failure("Failed to list videos", vec![ErrorDetail::from(e)])
+        }
+    };
+
+    GrimoireResponse::success("Videos retrieved successfully", videos)
+}
+
 /// update a video
 pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
     let pool = match database::connect().await {

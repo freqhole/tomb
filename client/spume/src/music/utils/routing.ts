@@ -85,6 +85,11 @@ export const routes = {
     buildRouteFor(remoteId, `/artists/${artistId}`),
   playlistOn: (remoteId: string | null | undefined, playlistId: string) =>
     buildRouteFor(remoteId, `/playlists/${playlistId}`),
+  videoOn: (remoteId: string | null | undefined) => buildRouteFor(remoteId, "/video"),
+  videoDetailOn: (remoteId: string | null | undefined, videoId: string) =>
+    buildRouteFor(remoteId, `/video/${videoId}`),
+  videoSeriesOn: (remoteId: string | null | undefined, seriesId: string) =>
+    buildRouteFor(remoteId, `/video/series/${seriesId}`),
 
   // settings & admin (top-level, not context-aware)
   settings: () => "/settings",

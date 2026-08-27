@@ -7,6 +7,16 @@ export async function getLocalVideoSeasons(seriesId: string): Promise<VideoSeaso
   return (await db.getAllFromIndex(STORE_VIDEO_SEASONS, "by_series_id", seriesId)) as VideoSeason[];
 }
 
+/** every non-deleted season in local storage, across every series.
+ *  mirrors grimoire's `list_video_seasons(None)` bulk fetch (see
+ *  docs/graph-viz-video-domain-plan.md phase 5a) — used by graph viz to
+ *  build the season tier without a per-series round trip. */
+export async function getAllLocalVideoSeasons(): Promise<VideoSeason[]> {
+  const db = await getVideoDB();
+  const seasons = (await db.getAll(STORE_VIDEO_SEASONS)) as VideoSeason[];
+  return seasons.filter((s) => !s.deleted_at);
+}
+
 export async function findLocalVideoSeasonByNumber(
   seriesId: string,
   seasonNumber: number

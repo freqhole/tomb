@@ -43,14 +43,25 @@ import {
 } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { listFavoritedSongAlbumArtistIds } from "../../../music/services/storage/db";
-import { pickPrimaryImage, buildImageUrls, fetchAlbumSongs } from "./graphSubview/helpers";
+import {
+  pickPrimaryImage,
+  buildImageUrls,
+  fetchAlbumSongs,
+  fetchArtistSongs,
+} from "./graphSubview/helpers";
 import { useArtistClusterIndex } from "./graphSubview/useArtistClusterIndex";
 import {
   CollapsedAlbumButton,
   CollapsedArtistButton,
   CollapsedTaxonButton,
   CollapsedRemoteButton,
+  CollapsedVideoButton,
 } from "./graphSubview/CollapsedPanels";
+import {
+  fetchVideoById,
+  fetchVideosForSeries,
+  fetchVideosForSeason,
+} from "./graphSubview/videoHelpers";
 import { createSelectedArtistDisplay } from "./graphSubview/useSelectedArtistDisplay";
 import { createContributingRemotes } from "./graphSubview/useContributingRemotes";
 import { createCrossRemoteLazyLoading } from "./graphSubview/useCrossRemoteLazyLoading";
@@ -64,7 +75,17 @@ import { queryKeys } from "../../../music/queries/queryKeys";
 import { toast } from "../../../components/feedback/Toast";
 import { isNarrowViewport } from "../../../config/breakpoints";
 import { setPageInfo, clearPageInfo } from "../../../app/services/pageInfo";
-import type { AlbumNodeData, ArtistNodeData } from "../../../components/graph/types";
+import type {
+  AlbumNodeData,
+  ArtistNodeData,
+  VideoNodeData,
+  VideoSeasonNodeData,
+  VideoSeriesNodeData,
+} from "../../../components/graph/types";
+import { adaptVideo, adaptVideoSeason, adaptVideoSeries } from "./graphSubview/adaptVideo";
+import { RemoteVideoDataSource } from "../../../video/data/remote/remoteSource";
+import { localVideoDataSource } from "../../../video/data/local/localSource";
+import type { PaginatedVideoSeries, PaginatedVideos, VideoSeason } from "../../../video/data/types";
 import { useRemoteIsAdminMulti } from "../../hooks/useRemoteRole";
 import {
   showAlbumEditor,
@@ -74,6 +95,17 @@ import {
   formatImageCarouselTitle,
   type CarouselSlide,
 } from "../../../music/hooks/modals";
+import { showEditVideo, showEditVideoSeries } from "../../../video/hooks/modals";
+import {
+  useVideoFavoriteStatuses,
+  videoFavoriteStatusQueryKey,
+} from "../../../video/hooks/useVideoFavoriteStatuses";
+import {
+  useVideoSeriesFavoriteStatuses,
+  videoSeriesFavoriteStatusQueryKey,
+} from "../../../video/hooks/useVideoSeriesFavoriteStatuses";
+import { playVideoQueue } from "../../../video/services/queue/playVideoQueue";
+import { addVideosToQueue } from "../../../video/services/videoQueueActions";
 import { getArtistAbbreviation } from "../../../music/utils/format";
 import type { ImageMetadata } from "../../../music/services/storage/types";
 import WalkCanvas from "../../../components/graph/WalkCanvas";
@@ -81,6 +113,7 @@ import type { WalkApi } from "../../../components/graph/WalkCanvas";
 import type { GraphDriver } from "../../../components/graph/drivers/GraphDriver";
 import { createWalkerDriver } from "../../../components/graph/drivers/GraphDriver";
 import { GraphTopNavTools } from "../../../components/graph/GraphTopNavTools";
+import { GraphDomainFilter, type GraphDomain } from "./GraphDomainFilter";
 import { CrossRemoteTopNavSearch } from "./CrossRemoteTopNavSearch";
 import { buildWalkGraph } from "../../../components/graph/data/buildWalkGraph";
 import {
@@ -106,6 +139,11 @@ import {
 import { adaptApiImage } from "../../../music/data/remote/adapters";
 import { AlbumDetailPopover } from "../../../components/graph/AlbumDetailPopover";
 import { ArtistDetailPopover } from "../../../components/graph/ArtistDetailPopover";
+import {
+  VideoDetailPopover,
+  VideoSeriesDetailPopover,
+  VideoSeasonDetailPopover,
+} from "../../../components/graph/VideoDetailPopover";
 import { TaxonDetailPopover } from "../../../components/graph/TaxonDetailPopover";
 import { RemoteDetailPopover } from "../../../components/graph/RemoteDetailPopover";
 import { BulkSelectionPopover } from "../../../components/graph/BulkSelectionPopover";
@@ -199,7 +237,48 @@ function Inner(props: {
     void saveGraphPrefs({ multi_remote_mode: next });
   };
 
+  // which domains (music: albums/artists, video: videos/series) are
+  // currently shown. both on by default. buildResult below strips the
+  // deselected domain's data maps entirely before they reach
+  // buildWalkGraph so hubs whose only children were in that domain
+  // naturally disappear via the existing zero-childCount visibility
+  // rule (see docs/graph-viz-video-domain-plan.md phase 3). session-only
+  // (not persisted) — deliberately simple for the first cut.
+  const [activeDomains, setActiveDomains] = createSignal<Set<GraphDomain>>(
+    new Set(["music", "video"])
+  );
+  const toggleDomain = (domain: GraphDomain) => {
+    setActiveDomains((prev) => {
+      const next = new Set(prev);
+      if (next.has(domain)) {
+        // never allow both domains to be turned off — fall back to a
+        // no-op so the graph doesn't go fully blank with no way back in.
+        if (next.size === 1) return prev;
+        next.delete(domain);
+      } else {
+        next.add(domain);
+      }
+      return next;
+    });
+  };
+
   const [nodesByRemote, setNodesByRemote] = createSignal<Map<string, AlbumNodeData[]>>(new Map());
+  // video/series data, mixed into the graph alongside albums/artists (phase 2
+  // of docs/graph-viz-video-domain-plan.md — direct remote/series edges only,
+  // no taxon-pivot loading yet). fetched once per online+activated remote by
+  // loadVideosForRemote/loadVideosForLocal below, mirroring
+  // loadTaxonKindsForRemote's dedup + reset-tick pattern.
+  const [videosByRemote, setVideosByRemote] = createSignal<Map<string, VideoNodeData[]>>(new Map());
+  const [videoSeriesByRemote, setVideoSeriesByRemote] = createSignal<
+    Map<string, VideoSeriesNodeData[]>
+  >(new Map());
+  // seasons per remote (phase 5a of docs/graph-viz-video-domain-plan.md) —
+  // fetched via the bulk `getAllVideoSeasons()` (no series_id) alongside
+  // videos/series in loadVideosForRemote/loadVideosForLocal, one round trip
+  // per remote instead of one per series.
+  const [videoSeasonsByRemote, setVideoSeasonsByRemote] = createSignal<
+    Map<string, VideoSeasonNodeData[]>
+  >(new Map());
   const [fetchingByRemote, setFetchingByRemote] = createSignal<Map<string, boolean>>(new Map());
   // per-remote offline flag. seeded from Remote.is_offline and kept fresh by
   // checkRemoteHealth + onRemoteStatusChange. offline remotes still appear in
@@ -243,6 +322,10 @@ function Inner(props: {
   // remotes for which we've already fetched taxon kinds and seeded
   // first-order relation hubs into the graph.
   const taxonKindsLoadedRemotes = new Set<string>();
+  // remotes for which we've already fetched page 1 of videos + the full
+  // series list. mirrors taxonKindsLoadedRemotes's dedup + reset-tick
+  // pattern (see docs/graph-viz-video-domain-plan.md phase 2).
+  const videoLoadedRemotes = new Set<string>();
   // relation hubs whose query_taxons fetch has settled (success OR error).
   // prevents re-firing on every pivot revisit.
   const taxonsLoadedByHub = new Set<string>();
@@ -351,6 +434,32 @@ function Inner(props: {
     return added;
   };
 
+  /** video counterpart of appendAlbumsToRemote — used by createPivotHandler's
+   *  video taxon-hub pivot loaders (videosByValue/recentlyAddedVideos/
+   *  unassignedVideos) to merge freshly-fetched video nodes into
+   *  videosByRemote so buildResult picks them up on next recompute. dedupes
+   *  by video node id. */
+  const appendVideosToRemote = (remoteId: string, incoming: VideoNodeData[]): number => {
+    if (incoming.length === 0) return 0;
+    let added = 0;
+    setVideosByRemote((prev) => {
+      const existing = prev.get(remoteId) ?? [];
+      const seen = new Set(existing.map((v) => v.id));
+      const out = existing.slice();
+      for (const v of incoming) {
+        if (seen.has(v.id)) continue;
+        seen.add(v.id);
+        out.push(v);
+        added++;
+      }
+      if (added === 0) return prev;
+      const next = new Map(prev);
+      next.set(remoteId, out);
+      return next;
+    });
+    return added;
+  };
+
   // prune stale remotes when the provided list changes. the synthetic
   // "local" hub is always part of the active set so its bookkeeping
   // (nodesByRemote, fetching flags, lazy-load caches) survives peer
@@ -405,6 +514,31 @@ function Inner(props: {
       }
       return changed ? next : prev;
     });
+    setVideosByRemote((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        if (!active.has(k)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setVideoSeriesByRemote((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const k of [...next.keys()]) {
+        if (!active.has(k)) {
+          next.delete(k);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    for (const remoteId of [...videoLoadedRemotes]) {
+      if (!active.has(remoteId)) videoLoadedRemotes.delete(remoteId);
+    }
     // remote set churned — slug-based assumptions are invalid
     crossRemoteLookups.clear();
     setExtraNodesById(new Map());
@@ -597,10 +731,20 @@ function Inner(props: {
   // nodes (one per categorical user-defined kind). favorites is still
   // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
   // era and recently_added are now returned by list_taxon_kinds.
+  //
+  // domain-inclusive hubs: fetches WITHOUT a domain filter so every
+  // kind's real `album_count` AND `video_count` come back (the server
+  // returns every kind + the synthesized era/recently_added/unassigned
+  // hubs regardless of domain when `domain` is omitted - see
+  // grimoire::music::entities::taxonomy::repository::list_taxon_kinds).
+  // one hub per kind, not one per domain - childCount is the sum of
+  // whichever domain(s) are currently toggled on, so toggling the video
+  // domain widens an existing hub's badge instead of spawning a
+  // parallel hub.
   const loadTaxonKindsForRemote = async (remote: Remote): Promise<void> => {
     try {
       const client = await getClientForRemote(remote);
-      const result = await client.music.listTaxonKinds({ domain: "music" });
+      const result = await client.music.listTaxonKinds({ domain: null });
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
       // stash the full kind list (categorical + scalar, empties
@@ -613,6 +757,9 @@ function Inner(props: {
       });
       const rhId = remoteHubId(remoteId);
       const SKIP_SLUGS = new Set(["favorite", "favorites", "beloved"]);
+      const domains = activeDomains();
+      const musicOn = domains.has("music");
+      const videoOn = domains.has("video");
       const addNodes: WalkNode[] = [];
       const addEdges: WalkEdge[] = [];
       for (const kind of result.data) {
@@ -620,8 +767,10 @@ function Inner(props: {
         // energy, loudness_db, ...) are surfaced elsewhere.
         if (kind.value_type !== "categorical") continue;
         if (SKIP_SLUGS.has(kind.slug)) continue;
+        const childCount =
+          (musicOn ? kind.album_count : 0) + (videoOn ? (kind.video_count ?? 0) : 0);
         // skip empties so we don't pollute the hub with hollow nodes.
-        if (!kind.album_count || kind.album_count <= 0) continue;
+        if (childCount <= 0) continue;
         const id = relationHubId(remoteId, kind.slug);
         addNodes.push({
           id,
@@ -629,7 +778,7 @@ function Inner(props: {
           label:
             kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
           parentId: rhId,
-          childCount: kind.album_count,
+          childCount,
           lazy: true,
           tint: kind.color ?? undefined,
         });
@@ -654,17 +803,22 @@ function Inner(props: {
   // sources.
   const loadTaxonKindsForLocal = async (): Promise<void> => {
     try {
-      const result = await localTaxonomyClient.music.listTaxonKinds();
+      const result = await localTaxonomyClient.music.listTaxonKinds({ domain: null });
       if (!result.success || !result.data) return;
       const remoteId = LOCAL_GRAPH_REMOTE_ID;
       const rhId = remoteHubId(remoteId);
       const SKIP_SLUGS = new Set(["favorite", "favorites", "beloved"]);
+      const domains = activeDomains();
+      const musicOn = domains.has("music");
+      const videoOn = domains.has("video");
       const addNodes: WalkNode[] = [];
       const addEdges: WalkEdge[] = [];
       for (const kind of result.data) {
         if (kind.value_type !== "categorical") continue;
         if (SKIP_SLUGS.has(kind.slug)) continue;
-        if (!kind.album_count || kind.album_count <= 0) continue;
+        const childCount =
+          (musicOn ? kind.album_count : 0) + (videoOn ? (kind.video_count ?? 0) : 0);
+        if (childCount <= 0) continue;
         const id = relationHubId(remoteId, kind.slug);
         addNodes.push({
           id,
@@ -672,7 +826,7 @@ function Inner(props: {
           label:
             kind.label && kind.label.trim().length > 0 ? kind.label : kind.slug.replace(/_/g, " "),
           parentId: rhId,
-          childCount: kind.album_count,
+          childCount,
           lazy: true,
           tint: kind.color ?? undefined,
         });
@@ -688,6 +842,132 @@ function Inner(props: {
       }
     } catch (err) {
       console.warn("local taxon kinds fetch failed", { err });
+    }
+  };
+
+  // fetch page 1 of videos + the full series list for a remote and mix
+  // them into videosByRemote/videoSeriesByRemote. buildResult already
+  // reads both signals (see below), so no manual walkerClient.merge is
+  // needed here — the reactive graph-sync effect diffs the new nodes in
+  // automatically, same as albums. taxon-hub pivot loading for video
+  // (createPivotHandler's maybeLoadVideosForPivot) merges further videos
+  // on top of this initial page as the user pivots into value/group hubs.
+  const VIDEO_PAGE_SIZE = 200;
+  const loadVideosForRemote = async (remote: Remote): Promise<void> => {
+    const source = new RemoteVideoDataSource(remote);
+    const remoteId = remote.remote_id;
+    // Promise.allSettled (not Promise.all): a failure in one of these
+    // (e.g. seasons) must not blank out videos/series that succeeded —
+    // an all-or-nothing Promise.all previously meant a single broken
+    // sub-fetch silently dropped every video node for the remote.
+    const [videosOutcome, seriesOutcome, seasonsOutcome] = await Promise.allSettled([
+      source.getVideos({ limit: VIDEO_PAGE_SIZE }),
+      source.getVideoSeriesList({ limit: VIDEO_PAGE_SIZE }),
+      source.getAllVideoSeasons(),
+    ]);
+    if (videosOutcome.status === "rejected") {
+      console.warn("video fetch failed", { remoteId, err: videosOutcome.reason });
+    }
+    if (seriesOutcome.status === "rejected") {
+      console.warn("video series fetch failed", { remoteId, err: seriesOutcome.reason });
+    }
+    if (seasonsOutcome.status === "rejected") {
+      console.warn("video seasons fetch failed", { remoteId, err: seasonsOutcome.reason });
+    }
+    const videosResult: PaginatedVideos =
+      videosOutcome.status === "fulfilled"
+        ? videosOutcome.value
+        : { items: [], total_count: 0, has_more: false, offset: 0 };
+    const seriesResult: PaginatedVideoSeries =
+      seriesOutcome.status === "fulfilled"
+        ? seriesOutcome.value
+        : { items: [], total_count: 0, has_more: false, offset: 0 };
+    const seasons: VideoSeason[] =
+      seasonsOutcome.status === "fulfilled" ? seasonsOutcome.value : [];
+    {
+      const seriesNodes = seriesResult.items.map((s) => {
+        const count = videosResult.items.filter((v) => v.series_id === s.id).length;
+        return adaptVideoSeries(s, remoteId, count);
+      });
+      const videoNodes = videosResult.items.map((v) => adaptVideo(v, remoteId));
+      const seasonNodes = seasons.map((s) => {
+        const count = videosResult.items.filter((v) => v.season_id === s.id).length;
+        return adaptVideoSeason(s, remoteId, count);
+      });
+      setVideoSeriesByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, seriesNodes);
+        return next;
+      });
+      setVideosByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, videoNodes);
+        return next;
+      });
+      setVideoSeasonsByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, seasonNodes);
+        return next;
+      });
+    }
+  };
+
+  // local-source twin of loadVideosForRemote. shape-matches the peer
+  // loader so the same signals stay consistent between local and remote
+  // sources.
+  const loadVideosForLocal = async (): Promise<void> => {
+    const remoteId = LOCAL_GRAPH_REMOTE_ID;
+    // see loadVideosForRemote's comment: allSettled so one failing
+    // sub-fetch can't blank out the others.
+    const [videosOutcome, seriesOutcome, seasonsOutcome] = await Promise.allSettled([
+      localVideoDataSource.getVideos({ limit: VIDEO_PAGE_SIZE }),
+      localVideoDataSource.getVideoSeriesList({ limit: VIDEO_PAGE_SIZE }),
+      localVideoDataSource.getAllVideoSeasons(),
+    ]);
+    if (videosOutcome.status === "rejected") {
+      console.warn("local video fetch failed", { err: videosOutcome.reason });
+    }
+    if (seriesOutcome.status === "rejected") {
+      console.warn("local video series fetch failed", { err: seriesOutcome.reason });
+    }
+    if (seasonsOutcome.status === "rejected") {
+      console.warn("local video seasons fetch failed", { err: seasonsOutcome.reason });
+    }
+    const videosResult: PaginatedVideos =
+      videosOutcome.status === "fulfilled"
+        ? videosOutcome.value
+        : { items: [], total_count: 0, has_more: false, offset: 0 };
+    const seriesResult: PaginatedVideoSeries =
+      seriesOutcome.status === "fulfilled"
+        ? seriesOutcome.value
+        : { items: [], total_count: 0, has_more: false, offset: 0 };
+    const seasons: VideoSeason[] =
+      seasonsOutcome.status === "fulfilled" ? seasonsOutcome.value : [];
+    {
+      const seriesNodes = seriesResult.items.map((s) => {
+        const count = videosResult.items.filter((v) => v.series_id === s.id).length;
+        return adaptVideoSeries(s, remoteId, count);
+      });
+      const videoNodes = videosResult.items.map((v) => adaptVideo(v, remoteId));
+      const seasonNodes = seasons.map((s) => {
+        const count = videosResult.items.filter((v) => v.season_id === s.id).length;
+        return adaptVideoSeason(s, remoteId, count);
+      });
+      setVideoSeriesByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, seriesNodes);
+        return next;
+      });
+      setVideosByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, videoNodes);
+        return next;
+      });
+      setVideoSeasonsByRemote((prev) => {
+        const next = new Map(prev);
+        next.set(remoteId, seasonNodes);
+        return next;
+      });
     }
   };
 
@@ -835,12 +1115,30 @@ function Inner(props: {
     };
     const remoteNames = new Map<string, string>(props.remotes().map((r) => [r.remote_id, r.name]));
     if (includeLocalHub) remoteNames.set(LOCAL_GRAPH_REMOTE_ID, getLocalLibraryName());
+    // domain filter (phase 3): drop an entire domain's data maps when
+    // deselected so its hubs disappear via the existing zero-childCount
+    // visibility rule rather than needing a separate hide mechanism.
+    const domains = activeDomains();
+    const musicOn = domains.has("music");
+    const videoOn = domains.has("video");
+    const emptyAlbums = new Map<string, AlbumNodeData[]>();
+    const emptyArtists = new Map<string, ArtistNodeData[]>();
+    const emptyVideos = new Map<string, VideoNodeData[]>();
+    const emptyVideoSeries = new Map<string, VideoSeriesNodeData[]>();
+    const emptyVideoSeasons = new Map<string, VideoSeasonNodeData[]>();
     return buildWalkGraph({
       remoteIds,
-      albumsByRemote: filterByFocus(stripDisabled(byRemote)),
-      artistsByRemote: filterByFocus(stripDisabled(artistsByRemote())),
-      favoriteSongAlbumIds: favSongAlbumIds(),
-      favoriteSongArtistIds: favSongArtistIds(),
+      albumsByRemote: musicOn ? filterByFocus(stripDisabled(byRemote)) : emptyAlbums,
+      artistsByRemote: musicOn ? filterByFocus(stripDisabled(artistsByRemote())) : emptyArtists,
+      videosByRemote: videoOn ? filterByFocus(stripDisabled(videosByRemote())) : emptyVideos,
+      videoSeriesByRemote: videoOn
+        ? filterByFocus(stripDisabled(videoSeriesByRemote()))
+        : emptyVideoSeries,
+      videoSeasonsByRemote: videoOn
+        ? filterByFocus(stripDisabled(videoSeasonsByRemote()))
+        : emptyVideoSeasons,
+      favoriteSongAlbumIds: musicOn ? favSongAlbumIds() : new Map(),
+      favoriteSongArtistIds: musicOn ? favSongArtistIds() : new Map(),
       charnelManagedRemoteIds: new Set(
         props
           .remotes()
@@ -1118,6 +1416,9 @@ function Inner(props: {
   // tracks an in-flight play/shuffle/queue fetch so buttons disable while
   // songs are loading and a second click can't queue the same album twice.
   const [playingAlbumId, setPlayingAlbumId] = createSignal<string | null>(null);
+  // same idea, artist-scoped (independent signal since a future carousel
+  // could in theory have both popovers mounted at once).
+  const [playingArtistId, setPlayingArtistId] = createSignal<string | null>(null);
 
   // patch album isFavorite in nodesByRemote + extraNodesById in place.
   // used for optimistic favorite updates since the graph nodes are
@@ -1469,6 +1770,124 @@ function Inner(props: {
     return node as ArtistNodeData;
   });
 
+  // ---- video-domain selection -----------------------------------------
+  //
+  // simpler than album/artist: no cross-remote clustering (a video is
+  // unique per remote, no shared-identity concept), so these just read
+  // straight off buildResult()'s videoNodesById keyed by the selected
+  // graph id.
+  const selectedVideo = createMemo<VideoNodeData | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    const node = buildResult()?.videoNodesById.get(id);
+    return node && node.kind === "video" ? node : null;
+  });
+  const selectedVideoSeries = createMemo<VideoSeriesNodeData | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    const node = buildResult()?.videoNodesById.get(id);
+    return node && node.kind === "video_series" ? node : null;
+  });
+  const selectedVideoSeason = createMemo<VideoSeasonNodeData | null>(() => {
+    const id = selectedId();
+    if (!id) return null;
+    const node = buildResult()?.videoNodesById.get(id);
+    return node && node.kind === "video_season" ? node : null;
+  });
+
+  // series/season titles for a standalone video's header line — the
+  // node itself only carries bare ids, so scan the already-loaded video
+  // node map for the matching series/season node (mirrors selectedArtistAlbums'
+  // full-map scan pattern below).
+  const selectedVideoContext = createMemo<{
+    seriesTitle: string | null;
+    seasonTitle: string | null;
+  }>(() => {
+    const video = selectedVideo();
+    if (!video) return { seriesTitle: null, seasonTitle: null };
+    const map = buildResult()?.videoNodesById;
+    let seriesTitle: string | null = null;
+    let seasonTitle: string | null = null;
+    if (map) {
+      for (const node of map.values()) {
+        if (video.seriesId && node.kind === "video_series" && node.seriesId === video.seriesId) {
+          seriesTitle = node.title;
+        }
+        if (video.seasonId && node.kind === "video_season" && node.seasonId === video.seasonId) {
+          seasonTitle = node.title;
+        }
+      }
+    }
+    return { seriesTitle, seasonTitle };
+  });
+
+  const selectedVideoSeriesEpisodes = createMemo<VideoNodeData[]>(() => {
+    const series = selectedVideoSeries();
+    if (!series) return [];
+    const out: VideoNodeData[] = [];
+    const map = buildResult()?.videoNodesById;
+    if (map) {
+      for (const [key, node] of map) {
+        if (node.kind === "video" && node.seriesId === series.seriesId) {
+          out.push({ ...node, id: key });
+        }
+      }
+    }
+    return out;
+  });
+
+  const selectedVideoSeasonEpisodes = createMemo<VideoNodeData[]>(() => {
+    const season = selectedVideoSeason();
+    if (!season) return [];
+    const out: VideoNodeData[] = [];
+    const map = buildResult()?.videoNodesById;
+    if (map) {
+      for (const [key, node] of map) {
+        if (node.kind === "video" && node.seasonId === season.seasonId) {
+          out.push({ ...node, id: key });
+        }
+      }
+    }
+    return out;
+  });
+
+  // resolves the graph-namespaced remoteId embedded in any video-domain
+  // node id — falls back to the local pseudo-remote id on parse failure
+  // so callers always get a usable remoteId string.
+  const videoRemoteIdFor = (nodeId: string): string => {
+    try {
+      const parsed = parseNodeId(nodeId);
+      if (
+        parsed.kind === "video" ||
+        parsed.kind === "video_series" ||
+        parsed.kind === "video_season"
+      ) {
+        return parsed.remoteId;
+      }
+    } catch {
+      // fall through
+    }
+    return LOCAL_GRAPH_REMOTE_ID;
+  };
+  const remoteForVideoNodeId = (nodeId: string): Remote | undefined => {
+    const remoteId = videoRemoteIdFor(nodeId);
+    if (remoteId === LOCAL_GRAPH_REMOTE_ID) return undefined;
+    return props.remotes().find((r) => r.remote_id === remoteId);
+  };
+
+  const [playingVideoActionId, setPlayingVideoActionId] = createSignal<string | null>(null);
+
+  const selectedVideoFavoriteIds = createMemo<string[]>(() => {
+    const v = selectedVideo();
+    return v ? [v.videoId] : [];
+  });
+  const videoFavoriteQuery = useVideoFavoriteStatuses(selectedVideoFavoriteIds);
+  const selectedVideoSeriesFavoriteIds = createMemo<string[]>(() => {
+    const s = selectedVideoSeries();
+    return s ? [s.seriesId] : [];
+  });
+  const videoSeriesFavoriteQuery = useVideoSeriesFavoriteStatuses(selectedVideoSeriesFavoriteIds);
+
   // single shared minimized flag for ALL detail panels (album, artist,
   // taxon/hub). once the user collapses any one of them, all subsequent
   // selections render in the collapsed state — only an explicit
@@ -1481,6 +1900,11 @@ function Inner(props: {
     restore: () => setDetailPanelsHidden(false),
   };
   const artistPanel = {
+    hidden: detailPanelsHidden,
+    hide: () => setDetailPanelsHidden(true),
+    restore: () => setDetailPanelsHidden(false),
+  };
+  const videoPanel = {
     hidden: detailPanelsHidden,
     hide: () => setDetailPanelsHidden(true),
     restore: () => setDetailPanelsHidden(false),
@@ -1961,6 +2385,30 @@ function Inner(props: {
         is_primary: true,
       };
     }
+    // video/video_series/video_season nodes carry their own posterBlobId +
+    // remoteServerId pair (not `nodesById`/ImageMetadata) — adapt to the
+    // shape the blob resolver already understands. a local video's poster
+    // is an auto-extracted opfs file with no blob id at all, so that path
+    // is tried first; series/season (and remote-sourced video) posters are
+    // blob-store ids that could be either a local reliquary blob or a real
+    // remote blob depending on which library the id came from — set both
+    // so the resolver's local-then-remote priority picks whichever matches
+    // (mirrors the documented pattern in video/data/types.ts).
+    const videoNode = buildResult()?.videoNodesById.get(id);
+    if (videoNode) {
+      const opfsPath = videoNode.kind === "video" ? videoNode.posterOpfsPath : null;
+      if (opfsPath) {
+        return { local_opfs_path: opfsPath, blob_type: "thumbnail", is_primary: true };
+      }
+      if (!videoNode.posterBlobId) return null;
+      return {
+        local_blob_id: videoNode.posterBlobId,
+        remote_blob_id: videoNode.posterBlobId,
+        remote_server_id: videoNode.remoteServerId ?? undefined,
+        blob_type: "thumbnail",
+        is_primary: true,
+      };
+    }
     const direct = lookupNode(id)?.image ?? null;
     if (direct) return direct;
     // only artist nodes get the cluster-fallback treatment; albums are
@@ -2261,7 +2709,12 @@ function Inner(props: {
         }}
         multiRemote={multiRemoteMode()}
         onToggleMultiRemote={toggleMultiRemoteMode}
-        extra={props.extraTools}
+        extra={
+          <div class="flex items-center gap-0.5 flex-nowrap flex-shrink-0">
+            <GraphDomainFilter active={activeDomains} onToggle={toggleDomain} />
+            {props.extraTools}
+          </div>
+        }
       />
     );
 
@@ -2414,6 +2867,9 @@ function Inner(props: {
     setSelectedId,
     nodesByRemote,
     appendAlbumsToRemote,
+    videosByRemote,
+    appendVideosToRemote,
+    activeDomains,
     setFetchingByRemote,
     setFetchingNodeFlag,
     recordRelatedEdge,
@@ -3114,10 +3570,19 @@ function Inner(props: {
   });
 
   // seed first-order categorical relation hubs from list_taxon_kinds
-  // for each online+activated remote (dedup'd by remote). album_count
-  // comes from the server so badges render without a lazy round-trip.
-  // also re-fires on worker reset so the merged hubs reappear instead
-  // of leaving a bare remote node with no children.
+  // for each online+activated remote (dedup'd by remote). album_count/
+  // video_count come from the server so badges render without a lazy
+  // round-trip. also re-fires on worker reset so the merged hubs
+  // reappear instead of leaving a bare remote node with no children.
+  // relation/era/recently_added/favorite-adjacent hubs are seeded via a
+  // direct walkerClient.merge, entirely outside buildWalkGraph/
+  // buildResult - so unlike albums/artists/videos they don't
+  // automatically respect the domain filter; loadTaxonKindsForRemote/
+  // ForLocal recompute each kind's combined childCount from the current
+  // activeDomains() every time they run. skip seeding only when NO
+  // domain is active at all; the forceResetTick effect below wipes any
+  // already-merged hubs and this effect re-seeds them (with recomputed
+  // counts) whenever the domain set changes.
   let taxonKindsLastResetTick = 0;
   createEffect(() => {
     const tick = mergeResetTick();
@@ -3126,6 +3591,7 @@ function Inner(props: {
       taxonKindsLastResetTick = tick;
       for (const r of online) taxonKindsLoadedRemotes.delete(r.remote_id);
     }
+    if (activeDomains().size === 0) return;
     for (const remote of online) {
       if (taxonKindsLoadedRemotes.has(remote.remote_id)) continue;
       taxonKindsLoadedRemotes.add(remote.remote_id);
@@ -3137,15 +3603,31 @@ function Inner(props: {
   // dedup set keyed by LOCAL_GRAPH_REMOTE_ID and re-fires on worker
   // reset (mergeResetTick advance) so local hubs reappear after a
   // remote-set change wipes the worker. skipped in charnel/tauri mode
-  // where the synthetic local hub is hidden.
+  // where the synthetic local hub is hidden, and while no domain is
+  // active at all (see the peer loop above).
   createEffect(() => {
     mergeResetTick(); // subscribe; reset handled by the peer loop above
     if (!includeLocalHub) return;
+    if (activeDomains().size === 0) return;
     if (!taxonKindsLoadedRemotes.has(LOCAL_GRAPH_REMOTE_ID)) {
       taxonKindsLoadedRemotes.add(LOCAL_GRAPH_REMOTE_ID);
       void loadTaxonKindsForLocal();
     }
   });
+
+  // force a full worker reset whenever the domain filter changes so
+  // already-merged hubs (relation/era/recently_added/beloved) get their
+  // childCount recomputed for the new domain set - re-seeded (via the
+  // dedup-clearing above, keyed off mergeResetTick) right after. skips
+  // the initial run (no reset needed on mount).
+  createEffect(
+    (prev: Set<GraphDomain> | undefined) => {
+      const domains = activeDomains();
+      if (prev !== undefined && domains !== prev) setForceResetTick((n) => n + 1);
+      return domains;
+    },
+    undefined as Set<GraphDomain> | undefined
+  );
 
   // ensure local is purged from the dedup set on every reset so the
   // effect above can refire. has to happen in the same effect that
@@ -3155,6 +3637,31 @@ function Inner(props: {
     if (tick !== prev && includeLocalHub) taxonKindsLoadedRemotes.delete(LOCAL_GRAPH_REMOTE_ID);
     return tick;
   }, 0);
+
+  // fetch page 1 of videos + full series list for each online+activated
+  // remote (dedup'd by remote). unlike taxon kinds, videos/series flow
+  // into buildResult via videosByRemote/videoSeriesByRemote signals
+  // rather than a direct walkerClient.merge, so a worker reset doesn't
+  // drop them — no mergeResetTick-based re-fire needed here (the pruning
+  // effect above already clears videoLoadedRemotes when a remote leaves
+  // the active set, so re-adding it triggers a fresh fetch).
+  createEffect(() => {
+    const online = onlineRemotes();
+    for (const remote of online) {
+      if (videoLoadedRemotes.has(remote.remote_id)) continue;
+      videoLoadedRemotes.add(remote.remote_id);
+      void loadVideosForRemote(remote);
+    }
+  });
+
+  // local twin of the peer video-loading effect.
+  createEffect(() => {
+    if (!includeLocalHub) return;
+    if (!videoLoadedRemotes.has(LOCAL_GRAPH_REMOTE_ID)) {
+      videoLoadedRemotes.add(LOCAL_GRAPH_REMOTE_ID);
+      void loadVideosForLocal();
+    }
+  });
 
   // offline-aware lookups for WalkCanvas. nodes for offline remotes (and
   // their entire subtree) get drawn dimmed so the user sees "this server is
@@ -3676,6 +4183,71 @@ function Inner(props: {
               contributingRemotes={
                 selectedArtist() ? contributingRemotesForArtist(selectedArtist()!) : undefined
               }
+              isLoadingPlay={playingArtistId() !== null}
+              onPlay={async (artist) => {
+                if (playingArtistId() !== null) return;
+                const id = artist.artistId;
+                const r = remoteForArtist(artist);
+                if (!r || !id) return;
+                setPlayingArtistId(id);
+                try {
+                  const songs = await fetchArtistSongs(r, id);
+                  if (songs.length === 0) {
+                    toast.error("artist has no songs");
+                    return;
+                  }
+                  await playQueue(songs, {
+                    source: { type: "artist", label: artist.name, entity_id: id },
+                  });
+                } catch (err) {
+                  toast.error(`failed to play artist: ${(err as Error).message}`);
+                } finally {
+                  setPlayingArtistId(null);
+                }
+              }}
+              onShuffle={async (artist) => {
+                if (playingArtistId() !== null) return;
+                const id = artist.artistId;
+                const r = remoteForArtist(artist);
+                if (!r || !id) return;
+                setPlayingArtistId(id);
+                try {
+                  const songs = await fetchArtistSongs(r, id);
+                  if (songs.length === 0) {
+                    toast.error("artist has no songs");
+                    return;
+                  }
+                  const shuffled = [...songs].sort(() => Math.random() - 0.5);
+                  await playQueue(shuffled, {
+                    source: { type: "shuffle", label: artist.name, entity_id: id },
+                  });
+                } catch (err) {
+                  toast.error(`failed to shuffle artist: ${(err as Error).message}`);
+                } finally {
+                  setPlayingArtistId(null);
+                }
+              }}
+              onAddToQueue={async (artist) => {
+                if (playingArtistId() !== null) return;
+                const id = artist.artistId;
+                const r = remoteForArtist(artist);
+                if (!r || !id) return;
+                setPlayingArtistId(id);
+                try {
+                  const songs = await fetchArtistSongs(r, id);
+                  if (songs.length === 0) {
+                    toast.error("artist has no songs");
+                    return;
+                  }
+                  await addToQueue(songs, {
+                    source: { type: "artist", label: artist.name, entity_id: id },
+                  });
+                } catch (err) {
+                  toast.error(`failed to enqueue artist: ${(err as Error).message}`);
+                } finally {
+                  setPlayingArtistId(null);
+                }
+              }}
               bio={artistQuery.data?.bio ?? null}
               isFavorite={artistQuery.data?.is_favorite}
               dataSourceRemoteName={selectedArtistRemote()?.name ?? null}
@@ -3762,6 +4334,337 @@ function Inner(props: {
           <CollapsedArtistButton
             artist={selectedArtistDisplay()!}
             onRestore={artistPanel.restore}
+          />
+        </Show>
+
+        {/* video-domain detail popovers — mirror the album/artist ones
+            above, minus the bio/genre/related-entity clustering they
+            have no equivalent of yet. */}
+        <Show when={selectedVideo() !== null && !videoPanel.hidden() && !editMode()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+            <VideoDetailPopover
+              video={selectedVideo()!}
+              seriesTitle={selectedVideoContext().seriesTitle}
+              seasonTitle={selectedVideoContext().seasonTitle}
+              isLoadingPlay={playingVideoActionId() === selectedVideo()!.id}
+              onPlay={async (video) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(video.id);
+                try {
+                  const remoteId = videoRemoteIdFor(video.id);
+                  const remote = remoteForVideoNodeId(video.id);
+                  const full = await fetchVideoById(remote, remoteId, video.videoId);
+                  if (!full) {
+                    toast.error("video not found");
+                    return;
+                  }
+                  await playVideoQueue([full], 0, {
+                    type: "video",
+                    label: video.title,
+                    entity_id: video.videoId,
+                  });
+                } catch (err) {
+                  toast.error(`failed to play video: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onAddToQueue={async (video) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(video.id);
+                try {
+                  const remoteId = videoRemoteIdFor(video.id);
+                  const remote = remoteForVideoNodeId(video.id);
+                  const full = await fetchVideoById(remote, remoteId, video.videoId);
+                  if (!full) {
+                    toast.error("video not found");
+                    return;
+                  }
+                  await addVideosToQueue([full]);
+                } catch (err) {
+                  toast.error(`failed to enqueue video: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              isFavorite={videoFavoriteQuery.data?.has(selectedVideo()!.videoId) ?? false}
+              onToggleFavorite={(video, next) => {
+                const remote = remoteForVideoNodeId(video.id);
+                favoriteMutation.mutate(
+                  { targetType: "video", targetId: video.videoId, isFavorite: next, remote },
+                  {
+                    onError: (err) => {
+                      toast.error(`failed to toggle favorite: ${(err as Error).message}`);
+                    },
+                    onSettled: () => {
+                      void queryClient.invalidateQueries({
+                        queryKey: videoFavoriteStatusQueryKey([video.videoId]),
+                      });
+                    },
+                  }
+                );
+              }}
+              onViewVideo={(video) => {
+                const remoteId = videoRemoteIdFor(video.id);
+                navigate(
+                  routes.videoDetailOn(
+                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
+                    video.videoId
+                  )
+                );
+              }}
+              onEdit={
+                isAnyRemoteAdmin()
+                  ? (video) => {
+                      const remote = remoteForVideoNodeId(video.id);
+                      if (remote && !isRemoteAdmin(remote.remote_id)) {
+                        toast.error("admin permission required");
+                        return;
+                      }
+                      showEditVideo({ videoId: video.videoId });
+                    }
+                  : undefined
+              }
+              onSelectSeries={(video) => {
+                if (!video.seriesId) return;
+                const map = buildResult()?.videoNodesById;
+                if (!map) return;
+                for (const [key, node] of map) {
+                  if (node.kind === "video_series" && node.seriesId === video.seriesId) {
+                    selectAndPanTo(key);
+                    return;
+                  }
+                }
+              }}
+              onSelectSeason={(video) => {
+                if (!video.seasonId) return;
+                const map = buildResult()?.videoNodesById;
+                if (!map) return;
+                for (const [key, node] of map) {
+                  if (node.kind === "video_season" && node.seasonId === video.seasonId) {
+                    selectAndPanTo(key);
+                    return;
+                  }
+                }
+              }}
+            />
+          </div>
+        </Show>
+        <Show when={selectedVideo() !== null && videoPanel.hidden() && !editMode()}>
+          <CollapsedVideoButton title={selectedVideo()!.title} onRestore={videoPanel.restore} />
+        </Show>
+
+        <Show when={selectedVideoSeries() !== null && !videoPanel.hidden() && !editMode()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+            <VideoSeriesDetailPopover
+              series={selectedVideoSeries()!}
+              videos={selectedVideoSeriesEpisodes()}
+              onSelectVideo={(video) => selectAndPanTo(video.id)}
+              isLoadingPlay={playingVideoActionId() === selectedVideoSeries()!.id}
+              onPlay={async (series) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(series.id);
+                try {
+                  const remoteId = videoRemoteIdFor(series.id);
+                  const remote = remoteForVideoNodeId(series.id);
+                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this series");
+                    return;
+                  }
+                  await playVideoQueue(videos, 0, {
+                    type: "series",
+                    label: series.title,
+                    entity_id: series.seriesId,
+                  });
+                } catch (err) {
+                  toast.error(`failed to play series: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onShuffle={async (series) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(series.id);
+                try {
+                  const remoteId = videoRemoteIdFor(series.id);
+                  const remote = remoteForVideoNodeId(series.id);
+                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this series");
+                    return;
+                  }
+                  const shuffled = [...videos].sort(() => Math.random() - 0.5);
+                  await playVideoQueue(shuffled, 0, {
+                    type: "shuffle",
+                    label: series.title,
+                    entity_id: series.seriesId,
+                  });
+                } catch (err) {
+                  toast.error(`failed to shuffle series: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onAddToQueue={async (series) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(series.id);
+                try {
+                  const remoteId = videoRemoteIdFor(series.id);
+                  const remote = remoteForVideoNodeId(series.id);
+                  const videos = await fetchVideosForSeries(remote, remoteId, series.seriesId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this series");
+                    return;
+                  }
+                  await addVideosToQueue(videos);
+                } catch (err) {
+                  toast.error(`failed to enqueue series: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              isFavorite={
+                videoSeriesFavoriteQuery.data?.has(selectedVideoSeries()!.seriesId) ?? false
+              }
+              onToggleFavorite={(series, next) => {
+                const remote = remoteForVideoNodeId(series.id);
+                favoriteMutation.mutate(
+                  {
+                    targetType: "video_series",
+                    targetId: series.seriesId,
+                    isFavorite: next,
+                    remote,
+                  },
+                  {
+                    onError: (err) => {
+                      toast.error(`failed to toggle favorite: ${(err as Error).message}`);
+                    },
+                    onSettled: () => {
+                      void queryClient.invalidateQueries({
+                        queryKey: videoSeriesFavoriteStatusQueryKey([series.seriesId]),
+                      });
+                    },
+                  }
+                );
+              }}
+              onViewSeries={(series) => {
+                const remoteId = videoRemoteIdFor(series.id);
+                navigate(
+                  routes.videoSeriesOn(
+                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
+                    series.seriesId
+                  )
+                );
+              }}
+              onEdit={
+                isAnyRemoteAdmin()
+                  ? (series) => {
+                      const remote = remoteForVideoNodeId(series.id);
+                      if (remote && !isRemoteAdmin(remote.remote_id)) {
+                        toast.error("admin permission required");
+                        return;
+                      }
+                      showEditVideoSeries({ seriesId: series.seriesId });
+                    }
+                  : undefined
+              }
+            />
+          </div>
+        </Show>
+        <Show when={selectedVideoSeries() !== null && videoPanel.hidden() && !editMode()}>
+          <CollapsedVideoButton
+            title={selectedVideoSeries()!.title}
+            onRestore={videoPanel.restore}
+          />
+        </Show>
+
+        <Show when={selectedVideoSeason() !== null && !videoPanel.hidden() && !editMode()}>
+          <div class="absolute bottom-3 left-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] pointer-events-auto">
+            <VideoSeasonDetailPopover
+              season={selectedVideoSeason()!}
+              videos={selectedVideoSeasonEpisodes()}
+              onSelectVideo={(video) => selectAndPanTo(video.id)}
+              isLoadingPlay={playingVideoActionId() === selectedVideoSeason()!.id}
+              onPlay={async (season) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(season.id);
+                try {
+                  const remoteId = videoRemoteIdFor(season.id);
+                  const remote = remoteForVideoNodeId(season.id);
+                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this season");
+                    return;
+                  }
+                  await playVideoQueue(videos, 0, {
+                    type: "season",
+                    label: season.title,
+                    entity_id: season.seasonId,
+                  });
+                } catch (err) {
+                  toast.error(`failed to play season: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onShuffle={async (season) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(season.id);
+                try {
+                  const remoteId = videoRemoteIdFor(season.id);
+                  const remote = remoteForVideoNodeId(season.id);
+                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this season");
+                    return;
+                  }
+                  const shuffled = [...videos].sort(() => Math.random() - 0.5);
+                  await playVideoQueue(shuffled, 0, {
+                    type: "shuffle",
+                    label: season.title,
+                    entity_id: season.seasonId,
+                  });
+                } catch (err) {
+                  toast.error(`failed to shuffle season: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onAddToQueue={async (season) => {
+                if (playingVideoActionId() !== null) return;
+                setPlayingVideoActionId(season.id);
+                try {
+                  const remoteId = videoRemoteIdFor(season.id);
+                  const remote = remoteForVideoNodeId(season.id);
+                  const videos = await fetchVideosForSeason(remote, remoteId, season.seasonId);
+                  if (videos.length === 0) {
+                    toast.error("no videos found in this season");
+                    return;
+                  }
+                  await addVideosToQueue(videos);
+                } catch (err) {
+                  toast.error(`failed to enqueue season: ${(err as Error).message}`);
+                } finally {
+                  setPlayingVideoActionId(null);
+                }
+              }}
+              onViewSeries={(season) => {
+                const remoteId = videoRemoteIdFor(season.id);
+                navigate(
+                  routes.videoSeriesOn(
+                    remoteId === LOCAL_GRAPH_REMOTE_ID ? null : remoteId,
+                    season.seriesId
+                  )
+                );
+              }}
+            />
+          </div>
+        </Show>
+        <Show when={selectedVideoSeason() !== null && videoPanel.hidden() && !editMode()}>
+          <CollapsedVideoButton
+            title={selectedVideoSeason()!.title}
+            onRestore={videoPanel.restore}
           />
         </Show>
 
@@ -4128,6 +5031,11 @@ function Inner(props: {
                 const r = selectedRemote();
                 if (!r) return;
                 navigate(getDefaultRoute(r.remote_id));
+              }}
+              onBrowseVideo={() => {
+                const r = selectedRemote();
+                if (!r) return;
+                navigate(routes.videoOn(r.remote_id));
               }}
               isEditing={() => {
                 const r = selectedRemote();

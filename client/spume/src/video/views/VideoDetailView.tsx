@@ -341,7 +341,7 @@ export function VideoDetailView() {
               {/* poster */}
               <ContextMenu actions={videoContextMenuActions()}>
                 <div
-                  class="w-32 h-32 wide:w-64 wide:h-64 mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 cursor-pointer"
+                  class="w-48 wide:w-96 aspect-video mx-auto wide:mx-0 rounded-lg overflow-hidden bg-[var(--color-bg-base)] flex-shrink-0 cursor-pointer"
                   title="view video images"
                   onClick={handleVideoImageClick}
                 >
@@ -350,7 +350,11 @@ export function VideoDetailView() {
                     fallback={
                       <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
                         {(url) => (
-                          <img src={url()} alt={video().title} class="w-full h-full object-cover" />
+                          <img
+                            src={url()}
+                            alt={video().title}
+                            class="w-full h-full object-contain"
+                          />
                         )}
                       </Show>
                     }
@@ -362,6 +366,7 @@ export function VideoDetailView() {
                       showFallback={true}
                       thumbnailSize={200}
                       domainType="video"
+                      objectFit="contain"
                       class="w-full h-full"
                     />
                   </Show>

@@ -53,6 +53,7 @@ export type { UserRoleName } from "@freqhole/api-client";
 
 // API parameter type (used internally by data layer)
 export type { QueryParams as ApiQueryParams } from "@freqhole/api-client";
+export type { Video as ApiVideo } from "@freqhole/api-client";
 
 // type alias for client instance (convenience for typing)
 import type { createHttpClient as CreateHttpClientFn } from "@freqhole/api-client";
@@ -118,7 +119,6 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
   }
 
   middenNodePromise = (async (): Promise<MiddenNodeLike> => {
-
     // check for persisted identity
     const existingIdentity = await getP2PIdentity();
 

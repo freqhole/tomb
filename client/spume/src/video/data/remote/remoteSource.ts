@@ -201,6 +201,13 @@ export class RemoteVideoDataSource implements VideoDataSource {
     return result.data.map((s) => ({ ...s, remote_server_id: this.remoteId }));
   }
 
+  async getAllVideoSeasons(): Promise<VideoSeason[]> {
+    const client = await this.getClient();
+    const result = await client.video.listVideoSeasons({});
+    if (!result.success) this.failRequest(result);
+    return result.data.map((s) => ({ ...s, remote_server_id: this.remoteId }));
+  }
+
   async getVideosBySeason(seasonId: string): Promise<VideoSummary[]> {
     const client = await this.getClient();
     const result = await client.video.listVideosBySeason({ season_id: seasonId });

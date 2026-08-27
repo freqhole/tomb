@@ -4,13 +4,45 @@
 // output must NOT be wrapped in createStore before posting to the worker —
 // the worker expects plain JSON (see S13 in graph2-integration.md).
 
-import type { WalkGraph, WalkNode, WalkEdge, AlbumNodeData, ArtistNodeData } from "../types";
-import { rootId, remoteHubId, relationHubId, artistNodeId, albumNodeId } from "./nodeIds";
+import type {
+  WalkGraph,
+  WalkNode,
+  WalkEdge,
+  AlbumNodeData,
+  ArtistNodeData,
+  VideoNodeData,
+  VideoSeriesNodeData,
+  VideoSeasonNodeData,
+} from "../types";
+import {
+  rootId,
+  remoteHubId,
+  relationHubId,
+  artistNodeId,
+  albumNodeId,
+  videoNodeId,
+  videoSeriesNodeId,
+  videoSeasonNodeId,
+} from "./nodeIds";
 
 export interface BuildWalkGraphInput {
   remoteIds: string[];
   albumsByRemote: Map<string, AlbumNodeData[]>;
   artistsByRemote: Map<string, ArtistNodeData[]>;
+  /** video/series data, mixed into the same graph: a video with a
+   *  `seasonId` attaches under its season node, a video with a `seriesId`
+   *  but no `seasonId` attaches directly under its series node. series
+   *  nodes themselves and orphan videos (no series/season) are NOT wired
+   *  to the remote hub — they reach the graph exclusively via lazy
+   *  taxon-hub pivots (createPivotHandler's maybeLoadVideosForPivot for
+   *  generic genre/mood/style hubs, plus recently-added/unassigned),
+   *  mirroring how artist nodes reach the graph via value -> artist
+   *  edges rather than a direct remote -> artist edge. */
+  videosByRemote?: Map<string, VideoNodeData[]>;
+  videoSeriesByRemote?: Map<string, VideoSeriesNodeData[]>;
+  /** seasons per remote, attached under their series node (phase 5, see
+   *  docs/graph-viz-video-domain-plan.md phase 5a). */
+  videoSeasonsByRemote?: Map<string, VideoSeasonNodeData[]>;
   /** bare album ids (from song favorites) per remote, unioned with album.isFavorite */
   favoriteSongAlbumIds?: Map<string, Set<string>>;
   /** bare artist ids (from song favorites) per remote, unioned with artist.isFavorite */
@@ -30,6 +62,11 @@ export interface BuildWalkGraphOutput {
    *  hubs, value nodes, and root are NOT included. used by main thread for
    *  popover hydration and image resolution (S1). */
   nodesById: Map<string, AlbumNodeData | ArtistNodeData>;
+  /** full payload for every video, video_series, and video_season node,
+   *  keyed by graph node id. kept separate from `nodesById` so existing
+   *  album/artist consumers don't need to widen their types for a domain
+   *  they don't render. */
+  videoNodesById: Map<string, VideoNodeData | VideoSeriesNodeData | VideoSeasonNodeData>;
 }
 
 // note: relation hubs (genre, mood, style, custom kinds, ...) are NOT
@@ -70,6 +107,7 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
   const nodes: WalkNode[] = [];
   const edges: WalkEdge[] = [];
   const nodesById = new Map<string, AlbumNodeData | ArtistNodeData>();
+  const videoNodesById = new Map<string, VideoNodeData | VideoSeriesNodeData | VideoSeasonNodeData>();
 
   // ---- root ----------------------------------------------------------------
   const rId = rootId();
@@ -199,7 +237,86 @@ export function buildWalkGraph(input: BuildWalkGraphInput): BuildWalkGraphOutput
         nodesById.set(albId, album);
       }
     }
+
+    // ---- video series + season + video nodes ---------------------------
+    // series/season/video -> series/season edges only (see
+    // BuildWalkGraphInput's doc comment): a video with a seasonId attaches
+    // under its season node; a video with a seriesId but no seasonId
+    // attaches directly under its series node. series nodes and orphan
+    // videos are NOT wired to the remote hub — they're surfaced via
+    // taxon-hub pivots instead (see createPivotHandler.ts).
+    const videoSeries = input.videoSeriesByRemote?.get(remoteId) ?? [];
+    const videoSeasons = input.videoSeasonsByRemote?.get(remoteId) ?? [];
+    const videos = input.videosByRemote?.get(remoteId) ?? [];
+    const knownSeriesIds = new Set(videoSeries.map((s) => s.seriesId));
+    const knownSeasonIds = new Set(videoSeasons.map((s) => s.seasonId));
+
+    for (const series of videoSeries) {
+      const seriesNodeIdStr = videoSeriesNodeId(remoteId, series.seriesId);
+      const seriesVideoCount = videos.filter((v) => v.seriesId === series.seriesId).length;
+      nodes.push({
+        id: seriesNodeIdStr,
+        role: "video_series",
+        label: series.title,
+        parentId: rhId,
+        childCount: seriesVideoCount,
+      });
+      // no remoteHub -> series edge (mirrors artist nodes above): a series
+      // reaches the graph via taxon-hub pivots (createPivotHandler's
+      // maybeLoadVideosForPivot / recently-added / unassigned loaders),
+      // not by attaching directly to the remote hub.
+      videoNodesById.set(seriesNodeIdStr, series);
+    }
+
+    for (const season of videoSeasons) {
+      // a season whose series isn't in this remote's known series list has
+      // nowhere valid to attach — skip rather than silently misparenting
+      // it to the remote hub (mirrors how orphan videos are handled below,
+      // but a season needs its series to exist, not just be optional).
+      if (!knownSeriesIds.has(season.seriesId)) continue;
+      const seasonNodeIdStr = videoSeasonNodeId(remoteId, season.seasonId);
+      const seriesNodeIdStr = videoSeriesNodeId(remoteId, season.seriesId);
+      const seasonVideoCount = videos.filter((v) => v.seasonId === season.seasonId).length;
+      nodes.push({
+        id: seasonNodeIdStr,
+        role: "video_season",
+        label: season.title,
+        parentId: seriesNodeIdStr,
+        childCount: seasonVideoCount,
+      });
+      edges.push({ source: seriesNodeIdStr, target: seasonNodeIdStr });
+      videoNodesById.set(seasonNodeIdStr, season);
+    }
+
+    for (const video of videos) {
+      const vId = videoNodeId(remoteId, video.videoId);
+      const inKnownSeason = video.seasonId !== null && knownSeasonIds.has(video.seasonId);
+      const inKnownSeries = video.seriesId !== null && knownSeriesIds.has(video.seriesId);
+      const parentId = inKnownSeason
+        ? videoSeasonNodeId(remoteId, video.seasonId!)
+        : inKnownSeries
+          ? videoSeriesNodeId(remoteId, video.seriesId!)
+          : rhId;
+      nodes.push({
+        id: vId,
+        role: "video",
+        label: video.title,
+        parentId,
+        childCount: 0,
+      });
+      // only wire a video -> season/series edge when it actually has one.
+      // orphan videos (no series/season) reach the graph exclusively via
+      // taxon-hub pivots — generic value/group hubs, or the "unassigned"
+      // hub (createPivotHandler's maybeLoadUnassignedForPivot, which
+      // fetches exactly this "no entity_taxonz rows" set from the
+      // backend) — never via a direct edge to the remote hub.
+      if (inKnownSeason || inKnownSeries) {
+        edges.push({ source: parentId, target: vId });
+      }
+      videoNodesById.set(vId, video);
+    }
   }
 
-  return { graph: { nodes, edges }, nodesById };
+  return { graph: { nodes, edges }, nodesById, videoNodesById };
 }
+

@@ -27,6 +27,7 @@ import {
   queryTaxons as queryLocalTaxons,
   getAlbumTaxons,
   countAlbumsByKindForRemote,
+  countVideosByKindForRemote,
   findTaxon,
 } from "../storage/db/taxons";
 import {
@@ -55,6 +56,11 @@ interface ShimTaxonKind {
   is_user_defined: boolean;
   created_at: number;
   album_count: number;
+  // local mode has no video-domain taxon counting yet (no local video
+  // library/entity_taxonz equivalent) - always 0, kept only so this
+  // shape matches the real server `TaxonKind` for domain-inclusive hub
+  // childCount math in LibraryGraphSubview.
+  video_count: number;
 }
 
 interface ShimTaxon {
@@ -131,7 +137,8 @@ function synthesiseKind(
   slug: string,
   label: string,
   idx: number,
-  albumCount: number
+  albumCount: number,
+  videoCount: number
 ): ShimTaxonKind {
   return {
     id: `local-kind-${slug}`,
@@ -145,6 +152,7 @@ function synthesiseKind(
     is_user_defined: false,
     created_at: 0,
     album_count: albumCount,
+    video_count: videoCount,
   };
 }
 
@@ -161,6 +169,7 @@ function unassignedHubKind(albumCount: number): ShimTaxonKind {
     is_user_defined: false,
     created_at: 0,
     album_count: albumCount,
+    video_count: 0,
   };
 }
 
@@ -195,9 +204,10 @@ export const localTaxonomyClient = {
       const isMusicScope = domain === null || domain === "music";
       const wellKnownLabels = new Map(WELL_KNOWN_KINDS.map((k) => [k.slug, k.label]));
 
-      const [kindSlugs, counts, storedKinds] = await Promise.all([
+      const [kindSlugs, counts, videoCounts, storedKinds] = await Promise.all([
         resolveKindSlugsForDomain(domain),
         countAlbumsByKindForRemote(LOCAL_TAXON_REMOTE_ID),
+        countVideosByKindForRemote(LOCAL_TAXON_REMOTE_ID),
         getTaxonKindsForDomain(domain ?? "music"),
       ]);
 
@@ -219,13 +229,15 @@ export const localTaxonomyClient = {
             is_user_defined: true,
             created_at: stored.created_at,
             album_count: counts.byKind.get(slug) ?? 0,
+            video_count: videoCounts.byKind.get(slug) ?? 0,
           };
         }
         return synthesiseKind(
           slug,
           wellKnownLabels.get(slug) ?? slug,
           idx,
-          counts.byKind.get(slug) ?? 0
+          counts.byKind.get(slug) ?? 0,
+          videoCounts.byKind.get(slug) ?? 0
         );
       });
 
@@ -359,6 +371,7 @@ export const localTaxonomyClient = {
         is_user_defined: true,
         created_at: row.created_at,
         album_count: 0,
+        video_count: 0,
       });
     },
 

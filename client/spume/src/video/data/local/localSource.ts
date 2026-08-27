@@ -13,6 +13,7 @@ import {
   type LocalVideoSeriesRow,
 } from "../../services/storage/db/series";
 import {
+  getAllLocalVideoSeasons,
   getLocalVideoSeasons,
   getOrCreateLocalVideoSeason,
 } from "../../services/storage/db/seasons";
@@ -113,6 +114,10 @@ export class LocalVideoDataSource implements VideoDataSource {
 
   async getVideoSeasons(seriesId: string): Promise<VideoSeason[]> {
     return getLocalVideoSeasons(seriesId);
+  }
+
+  async getAllVideoSeasons(): Promise<VideoSeason[]> {
+    return getAllLocalVideoSeasons();
   }
 
   async getVideosBySeason(seasonId: string): Promise<VideoSummary[]> {

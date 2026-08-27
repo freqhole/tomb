@@ -375,6 +375,10 @@ pub mod type_registry {
     use crate::offal::video::progress::{
         GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
     };
+    use crate::offal::video::relations::{
+        RecentlyAddedVideosRequest, RecentlyAddedVideosResponse, UnassignedVideosRequest,
+        UnassignedVideosResponse, VideosByValueRequest, VideosByValueResponse,
+    };
     use crate::offal::video::seasons::{
         DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
     };
@@ -911,6 +915,21 @@ pub mod type_registry {
         registered.insert("GetPlaybackProgressRequest".to_string());
         gen.add_schema::<ListPlaybackProgressRequest>("ListPlaybackProgressRequest");
         registered.insert("ListPlaybackProgressRequest".to_string());
+
+        // video domain: universal-domain relation hubs (era/recently_added/
+        // unassigned + generic categorical hubs), mirrors music's relations.rs
+        gen.add_schema::<VideosByValueRequest>("VideosByValueRequest");
+        registered.insert("VideosByValueRequest".to_string());
+        gen.add_schema::<VideosByValueResponse>("VideosByValueResponse");
+        registered.insert("VideosByValueResponse".to_string());
+        gen.add_schema::<RecentlyAddedVideosRequest>("RecentlyAddedVideosRequest");
+        registered.insert("RecentlyAddedVideosRequest".to_string());
+        gen.add_schema::<RecentlyAddedVideosResponse>("RecentlyAddedVideosResponse");
+        registered.insert("RecentlyAddedVideosResponse".to_string());
+        gen.add_schema::<UnassignedVideosRequest>("UnassignedVideosRequest");
+        registered.insert("UnassignedVideosRequest".to_string());
+        gen.add_schema::<UnassignedVideosResponse>("UnassignedVideosResponse");
+        registered.insert("UnassignedVideosResponse".to_string());
 
         gen.add_schema::<GetEntityTaxonsRequest>("GetEntityTaxonsRequest");
         registered.insert("GetEntityTaxonsRequest".to_string());

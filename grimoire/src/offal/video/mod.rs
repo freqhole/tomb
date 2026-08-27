@@ -3,6 +3,7 @@
 //! covers: video series, seasons, and videos (episodes/movies/clips).
 
 pub mod progress;
+pub mod relations;
 pub mod seasons;
 pub mod series;
 pub mod videos;
@@ -19,6 +20,7 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(seasons::ROUTES);
     all.extend_from_slice(videos::ROUTES);
     all.extend_from_slice(progress::ROUTES);
+    all.extend_from_slice(relations::ROUTES);
     all
 }
 
@@ -76,6 +78,18 @@ pub async fn dispatch(
         "/api/video/progress/upsert" => Some(progress::upsert(caller, body.clone()).await),
         "/api/video/progress/get" => Some(progress::get(caller, body.clone()).await),
         "/api/video/progress/list" => Some(progress::list(caller, body.clone()).await),
+
+        // universal-domain relation hubs (era/recently_added/unassigned +
+        // generic categorical hubs like genre/mood/style)
+        "/api/video/relations/videos-by-value" => {
+            Some(relations::videos_by_value(caller, body.clone()).await)
+        }
+        "/api/video/relations/recently-added-videos" => {
+            Some(relations::recently_added_videos(caller, body.clone()).await)
+        }
+        "/api/video/relations/unassigned-videos" => {
+            Some(relations::unassigned_videos(caller, body.clone()).await)
+        }
 
         _ => None,
     }
