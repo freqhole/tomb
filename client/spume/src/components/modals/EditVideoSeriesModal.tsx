@@ -7,7 +7,8 @@ import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
 import { EntityImages } from "../layout/EntityImages";
 import { toast } from "../feedback/Toast";
-import { canUpdateVideo } from "../../video/data/permissions";
+import { confirm } from "../../app/services/confirmState";
+import { canUpdateVideo, canDeleteVideoSeries } from "../../video/data/permissions";
 import { getVideoDataSource } from "../../video/data";
 import { getCurrentRemote } from "../../music/data";
 import { pollJobUntilComplete } from "../../app/services/jobs/jobService";
@@ -35,6 +36,8 @@ export interface EditVideoSeriesModalProps {
   seriesId: string;
   onClose: () => void;
   onSave?: () => void;
+  /** called after a successful delete so callers (e.g. series detail view) can navigate away */
+  onDeleted?: () => void;
 }
 
 interface FormData {
@@ -275,6 +278,48 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
     props.onClose();
   };
 
+  const handleDelete = async () => {
+    const detail = detailQuery.data;
+    const series = detail?.series;
+    if (!series) return;
+
+    const seasonCount = detail.seasons.length;
+    const videoCount =
+      detail.seasons.reduce((sum, season) => sum + season.videos.length, 0) +
+      detail.unassignedVideos.length;
+    const seasonLabel = seasonCount === 1 ? "season" : "seasons";
+    const videoLabel = videoCount === 1 ? "video" : "videos";
+    const impactMessage =
+      seasonCount > 0
+        ? `this will also delete ${seasonCount} ${seasonLabel} and ${videoCount} ${videoLabel}.`
+        : `this will also delete ${videoCount} ${videoLabel}.`;
+
+    const confirmed = await confirm({
+      title: "delete series",
+      message: `are you sure you want to delete "${series.title}"? ${impactMessage} this cannot be undone.`,
+      confirmText: "delete",
+      variant: "danger",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.deleteVideoSeries) {
+        toast.error("delete not supported for this data source");
+        return;
+      }
+      await dataSource.deleteVideoSeries(props.seriesId);
+      invalidateVideoQueries();
+      toast.success("series deleted");
+      props.onDeleted?.();
+      props.onClose();
+    } catch (err) {
+      console.error("failed to delete video series:", err);
+      toast.error("failed to delete series");
+    }
+  };
+
   return (
     <Modal isOpen={true} onClose={handleClose} title="edit series" size="lg" disableBackdropClose>
       <Show
@@ -355,19 +400,26 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
         </div>
       </Show>
 
-      <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
-        <Button onClick={handleClose} variant="ghost">
-          cancel
-        </Button>
-        <Show when={canUpdateVideo()}>
-          <Button
-            onClick={() => void handleSave()}
-            variant="primary"
-            disabled={!hasChanges() || updateMutation.isPending || anySeasonSaving()}
-          >
-            {updateMutation.isPending || anySeasonSaving() ? "saving..." : "save"}
+      <div class="flex items-center justify-between p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
+        <Show when={canDeleteVideoSeries()}>
+          <Button onClick={() => void handleDelete()} variant="danger">
+            delete
           </Button>
         </Show>
+        <div class="flex items-center gap-2">
+          <Button onClick={handleClose} variant="ghost">
+            cancel
+          </Button>
+          <Show when={canUpdateVideo()}>
+            <Button
+              onClick={() => void handleSave()}
+              variant="primary"
+              disabled={!hasChanges() || updateMutation.isPending || anySeasonSaving()}
+            >
+              {updateMutation.isPending || anySeasonSaving() ? "saving..." : "save"}
+            </Button>
+          </Show>
+        </div>
       </div>
     </Modal>
   );

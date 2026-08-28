@@ -8,11 +8,13 @@ import {
 } from "../../services/storage/db/videos";
 import { getLocalVideoSeriesList } from "../../services/storage/db/series";
 import {
+  deleteLocalVideoSeries as dbDeleteLocalVideoSeries,
   getOrCreateLocalVideoSeries,
   updateLocalVideoSeries,
   type LocalVideoSeriesRow,
 } from "../../services/storage/db/series";
 import {
+  deleteLocalVideoSeason,
   getAllLocalVideoSeasons,
   getLocalVideoSeasons,
   getOrCreateLocalVideoSeason,
@@ -195,6 +197,20 @@ export class LocalVideoDataSource implements VideoDataSource {
   }): Promise<void> {
     const { series_id, ...updates } = params;
     await updateLocalVideoSeries(series_id, updates);
+  }
+
+  // cascades the same way grimoire's `delete_video_series` does
+  // server-side: every video and season under the series goes with it.
+  async deleteVideoSeries(seriesId: string): Promise<void> {
+    const seriesVideos = await this.getVideosBySeries(seriesId);
+    for (const video of seriesVideos) {
+      await this.deleteVideo(video.id);
+    }
+    const seasons = await getLocalVideoSeasons(seriesId);
+    for (const season of seasons) {
+      await deleteLocalVideoSeason(season.id);
+    }
+    await dbDeleteLocalVideoSeries(seriesId);
   }
 
   async createVideoSeason(params: {

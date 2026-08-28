@@ -32,8 +32,9 @@ export function SongCard(props: SongCardProps) {
         props.onPlay?.(props.song);
       }}
       onContextMenu={(e) => {
+        if (!props.onContextMenu) return;
         e.preventDefault();
-        props.onContextMenu?.(e, props.song);
+        props.onContextMenu(e, props.song);
       }}
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}

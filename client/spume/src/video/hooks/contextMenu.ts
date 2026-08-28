@@ -11,10 +11,16 @@ import { createVideoTagAdapter } from "../../components/modals/tagAdapters/video
 import { buildRoute } from "../../music/utils/routing";
 import { confirm } from "../../app/services/confirmState";
 import { toast } from "../../components/feedback/Toast";
-import { showEditVideo, showEditVideoSeries } from "./modals";
+import { showEditVideo, showEditVideoSeries, showBulkEditVideos } from "./modals";
 import { canUpdateVideo } from "../data/permissions";
+import { getVideoDataSource } from "../data";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
-import { addVideoToQueue, addVideosToQueue, playVideoNext } from "../services/videoQueueActions";
+import {
+  addVideoToQueue,
+  addVideosToQueue,
+  playVideoNext,
+  shuffleVideos,
+} from "../services/videoQueueActions";
 import { useDeleteVideoMutation } from "../queries/videos";
 import { useDeleteVideoSeriesMutation } from "../queries/series";
 import { useRemovePlaylistItemsMutation } from "../queries/playlistItems";
@@ -247,6 +253,28 @@ export interface VideoSeriesContextMenuOptions {
   customActions?: MenuAction[];
 }
 
+// play-all/queue-all/shuffle-all/add-to-playlist/bulk-edit/tags all need
+// the series' full video list, but most callers (grid tiles, list rows)
+// only have the bare series row on hand — fetch on demand when
+// `allVideos` wasn't already preloaded (e.g. by the detail panel, which
+// has it from its own query) rather than requiring every caller to fetch
+// series detail just to build a context menu.
+async function resolveSeriesVideos(
+  series: VideoSeries,
+  preloaded: VideoSummary[]
+): Promise<VideoSummary[]> {
+  if (preloaded.length > 0) return preloaded;
+  try {
+    const dataSource = getVideoDataSource();
+    const detail = await dataSource.getVideoSeriesDetail(series.id);
+    if (!detail) return [];
+    return [...detail.seasons.flatMap((season) => season.videos), ...detail.unassignedVideos];
+  } catch (err) {
+    console.error("failed to load series videos:", err);
+    return [];
+  }
+}
+
 // note: no rating action here — `RatingTarget`
 // (grimoire/src/users/favoritez/models.rs) only supports the "video"
 // target, not a series-level one, so series can't be rated today.
@@ -258,31 +286,56 @@ export function useVideoSeriesContextMenu(
   const deleteMutation = useDeleteVideoSeriesMutation();
   const actions: MenuAction[] = [];
 
-  if (allVideos.length > 0) {
-    actions.push({
-      label: "play all",
-      icon: IconNames.play,
-      onClick: async () => {
-        await playVideoQueue(allVideos, 0, {
-          type: "series",
-          label: series.title,
-          entity_id: series.id,
-        });
-      },
-    });
+  actions.push({
+    label: "play all",
+    icon: IconNames.play,
+    onClick: async () => {
+      const videos = await resolveSeriesVideos(series, allVideos);
+      if (videos.length === 0) return;
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series.title,
+        entity_id: series.id,
+      });
+    },
+  });
 
-    actions.push({
-      label: "add all to queue",
-      icon: IconNames.queue,
-      onClick: async () => {
-        await addVideosToQueue(allVideos);
-      },
-    });
+  actions.push({
+    label: "add all to queue",
+    icon: IconNames.queue,
+    onClick: async () => {
+      const videos = await resolveSeriesVideos(series, allVideos);
+      await addVideosToQueue(videos);
+    },
+  });
 
-    actions.push({ type: "separator" });
-  }
+  actions.push({
+    label: "shuffle all",
+    icon: IconNames.shuffle,
+    onClick: async () => {
+      const videos = await resolveSeriesVideos(series, allVideos);
+      if (videos.length === 0) return;
+      await playVideoQueue(shuffleVideos(videos), 0, {
+        type: "series",
+        label: series.title,
+        entity_id: series.id,
+      });
+    },
+  });
+
+  actions.push({ type: "separator" });
 
   actions.push(createFavoriteMenuAction("video_series", series.id, options.isFavorite ?? false));
+
+  actions.push({
+    label: "add to playlist...",
+    icon: IconNames.playlist,
+    onClick: async () => {
+      const videos = await resolveSeriesVideos(series, allVideos);
+      if (videos.length === 0) return;
+      void showPlaylistSelectorForVideos(videos.map((v) => v.id));
+    },
+  });
 
   if (canUpdateVideo()) {
     actions.push({
@@ -290,6 +343,41 @@ export function useVideoSeriesContextMenu(
       icon: IconNames.edit,
       onClick: () => {
         showEditVideoSeries({ seriesId: series.id, onSave: options.onSave });
+      },
+    });
+
+    actions.push({
+      label: "bulk edit...",
+      icon: IconNames.edit,
+      onClick: async () => {
+        const videos = await resolveSeriesVideos(series, allVideos);
+        if (videos.length === 0) {
+          toast.error("this series has no videos to edit");
+          return;
+        }
+        showBulkEditVideos({
+          videoIds: videos.map((v) => v.id),
+          onSuccess: options.onSave,
+        });
+      },
+    });
+
+    actions.push({
+      label: "tags",
+      icon: IconNames.tag,
+      onClick: async () => {
+        const videos = await resolveSeriesVideos(series, allVideos);
+        if (videos.length === 0) {
+          toast.error("this series has no videos to tag");
+          return;
+        }
+        showTagSelector({
+          entityIds: videos.map((v) => v.id),
+          entityTitle: series.title,
+          entityKindLabel: "videos",
+          adapter: createVideoTagAdapter("video"),
+          onSave: options.onSave,
+        });
       },
     });
 

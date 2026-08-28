@@ -17,7 +17,7 @@ import { VideoTaxonsEditor, type VideoTaxonsEditorHandle } from "./VideoTaxonsEd
 import { EntityImages } from "../layout/EntityImages";
 import { toast } from "../feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
-import { canUpdateVideo } from "../../video/data/permissions";
+import { canUpdateVideo, canDeleteVideo } from "../../video/data/permissions";
 import {
   useUpdateVideoMutation,
   useVideoQuery,
@@ -65,6 +65,8 @@ export interface EditVideoModalProps {
   videoId: string;
   onClose: () => void;
   onSave?: () => void;
+  /** called after a successful delete so callers (e.g. video detail view) can navigate away */
+  onDeleted?: () => void;
 }
 
 interface FormData {
@@ -637,6 +639,36 @@ export function EditVideoModal(props: EditVideoModalProps) {
     props.onClose();
   };
 
+  const handleDelete = async () => {
+    const video = videoQuery.data;
+    if (!video) return;
+
+    const confirmed = await confirm({
+      title: "delete video",
+      message: `are you sure you want to delete "${video.title}"? this cannot be undone.`,
+      confirmText: "delete",
+      variant: "danger",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.deleteVideo) {
+        toast.error("delete not supported for this data source");
+        return;
+      }
+      await dataSource.deleteVideo(props.videoId);
+      invalidateVideoQueries();
+      toast.success("video deleted");
+      props.onDeleted?.();
+      props.onClose();
+    } catch (err) {
+      console.error("failed to delete video:", err);
+      toast.error("failed to delete video");
+    }
+  };
+
   return (
     <Modal isOpen={true} onClose={handleClose} title="edit video" size="lg" disableBackdropClose>
       <Show
@@ -968,19 +1000,26 @@ export function EditVideoModal(props: EditVideoModalProps) {
         </div>
       </Show>
 
-      <div class="flex items-center justify-end gap-2 p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
-        <Button onClick={handleClose} variant="ghost">
-          cancel
-        </Button>
-        <Show when={canUpdateVideo()}>
-          <Button
-            onClick={() => void handleSave()}
-            variant="primary"
-            disabled={!hasChanges() || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? "saving..." : "save"}
+      <div class="flex items-center justify-between p-4 border-t border-[var(--color-border-default)] flex-shrink-0">
+        <Show when={canDeleteVideo()}>
+          <Button onClick={() => void handleDelete()} variant="danger">
+            delete
           </Button>
         </Show>
+        <div class="flex items-center gap-2">
+          <Button onClick={handleClose} variant="ghost">
+            cancel
+          </Button>
+          <Show when={canUpdateVideo()}>
+            <Button
+              onClick={() => void handleSave()}
+              variant="primary"
+              disabled={!hasChanges() || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "saving..." : "save"}
+            </Button>
+          </Show>
+        </div>
       </div>
     </Modal>
   );

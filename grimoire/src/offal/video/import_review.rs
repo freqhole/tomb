@@ -14,7 +14,9 @@ use crate::video::entities::import_review::{
     },
     repository,
 };
-use crate::video::{update_video, update_video_series, UpdateVideoRequest, UpdateVideoSeriesRequest};
+use crate::video::{
+    update_video_series, update_videos, UpdateVideoSeriesRequest, UpdateVideosRequest,
+};
 use serde_json::Value as JsonValue;
 
 pub const ROUTES: &[RouteInfo] = &[
@@ -144,8 +146,7 @@ pub async fn mark_reviewed(caller: &Caller, body: JsonValue) -> GrimoireResponse
         }
     }
 
-    match repository::mark_group_reviewed(&req.group_key, &req.session_id, &caller.user_id).await
-    {
+    match repository::mark_group_reviewed(&req.group_key, &req.session_id, &caller.user_id).await {
         Ok(()) => ok_response(),
         Err(e) => GrimoireResponse::failure("failed to mark reviewed", vec![e.into()]),
     }
@@ -246,8 +247,14 @@ pub async fn patch_group(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 }
             }
 
-            let update_req = UpdateVideoRequest {
-                video_id: patch.video_id.clone(),
+            // reuse update_videos (bulk, singleton list) instead of the
+            // lower-level update_video - a season reassignment here can
+            // still orphan the video's old season (e.g. moving an
+            // episode into a season just created above), and only the
+            // bulk path checks for that (mirrors music's patch_album
+            // reusing update_songs for the same reason).
+            let update_req = UpdateVideosRequest {
+                video_ids: vec![patch.video_id.clone()],
                 series_id: None,
                 season_id,
                 episode_number: patch.episode_number,
@@ -261,16 +268,14 @@ pub async fn patch_group(caller: &Caller, body: JsonValue) -> GrimoireResponse<J
                 clear_series_id: false,
                 clear_season_id: false,
             };
-            let result = update_video(update_req).await;
+            let result = update_videos(update_req).await;
             if !result.success {
                 return GrimoireResponse::failure("failed to update video", result.errors);
             }
         }
     }
 
-
-    match repository::mark_group_reviewed(&req.group_key, &req.session_id, &caller.user_id).await
-    {
+    match repository::mark_group_reviewed(&req.group_key, &req.session_id, &caller.user_id).await {
         Ok(()) => ok_response(),
         Err(e) => GrimoireResponse::failure("failed to mark reviewed", vec![e.into()]),
     }
@@ -319,9 +324,11 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     // organize their own upload, and take precedence when both are set.
     let mut to_series_id = req.to_series_id;
     if let Some(new_series_title) = &req.new_series_title {
-        let series_result =
-            crate::video::find_or_create_video_series(new_series_title, Some(caller.user_id.clone()))
-                .await;
+        let series_result = crate::video::find_or_create_video_series(
+            new_series_title,
+            Some(caller.user_id.clone()),
+        )
+        .await;
         match series_result {
             GrimoireResponse {
                 success: true,
@@ -379,11 +386,17 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     let content_type = Some(if to_series_id.is_some() {
         "series".to_string()
     } else {
-        req.content_type.clone().unwrap_or_else(|| "movie".to_string())
+        req.content_type
+            .clone()
+            .unwrap_or_else(|| "movie".to_string())
     });
 
-    let update_req = UpdateVideoRequest {
-        video_id: req.video_id,
+    // reuse update_videos (bulk, singleton list) instead of the
+    // lower-level update_video - it's the one that checks whether the
+    // video's old series/season is now orphaned (mirrors music's
+    // move_song reusing update_songs for the same reason).
+    let update_req = UpdateVideosRequest {
+        video_ids: vec![req.video_id],
         series_id: to_series_id,
         season_id: to_season_id,
         episode_number: None,
@@ -397,7 +410,7 @@ pub async fn move_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         clear_series_id,
         clear_season_id,
     };
-    let result = update_video(update_req).await;
+    let result = update_videos(update_req).await;
     if !result.success {
         return GrimoireResponse::failure("failed to move video", result.errors);
     }

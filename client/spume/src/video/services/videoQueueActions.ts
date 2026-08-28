@@ -18,6 +18,19 @@ export async function addVideoToQueue(video: VideoSummary | QueuedVideo): Promis
   await setQueue([...queue, item]);
 }
 
+// Fisher-Yates shuffle — used by series/season "shuffle all" actions
+// (mirrors music/views/ArtistsView.tsx's local shuffleArray, shared here
+// since two video call sites need it: the series context menu and the
+// series detail panel's season row buttons).
+export function shuffleVideos(videos: VideoSummary[]): VideoSummary[] {
+  const result = [...videos];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 // bulk version — appends a whole list (e.g. an entire series/season) to
 // the end of the current queue without interrupting playback.
 export async function addVideosToQueue(videos: VideoSummary[]): Promise<void> {

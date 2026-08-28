@@ -11,8 +11,8 @@
 
 use crate::config::get_config;
 use crate::database;
-use crate::error::ErrorDetail;
-use crate::media_blobz::{delete_media_blob, find_media_blob_references};
+use crate::error::{ErrorDetail, GrimoireResult};
+use crate::media_blobz::{delete_media_blob, find_media_blob_references, get_media_blob};
 use crate::response::GrimoireResponse;
 use std::path::Path;
 use std::time::Instant;
@@ -100,6 +100,44 @@ pub(crate) async fn reclaim_blob_bytes(blob: &OrphanedBlob, data_dir: &Path) -> 
         }
         Some(_) => ReclaimOutcome::FileSkippedUserOwned,
     }
+}
+
+/// check-and-purge a single known candidate blob: soft-delete its
+/// `media_blobz` row and reclaim its underlying bytes if it's now
+/// unreferenced by anything (any domain) - a no-op (`Ok(false)`) if it's
+/// still referenced or no longer exists. unlike `cleanup_orphaned_media_blobs`
+/// (which scans the whole table), this is cheap enough to call right after
+/// deleting the specific entity that used to reference `blob_id` (e.g. a
+/// video/series/season delete), still never touching a user-owned file
+/// (see `is_app_managed_file`).
+pub async fn purge_blob_if_orphaned(
+    blob_id: &str,
+    deleted_by: Option<String>,
+) -> GrimoireResult<bool> {
+    let refs = find_media_blob_references(blob_id).await?;
+    if refs.has_references() {
+        return Ok(false);
+    }
+
+    let blob = match get_media_blob(blob_id).await {
+        Ok(blob) => blob,
+        Err(_) => return Ok(false), // already gone / never existed
+    };
+
+    delete_media_blob(blob_id, deleted_by).await?;
+
+    let orphaned = OrphanedBlob {
+        id: blob.id,
+        size: blob.size,
+        mime: blob.mime,
+        blob_type: blob.blob_type.as_str().to_string(),
+        created_at: blob.created_at,
+        blake3: blob.blake3,
+        local_path: blob.local_path,
+    };
+    reclaim_blob_bytes(&orphaned, &get_config().data_dir).await;
+
+    Ok(true)
 }
 
 /// Find all orphaned media blobs (blobs with zero references)

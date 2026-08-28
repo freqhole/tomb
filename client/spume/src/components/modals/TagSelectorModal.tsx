@@ -7,6 +7,7 @@ import { Button } from "../buttons/Button";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+import { Modal } from "./Modal";
 import type { Tag, TagAdapter } from "./tagAdapters/types";
 
 interface TagSelectorModalProps {
@@ -190,130 +191,13 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
   });
 
   return (
-    <div
-      class="flex items-center justify-center bg-black/50"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1050 }}
-      onClick={() => props.onClose()}
-    >
-      <div
-        class="bg-[var(--color-bg-primary)] wide:rounded-lg shadow-xl w-full h-full wide:h-auto wide:max-w-md wide:max-h-[80dvh] flex flex-col"
-        style={{
-          "margin-top": "var(--safe-area-top, 0px)",
-          height: "calc(100% - var(--safe-area-top, 0px))",
-          "max-height": "calc(100% - var(--safe-area-top, 0px))",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* header */}
-        <div class="flex items-center justify-between p-4 border-b border-[var(--color-border-default)]">
-          <div>
-            <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{modalTitle()}</h2>
-            <Show when={props.entityIds.length > 1}>
-              <p class="text-xs text-[var(--color-text-tertiary)] mt-1">
-                changes will apply to all selected {props.entityKindLabel ?? "items"}
-              </p>
-            </Show>
-          </div>
-          <button
-            onClick={() => props.onClose()}
-            class="p-1 hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-          >
-            <Icon name={IconNames.close} size={20} />
-          </button>
-        </div>
-
-        {/* search/create input */}
-        <div class="p-4 border-b border-[var(--color-border-default)]">
-          <div class="flex gap-2">
-            <TextInput
-              value={searchQuery()}
-              oninput={(e) => setSearchQuery(e.currentTarget.value)}
-              placeholder="search or create tag..."
-              class="flex-1"
-              disabled={isLoading()}
-            />
-            <Show when={searchQuery().trim() && !filteredTags().length}>
-              <Button onClick={addTagByName} disabled={isLoading()} variant="primary">
-                add
-              </Button>
-            </Show>
-          </div>
-        </div>
-
-        {/* tag list */}
-        <div class="flex-1 overflow-y-auto p-4">
-          <Show
-            when={!isLoading()}
-            fallback={
-              <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
-                loading tags...
-              </div>
-            }
-          >
-            <Show
-              when={filteredTags().length > 0}
-              fallback={
-                <div class="text-center py-8 text-[var(--color-text-secondary)]">
-                  <Show when={searchQuery().trim()} fallback={<p>no tags yet</p>}>
-                    <p>no tags found</p>
-                    <p class="text-sm mt-2">click "add" to add "{searchQuery().trim()}"</p>
-                  </Show>
-                </div>
-              }
-            >
-              <div class="space-y-1">
-                <For each={filteredTags()}>
-                  {(tag) => {
-                    const state = () => getTagState(tag.tag_id);
-                    const isPending = () => {
-                      const changes = pendingChanges();
-                      return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
-                    };
-                    const count = () => tagCounts().get(tag.tag_id) || 0;
-
-                    return (
-                      <button
-                        onClick={() => toggleTag(tag.tag_id)}
-                        class={`
-                          w-full flex items-center justify-between px-3 py-2 rounded
-                          transition-colors text-left
-                          ${
-                            state() === "all"
-                              ? "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]"
-                              : state() === "some"
-                                ? "bg-yellow-500/10 text-yellow-500"
-                                : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
-                          }
-                          ${isPending() ? "ring-2 ring-[var(--color-accent-500)]/50" : ""}
-                        `}
-                      >
-                        <span class="flex items-center gap-2">
-                          <Icon name={IconNames.tag} size={14} />
-                          {tag.name}
-                          {/* show count badge for partial state with multiple entities */}
-                          <Show when={state() === "some" && entityCount() > 1}>
-                            <span class="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded">
-                              {count()}/{entityCount()}
-                            </span>
-                          </Show>
-                        </span>
-                        <Show when={state() === "all"}>
-                          <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
-                        </Show>
-                        <Show when={state() === "some"}>
-                          <span class="w-2 h-0.5 bg-yellow-500 rounded" />
-                        </Show>
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-            </Show>
-          </Show>
-        </div>
-
-        {/* footer */}
-        <div class="flex items-center justify-between p-4 border-t border-[var(--color-border-default)]">
+    <Modal
+      isOpen={true}
+      onClose={() => props.onClose()}
+      title={modalTitle()}
+      size="sm"
+      footer={
+        <div class="flex items-center justify-between p-4">
           <div class="text-sm text-[var(--color-text-secondary)]">
             <Show when={hasPendingChanges()}>
               {pendingChanges().add.size > 0 && (
@@ -338,7 +222,102 @@ export function TagSelectorModal(props: TagSelectorModalProps) {
             </Button>
           </div>
         </div>
+      }
+    >
+      {/* search/create input */}
+      <div class="p-4 border-b border-[var(--color-border-default)] flex-shrink-0">
+        <Show when={props.entityIds.length > 1}>
+          <p class="text-xs text-[var(--color-text-tertiary)] mb-2">
+            changes will apply to all selected {props.entityKindLabel ?? "items"}
+          </p>
+        </Show>
+        <div class="flex gap-2">
+          <TextInput
+            value={searchQuery()}
+            oninput={(e) => setSearchQuery(e.currentTarget.value)}
+            placeholder="search or create tag..."
+            class="flex-1"
+            disabled={isLoading()}
+          />
+          <Show when={searchQuery().trim() && !filteredTags().length}>
+            <Button onClick={addTagByName} disabled={isLoading()} variant="primary">
+              add
+            </Button>
+          </Show>
+        </div>
       </div>
-    </div>
+
+      {/* tag list */}
+      <div class="flex-1 overflow-y-auto p-4">
+        <Show
+          when={!isLoading()}
+          fallback={
+            <div class="flex items-center justify-center py-8 text-[var(--color-text-secondary)]">
+              loading tags...
+            </div>
+          }
+        >
+          <Show
+            when={filteredTags().length > 0}
+            fallback={
+              <div class="text-center py-8 text-[var(--color-text-secondary)]">
+                <Show when={searchQuery().trim()} fallback={<p>no tags yet</p>}>
+                  <p>no tags found</p>
+                  <p class="text-sm mt-2">click "add" to add "{searchQuery().trim()}"</p>
+                </Show>
+              </div>
+            }
+          >
+            <div class="space-y-1">
+              <For each={filteredTags()}>
+                {(tag) => {
+                  const state = () => getTagState(tag.tag_id);
+                  const isPending = () => {
+                    const changes = pendingChanges();
+                    return changes.add.has(tag.tag_id) || changes.remove.has(tag.tag_id);
+                  };
+                  const count = () => tagCounts().get(tag.tag_id) || 0;
+
+                  return (
+                    <button
+                      onClick={() => toggleTag(tag.tag_id)}
+                      class={`
+                        w-full flex items-center justify-between px-3 py-2 rounded
+                        transition-colors text-left
+                        ${
+                          state() === "all"
+                            ? "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)]"
+                            : state() === "some"
+                              ? "bg-yellow-500/10 text-yellow-500"
+                              : "hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)]"
+                        }
+                        ${isPending() ? "ring-2 ring-[var(--color-accent-500)]/50" : ""}
+                      `}
+                    >
+                      <span class="flex items-center gap-2">
+                        <Icon name={IconNames.tag} size={14} />
+                        {tag.name}
+                        {/* show count badge for partial state with multiple entities */}
+                        <Show when={state() === "some" && entityCount() > 1}>
+                          <span class="text-xs bg-yellow-500/20 px-1.5 py-0.5 rounded">
+                            {count()}/{entityCount()}
+                          </span>
+                        </Show>
+                      </span>
+                      <Show when={state() === "all"}>
+                        <Icon name={IconNames.check} size={16} color="var(--color-accent-500)" />
+                      </Show>
+                      <Show when={state() === "some"}>
+                        <span class="w-2 h-0.5 bg-yellow-500 rounded" />
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
+    </Modal>
   );
 }

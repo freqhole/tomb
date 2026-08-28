@@ -27,7 +27,7 @@ import { videoQueryKeys } from "../queries/queryKeys";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { useToggleFavoriteMutation } from "../../music/queries/favorites";
 import { playVideoQueue } from "../services/queue/playVideoQueue";
-import { addVideosToQueue } from "../services/videoQueueActions";
+import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
 import { useLocalVideoPosterUrl } from "./VideoCard";
 import { showEditVideoSeries } from "../hooks/modals";
 import { useVideoContextMenu, useVideoSeriesContextMenu } from "../hooks/contextMenu";
@@ -153,7 +153,8 @@ export interface VideoSeriesDetailPanelProps {
   /** show a mobile back button in a sticky header (mirrors ArtistDetailPanel) */
   showBackButton?: boolean;
   onBack?: () => void;
-  /** callback after the series itself is deleted via the context menu */
+  /** callback after the series itself is deleted, via either the context
+   *  menu or the edit-series modal's own delete button */
   onDeleted?: () => void;
   class?: string;
 }
@@ -335,21 +336,26 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     season: VideoSeason & { videos: VideoSummary[] },
     index: number
   ) => {
+    const video = season.videos[index];
+    if (!video) return;
     // source is required so a history entry is created and watch-progress
     // tracking starts (without it, position never resumes on reload).
-    await playVideoQueue(season.videos, index, {
-      type: "season",
-      label: season.title ?? `season ${season.season_number}`,
-      entity_id: season.id,
+    // just this one video — queuing the whole season here was
+    // surprising when a user clicked a single episode's play button.
+    await playVideoQueue([video], 0, {
+      type: "video",
+      label: video.title,
+      entity_id: video.id,
     });
   };
 
   const handleUnassignedClick = async (index: number) => {
-    const series = detailQuery.data?.series;
-    await playVideoQueue(unassignedVideos(), index, {
-      type: "series",
-      label: series?.title ?? "series",
-      entity_id: series?.id,
+    const video = unassignedVideos()[index];
+    if (!video) return;
+    await playVideoQueue([video], 0, {
+      type: "video",
+      label: video.title,
+      entity_id: video.id,
     });
   };
 
@@ -383,6 +389,51 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
       await addVideosToQueue(videos);
     } finally {
       setSeriesActionPending(null);
+    }
+  };
+
+  // per-season play/queue/shuffle pending state, keyed by season id so
+  // multiple seasons' buttons don't share a single loading flag.
+  const [seasonActionPending, setSeasonActionPending] = createSignal<{
+    seasonId: string;
+    action: "play" | "queue" | "shuffle";
+  } | null>(null);
+
+  const handleSeasonPlay = async (season: VideoSeason & { videos: VideoSummary[] }) => {
+    if (seasonActionPending() || season.videos.length === 0) return;
+    setSeasonActionPending({ seasonId: season.id, action: "play" });
+    try {
+      await playVideoQueue(season.videos, 0, {
+        type: "season",
+        label: seasonLabel(season),
+        entity_id: season.id,
+      });
+    } finally {
+      setSeasonActionPending(null);
+    }
+  };
+
+  const handleSeasonAddToQueue = async (season: VideoSeason & { videos: VideoSummary[] }) => {
+    if (seasonActionPending() || season.videos.length === 0) return;
+    setSeasonActionPending({ seasonId: season.id, action: "queue" });
+    try {
+      await addVideosToQueue(season.videos);
+    } finally {
+      setSeasonActionPending(null);
+    }
+  };
+
+  const handleSeasonShuffle = async (season: VideoSeason & { videos: VideoSummary[] }) => {
+    if (seasonActionPending() || season.videos.length === 0) return;
+    setSeasonActionPending({ seasonId: season.id, action: "shuffle" });
+    try {
+      await playVideoQueue(shuffleVideos(season.videos), 0, {
+        type: "season",
+        label: seasonLabel(season),
+        entity_id: season.id,
+      });
+    } finally {
+      setSeasonActionPending(null);
     }
   };
 
@@ -530,7 +581,12 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         </Button>
                         <Show when={canUpdateVideo()}>
                           <button
-                            onClick={() => showEditVideoSeries({ seriesId: data().series.id })}
+                            onClick={() =>
+                              showEditVideoSeries({
+                                seriesId: data().series.id,
+                                onDeleted: props.onDeleted,
+                              })
+                            }
                             class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
                             title="edit series info"
                             aria-label="edit series info"
@@ -556,11 +612,14 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                     <For each={seasons()}>
                       {(season) => {
                         const isExpanded = () => expandedSeasonIds().has(season.id);
+                        const isPending = (action: "play" | "queue" | "shuffle") =>
+                          seasonActionPending()?.seasonId === season.id &&
+                          seasonActionPending()?.action === action;
                         return (
                           <div>
-                            <button
+                            <div
                               onClick={() => toggleSeason(season.id)}
-                              class="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors text-left"
+                              class="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors text-left cursor-pointer"
                             >
                               <Show when={season.poster_blob_id}>
                                 <div
@@ -586,11 +645,49 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                               <span class="flex-1 font-medium text-[var(--color-text-primary)]">
                                 {seasonLabel(season)}
                               </span>
+                              <Show when={season.videos.length > 0}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleSeasonPlay(season);
+                                  }}
+                                  disabled={isPending("play")}
+                                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                  title="play season"
+                                  aria-label="play season"
+                                >
+                                  <Icon name={IconNames.play} size={14} />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleSeasonAddToQueue(season);
+                                  }}
+                                  disabled={isPending("queue")}
+                                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                  title="add season to queue"
+                                  aria-label="add season to queue"
+                                >
+                                  <Icon name={IconNames.queue} size={14} />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleSeasonShuffle(season);
+                                  }}
+                                  disabled={isPending("shuffle")}
+                                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                  title="shuffle season"
+                                  aria-label="shuffle season"
+                                >
+                                  <Icon name={IconNames.shuffle} size={14} />
+                                </button>
+                              </Show>
                               <Icon
                                 name={isExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
                                 className="text-[var(--color-text-secondary)] flex-shrink-0"
                               />
-                            </button>
+                            </div>
                             <Show when={isExpanded()}>
                               <Show when={season.description}>
                                 <p class="px-2 pt-1 text-xs text-[var(--color-text-tertiary)]">

@@ -244,6 +244,23 @@ export function VideoSeriesView() {
     navigate(buildRoute("/video/series"));
   };
 
+  // context menu for the left-column series list rows - mirrors the
+  // "all series" grid's ContextMenu usage below, just fed through
+  // VirtualItemList's getContextMenuActions instead of wrapping each card.
+  const getContextMenuActions = (item: ListItem) => {
+    const series = sortedSeries().find((s) => s.id === item.id);
+    if (!series) return [];
+
+    return useVideoSeriesContextMenu(series, [], {
+      isFavorite: favoriteStatusesQuery.data?.has(series.id) ?? false,
+      // only deselect/navigate away if the deleted row was the one open
+      // in the right column - deleting an unrelated row must not disturb it.
+      onDeleted: () => {
+        if (selectedSeriesId() === series.id) handleBack();
+      },
+    });
+  };
+
   // left column - series list
   const leftColumn = (
     <div class="flex flex-col h-full">
@@ -282,6 +299,7 @@ export function VideoSeriesView() {
                   const series = sortedSeries().find((s) => s.id === item.id);
                   if (series) handleSelectSeries(series);
                 }}
+                getContextMenuActions={getContextMenuActions}
                 onVirtualizerReady={(scrollFn) => {
                   setScrollToIndex(() => scrollFn);
 

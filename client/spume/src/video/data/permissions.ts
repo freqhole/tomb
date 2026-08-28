@@ -14,3 +14,16 @@ export function canUpdateVideo(): boolean {
   if (remote.is_charnel_managed) return true;
   return isAdmin();
 }
+
+/** can the user delete a video/series? same gate as `canUpdateVideo` -
+ * `delete_video`/`delete_video_series` are also `role: admin` server-side. */
+export function canDeleteVideo(): boolean {
+  return canUpdateVideo();
+}
+
+/** alias of `canDeleteVideo` - kept separate (mirrors
+ * music/data/permissions.ts's canDeleteAlbum/canDeleteArtist split) in
+ * case series delete ever needs its own gate. */
+export function canDeleteVideoSeries(): boolean {
+  return canUpdateVideo();
+}

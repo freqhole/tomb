@@ -28,8 +28,13 @@ export function VideoSeriesCard(props: VideoSeriesCardProps) {
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.series)}
       onContextMenu={(e) => {
+        // only intercept when a handler is actually wired up - otherwise
+        // an unconditional preventDefault() here blocks an outer
+        // ContextMenu wrapper's own listener from ever seeing the event
+        // (mirrors VideoCard.tsx's guarded version of this same handler).
+        if (!props.onContextMenu) return;
         e.preventDefault();
-        props.onContextMenu?.(e, props.series);
+        props.onContextMenu(e, props.series);
       }}
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}

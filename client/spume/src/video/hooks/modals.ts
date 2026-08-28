@@ -8,6 +8,8 @@ import { createSignal } from "solid-js";
 export interface EditVideoOptions {
   videoId: string;
   onSave?: () => void;
+  /** called after a successful delete so callers can navigate away from the now-gone video */
+  onDeleted?: () => void;
 }
 
 const [editVideoState, setEditVideoState] = createSignal<EditVideoOptions | null>(null);
@@ -28,6 +30,8 @@ export function useEditVideoState() {
 export interface EditVideoSeriesOptions {
   seriesId: string;
   onSave?: () => void;
+  /** called after a successful delete so callers can navigate away from the now-gone series */
+  onDeleted?: () => void;
 }
 
 const [editVideoSeriesState, setEditVideoSeriesState] = createSignal<EditVideoSeriesOptions | null>(
@@ -44,4 +48,29 @@ export function hideEditVideoSeries() {
 
 export function useEditVideoSeriesState() {
   return editVideoSeriesState;
+}
+
+// bulk-edit-videos modal open/close state — lets any caller (e.g. a
+// series-level context menu) open the same series/season/taxon editor
+// VideosTable.tsx's multi-select toolbar uses, without needing its own
+// locally-rendered modal instance.
+export interface BulkEditVideosOptions {
+  videoIds: string[];
+  onSuccess?: () => void;
+}
+
+const [bulkEditVideosState, setBulkEditVideosState] = createSignal<BulkEditVideosOptions | null>(
+  null
+);
+
+export function showBulkEditVideos(options: BulkEditVideosOptions) {
+  setBulkEditVideosState(options);
+}
+
+export function hideBulkEditVideos() {
+  setBulkEditVideosState(null);
+}
+
+export function useBulkEditVideosState() {
+  return bulkEditVideosState;
 }

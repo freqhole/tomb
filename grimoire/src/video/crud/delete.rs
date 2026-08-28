@@ -12,8 +12,10 @@ use sqlx::SqlitePool;
 use zod_gen_derive::ZodSchema;
 
 use super::entity_taxonz::VideoEntityType;
+use crate::blob_data::purge_blob_if_orphaned;
 use crate::database;
 use crate::error::ErrorDetail;
+use crate::media_blobz::list_renditions;
 use crate::response::GrimoireResponse;
 use crate::video::entities::{seasons, series, videos};
 
@@ -73,8 +75,29 @@ async fn cleanup_entity_side_tables(
     Ok(())
 }
 
+/// best-effort purge of one now-possibly-orphaned blob - logs and
+/// continues rather than failing the delete that triggered it. never
+/// touches a user-owned library file (see `is_app_managed_file`).
+async fn purge_blob_best_effort(blob_id: &str, deleted_by: Option<String>) {
+    if let Err(e) = purge_blob_if_orphaned(blob_id, deleted_by).await {
+        tracing::warn!(
+            blob_id = %blob_id,
+            error = %e,
+            "failed to check/purge possibly-orphaned blob after video delete"
+        );
+    }
+}
+
+async fn purge_poster_if_present(poster_blob_id: Option<&str>, deleted_by: Option<String>) {
+    if let Some(poster_blob_id) = poster_blob_id {
+        purge_blob_best_effort(poster_blob_id, deleted_by).await;
+    }
+}
+
 /// soft-delete a video and clean up its `entity_taxonz`/`playlist_itemz`/
-/// `playback_progressz` rows.
+/// `playback_progressz` rows, then best-effort purge its now-possibly-
+/// orphaned media blob, poster, and renditions (app-generated/app-data-dir
+/// files only - never a user's own library file).
 pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireResponse<()> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -86,7 +109,19 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireRespo
         }
     };
 
-    let response = videos::delete_video(id, deleted_by).await;
+    // fetch blob ids before soft-deleting so we know what to check for
+    // orphaning afterward.
+    let blob_ids: Option<(String, Option<String>)> = sqlx::query!(
+        r#"SELECT media_blob_id as "media_blob_id!", poster_blob_id FROM videoz WHERE id = ?"#,
+        id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|row| (row.media_blob_id, row.poster_blob_id));
+
+    let response = videos::delete_video(id, deleted_by.clone()).await;
     if !response.success {
         return response;
     }
@@ -96,6 +131,16 @@ pub async fn delete_video(id: &str, deleted_by: Option<String>) -> GrimoireRespo
             "Video deleted, but failed to clean up related rows",
             vec![ErrorDetail::from(e)],
         );
+    }
+
+    if let Some((media_blob_id, poster_blob_id)) = blob_ids {
+        if let Ok(renditions) = list_renditions(&media_blob_id).await {
+            for rendition in renditions {
+                purge_blob_best_effort(&rendition.id, deleted_by.clone()).await;
+            }
+        }
+        purge_blob_best_effort(&media_blob_id, deleted_by.clone()).await;
+        purge_poster_if_present(poster_blob_id.as_deref(), deleted_by).await;
     }
 
     GrimoireResponse::success_unit("Video deleted successfully")
@@ -118,6 +163,16 @@ pub async fn delete_video_season(
         }
     };
 
+    let poster_blob_id: Option<String> = sqlx::query!(
+        "SELECT poster_blob_id FROM video_seasonz WHERE id = ?",
+        season_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|row| row.poster_blob_id);
+
     let video_ids: Vec<String> = match sqlx::query_scalar!(
         r#"SELECT id as "id!" FROM videoz WHERE season_id = ? AND deleted_at IS NULL"#,
         season_id
@@ -134,16 +189,12 @@ pub async fn delete_video_season(
         }
     };
 
+    // reuse delete_video (rather than videos::delete_video directly) so
+    // each video's own blob/rendition purge happens for free.
     for video_id in &video_ids {
-        let response = videos::delete_video(video_id, deleted_by.clone()).await;
+        let response = delete_video(video_id, deleted_by.clone()).await;
         if !response.success {
             return response;
-        }
-        if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await {
-            return GrimoireResponse::failure(
-                "Season videos deleted, but failed to clean up related rows",
-                vec![ErrorDetail::from(e)],
-            );
         }
     }
 
@@ -159,6 +210,8 @@ pub async fn delete_video_season(
             vec![ErrorDetail::from(e)],
         );
     }
+
+    purge_poster_if_present(poster_blob_id.as_deref(), deleted_by).await;
 
     GrimoireResponse::success_unit("Video season deleted successfully")
 }
@@ -179,6 +232,16 @@ pub async fn delete_video_series(
             )
         }
     };
+
+    let poster_blob_id: Option<String> = sqlx::query!(
+        "SELECT poster_blob_id FROM video_seriez WHERE id = ?",
+        series_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|row| row.poster_blob_id);
 
     // every video attached to the series - season-grouped and season-less alike.
     let video_ids: Vec<String> = match sqlx::query_scalar!(
@@ -213,20 +276,28 @@ pub async fn delete_video_series(
         }
     };
 
+    // reuse delete_video so each video's own blob/rendition purge happens
+    // for free; note video_ids already covers every video under the
+    // series (season-grouped or not), so seasons below only need their
+    // own row + poster handled, not another video pass.
     for video_id in &video_ids {
-        let response = videos::delete_video(video_id, deleted_by.clone()).await;
+        let response = delete_video(video_id, deleted_by.clone()).await;
         if !response.success {
             return response;
-        }
-        if let Err(e) = cleanup_entity_side_tables(&pool, VideoEntityType::Video, video_id).await {
-            return GrimoireResponse::failure(
-                "Series videos deleted, but failed to clean up related rows",
-                vec![ErrorDetail::from(e)],
-            );
         }
     }
 
     for season_id in &season_ids {
+        let season_poster_blob_id: Option<String> = sqlx::query!(
+            "SELECT poster_blob_id FROM video_seasonz WHERE id = ?",
+            season_id
+        )
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|row| row.poster_blob_id);
+
         let response = seasons::delete_video_season(season_id).await;
         if !response.success {
             return response;
@@ -239,9 +310,11 @@ pub async fn delete_video_series(
                 vec![ErrorDetail::from(e)],
             );
         }
+
+        purge_poster_if_present(season_poster_blob_id.as_deref(), deleted_by.clone()).await;
     }
 
-    let response = series::delete_video_series(series_id, deleted_by).await;
+    let response = series::delete_video_series(series_id, deleted_by.clone()).await;
     if !response.success {
         return response;
     }
@@ -253,6 +326,8 @@ pub async fn delete_video_series(
             vec![ErrorDetail::from(e)],
         );
     }
+
+    purge_poster_if_present(poster_blob_id.as_deref(), deleted_by).await;
 
     GrimoireResponse::success_unit("Video series deleted successfully")
 }
@@ -291,6 +366,16 @@ pub async fn delete_video_series_if_unused(series_id: &str) -> GrimoireResponse<
         return GrimoireResponse::success("Video series is still in use", false);
     }
 
+    let poster_blob_id: Option<String> = sqlx::query!(
+        "SELECT poster_blob_id FROM video_seriez WHERE id = ?",
+        series_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|row| row.poster_blob_id);
+
     match sqlx::query!(
         "UPDATE video_seriez SET deleted_at = unixepoch(), updated_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
         series_id
@@ -298,7 +383,10 @@ pub async fn delete_video_series_if_unused(series_id: &str) -> GrimoireResponse<
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Video series deleted successfully", true),
+        Ok(_) => {
+            purge_poster_if_present(poster_blob_id.as_deref(), None).await;
+            GrimoireResponse::success("Video series deleted successfully", true)
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to delete video series", vec![ErrorDetail::from(e)])
         }
@@ -338,6 +426,16 @@ pub async fn delete_video_season_if_unused(season_id: &str) -> GrimoireResponse<
         return GrimoireResponse::success("Video season is still in use", false);
     }
 
+    let poster_blob_id: Option<String> = sqlx::query!(
+        "SELECT poster_blob_id FROM video_seasonz WHERE id = ?",
+        season_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|row| row.poster_blob_id);
+
     match sqlx::query!(
         "UPDATE video_seasonz SET deleted_at = unixepoch(), updated_at = unixepoch() WHERE id = ? AND deleted_at IS NULL",
         season_id
@@ -345,7 +443,10 @@ pub async fn delete_video_season_if_unused(season_id: &str) -> GrimoireResponse<
     .execute(&pool)
     .await
     {
-        Ok(_) => GrimoireResponse::success("Video season deleted successfully", true),
+        Ok(_) => {
+            purge_poster_if_present(poster_blob_id.as_deref(), None).await;
+            GrimoireResponse::success("Video season deleted successfully", true)
+        }
         Err(e) => {
             GrimoireResponse::failure("Failed to delete video season", vec![ErrorDetail::from(e)])
         }

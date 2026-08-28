@@ -11,6 +11,7 @@ import { AddMediaModal } from "../components/modals/AddMediaModal";
 import { AddRemoteModal } from "../components/modals/AddRemoteModal";
 import { AlbumEditorModal } from "../components/modals/AlbumEditorModal";
 import { ArtistEditorModal } from "../components/modals/ArtistEditorModal";
+import { BulkEditVideosModal } from "../components/modals/BulkEditVideosModal";
 import { EditVideoModal } from "../components/modals/EditVideoModal";
 import { EditVideoSeriesModal } from "../components/modals/EditVideoSeriesModal";
 import { ImageCarouselModal } from "../components/modals/ImageCarouselModal";
@@ -53,8 +54,10 @@ import {
   uploadPathsToRemote,
 } from "../music/import";
 import {
+  hideBulkEditVideos,
   hideEditVideo,
   hideEditVideoSeries,
+  useBulkEditVideosState,
   useEditVideoState,
   useEditVideoSeriesState,
 } from "../video/hooks/modals";
@@ -1303,6 +1306,7 @@ export function App() {
               state().onSave?.();
               hideEditVideo();
             }}
+            onDeleted={state().onDeleted}
           />
         )}
       </Show>
@@ -1315,6 +1319,21 @@ export function App() {
             onSave={() => {
               state().onSave?.();
               hideEditVideoSeries();
+            }}
+            onDeleted={state().onDeleted}
+          />
+        )}
+      </Show>
+
+      <Show when={useBulkEditVideosState()()}>
+        {(state) => (
+          <BulkEditVideosModal
+            isOpen={true}
+            videoIds={state().videoIds}
+            onClose={hideBulkEditVideos}
+            onSuccess={() => {
+              state().onSuccess?.();
+              hideBulkEditVideos();
             }}
           />
         )}

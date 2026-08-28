@@ -21,8 +21,9 @@ export function ArtistCard(props: ArtistCardProps) {
       class="bg-[var(--color-bg-primary)] rounded-lg p-4 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group"
       onClick={() => props.onClick?.(props.artist)}
       onContextMenu={(e) => {
+        if (!props.onContextMenu) return;
         e.preventDefault();
-        props.onContextMenu?.(e, props.artist);
+        props.onContextMenu(e, props.artist);
       }}
       onMouseEnter={() => setIsCardHovered(true)}
       onMouseLeave={() => setIsCardHovered(false)}

@@ -65,6 +65,15 @@ export async function updateLocalVideoSeries(
   await db.put(STORE_VIDEO_SERIES, updated);
 }
 
+/** hard-delete a series row from local storage - caller is responsible
+ *  for deleting/reassigning any seasons/videos that reference it first
+ *  (mirrors grimoire's `delete_video_series`, which cascades the same
+ *  way server-side; see `LocalVideoDataSource.deleteVideoSeries`). */
+export async function deleteLocalVideoSeries(seriesId: string): Promise<void> {
+  const db = await getVideoDB();
+  await db.delete(STORE_VIDEO_SERIES, seriesId);
+}
+
 export async function getLocalVideoSeriesList(params?: {
   offset?: number;
   limit?: number;

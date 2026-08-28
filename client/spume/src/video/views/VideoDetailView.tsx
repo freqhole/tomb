@@ -256,7 +256,8 @@ export function VideoDetailView() {
           {(video) => (
             <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
               {/* video info */}
-              <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
+              {/* extra top clearance below the wide-breakpoint floating nav pill (which doesn't reserve layout space) */}
+              <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
                 <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
                   {video().title}
                 </h1>
@@ -321,7 +322,12 @@ export function VideoDetailView() {
                   </Show>
                   <Show when={canUpdateVideo()}>
                     <button
-                      onClick={() => showEditVideo({ videoId: video().id })}
+                      onClick={() =>
+                        showEditVideo({
+                          videoId: video().id,
+                          onDeleted: () => navigate(buildRoute("/video")),
+                        })
+                      }
                       class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
                       title="edit video info"
                       aria-label="edit video info"

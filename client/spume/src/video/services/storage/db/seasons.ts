@@ -63,6 +63,15 @@ export async function getOrCreateLocalVideoSeason(input: {
   return createLocalVideoSeason(input);
 }
 
+/** hard-delete a season row from local storage - caller is responsible
+ *  for deleting/reassigning any videos that reference it first (mirrors
+ *  grimoire's `delete_video_season` cascade; see
+ *  `LocalVideoDataSource.deleteVideoSeries`, the only local caller). */
+export async function deleteLocalVideoSeason(seasonId: string): Promise<void> {
+  const db = await getVideoDB();
+  await db.delete(STORE_VIDEO_SEASONS, seasonId);
+}
+
 export async function updateLocalVideoSeason(
   seasonId: string,
   updates: {
