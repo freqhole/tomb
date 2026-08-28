@@ -49,4 +49,8 @@ pub struct ServerInfoResponse {
     pub fetch_precheck_enabled: Option<bool>,
     /// whether video url fetching is enabled and fully configured (fetch_video)
     pub fetch_video_enabled: Option<bool>,
+    /// true when this peer is a freqhole-player device rather than a full
+    /// grimoire-backed remote (real remotes omit this / send false). clients
+    /// use it to steer the user toward pairing instead of adding it as a remote.
+    pub player_device: Option<bool>,
 }

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   on,
   onCleanup,
@@ -39,6 +40,18 @@ import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar, type PlayerBarVideo } from "../components/player/PlayerBar";
 import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
+import { TargetSwitcherModal } from "../components/modals/TargetSwitcherModal";
+import { pairedPlayersVersion, listPairedPlayers } from "./services/players/pairedPlayers";
+import { isRemoteTargetActive } from "./services/players/activeTarget";
+import {
+  remotePause,
+  remoteResume,
+  remoteSkip,
+  remoteSetVolume,
+  remoteIsPlaying,
+  remotePositionMs,
+  setRemoteStatusPolling,
+} from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
@@ -265,6 +278,12 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageUsage, setStorageUsage] = createSignal<number>(0);
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
+
+  // phase 6: unified playback target (paired freqhole-player devices)
+  const [targetSwitcherOpen, setTargetSwitcherOpen] = createSignal(false);
+  const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
+  createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
+  onCleanup(() => setRemoteStatusPolling(false));
 
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
@@ -1493,18 +1512,36 @@ export function AppLayout(props: AppLayoutProps) {
             };
           };
 
-          const barIsPlaying = () => (isRadio() ? radioStatus() === "playing" : isPlaying());
+          const barIsPlaying = () =>
+            isRemoteTargetActive()
+              ? remoteIsPlaying()
+              : isRadio()
+                ? radioStatus() === "playing"
+                : isPlaying();
           const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
           const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
-          const barCurrentTime = () => (isRadio() ? radioElapsedMs() / 1000 : currentTime());
+          const barCurrentTime = () =>
+            isRemoteTargetActive()
+              ? remotePositionMs() / 1000
+              : isRadio()
+                ? radioElapsedMs() / 1000
+                : currentTime();
           const barDuration = () => {
-            if (isRadio()) {
+            // remote targets: player.freqhole.net's status protocol doesn't
+            // report duration yet, so this is treated like a live stream
+            // (isLiveStream below hides the seek/duration ui rather than
+            // showing a stale/wrong number - phase 6 known gap).
+            if (isRadio() || isRemoteTargetActive()) {
               return 0;
             }
             return duration();
           };
 
           const onPlayPause = () => {
+            if (isRemoteTargetActive()) {
+              void (remoteIsPlaying() ? remotePause() : remoteResume());
+              return;
+            }
             if (isRadio()) {
               if (radioStatus() === "paused") {
                 if (radioUseTimelineMode()) {
@@ -1527,10 +1564,16 @@ export function AppLayout(props: AppLayoutProps) {
             togglePlayback();
           };
           const onPrev = () => {
+            // no previous-track support in the freqhole-player control protocol yet
+            if (isRemoteTargetActive()) return;
             if (isRadio()) return; // radio has no track skip
             playPrevious();
           };
           const onNext = () => {
+            if (isRemoteTargetActive()) {
+              void remoteSkip();
+              return;
+            }
             if (isRadio()) {
               if (!canAdminSkipRadioTrack()) return;
               void requestRadioTrackSkip().catch((e) => {
@@ -1541,8 +1584,17 @@ export function AppLayout(props: AppLayoutProps) {
             playNext();
           };
           const onSeekCb = (pct: number) => {
+            // seek not supported yet for remote targets (isLiveStream hides the ui)
+            if (isRemoteTargetActive()) return;
             if (isRadio()) return; // live audio is not seekable
             handleSeek(pct);
+          };
+          const onVolumeChangeCb = (vol: number) => {
+            if (isRemoteTargetActive()) {
+              void remoteSetVolume(vol);
+              return;
+            }
+            setPlayerVolume(vol);
           };
           const onFavToggle = (songId: string) => {
             if (isRadio()) {
@@ -1706,7 +1758,7 @@ export function AppLayout(props: AppLayoutProps) {
                 onPrevious={onPrev}
                 onNext={onNext}
                 onSeek={onSeekCb}
-                onVolumeChange={setPlayerVolume}
+                onVolumeChange={onVolumeChangeCb}
                 onQueueToggle={handleQueueToggle}
                 onFavoriteToggle={onFavToggle}
                 onImageClick={onImageClick}
@@ -1717,16 +1769,23 @@ export function AppLayout(props: AppLayoutProps) {
                 showNext={!isRadio() || canAdminSkipRadioTrack()}
                 showPrevious={!isRadio()}
                 statusBadge={statusBadge()}
-                isLiveStream={isRadio()}
+                isLiveStream={isRadio() || isRemoteTargetActive()}
                 showExternalStorageIcon={externalStorageMounted()}
                 externalStorageBusy={externalStorageSyncingSignal()}
                 externalStorageProgress={externalStorageSyncProgressSignal()}
                 onExternalStorageIconClick={() => navigate("/storage-overview")}
+                showTargetSwitcherIcon={(pairedPlayers()?.length ?? 0) > 0}
+                activeTargetIsRemote={isRemoteTargetActive()}
+                onTargetSwitcherIconClick={() => setTargetSwitcherOpen(true)}
                 isVideoActive={!isRadio() && !!currentVideoData()}
                 videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
                 video={!isRadio() ? barVideo() : null}
                 isVideoFavorite={isCurrentVideoFavorite()}
                 onVideoFavoriteToggle={handleVideoFavoriteToggle}
+              />
+              <TargetSwitcherModal
+                isOpen={targetSwitcherOpen()}
+                onClose={() => setTargetSwitcherOpen(false)}
               />
             </>
           );

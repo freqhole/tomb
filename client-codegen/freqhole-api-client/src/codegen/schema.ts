@@ -6222,7 +6222,8 @@ export const ServerInfoResponseSchema = z.object({
   audiodb_enabled: z.boolean().nullish(),
   passkey_p2p_enabled: z.boolean().nullish(),
   fetch_precheck_enabled: z.boolean().nullish(),
-  fetch_video_enabled: z.boolean().nullish()
+  fetch_video_enabled: z.boolean().nullish(),
+  player_device: z.boolean().nullish()
 });
 export type ServerInfoResponse = z.infer<typeof ServerInfoResponseSchema>;
 

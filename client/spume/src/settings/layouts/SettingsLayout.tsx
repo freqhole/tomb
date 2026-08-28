@@ -15,6 +15,7 @@ interface SettingsNavItem {
 const navItems: SettingsNavItem[] = [
   { path: "/settings/storage", label: "storage", icon: "" },
   { path: "/settings/remotes", label: "remotes", icon: "" },
+  { path: "/settings/players", label: "players", icon: "" },
   { path: "/settings/admin-knocks", label: "pending knocks", icon: "" },
   { path: "/settings/federation", label: "federation", icon: "" },
   { path: "/settings/logz", label: "logz", icon: "" },
@@ -24,9 +25,10 @@ const navItems: SettingsNavItem[] = [
 ];
 
 // items that are hidden in charnel/tauri mode because the charnel wizard
-// handles them. (kept here as a placeholder — empty for now since the
-// removed `/settings/radio` page is gone entirely.)
-const CHARNEL_HIDES_PATHS = new Set<string>([]);
+// handles them, or because the feature needs the browser wasm p2p
+// transport (players pairing dials directly via getMiddenNode(), which
+// throws under charnel/tauri - see playerPairingClient.ts).
+const CHARNEL_HIDES_PATHS = new Set<string>(["/settings/players"]);
 
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();

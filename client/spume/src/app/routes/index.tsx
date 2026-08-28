@@ -43,6 +43,7 @@ import {
   PendingKnocksView,
   UserProfileView,
   LinkDeviceView,
+  PairedPlayersView,
 } from "../../settings";
 import { isCharnelMode } from "../services/charnel";
 import { getDefaultRoute } from "../../music/utils/routing";
@@ -130,6 +131,7 @@ export function routes(props: RoutesProps) {
         <Route path="/admin-knocks" component={PendingKnocksView} />
         <Route path="/federation" component={FederationSettingsView} />
         <Route path="/radio" component={RadioSettingsView} />
+        <Route path="/players" component={PairedPlayersView} />
         <Route path="/logz" component={LogzSettingsView} />
         {/* redirect /settings to /settings/storage */}
         <Route

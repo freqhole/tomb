@@ -29,7 +29,9 @@ export async function renderPlayerQr(
 ): Promise<string> {
   const canvas = document.createElement("canvas");
   await QRCode.toCanvas(canvas, encodePlayerQrPayload(payload), {
-    width: 360,
+    // rendered large so it stays crisp when stretched to fill most of the
+    // screen (see App.tsx's pairing-qr sizing).
+    width: 960,
     margin: 2,
     errorCorrectionLevel: "H",
     color: { dark: QR_DARK, light: QR_LIGHT },

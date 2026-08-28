@@ -7,3 +7,14 @@ body {
     -apple-system,
     sans-serif;
 }
+
+/* "up next" queue row loading indicator - see App.tsx's queue-list rows */
+@keyframes bounce-bar {
+  0%,
+  100% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+}

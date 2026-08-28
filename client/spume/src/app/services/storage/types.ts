@@ -169,7 +169,7 @@ export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 9; // added video_queue_history store
+export const APP_DB_VERSION = 10; // added paired_players store
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -180,6 +180,7 @@ export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
 export const STORE_VIDEO_QUEUE_HISTORY = "video_queue_history"; // capped at 200 entries by videoQueueHistory.ts
+export const STORE_PAIRED_PLAYERS = "paired_players";
 
 export type SharedItemKind =
   "album" | "playlist" | "song" | "artist" | "radio_station" | "video" | "video_series";
@@ -198,6 +199,17 @@ export interface SharedItemEntry {
   first_seen_at: number;
   last_seen_at: number;
   seen_count: number;
+}
+
+// a paired freqhole-player device (a `player.freqhole.net`-style p2p
+// playback target), NOT a `Remote` - a paired player has no HTTP/admin api
+// surface, so it's kept out of the Remote discriminated union entirely
+// (see docs/player-remote-site-plan.md phase 5 for the rationale).
+export interface PairedPlayer {
+  node_id: string;
+  display_name: string;
+  paired_at: number;
+  last_used_at: number | null;
 }
 
 // radio history entry — one per (station, song_id) transition observed by

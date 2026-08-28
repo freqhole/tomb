@@ -122,6 +122,13 @@ export interface PlayerBarProps {
   externalStorageProgress?: { current: number; total: number } | null;
   /** callback when the removable-storage icon is clicked (opens the storage overview). */
   onExternalStorageIconClick?: () => void;
+  /** show the playback-target switcher icon slot (phase 6 - only when at
+   * least one player is paired). */
+  showTargetSwitcherIcon?: boolean;
+  /** whether the active target is a remote paired player (tints the icon). */
+  activeTargetIsRemote?: boolean;
+  /** callback when the target-switcher icon is clicked (opens the target picker). */
+  onTargetSwitcherIconClick?: () => void;
   /** whether the active backend is playing video (mounts `videoElement`
    * into the thumbnail slot + shows a fullscreen toggle, instead of the
    * usual song artwork). */
@@ -466,6 +473,25 @@ export function PlayerBar(props: PlayerBarProps) {
             </div>
           </Show>
 
+          {/* playback-target switcher icon */}
+          <Show when={props.showTargetSwitcherIcon}>
+            <button
+              class="w-8 h-8 rounded-full border-none cursor-pointer transition-colors flex items-center justify-center flex-shrink-0"
+              classList={{
+                "bg-[var(--color-accent-500)]/30 text-[var(--color-accent-500)]":
+                  !!props.activeTargetIsRemote,
+                "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30":
+                  !props.activeTargetIsRemote,
+              }}
+              onClick={() => props.onTargetSwitcherIconClick?.()}
+              title="play on..."
+              aria-label="playback target"
+              data-testid="target-switcher-icon"
+            >
+              <Icon name={IconNames.radioTower} size={16} />
+            </button>
+          </Show>
+
           {/* thumbnail */}
           <Show
             when={props.isVideoActive && props.videoElement}
@@ -700,6 +726,25 @@ export function PlayerBar(props: PlayerBarProps) {
                   )}
                 </Show>
               </div>
+            </Show>
+
+            {/* playback-target switcher icon */}
+            <Show when={props.showTargetSwitcherIcon}>
+              <button
+                class="w-10 h-10 rounded-full border-none cursor-pointer transition-colors flex items-center justify-center flex-shrink-0"
+                classList={{
+                  "bg-[var(--color-accent-500)]/30 text-[var(--color-accent-500)]":
+                    !!props.activeTargetIsRemote,
+                  "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30":
+                    !props.activeTargetIsRemote,
+                }}
+                onClick={() => props.onTargetSwitcherIconClick?.()}
+                title="play on..."
+                aria-label="playback target"
+                data-testid="target-switcher-icon"
+              >
+                <Icon name={IconNames.radioTower} size={20} />
+              </button>
             </Show>
 
             {/* thumbnail */}

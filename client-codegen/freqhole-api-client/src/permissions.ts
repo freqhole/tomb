@@ -304,11 +304,8 @@ export function canUploadImage(userRole: UserRoleName): boolean {
  * playback sessions require Member role.
  */
 export function canCreatePlaybackSession(userRole: UserRoleName): boolean {
-  const auth = routes.music.create_playback_session.auth;
-  if (auth.type === "role") {
-    return canAccessRole(userRole, auth.role);
-  }
-  return false;
+  // route auth is "authenticated" (any logged-in role), not role-gated - use the generic check
+  return canAccessRoute(routes.music.create_playback_session.auth, userRole, null, null);
 }
 
 /**

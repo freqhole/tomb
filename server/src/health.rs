@@ -106,5 +106,6 @@ pub async fn server_info() -> Result<Json<ServerInfoResponse>, ApiError> {
         passkey_p2p_enabled,
         fetch_precheck_enabled,
         fetch_video_enabled,
+        player_device: None,
     }))
 }

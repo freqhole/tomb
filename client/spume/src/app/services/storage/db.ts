@@ -16,6 +16,7 @@ import {
   STORE_RADIO_HISTORY,
   STORE_SHARED_ITEMS,
   STORE_VIDEO_QUEUE_HISTORY,
+  STORE_PAIRED_PLAYERS,
   type AppState,
   type GraphPrefs,
   type P2PIdentity,
@@ -106,6 +107,14 @@ async function initAppDB(): Promise<IDBPDatabase> {
           keyPath: "id",
         });
         videoHistoryStore.createIndex("by_queued_at", "queued_at");
+      }
+
+      // create paired_players store (v10)
+      if (!db.objectStoreNames.contains(STORE_PAIRED_PLAYERS)) {
+        const pairedPlayersStore = db.createObjectStore(STORE_PAIRED_PLAYERS, {
+          keyPath: "node_id",
+        });
+        pairedPlayersStore.createIndex("by_paired_at", "paired_at");
       }
     },
   });

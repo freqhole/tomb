@@ -18,6 +18,10 @@ import {
 // full grimoire-admin relationship).
 export const PLAYER_ALPN = "freqhole-player/1";
 
+// midden registers this on every node by default (see lib/midden/src/lib.rs) -
+// it's the ALPN spume's regular "add remote" flow probes for server info.
+export const FREQHOLE_ALPN = "freqhole/1";
+
 const IDB_DATABASE_NAME = "freqhole_player";
 const IDB_STORE_NAME = "identity";
 
@@ -37,12 +41,14 @@ export async function getPlayerNode(): Promise<MiddenNode> {
   nodePromise = (async (): Promise<MiddenNode> => {
     const existing = await resolveIdentity(identityStore);
 
+    const options = new MiddenNodeOptions();
+    options.extra_alpns = [PLAYER_ALPN];
+
     let created: MiddenNode;
     if (existing) {
-      created = await MiddenNode.create_from_key(existing.secret_key);
+      options.secret_key = existing.secret_key;
+      created = await MiddenNode.create_with_options(options);
     } else {
-      const options = new MiddenNodeOptions();
-      options.extra_alpns = [PLAYER_ALPN];
       created = await MiddenNode.create_with_options(options);
       await persistIdentity(
         {
@@ -54,10 +60,14 @@ export async function getPlayerNode(): Promise<MiddenNode> {
       );
     }
 
-    // accept inbound iroh-blobs transfers (e.g. so a controller/remote can
-    // pull cached media back off this player) as well as our own control
-    // ALPN, handled separately below via acceptLoop().
-    created.start_blob_server();
+    // NOTE: deliberately do NOT call created.start_blob_server() here.
+    // node.accept() (driven by acceptLoop.ts) already handles incoming
+    // iroh-blobs connections internally before returning anything to JS -
+    // calling both would race two independent accept loops for the same
+    // incoming connections, and start_blob_server()'s loop silently drops
+    // any non-iroh-blobs ALPN (like our own freqhole-player/1) it wins
+    // that race for. see lib/midden/src/lib.rs's accept()/start_blob_server()
+    // doc comments.
 
     node = created;
     return created;
