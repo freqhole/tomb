@@ -548,7 +548,25 @@ pub fn run() {
                     .title("freqhole setup")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
-                let _wizard = wizard_builder.build()?;
+
+                #[cfg(target_os = "macos")]
+                let wizard_builder = if app_config.chromeless_title_bar {
+                    wizard_builder.decorations(false)
+                } else {
+                    wizard_builder.title_bar_style(TitleBarStyle::Transparent)
+                };
+
+                let wizard = wizard_builder.build()?;
+
+                // tao's Borderless style mask (used for decorations(false))
+                // never includes Closable, which silently disables cmd+w /
+                // the app-menu close item (macOS beeps instead) - add it
+                // back. unconditional - see wizard.rs for why.
+                #[cfg(target_os = "macos")]
+                {
+                    let result = wizard.set_closable(true);
+                    tracing::info!(?result, "first-run wizard: set_closable(true) called");
+                }
 
                 // wizard will start server when setup completes
             } else {
@@ -689,12 +707,28 @@ pub fn run() {
                     .background_color(Color(0, 0, 0, 255));
 
                 #[cfg(target_os = "macos")]
-                let win_builder = win_builder.title_bar_style(TitleBarStyle::Transparent);
+                let win_builder = if app_config.chromeless_title_bar {
+                    win_builder.decorations(false)
+                } else {
+                    win_builder.title_bar_style(TitleBarStyle::Transparent)
+                };
 
                 let window = win_builder.build()?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (native window visible from here)");
                 // suppress unused variable warning on non-macOS
                 let _ = &window;
+
+                // tao's Borderless style mask (used for decorations(false))
+                // never includes Closable, which silently disables cmd+w /
+                // the app-menu close item (macOS beeps instead) - add it
+                // back. unconditional (not just when chromeless) and logged -
+                // this is the main window builder used on every regular
+                // (non-first-run) launch, previously missing both.
+                #[cfg(target_os = "macos")]
+                {
+                    let result = window.set_closable(true);
+                    tracing::info!(?result, "main window: set_closable(true) called");
+                }
 
                 // set background color only when building for macOS
                 #[cfg(target_os = "macos")]
@@ -751,6 +785,14 @@ pub fn run() {
     let builder = builder.plugin(
         tauri_plugin_window_state::Builder::new()
             .with_denylist(&["setup-wizard"])
+            // exclude DECORATIONS: otherwise this restores whatever
+            // `decorated` value was saved to .window-state.json on a
+            // previous run, silently overriding our config-driven
+            // decorations(false)/title_bar_style choice above every launch.
+            .with_state_flags(
+                tauri_plugin_window_state::StateFlags::all()
+                    - tauri_plugin_window_state::StateFlags::DECORATIONS,
+            )
             .build(),
     );
 
@@ -788,6 +830,9 @@ pub fn run() {
             // app config settings
             commands::get_sync_queue_to_local,
             commands::set_sync_queue_to_local,
+            commands::get_chromeless_title_bar,
+            commands::set_chromeless_title_bar,
+            commands::is_macos_platform,
             commands::get_rodio_playback,
             commands::set_rodio_playback,
             external_storage::commands::external_storage_command,

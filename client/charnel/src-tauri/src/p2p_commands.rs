@@ -53,7 +53,9 @@ const CONNECTION_ERROR_SUBSTRINGS: &[&str] = &[
 /// text-pattern fallback - see `CONNECTION_ERROR_SUBSTRINGS` doc comment.
 fn is_connection_error_text_fallback(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
-    CONNECTION_ERROR_SUBSTRINGS.iter().any(|s| lower.contains(s))
+    CONNECTION_ERROR_SUBSTRINGS
+        .iter()
+        .any(|s| lower.contains(s))
 }
 
 /// check if a p2p failure indicates a connection failure (peer likely

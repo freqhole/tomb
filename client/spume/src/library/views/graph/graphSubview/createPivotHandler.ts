@@ -4,6 +4,8 @@ import type {
   AlbumNodeData,
   ArtistNodeData,
   VideoNodeData,
+  VideoSeriesNodeData,
+  VideoSeasonNodeData,
 } from "../../../../components/graph/types";
 import type { GraphDriver } from "../../../../components/graph/drivers/GraphDriver";
 import type { WalkNode, WalkEdge } from "../../../../components/graph/types";
@@ -20,6 +22,7 @@ import {
   albumNodeId,
   videoNodeId,
   videoSeriesNodeId,
+  videoSeasonNodeId,
   ghostArtistId,
   type RelationKind,
 } from "../../../../components/graph/data/nodeIds";
@@ -55,6 +58,12 @@ export interface PivotHandlerDeps {
   /** video counterpart of appendAlbumsToRemote, used by the video taxon-hub
    *  pivot loaders below. */
   appendVideosToRemote: (remoteId: string, incoming: VideoNodeData[]) => number;
+  /** series/season counterparts of appendVideosToRemote - used so a series/
+   *  season reached only via search/pivot (never part of the fixed initial
+   *  page-1 prefetch in loadVideosForRemote) still gets its real title/
+   *  poster instead of staying stuck on a bare navigational stub. */
+  appendVideoSeriesToRemote: (remoteId: string, incoming: VideoSeriesNodeData[]) => number;
+  appendVideoSeasonsToRemote: (remoteId: string, incoming: VideoSeasonNodeData[]) => number;
   /** which graph domains (music/video) are currently toggled on. video pivot
    *  loaders skip network fetches entirely when video is off. */
   activeDomains: () => Set<GraphDomain>;
@@ -100,6 +109,8 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     appendAlbumsToRemote,
     videosByRemote,
     appendVideosToRemote,
+    appendVideoSeriesToRemote,
+    appendVideoSeasonsToRemote,
     activeDomains,
     setFetchingNodeFlag,
     recordRelatedEdge,
@@ -442,7 +453,8 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           // taxon tagged only on videos (album_count 0) must still
           // render so maybeLoadVideosForPivot has a node to fan out from.
           const combinedCount = item.album_count + item.video_count;
-          if (!isGroup && combinedCount <= 0 && !editMode?.()) continue;
+          const wouldSkip = !isGroup && combinedCount <= 0 && !editMode?.();
+          if (wouldSkip) continue;
           const taxonNodeId = isGroup
             ? groupNodeId(remoteId, kind, item.label)
             : valueNodeId(remoteId, kind, item.label);
@@ -713,6 +725,12 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           adaptQueryAlbumItem(item, remote)
         );
         appendAlbumsToRemote(remoteId, adapted);
+        // merge real (if minimal) album/artist nodes alongside their edges
+        // in the SAME call - unlike the taxon-value/artist branches above,
+        // an era bin's albums have no pre-merged stub, so an edges-only
+        // merge here would hit the same silently-dropped-leaf bug (see the
+        // matching comment on maybeLoadAlbumsForPivot's value branch).
+        const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
         const prefix = `${remoteId}::`;
         const seenArtists = new Set<string>();
@@ -720,19 +738,29 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           const bareAlbumId = album.id.startsWith(prefix)
             ? album.id.slice(prefix.length)
             : album.id;
-          addEdges.push({
-            source: nodeId,
-            target: `album::${remoteId}::${bareAlbumId}`,
+          const albumNodeId = `album::${remoteId}::${bareAlbumId}`;
+          addNodes.push({
+            id: albumNodeId,
+            role: "album",
+            label: album.title,
+            parentId: nodeId,
+            childCount: 0,
           });
+          addEdges.push({ source: nodeId, target: albumNodeId });
           if (album.artistId && !seenArtists.has(album.artistId)) {
             seenArtists.add(album.artistId);
-            addEdges.push({
-              source: nodeId,
-              target: `artist::${remoteId}::${album.artistId}`,
+            const artistNId = `artist::${remoteId}::${album.artistId}`;
+            addNodes.push({
+              id: artistNId,
+              role: "artist",
+              label: album.artistName,
+              parentId: nodeId,
+              childCount: 0,
             });
+            addEdges.push({ source: nodeId, target: artistNId });
           }
         }
-        walkerClient()?.merge([], addEdges);
+        if (addNodes.length > 0 || addEdges.length > 0) walkerClient()?.merge(addNodes, addEdges);
         eraBinAlbumsLoadedByHub.add(nodeId);
       } catch (err) {
         console.warn("lazy era-bin albums fetch failed", { nodeId, err });
@@ -788,6 +816,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         const adaptedVideos = rawVideos.map((v) => videoToNodeData(v, remoteId));
         if (adaptedVideos.length > 0) appendVideosToRemote(remoteId, adaptedVideos);
         const rhId = remoteHubId(remoteId);
+        // merge real (if minimal) album/artist/video nodes alongside their
+        // edges in the SAME call - an edges-only merge here would hit the
+        // same silently-dropped-leaf bug as maybeLoadAlbumsForPivot's value
+        // branch (see the matching comment there), since these albums/
+        // videos have no pre-merged stub.
         const addNodes: WalkNode[] = [
           {
             id: relHubId,
@@ -805,20 +838,43 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           const bareAlbumId = album.id.startsWith(prefix)
             ? album.id.slice(prefix.length)
             : album.id;
+          const albumNodeIdStr = `album::${remoteId}::${bareAlbumId}`;
+          addNodes.push({
+            id: albumNodeIdStr,
+            role: "album",
+            label: album.title,
+            parentId: relHubId,
+            childCount: 0,
+          });
           addEdges.push({
             source: relHubId,
-            target: `album::${remoteId}::${bareAlbumId}`,
+            target: albumNodeIdStr,
           });
           if (album.artistId && !seenArtists.has(album.artistId)) {
             seenArtists.add(album.artistId);
+            const artistNodeIdStr = `artist::${remoteId}::${album.artistId}`;
+            addNodes.push({
+              id: artistNodeIdStr,
+              role: "artist",
+              label: album.artistName,
+              parentId: relHubId,
+              childCount: 0,
+            });
             addEdges.push({
               source: relHubId,
-              target: `artist::${remoteId}::${album.artistId}`,
+              target: artistNodeIdStr,
             });
           }
         }
         const seenSeries = new Set<string>();
         for (const video of adaptedVideos) {
+          addNodes.push({
+            id: video.id,
+            role: "video",
+            label: video.title,
+            parentId: relHubId,
+            childCount: 0,
+          });
           addEdges.push({ source: relHubId, target: video.id });
           if (video.seriesId && !seenSeries.has(video.seriesId)) {
             seenSeries.add(video.seriesId);
@@ -1064,6 +1120,11 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         const prefix = `${remoteId}::`;
         const seenArtists = new Set<string>();
         const pageNodeIds: string[] = [];
+        // merge real (if minimal) album/artist/video nodes alongside their
+        // edges in the SAME call - an edges-only merge here would hit the
+        // same silently-dropped-leaf bug as maybeLoadAlbumsForPivot's value
+        // branch (see the matching comment there), since these albums/
+        // videos have no pre-merged stub.
         if (consumed > 0) {
           const adapted: AlbumNodeData[] = taken.map((item) => adaptQueryAlbumItem(item, remote));
           appendAlbumsToRemote(remoteId, adapted);
@@ -1072,11 +1133,25 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
               ? album.id.slice(prefix.length)
               : album.id;
             const albumNodeId = `album::${remoteId}::${bareAlbumId}`;
+            addNodes.push({
+              id: albumNodeId,
+              role: "album",
+              label: album.title,
+              parentId: relHubId,
+              childCount: 0,
+            });
             addEdges.push({ source: relHubId, target: albumNodeId });
             pageNodeIds.push(albumNodeId);
             if (album.artistId && !seenArtists.has(album.artistId)) {
               seenArtists.add(album.artistId);
               const artistNodeIdStr = `artist::${remoteId}::${album.artistId}`;
+              addNodes.push({
+                id: artistNodeIdStr,
+                role: "artist",
+                label: album.artistName,
+                parentId: relHubId,
+                childCount: 0,
+              });
               addEdges.push({ source: relHubId, target: artistNodeIdStr });
               pageNodeIds.push(artistNodeIdStr);
             }
@@ -1097,6 +1172,13 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
               if (adaptedVideos.length > 0) appendVideosToRemote(remoteId, adaptedVideos);
               const seenSeries = new Set<string>();
               for (const video of adaptedVideos) {
+                addNodes.push({
+                  id: video.id,
+                  role: "video",
+                  label: video.title,
+                  parentId: relHubId,
+                  childCount: 0,
+                });
                 addEdges.push({ source: relHubId, target: video.id });
                 if (video.seriesId && !seenSeries.has(video.seriesId)) {
                   seenSeries.add(video.seriesId);
@@ -1193,7 +1275,9 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         await maybeLoadTaxonsForPivot(relHubId);
       }
       filters = filterForValuePivot(relHubId, parsed.relationKind, parsed.valueSlug);
-      if (!filters) return;
+      if (!filters) {
+        return;
+      }
     } else {
       filters = { artist_id: parsed.artistId };
     }
@@ -1214,7 +1298,15 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
         favorites_only: null,
         min_rating: null,
       });
-      if (!result.success || !result.data) return;
+      if (!result.success || !result.data) {
+        // don't leave this pivot permanently marked "loaded" on a non-
+        // throwing failure response (e.g. transient auth/remote hiccup) -
+        // only the thrown-error catch branch below used to clear this,
+        // so a soft failure here would silently block every future
+        // retry (including plain clicks) until a full walker reinit.
+        albumsLoadedByPivot.delete(nodeId);
+        return;
+      }
       const adapted: AlbumNodeData[] = [];
       for (const item of result.data.items) {
         adapted.push(adaptQueryAlbumItem(item, remote));
@@ -1223,8 +1315,59 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       if (parsed.kind === "value") {
         const remoteId = parsed.remoteId;
         const prefix = `${remoteId}::`;
+        // merge real (if minimal) album/artist nodes alongside their edges
+        // in this SAME call - relying only on appendAlbumsToRemote() +
+        // the separate buildResult()-diffing effect to backfill these
+        // node ids into the worker is racy: that effect flushes on a
+        // later solidjs tick, so an edges-only merge lands first and
+        // getVisible() silently drops any edge whose target isn't in
+        // nodeMap yet, permanently hiding the leaf until an unrelated
+        // later pivot happens to re-run getVisible() after the real
+        // merge finally lands.
+        const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
         const seenArtists = new Set<string>();
+        for (const album of adapted) {
+          const bareAlbumId = album.id.startsWith(prefix)
+            ? album.id.slice(prefix.length)
+            : album.id;
+          const albumNodeId = `album::${remoteId}::${bareAlbumId}`;
+          addNodes.push({
+            id: albumNodeId,
+            role: "album",
+            label: album.title,
+            parentId: nodeId,
+            childCount: 0,
+          });
+          addEdges.push({ source: nodeId, target: albumNodeId });
+          if (album.artistId && !seenArtists.has(album.artistId)) {
+            seenArtists.add(album.artistId);
+            const artistNId = `artist::${remoteId}::${album.artistId}`;
+            addNodes.push({
+              id: artistNId,
+              role: "artist",
+              label: album.artistName,
+              parentId: nodeId,
+              childCount: 0,
+            });
+            addEdges.push({ source: nodeId, target: artistNId });
+          }
+        }
+        if (addNodes.length > 0 || addEdges.length > 0) walkerClient()?.merge(addNodes, addEdges);
+      } else if (parsed.kind === "artist") {
+        // parity with the "value" branch above: a search-seeded stub leaf
+        // (see planForSuggestion/pivotToTaxonNode in LibraryGraphSubview.tsx)
+        // merges only a bare stub edge (artist -> album, no image data) up
+        // front, then relies on THIS fetch to bring in the real, image-
+        // bearing album node. without also merging real artist -> album
+        // edges here, the walker's own graph state never gets the durable
+        // edge tying the two together beyond that initial stub - so a
+        // later reset (e.g. re-pivoting to root and back) can leave the
+        // leaf disconnected/stale even though appendAlbumsToRemote() above
+        // already has the fully-adapted (image-bearing) data available.
+        const remoteId = parsed.remoteId;
+        const prefix = `${remoteId}::`;
+        const addEdges: WalkEdge[] = [];
         for (const album of adapted) {
           const bareAlbumId = album.id.startsWith(prefix)
             ? album.id.slice(prefix.length)
@@ -1233,13 +1376,6 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             source: nodeId,
             target: `album::${remoteId}::${bareAlbumId}`,
           });
-          if (album.artistId && !seenArtists.has(album.artistId)) {
-            seenArtists.add(album.artistId);
-            addEdges.push({
-              source: nodeId,
-              target: `artist::${remoteId}::${album.artistId}`,
-            });
-          }
         }
         if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
       }
@@ -1321,13 +1457,31 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
           limit: 500,
           offset: 0,
         });
-        if (!result.success || !result.data) return;
+        if (!result.success || !result.data) {
+          return;
+        }
         const remoteId = parsed.remoteId;
         const adapted = result.data.videos.map((v) => videoToNodeData(v, remoteId));
         appendVideosToRemote(remoteId, adapted);
+        // merge real (if minimal) video nodes alongside their edges in
+        // this SAME call - see the matching comment in the value branch
+        // of maybeLoadAlbumsForPivot above for why an edges-only merge
+        // here silently hid these leaves on a cold (first-search) pivot.
+        // series nodes stay edges-only (as before): we don't have the
+        // series title here, and a blank-label stub would permanently
+        // block the real, titled series node merged later by the
+        // buildResult()-diffing effect (worker dedupes merges by id).
+        const addNodes: WalkNode[] = [];
         const addEdges: WalkEdge[] = [];
         const seenSeries = new Set<string>();
         for (const video of adapted) {
+          addNodes.push({
+            id: video.id,
+            role: "video",
+            label: video.title,
+            parentId: nodeId,
+            childCount: 0,
+          });
           addEdges.push({ source: nodeId, target: video.id });
           if (video.seriesId && !seenSeries.has(video.seriesId)) {
             seenSeries.add(video.seriesId);
@@ -1337,7 +1491,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
             });
           }
         }
-        if (addEdges.length > 0) walkerClient()?.merge([], addEdges);
+        if (addNodes.length > 0 || addEdges.length > 0) walkerClient()?.merge(addNodes, addEdges);
         videosLoadedByPivot.add(nodeId);
       } catch (err) {
         console.warn("lazy video fetch failed", { nodeId, err });
@@ -1347,6 +1501,122 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
       }
     })();
     videoFetchPromises.set(nodeId, promise);
+    return promise;
+  };
+
+  // dedup + in-flight tracking for the video_series/video_season episode
+  // loader below.
+  const episodesLoadedByPivot = new Set<string>();
+  const episodesFetchPromises = new Map<string, Promise<void>>();
+
+  // lazy episode loader for video_series/video_season pivots. unlike
+  // taxon value/group pivots (maybeLoadVideosForPivot above), a series/
+  // season node has no dedicated fan-out loader anywhere else - it only
+  // ever gets a bare stub node from planForSuggestion/pivotToTaxonNode
+  // (see LibraryGraphSubview.tsx), so without this its episodes only
+  // ever appear as an accidental side effect of some unrelated taxon-
+  // value fetch that happened to include one of its videos. fetches the
+  // full episode list directly via listVideosBySeries/listVideosBySeason
+  // and merges real video nodes alongside their edges in the SAME call
+  // (see the matching comment on maybeLoadAlbumsForPivot's value branch
+  // for why an edges-only merge would silently drop these leaves).
+  //
+  // also fetches the series'/season's OWN metadata (title, poster) via
+  // getVideoSeries/getVideoSeason. this node's title/image comes from
+  // buildWalkGraph's videoNodesById, which is derived entirely from
+  // videoSeriesByRemote/videoSeasonsByRemote - and those are otherwise
+  // only populated by loadVideosForRemote's fixed page-1 (200 item)
+  // prefetch. a series/season reached via search that isn't on that
+  // first page would otherwise be stuck forever on the title-only,
+  // image-less stub merged by planForSuggestion/pivotToTaxonNode.
+  const maybeLoadEpisodesForSeries = async (nodeId: string): Promise<void> => {
+    if (!activeDomains().has("video")) return;
+    let parsed: ReturnType<typeof parseNodeId>;
+    try {
+      parsed = parseNodeId(nodeId);
+    } catch {
+      return;
+    }
+    if (parsed.kind !== "video_series" && parsed.kind !== "video_season") return;
+    if (episodesLoadedByPivot.has(nodeId)) return;
+    const inFlight = episodesFetchPromises.get(nodeId);
+    if (inFlight) return inFlight;
+    if (offlineByRemote().get(parsed.remoteId) === true) return;
+    const remote = remotes().find((r) => r.remote_id === parsed.remoteId);
+    if (!remote) return;
+    const promise = (async () => {
+      setFetchingNodeFlag(nodeId, true);
+      try {
+        const client = await getClientForRemote(remote);
+        const remoteId = parsed.remoteId;
+        let episodesData: ApiVideo[] = [];
+        if (parsed.kind === "video_series") {
+          const [episodesResult, detailResult] = await Promise.all([
+            client.video.listVideosBySeries({ series_id: parsed.seriesId }),
+            client.video.getVideoSeries({ id: parsed.seriesId }),
+          ]);
+          if (episodesResult.success && episodesResult.data) episodesData = episodesResult.data;
+          if (detailResult.success && detailResult.data) {
+            const s = detailResult.data;
+            appendVideoSeriesToRemote(remoteId, [
+              {
+                id: videoSeriesNodeId(remoteId, s.id),
+                kind: "video_series",
+                seriesId: s.id,
+                title: s.title,
+                posterBlobId: s.poster_blob_id ?? null,
+                remoteServerId: remoteId,
+                videoCount: episodesData.length,
+              },
+            ]);
+          }
+        } else {
+          const [episodesResult, detailResult] = await Promise.all([
+            client.video.listVideosBySeason({ season_id: parsed.seasonId }),
+            client.video.getVideoSeason({ id: parsed.seasonId }),
+          ]);
+          if (episodesResult.success && episodesResult.data) episodesData = episodesResult.data;
+          if (detailResult.success && detailResult.data) {
+            const s = detailResult.data;
+            appendVideoSeasonsToRemote(remoteId, [
+              {
+                id: videoSeasonNodeId(remoteId, s.id),
+                kind: "video_season",
+                seasonId: s.id,
+                seriesId: s.series_id,
+                title: s.title ?? `season ${s.season_number}`,
+                seasonNumber: s.season_number,
+                posterBlobId: s.poster_blob_id ?? null,
+                remoteServerId: remoteId,
+                videoCount: episodesData.length,
+              },
+            ]);
+          }
+        }
+        const adapted = episodesData.map((v) => videoToNodeData(v, remoteId));
+        appendVideosToRemote(remoteId, adapted);
+        const addNodes: WalkNode[] = [];
+        const addEdges: WalkEdge[] = [];
+        for (const video of adapted) {
+          addNodes.push({
+            id: video.id,
+            role: "video",
+            label: video.title,
+            parentId: nodeId,
+            childCount: 0,
+          });
+          addEdges.push({ source: nodeId, target: video.id });
+        }
+        if (addNodes.length > 0 || addEdges.length > 0) walkerClient()?.merge(addNodes, addEdges);
+        episodesLoadedByPivot.add(nodeId);
+      } catch (err) {
+        console.warn("lazy series/season episode fetch failed", { nodeId, err });
+      } finally {
+        setFetchingNodeFlag(nodeId, false);
+        episodesFetchPromises.delete(nodeId);
+      }
+    })();
+    episodesFetchPromises.set(nodeId, promise);
     return promise;
   };
 
@@ -1600,6 +1870,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     void maybeLoadBelovedForPivot(nodeId);
     void maybeLoadAlbumsForPivot(nodeId);
     void maybeLoadVideosForPivot(nodeId);
+    void maybeLoadEpisodesForSeries(nodeId);
     void maybeLoadRelatedArtistsForPivot(nodeId);
     void maybeLoadRelationsForEntityPivot(nodeId);
   };
@@ -1657,6 +1928,8 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     unassignedVideosLoadedByHub.clear();
     videosLoadedByPivot.clear();
     videoFetchPromises.clear();
+    episodesLoadedByPivot.clear();
+    episodesFetchPromises.clear();
     belovedLoadedByHub.clear();
     belovedFetchPromises.clear();
     relatedArtistsLoadedByPivot.clear();
@@ -1673,6 +1946,7 @@ export function createPivotHandler(deps: PivotHandlerDeps) {
     maybeLoadTaxonsForPivot,
     maybeLoadAlbumsForPivot,
     maybeLoadVideosForPivot,
+    maybeLoadEpisodesForSeries,
     maybeLoadRelatedArtistsForPivot,
     reloadUnassignedPage,
     resetMergedState,

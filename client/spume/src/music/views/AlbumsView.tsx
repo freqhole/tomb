@@ -472,21 +472,16 @@ export function AlbumsView(props: AlbumsViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      {/* view-mode switcher — inline above table mode only.
-          in grid mode the switcher floats over the grid (see below) so
-          the album grid can fill the full viewport height. */}
-      <Show when={!!currentRemote() && viewMode() === "table"}>
-        <div class="flex items-center justify-end gap-3 px-4 pt-3 pb-2 flex-wrap">
-          <MbProgressStrip />
-          {viewModeSwitcher()}
-        </div>
-      </Show>
-
       {/* album grid or table */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
-        {/* floating switcher overlay — grid mode only, top-right */}
-        <Show when={!!currentRemote() && viewMode() === "grid"}>
-          <div class="absolute top-2 right-4 z-20">{viewModeSwitcher()}</div>
+        {/* floating switcher overlay - both grid and table modes, so rows
+            (like grid cards) can scroll all the way up under the title bar
+            instead of being pushed down by a permanent header strip. */}
+        <Show when={!!currentRemote()}>
+          <div class="absolute top-2 right-4 z-[110] flex items-center gap-3">
+            <MbProgressStrip />
+            {viewModeSwitcher()}
+          </div>
         </Show>
         <Show
           when={viewMode() === "table" && !!currentRemote()}

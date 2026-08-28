@@ -36,7 +36,7 @@ async function fireAll(handlers: Set<StopHandler>, label: string): Promise<void>
       } catch (e) {
         warn("playback", `${label} handler failed:`, e);
       }
-    }),
+    })
   );
 }
 
@@ -45,7 +45,11 @@ export async function stopMusicForRadio(): Promise<void> {
   await fireAll(stopMusicHandlers, "stopMusic");
 }
 
-/** call before starting music playback. tears down any radio session. */
+/** call before starting music playback. tears down any radio session.
+ * called on every music/video play/pause toggle (not just genuine radio
+ * takeover), so registered handlers must be true no-ops when their
+ * subsystem is already idle - see leaveRadio's guard in radioService.ts
+ * and docs/radio-queue-refactor-ideas.md for a real bug this caused. */
 export async function stopRadioForMusic(): Promise<void> {
   await fireAll(stopRadioHandlers, "stopRadio");
 }

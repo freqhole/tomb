@@ -266,7 +266,9 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
                   <MarqueeText text={item.title} hoverOnly={true} />
                 </div>
                 {item.subtitle && (
-                  <div class="text-xs text-[var(--color-text-tertiary)]">{item.subtitle}</div>
+                  <div class="text-xs text-[var(--color-text-tertiary)] line-clamp-2">
+                    {item.subtitle}
+                  </div>
                 )}
                 {item.metadata && (
                   <div class="text-xs text-[var(--color-text-muted)]">{item.metadata}</div>

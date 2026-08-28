@@ -912,18 +912,30 @@ export function TopNav(props: TopNavProps) {
         ref={(el) => (navEl = el)}
         class={`flex flex-col z-[1000] ${props.class || ""}`}
         classList={{
-          // narrow: full-width fixed strip at top; padding-top insets below
-          // system status bar / notch via safe-area env var (works on both
-          // android webview and ios safari with viewport-fit=cover; zero on
-          // desktop so no effect there).
-          "fixed top-0 left-0 right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
+          // narrow: full-width fixed strip; padding-top insets below system
+          // status bar / notch via safe-area env var (works on both android
+          // webview and ios safari with viewport-fit=cover; zero on desktop
+          // so no effect there).
+          "fixed right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
             isNarrow(),
-          // wide: fixed top-left floating element, doesn't push content
-          "fixed top-2 left-6 bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
+          // wide: fixed top-left floating element, doesn't push content.
+          "fixed bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
             !isNarrow(),
         }}
         style={{
-          "padding-top": isNarrow() ? "var(--safe-area-top, 0px)" : undefined,
+          // narrow: sits flush at the very top of the window (left edge
+          // starts past the traffic-light cluster instead of being pushed
+          // down below it - see TitleBarStrip.tsx). wide: floats below the
+          // strip instead, since it doesn't span the traffic-light column.
+          top: isNarrow() ? "0px" : "calc(0.5rem + var(--chrome-top-inset, 0px))",
+          // safe-area-top is ALSO set to the strip height on chromeless
+          // desktop (see TitleBarStrip.tsx), so subtract chrome-top-inset
+          // here to avoid double-counting the same offset via `top` above -
+          // only the mobile-status-bar remainder (if any) should add padding.
+          "padding-top": isNarrow()
+            ? "calc(var(--safe-area-top, 0px) - var(--chrome-top-inset, 0px))"
+            : undefined,
+          left: isNarrow() ? "var(--chrome-traffic-lights-inset, 0px)" : "1.5rem",
         }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}

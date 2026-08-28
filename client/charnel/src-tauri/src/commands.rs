@@ -1798,6 +1798,25 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
         .unwrap_or_else(crate::app_config::default_use_rodio_playback)
 }
 
+/// get the chromeless_title_bar setting (default: true). read by both the
+/// main (spume) and setup-wizard frontends to decide whether to render
+/// their own drag-strip + traffic-light buttons, mirroring whatever the
+/// rust side actually did when it built the window (see lib.rs/wizard.rs).
+///
+/// always false off macOS - `decorations(false)` is only ever applied
+/// `#[cfg(target_os = "macos")]`, so other platforms keep their native
+/// title bar regardless of the config value, and must not also draw a
+/// custom one on top of it.
+#[tauri::command]
+pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    FreqholeAppConfig::load(&app_handle)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar)
+}
+
 /// set the use_rodio_playback setting. fires `config_changed` so spume can
 /// re-read it without a restart. does NOT swap any in-flight backend; the
 /// new value takes effect when the playback session next reconstructs its
@@ -1809,6 +1828,29 @@ pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result
     config.save(&app_handle)?;
 
     let _ = notify_config_changed(&app_handle, "use_rodio_playback changed");
+
+    Ok(())
+}
+
+/// whether this build is running on macOS - used by the settings ui to
+/// hide the chromeless title bar toggle entirely on platforms where it has
+/// no effect (see `get_chromeless_title_bar`'s own macOS gate).
+#[tauri::command]
+pub fn is_macos_platform() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// set the chromeless_title_bar setting. the native window is only ever
+/// built with decorations on/off once, at window-creation time (see
+/// lib.rs/wizard.rs), so this just persists the preference - it takes
+/// effect the next time the app is restarted, same as `use_rodio_playback`.
+#[tauri::command]
+pub fn set_chromeless_title_bar(app_handle: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+    config.chromeless_title_bar = enabled;
+    config.save(&app_handle)?;
+
+    let _ = notify_config_changed(&app_handle, "chromeless_title_bar changed");
 
     Ok(())
 }

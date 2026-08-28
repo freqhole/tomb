@@ -430,27 +430,6 @@ export function VideosTable(props: VideosTableProps) {
           }
         >
           <table class="w-full text-xs border-collapse">
-            <thead class="sticky top-0 bg-black z-10">
-              <tr class="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-subtle)]">
-                <th class="px-2 py-2 w-10"></th>
-                <th class="px-2 py-2 font-medium">title</th>
-                <th class="px-2 py-2 font-medium w-24">series</th>
-                <th class="px-2 py-2 font-medium w-24">season</th>
-                <th class="px-2 py-2 font-medium w-16">episode</th>
-                <th class="px-2 py-2 font-medium w-24">release date</th>
-                <th class="px-2 py-2 font-medium w-32">taxons</th>
-                <th class="px-2 py-2 font-medium w-28">tags</th>
-                <th class="px-2 py-2 font-medium w-20">duration</th>
-                <th class="px-2 py-2 font-medium w-16">plays</th>
-                <th class="px-2 py-2 font-medium w-24">added</th>
-                <Show when={props.onVideoRatingChange}>
-                  <th class="px-2 py-2 font-medium w-24">rating</th>
-                </Show>
-                <Show when={props.favoriteVideoIds}>
-                  <th class="px-2 py-2 font-medium w-10"></th>
-                </Show>
-              </tr>
-            </thead>
             <tbody>
               <For each={props.videos}>
                 {(video, index) => (
@@ -476,6 +455,30 @@ export function VideosTable(props: VideosTableProps) {
                 )}
               </For>
             </tbody>
+            {/* tfoot always renders as the table's last row group
+             *  regardless of DOM position, so `sticky bottom-0` pins it
+             *  to the viewport bottom while rows scroll up under it. */}
+            <tfoot class="sticky bottom-0 bg-black z-10">
+              <tr class="text-left text-[var(--color-text-muted)] border-t border-[var(--color-border-subtle)]">
+                <th class="px-2 py-2 w-10"></th>
+                <th class="px-2 py-2 font-medium">title</th>
+                <th class="px-2 py-2 font-medium w-24">series</th>
+                <th class="px-2 py-2 font-medium w-24">season</th>
+                <th class="px-2 py-2 font-medium w-16">episode</th>
+                <th class="px-2 py-2 font-medium w-24">release date</th>
+                <th class="px-2 py-2 font-medium w-32">taxons</th>
+                <th class="px-2 py-2 font-medium w-28">tags</th>
+                <th class="px-2 py-2 font-medium w-20">duration</th>
+                <th class="px-2 py-2 font-medium w-16">plays</th>
+                <th class="px-2 py-2 font-medium w-24">added</th>
+                <Show when={props.onVideoRatingChange}>
+                  <th class="px-2 py-2 font-medium w-24">rating</th>
+                </Show>
+                <Show when={props.favoriteVideoIds}>
+                  <th class="px-2 py-2 font-medium w-10"></th>
+                </Show>
+              </tr>
+            </tfoot>
           </table>
         </Show>
       </div>

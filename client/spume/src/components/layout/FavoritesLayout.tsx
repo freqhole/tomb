@@ -450,7 +450,10 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             the floating nav pill in the top-left corner, without needing a
             permanent vertical offset - wide screens rarely have enough
             items to overflow, so the clipping risk there is negligible. */}
-        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end">
+        <div
+          class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg"
+          style={{ "padding-left": "var(--chrome-traffic-lights-inset, 0px)" }}
+        >
           <IconButton
             icon="play"
             size="default"

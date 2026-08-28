@@ -660,7 +660,7 @@ export function RadioView() {
   // left column — station list
   // ---------------------------------------------------------------------
   const leftColumn = (
-    <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[60px]">
+    <div class="flex flex-col h-full min-h-0 pt-2 wide:pt-[100px]">
       <header class="flex items-center justify-between gap-2 px-3 py-3 border-b border-neutral-800">
         <h1 class="text-lg font-bold">
           radio station<span class="text-magenta-500">z</span>

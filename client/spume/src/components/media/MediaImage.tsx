@@ -386,11 +386,12 @@ export function MediaImage(props: MediaImageProps): JSX.Element {
 
   return (
     <div
-      class={`relative overflow-hidden bg-gray-800/50 flex items-center justify-center ${
+      class={`relative overflow-hidden flex items-center justify-center ${
         props.enableAlbumHover
           ? "transition-transform duration-300 group-hover:scale-105 pan-on-hover"
           : ""
       } ${getSizeClasses()} ${props.class || ""}`}
+      classList={{ "bg-gray-800/50": !imageLoaded() }}
     >
       <Show when={isLoading()}>
         <div class="absolute inset-0 bg-gray-700/30 animate-pulse z-10" />

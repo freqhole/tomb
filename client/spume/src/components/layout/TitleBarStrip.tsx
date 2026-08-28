@@ -1,0 +1,182 @@
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import {
+  getChromelessTitleBar,
+  minimizeWindow,
+  toggleMaximizeWindow,
+  closeWindow,
+  startDraggingWindow,
+} from "../../app/services/charnel/commands";
+import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
+
+/**
+ * height (px) reserved for the strip. also written to `--safe-area-top` so
+ * every existing `--nav-height`/`--player-height`/popover max-height
+ * consumer automatically reserves space for it (see theme.css) without any
+ * per-view changes.
+ */
+const STRIP_HEIGHT_PX = 38;
+// width of the pl-[10px] + 3 buttons (12px) + 2 gaps (8px) traffic-light cluster below.
+const TRAFFIC_LIGHTS_WIDTH_PX = 68;
+
+/**
+ * chromeless macOS title-bar strip: a transparent, full-width
+ * `data-tauri-drag-region` band at the top of the window with custom
+ * traffic-light (close/minimize/maximize) buttons, replacing the native
+ * title bar.
+ *
+ * self-contained: checks `getChromelessTitleBar()` on mount and renders
+ * nothing (a no-op) unless this window is actually running chromeless
+ * (macOS + tauri + `chromeless_title_bar` config enabled - see
+ * charnel-config.toml / lib.rs / wizard.rs). safe to drop into any
+ * top-level layout (spume's App.tsx, charnel's wizard App.tsx) unconditionally.
+ *
+ * `data-tauri-drag-region` already natively provides click-and-drag window
+ * movement, double-click-to-maximize, and automatically excludes real
+ * clickable elements (like the buttons below) from triggering a drag - no
+ * extra plumbing needed for any of that.
+ */
+export function TitleBarStrip() {
+  const [enabled, setEnabled] = createSignal(false);
+  const [focused, setFocused] = createSignal(true);
+  const [hovered, setHovered] = createSignal(false);
+
+  onMount(() => {
+    let unlistenFocus: (() => void) | undefined;
+    let appliedSafeAreaTop = false;
+
+    void (async () => {
+      const isChromeless = await getChromelessTitleBar();
+      if (!isChromeless) {
+        return;
+      }
+      setEnabled(true);
+      document.documentElement.style.setProperty("--safe-area-top", `${STRIP_HEIGHT_PX}px`);
+      document.documentElement.style.setProperty("--chrome-top-inset", `${STRIP_HEIGHT_PX}px`);
+      document.documentElement.style.setProperty(
+        "--chrome-traffic-lights-inset",
+        `${TRAFFIC_LIGHTS_WIDTH_PX}px`
+      );
+      appliedSafeAreaTop = true;
+
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        setFocused(await win.isFocused());
+        unlistenFocus = await win.onFocusChanged(({ payload }) => setFocused(payload));
+      } catch (error) {
+        // non-tauri, or focus tracking unsupported - keep default focused styling
+      }
+    })();
+
+    onCleanup(() => {
+      unlistenFocus?.();
+      if (appliedSafeAreaTop) {
+        document.documentElement.style.setProperty("--safe-area-top", "0px");
+        document.documentElement.style.setProperty("--chrome-top-inset", "0px");
+        document.documentElement.style.setProperty("--chrome-traffic-lights-inset", "0px");
+      }
+    });
+  });
+
+  const dotClass = (idleColorClass: string) =>
+    `relative w-[12px] h-[12px] rounded-full transition-colors ${
+      focused() ? idleColorClass : "bg-[#4d4d4d]"
+    }`;
+
+  const showGlyphs = () => hovered() && focused();
+
+  return (
+    <Show when={enabled()}>
+      <div
+        data-tauri-drag-region="deep"
+        // z-[100] normally - other things that need to win over the strip
+        // use z-[110]+ (see QueueSidebar.tsx etc). the video mini-player
+        // is a fullscreen, long-lived overlay above all of that (z-[1500]),
+        // so it needs the strip bumped above IT specifically, rather than
+        // permanently reordering the strip against everything else.
+        class={`fixed top-0 left-0 right-0 select-none ${
+          videoMiniPlayerExpanded() ? "z-[1600]" : "z-[100]"
+        }`}
+        style={{ height: `${STRIP_HEIGHT_PX}px` }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onMouseDown={(e) => {
+          // explicit fallback: don't rely solely on tauri's passive
+          // data-tauri-drag-region mousedown listener - call startDragging
+          // directly (skipping real buttons) so failures are visible in
+          // the console instead of silently doing nothing.
+          if (e.button !== 0 || (e.target as HTMLElement).closest("button")) {
+            return;
+          }
+          e.stopPropagation();
+          void startDraggingWindow();
+        }}
+      >
+        <div class="flex items-center h-full pl-[10px]">
+          {/* rounded semi-transparent backdrop so the dots keep contrast
+              against light/bright window backgrounds behind the strip. */}
+          <div class="flex items-center gap-2 px-[7px] py-[5px] rounded-lg bg-black/40">
+            <button
+              type="button"
+              aria-label="close window"
+              class={dotClass("bg-[#ff5f57]")}
+              onClick={() => void closeWindow()}
+            >
+              <Show when={showGlyphs()}>
+                <svg
+                  viewBox="0 0 10 10"
+                  class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                >
+                  <path
+                    d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+                    stroke="#4d0000"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </Show>
+            </button>
+            <button
+              type="button"
+              aria-label="minimize window"
+              class={dotClass("bg-[#ffbd2e]")}
+              onClick={() => void minimizeWindow()}
+            >
+              <Show when={showGlyphs()}>
+                <svg
+                  viewBox="0 0 10 10"
+                  class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                >
+                  <path d="M1.5 5h7" stroke="#985712" stroke-width="1.5" stroke-linecap="round" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              type="button"
+              aria-label="maximize window"
+              class={dotClass("bg-[#28c840]")}
+              onClick={() => void toggleMaximizeWindow()}
+            >
+              <Show when={showGlyphs()}>
+                <svg
+                  viewBox="0 0 10 10"
+                  class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
+                >
+                  <path
+                    d="M6 2h2v2M4 8H2V6"
+                    stroke="#0f5c1d"
+                    stroke-width="1.3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              </Show>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Show>
+  );
+}

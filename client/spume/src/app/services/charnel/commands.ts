@@ -5,10 +5,10 @@
  * they are only callable in tauri mode - will throw in browser builds.
  */
 
-import { 
-  FreqholeConfigSchema, 
+import {
+  FreqholeConfigSchema,
   ConfigUpgradeStatusSchema,
-  type FreqholeConfig, 
+  type FreqholeConfig,
   type ConfigUpgradeStatus,
 } from "./schema";
 
@@ -28,11 +28,11 @@ export async function getConfig(): Promise<FreqholeConfig | null> {
   try {
     const invoke = await getInvoke();
     const result = await invoke("get_freqhole_config");
-    
+
     if (!result) {
       return null;
     }
-    
+
     return FreqholeConfigSchema.parse(result);
   } catch (error) {
     console.error("[tauri/commands] failed to get config:", error);
@@ -42,7 +42,7 @@ export async function getConfig(): Promise<FreqholeConfig | null> {
 
 /**
  * check if server config needs upgrade (version mismatch).
- * 
+ *
  * returns status with needs_upgrade flag and version info.
  */
 export async function checkConfigNeedsUpgrade(): Promise<ConfigUpgradeStatus | null> {
@@ -58,7 +58,7 @@ export async function checkConfigNeedsUpgrade(): Promise<ConfigUpgradeStatus | n
 
 /**
  * open the setup wizard window at a specific route.
- * 
+ *
  * @param route - route to navigate to, e.g. "/settings"
  */
 export async function openSetupWizard(route: string = "/"): Promise<void> {
@@ -72,7 +72,7 @@ export async function openSetupWizard(route: string = "/"): Promise<void> {
 
 /**
  * set the main window title.
- * 
+ *
  * @param title - the window title to set
  */
 export async function setWindowTitle(title: string): Promise<void> {
@@ -83,6 +83,82 @@ export async function setWindowTitle(title: string): Promise<void> {
     await window.setTitle(title);
   } catch (error) {
     // silently fail - not critical
+  }
+}
+
+/**
+ * check whether this window should render its own drag-strip + traffic-light
+ * buttons instead of relying on the native macOS title bar.
+ *
+ * mirrors whatever the rust side actually did when it built the window (see
+ * lib.rs/wizard.rs) - macOS only, defaults to true. non-macOS platforms
+ * always keep their native decorations regardless of this setting, so
+ * callers must gate rendering on this AND running under tauri desktop.
+ */
+export async function getChromelessTitleBar(): Promise<boolean> {
+  try {
+    const invoke = await getInvoke();
+    return Boolean(await invoke("get_chromeless_title_bar"));
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * minimize the current window. used by the custom title-bar strip's
+ * traffic-light buttons when running chromeless (see `getChromelessTitleBar`).
+ */
+export async function minimizeWindow(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().minimize();
+  } catch (error) {
+    // silently fail - not critical
+  }
+}
+
+/**
+ * toggle the current window between maximized and restored. mirrors what
+ * double-clicking a `data-tauri-drag-region` strip already does natively.
+ */
+export async function toggleMaximizeWindow(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().toggleMaximize();
+  } catch (error) {
+    // silently fail - not critical
+  }
+}
+
+/**
+ * close the current window.
+ */
+export async function closeWindow(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().close();
+  } catch (error) {
+    // silently fail - not critical
+  }
+}
+
+/**
+ * explicitly start a native window drag from the title-bar strip, in
+ * addition to the passive `data-tauri-drag-region` attribute (which relies
+ * on tauri's injected mousedown listener picking up the click). errors are
+ * logged (rather than swallowed) since a silent failure here is exactly
+ * what makes "drag doesn't work" hard to diagnose.
+ */
+export async function startDraggingWindow(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().startDragging();
+  } catch (error) {
+    console.error("startDragging failed:", error);
   }
 }
 

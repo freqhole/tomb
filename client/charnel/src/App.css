@@ -25,12 +25,19 @@ body {
   min-height: 100vh;
 }
 
+:root {
+  /* reserved space for the chromeless macOS title-bar strip (see
+     components/TitleBarStrip.tsx); 0 unless that strip is active. */
+  --safe-area-top: 0px;
+}
+
 /* loading screen */
 .loading-screen {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding-top: var(--safe-area-top, 0px);
 }
 
 /* setup flow - centered layout */
@@ -39,7 +46,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: calc(2rem + var(--safe-area-top, 0px)) 2rem 2rem;
 }
 
 .setup-content {
@@ -61,7 +68,7 @@ body {
   border-right: 1px solid #1f1f1f;
   display: flex;
   flex-direction: column;
-  padding-top: 1rem;
+  padding-top: calc(1rem + var(--safe-area-top, 0px));
   overflow-y: auto;
 }
 
@@ -70,7 +77,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
-  -webkit-app-region: drag; /* allow window dragging from header area */
 }
 
 .active > .pinky {
@@ -168,7 +174,7 @@ body {
 /* main content */
 .main-content {
   flex: 1;
-  padding: 2rem;
+  padding: calc(2rem + var(--safe-area-top, 0px)) 2rem 2rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -951,7 +957,8 @@ button.small {
   flex-shrink: 0;
 }
 
-.item-actions select, .role-item-actions select {
+.item-actions select,
+.role-item-actions select {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -967,7 +974,8 @@ button.small {
   cursor: pointer;
 }
 
-.username-row, .user-actions-row {
+.username-row,
+.user-actions-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -1623,7 +1631,9 @@ button.secondary:hover {
 
 .peer-node-id.clickable {
   cursor: pointer;
-  transition: color 0.2s, background 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
 
 .peer-node-id.clickable:hover {
@@ -1843,7 +1853,9 @@ button.danger:hover {
 
 .knock-node-id.clickable {
   cursor: pointer;
-  transition: color 0.2s, background 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
 
 .knock-node-id.clickable:hover {

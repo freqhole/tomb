@@ -147,7 +147,16 @@ export function installMediaSessionBridge(): void {
     createEffect(
       on(
         () => appState()?.current_sha256 ?? null,
-        () => void refreshMetadata()
+        (sha, prevSha) => {
+          // `on()` reruns whenever the tracked signal is written at all,
+          // even if the derived value is unchanged (appState() gets a
+          // brand-new object reference on every write - see
+          // docs/radio-queue-refactor-ideas.md) - guard explicitly so
+          // an unrelated appState rewrite doesn't force a needless
+          // metadata refetch (e.g. video series/season lookups).
+          if (sha === prevSha) return;
+          void refreshMetadata();
+        }
       )
     );
 

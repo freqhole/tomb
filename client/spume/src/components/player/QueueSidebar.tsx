@@ -367,9 +367,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
       <div
         class={`${getBackgroundConfig() ? "bg-[var(--color-bg-primary)]/60" : "bg-[var(--color-bg-primary)]/95 backdrop-blur-xl"} flex flex-col ${
           isOverlay()
-            ? /* narrow: bottom sheet above player bar, clears system status bar */
+            ? /* narrow: bottom sheet above player bar, clears system status bar
+                 (or the chromeless title-bar strip on macOS, if active - both
+                 flow through --safe-area-top, see theme.css / TitleBarStrip) */
               `fixed z-1140 transition-transform duration-300 ease-out
-               inset-x-0 bottom-[var(--player-height)] top-[env(safe-area-inset-top,0px)]
+               inset-x-0 bottom-[var(--player-height)] top-[var(--safe-area-top,0px)]
                wide:inset-x-auto wide:top-0 wide:right-0 wide:bottom-0 wide:h-auto wide:w-72 lg:w-80 xl:w-96
                ${
                  props.isOpen
@@ -377,7 +379,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                    : "invisible translate-y-full wide:visible wide:translate-y-0 wide:translate-x-full"
                }`
             : props.isOpen
-              ? "w-72 lg:w-80 xl:w-96 flex-shrink-0"
+              ? "relative z-[110] w-72 lg:w-80 xl:w-96 flex-shrink-0"
               : "hidden"
         } ${props.class || ""}`}
       >
@@ -388,8 +390,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
           </div>
         </Show> */}
 
-        {/* header — tabs + clear + close */}
-        <div class="flex items-center justify-between px-4 pt-3 pb-2">
+        {/* header — tabs + clear + close.
+            relative + z-[110]: in inline/wide mode this header (and its
+            z-[110] parent above) sits at the very top of the sidebar,
+            which can overlap the chromeless title-bar drag strip (see
+            App.tsx / TitleBarStrip, z-[100]) - queue controls must win
+            that overlap so they stay clickable. no-op in overlay/narrow
+            mode (the whole drawer is already z-1140). */}
+        <div class="relative z-[110] flex items-center justify-between px-4 pt-3 pb-2">
           <div class="flex items-center gap-1">
             <button
               class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${

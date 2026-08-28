@@ -84,7 +84,9 @@ fn validate_blake3(blake3: &str) -> Result<(), String> {
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
     {
-        return Err(format!("invalid_blake3_hash: invalid blake3 hash: {blake3}"));
+        return Err(format!(
+            "invalid_blake3_hash: invalid blake3 hash: {blake3}"
+        ));
     }
     Ok(())
 }

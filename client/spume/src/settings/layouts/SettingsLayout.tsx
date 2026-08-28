@@ -52,7 +52,9 @@ export function SettingsLayout(props: { children: JSX.Element }) {
     <div
       data-allow-select
       class="min-h-screen bg-[var(--color-bg-primary)]"
-      style={{ "padding-top": "env(safe-area-inset-top, 0px)" }}
+      style={{
+        "padding-top": "calc(env(safe-area-inset-top, 0px) + var(--chrome-top-inset, 0px))",
+      }}
     >
       {/* mobile header */}
       <div class="lg:hidden border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)]">

@@ -106,7 +106,7 @@ export function SharedItemsView() {
   };
 
   return (
-    <div class="h-full overflow-y-auto p-4 wide:p-6">
+    <div class="h-full overflow-y-auto p-4 wide:px-6 wide:pb-6 wide:pt-[100px]">
       <div class="max-w-4xl mx-auto space-y-4">
         <header class="flex items-center justify-between gap-3 wide:ml-16 pb-3">
           <div>

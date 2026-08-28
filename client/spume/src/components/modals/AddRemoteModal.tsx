@@ -13,6 +13,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -30,6 +31,7 @@ import { getAllRemotes } from "../../app/services/remotes/remoteManager";
 import { getPendingRemoteByPeerAddr } from "../../app/services/storage/db";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
+import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { QrScanner } from "../inputs/QrScanner";
@@ -73,9 +75,20 @@ async function resolveServerImageUrl(
   }
 }
 
+let nextAddRemoteModalId = 0;
+
 export function AddRemoteModal(props: AddRemoteModalProps) {
   const flow: AddPeerFlow = createAddPeerFlow(addPeerFlowDeps);
   const [state, setState] = createSignal<AddPeerState>(flow.state());
+
+  // register with the global modal stack (mirrors Modal.tsx's own
+  // registration) so opening this dismisses the floating mini video player.
+  createEffect(() => {
+    if (!props.isOpen) return;
+    const id = `add-remote-modal-${++nextAddRemoteModalId}`;
+    pushModal(id, () => props.onClose());
+    onCleanup(() => popModal(id));
+  });
 
   const dispatch = async (event: Parameters<AddPeerFlow["dispatch"]>[0]) => {
     await flow.dispatch(event);

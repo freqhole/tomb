@@ -572,6 +572,14 @@ export function radioResume(): void {
 
 /** stop the current radio session if any. safe to call when idle. */
 export function leaveRadio(): void {
+  // genuinely no-op when radio was never active - without this guard,
+  // every call (e.g. `stopRadioForMusic()` on every plain music/video
+  // play/pause toggle, not just actual radio teardown) unconditionally
+  // rewrote `current_radio_station` to `null` via `setCurrentRadioStationPersisted`,
+  // producing a brand-new `appState()` reference and re-triggering every
+  // `appState()`-derived effect (mediaSessionBridge's metadata refetch,
+  // etc.) even though nothing radio-related had changed.
+  if (!activeSession && !isRadioPlayerBarActive()) return;
   clearTimelineReconnect();
   // invalidate async callbacks from any in-flight/old tune attempt.
   bumpTuneAttemptId();

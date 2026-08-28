@@ -64,7 +64,9 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on narrow: shown alongside list, hidden when detail showing */}
       {/* on wide: always visible */}
       <Show when={local.alphabetNav}>
-        <div class={`flex-shrink-0 ${local.showDetail ? "hidden wide:block" : "block"}`}>
+        <div
+          class={`flex-shrink-0 wide:pt-[var(--chrome-top-inset,0px)] ${local.showDetail ? "hidden wide:block" : "block"}`}
+        >
           {local.alphabetNav}
         </div>
       </Show>

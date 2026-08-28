@@ -7,6 +7,14 @@ import { isPlaying, pause, togglePlayback } from "../../music/services/audio/pla
 // arriving within the window can cancel it and fire fullscreen instead.
 const CLICK_VS_DBLCLICK_DELAY_MS = 220;
 
+// module-level (not per-instance) so TitleBarStrip can read it directly
+// (it needs to render above the expanded player without touching every
+// other z-indexed thing that already relies on beating the strip - see
+// TitleBarStrip.tsx) and so the expanded/collapsed state survives an
+// incidental remount of this component.
+const [expanded, setExpanded] = createSignal(false);
+export const videoMiniPlayerExpanded = expanded;
+
 export interface VideoMiniPlayerProps {
   /** the singleton `<video>` element owned by the video backend — moved
    * into this panel via DOM append (not recreated). */
@@ -23,7 +31,6 @@ export interface VideoMiniPlayerProps {
  * in-bar `VideoThumbSlot`), so playback isn't interrupted by the move. */
 export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   let mount!: HTMLDivElement;
-  const [expanded, setExpanded] = createSignal(false);
 
   onMount(() => {
     const el = props.videoElement;
@@ -50,7 +57,9 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   createEffect(() => {
     if (!expanded()) return;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+      if (e.key === "Escape") {
+        setExpanded(false);
+      }
     };
     window.addEventListener("keydown", handleEscape);
     onCleanup(() => window.removeEventListener("keydown", handleEscape));
@@ -64,7 +73,9 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     }
   };
 
-  const toggleExpand = () => setExpanded((was) => !was);
+  const toggleExpand = () => {
+    setExpanded((was) => !was);
+  };
 
   // pause (if playing) and hide the panel - does NOT touch the queue, so
   // playback can resume from the player bar and the panel reopens then.
@@ -121,7 +132,17 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
         onClick={handleClick}
         onDblClick={handleDblClick}
       />
-      <div class="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div
+        class="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{
+          // while expanded, the chromeless title-bar strip renders above
+          // this panel (see TitleBarStrip.tsx) - drop below its height so
+          // it doesn't cover these buttons. --chrome-top-inset is 0 when
+          // the strip isn't active (non-mac/non-tauri), so this is a
+          // no-op there.
+          top: expanded() ? "calc(0.5rem + var(--chrome-top-inset, 0px))" : "0.5rem",
+        }}
+      >
         <button
           type="button"
           class="bg-black/50 rounded p-1.5"

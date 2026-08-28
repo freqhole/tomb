@@ -41,7 +41,7 @@ fn default_max_lines() -> usize {
 }
 
 /// charnel app configuration
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FreqholeAppConfig {
     /// app config version (tracks which binary version last wrote this config)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -62,6 +62,15 @@ pub struct FreqholeAppConfig {
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
     #[serde(default)]
     pub disable_backdrop_blur: bool,
+
+    /// use a fully custom, in-webview title bar (drag strip + traffic-light
+    /// buttons drawn by spume/the wizard) instead of the native macOS title
+    /// bar. macOS only - ignored on linux/windows, which always keep their
+    /// native decorations regardless of this flag. default: true (opt out
+    /// to fall back to the native `TitleBarStyle::Transparent` bar that was
+    /// used before this option existed).
+    #[serde(default = "default_chromeless_title_bar")]
+    pub chromeless_title_bar: bool,
 
     /// show system tray icon (default: false)
     #[serde(default)]
@@ -144,6 +153,36 @@ pub struct FreqholeAppConfig {
     pub external_storage_reencode_extension: String,
 }
 
+// `#[derive(Default)]` would use each field's own zero value (e.g. `false`,
+// `""`, `None`) instead of its `#[serde(default = "...")]` fn - wrong for
+// every non-zero default above (most notably `chromeless_title_bar`, which
+// must default to `true`). `load_or_create` falls back to `Self::default()`
+// whenever charnel-config.toml is missing (e.g. first run) or fails to
+// parse, so this has to match the serde defaults exactly.
+impl Default for FreqholeAppConfig {
+    fn default() -> Self {
+        Self {
+            version: None,
+            server_config_path: None,
+            admin_user: AdminUserConfig::default(),
+            logging: LoggingConfig::default(),
+            disable_backdrop_blur: false,
+            tray_enabled: false,
+            sync_queue_to_local: default_sync_queue_to_local(),
+            use_rodio_playback: default_use_rodio_playback(),
+            external_storage_devices: Vec::new(),
+            active_external_storage_device_id: None,
+            external_storage_default_subpath: default_external_storage_subpath(),
+            external_storage_playlists_subpath: default_external_storage_playlists_subpath(),
+            external_storage_playlists_sync_disabled: false,
+            external_storage_reencode_enabled: false,
+            external_storage_reencode_args: default_external_storage_reencode_args(),
+            external_storage_reencode_extension: default_external_storage_reencode_extension(),
+            chromeless_title_bar: default_chromeless_title_bar(),
+        }
+    }
+}
+
 /// a removable/mounted storage device selected for music sync.
 ///
 /// note: `last_synced_at` used to live here, but moved to grimoire's
@@ -199,6 +238,11 @@ fn default_external_storage_reencode_extension() -> String {
 
 /// default value for sync_queue_to_local (true)
 fn default_sync_queue_to_local() -> bool {
+    true
+}
+
+/// default value for chromeless_title_bar (true)
+pub fn default_chromeless_title_bar() -> bool {
     true
 }
 

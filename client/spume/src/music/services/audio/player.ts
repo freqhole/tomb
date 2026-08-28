@@ -491,7 +491,10 @@ export async function togglePlayback(source: "ui" | "mediaSession" = "ui"): Prom
   }
 
   // play path: silence radio + clear gate up-front so any pending
-  // up-next loads honor the user's intent.
+  // up-next loads honor the user's intent. `stopRadioForMusic()` is a
+  // no-op when radio isn't active (see leaveRadio's guard) - it used to
+  // unconditionally rewrite appState on every resume even when radio was
+  // never involved.
   await stopRadioForMusic();
   userExplicitlyPaused = false;
 

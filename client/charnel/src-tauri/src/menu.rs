@@ -118,8 +118,18 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .item(&PredefinedMenuItem::select_all(app, Some("select all"))?)
         .build()?;
 
+    // build Window submenu - without this, tauri's default Cmd+W/Cmd+M
+    // bindings are gone once we call app.set_menu() with a custom menu.
+    let window_submenu = SubmenuBuilder::with_id(app, "window", "window")
+        .item(&PredefinedMenuItem::minimize(app, Some("minimize"))?)
+        .item(&PredefinedMenuItem::close_window(app, Some("close"))?)
+        .build()?;
+
     // build menu bar
-    let menu = Menu::with_items(app, &[&app_submenu, &edit_submenu, &view_submenu])?;
+    let menu = Menu::with_items(
+        app,
+        &[&app_submenu, &edit_submenu, &window_submenu, &view_submenu],
+    )?;
 
     // set as app menu
     app.set_menu(menu)?;

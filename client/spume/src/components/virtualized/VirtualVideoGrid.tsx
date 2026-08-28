@@ -40,6 +40,8 @@ export interface VirtualVideoGridProps {
   class?: string;
   /** unique key for scroll restoration (e.g. 'videos') */
   scrollRestoreKey?: string;
+  /** top padding inside the scroll container (px) - content scrolls under this space */
+  scrollPaddingTop?: number;
 }
 
 export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
@@ -139,11 +141,20 @@ export function VirtualVideoGrid(props: VirtualVideoGridProps): JSX.Element {
     rowVirtualizer.measure();
   });
 
+  // only apply scroll padding on wide viewports (narrow has its own fixed nav)
+  const scrollPad = () =>
+    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
+      ? props.scrollPaddingTop
+      : 0;
+
   return (
     <div
       ref={parentRef!}
       class={`overflow-auto bg-[var(--color-bg-primary)] ${props.class || ""}`}
-      style={{ height: `${props.height || 600}px` }}
+      style={{
+        height: `${props.height || 600}px`,
+        "padding-top": scrollPad() ? `${scrollPad()}px` : undefined,
+      }}
     >
       <div
         style={{

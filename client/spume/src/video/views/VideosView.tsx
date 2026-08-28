@@ -322,12 +322,12 @@ export function VideosView(props: VideosViewProps) {
 
   return (
     <div class="flex flex-col h-full">
-      <div class="flex items-center justify-end gap-3 px-4 pt-3 pb-2 flex-wrap">
-        {viewModeSwitcher()}
-      </div>
-
       {/* video grid or table */}
       <div class="flex-1 min-h-0 overflow-hidden relative">
+        {/* floating switcher overlay - both grid and table modes, so rows
+            (like grid cards) can scroll all the way up under the title bar
+            instead of being pushed down by a permanent header strip. */}
+        <div class="absolute top-2 right-4 z-[110]">{viewModeSwitcher()}</div>
         <Show
           when={viewMode() === "grid"}
           fallback={
@@ -381,6 +381,7 @@ export function VideosView(props: VideosViewProps) {
                   onNearEnd={loadMore}
                   height={gridHeight()}
                   scrollRestoreKey="videos-grid"
+                  scrollPaddingTop={100}
                 />
                 <LoadingMoreIndicator isLoading={videosQuery.isFetchingNextPage} />
               </>

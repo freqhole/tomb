@@ -462,6 +462,57 @@ function Inner(props: {
     return added;
   };
 
+  /** series/season counterparts of appendVideosToRemote - used by
+   *  createPivotHandler's maybeLoadEpisodesForSeries so a series/season
+   *  reached only via search/pivot (not part of loadVideosForRemote's
+   *  fixed page-1 prefetch) gets its real title/poster merged into
+   *  videoSeriesByRemote/videoSeasonsByRemote instead of staying stuck on
+   *  a bare navigational stub forever. dedupes by node id. */
+  const appendVideoSeriesToRemote = (remoteId: string, incoming: VideoSeriesNodeData[]): number => {
+    if (incoming.length === 0) return 0;
+    let added = 0;
+    setVideoSeriesByRemote((prev) => {
+      const existing = prev.get(remoteId) ?? [];
+      const seen = new Set(existing.map((s) => s.id));
+      const out = existing.slice();
+      for (const s of incoming) {
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        out.push(s);
+        added++;
+      }
+      if (added === 0) return prev;
+      const next = new Map(prev);
+      next.set(remoteId, out);
+      return next;
+    });
+    return added;
+  };
+
+  const appendVideoSeasonsToRemote = (
+    remoteId: string,
+    incoming: VideoSeasonNodeData[]
+  ): number => {
+    if (incoming.length === 0) return 0;
+    let added = 0;
+    setVideoSeasonsByRemote((prev) => {
+      const existing = prev.get(remoteId) ?? [];
+      const seen = new Set(existing.map((s) => s.id));
+      const out = existing.slice();
+      for (const s of incoming) {
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        out.push(s);
+        added++;
+      }
+      if (added === 0) return prev;
+      const next = new Map(prev);
+      next.set(remoteId, out);
+      return next;
+    });
+    return added;
+  };
+
   // prune stale remotes when the provided list changes. the synthetic
   // "local" hub is always part of the active set so its bookkeeping
   // (nodesByRemote, fetching flags, lazy-load caches) survives peer
@@ -1128,17 +1179,20 @@ function Inner(props: {
     const emptyVideos = new Map<string, VideoNodeData[]>();
     const emptyVideoSeries = new Map<string, VideoSeriesNodeData[]>();
     const emptyVideoSeasons = new Map<string, VideoSeasonNodeData[]>();
+    const finalVideos = videoOn ? filterByFocus(stripDisabled(videosByRemote())) : emptyVideos;
+    const finalVideoSeries = videoOn
+      ? filterByFocus(stripDisabled(videoSeriesByRemote()))
+      : emptyVideoSeries;
+    const finalVideoSeasons = videoOn
+      ? filterByFocus(stripDisabled(videoSeasonsByRemote()))
+      : emptyVideoSeasons;
     return buildWalkGraph({
       remoteIds,
       albumsByRemote: musicOn ? filterByFocus(stripDisabled(byRemote)) : emptyAlbums,
       artistsByRemote: musicOn ? filterByFocus(stripDisabled(artistsByRemote())) : emptyArtists,
-      videosByRemote: videoOn ? filterByFocus(stripDisabled(videosByRemote())) : emptyVideos,
-      videoSeriesByRemote: videoOn
-        ? filterByFocus(stripDisabled(videoSeriesByRemote()))
-        : emptyVideoSeries,
-      videoSeasonsByRemote: videoOn
-        ? filterByFocus(stripDisabled(videoSeasonsByRemote()))
-        : emptyVideoSeasons,
+      videosByRemote: finalVideos,
+      videoSeriesByRemote: finalVideoSeries,
+      videoSeasonsByRemote: finalVideoSeasons,
       favoriteSongAlbumIds: musicOn ? favSongAlbumIds() : new Map(),
       favoriteSongArtistIds: musicOn ? favSongArtistIds() : new Map(),
       charnelManagedRemoteIds: new Set(
@@ -2879,6 +2933,8 @@ function Inner(props: {
     appendAlbumsToRemote,
     videosByRemote,
     appendVideosToRemote,
+    appendVideoSeriesToRemote,
+    appendVideoSeasonsToRemote,
     activeDomains,
     setFetchingByRemote,
     setFetchingNodeFlag,
@@ -3140,6 +3196,15 @@ function Inner(props: {
       return false;
     }
     if (editingRemoteId() !== null) setEditingRemoteId(null);
+
+    // single-remote mode: a solo pivot bypasses the remote-hub click
+    // interceptor (interceptClick) that normally sets the focus, so
+    // buildResult's filterByFocus would otherwise strip every album/
+    // artist/video/series/season down to empty maps for this remote -
+    // the walker still shows the stub nodes merged below, but they'd
+    // never get real titles/images/detail-panel data. mirrors
+    // interceptClick's remote-hub-click behavior.
+    if (!multiRemoteMode()) setFocusedRemoteId(remoteId);
 
     activateRemote(remoteId);
 
