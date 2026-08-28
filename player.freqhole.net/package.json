@@ -1,0 +1,42 @@
+{
+    "name": "player.freqhole.net",
+    "version": "0.0.1",
+    "private": true,
+    "description": "p2p-controlled remote playback site for freqhole media",
+    "type": "module",
+    "scripts": {
+        "dev": "vite --config config/vite.config.ts --port 5918",
+        "build": "vite build --config config/vite.config.ts",
+        "build:cloudflare": "vite build --config config/vite.config.ts",
+        "preview": "vite preview --config config/vite.config.ts",
+        "typecheck": "tsc --noEmit",
+        "test:e2e": "playwright test --config config/playwright.config.ts",
+        "test:e2e:mock": "playwright test --config config/playwright.config.ts --grep @mock",
+        "test:e2e:real": "playwright test --config config/playwright.config.ts --grep-invert \"@mock|@p2p\"",
+        "test:e2e:p2p": "playwright test --config config/playwright.config.ts --grep @p2p"
+    },
+    "dependencies": {
+        "@freqhole/haruspex": "file:../lib/haruspex/ts",
+        "@freqhole/midden": "file:../lib/midden/pkg",
+        "@freqhole/reliquary": "file:../lib/reliquary/ts",
+        "idb": "^8.0.3",
+        "qrcode": "^1.5.4",
+        "solid-js": "^1.9.11",
+        "zod": "^4.4.3"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.58.2",
+        "@tailwindcss/vite": "^4.2.0",
+        "@types/node": "^25.3.0",
+        "@types/qrcode": "^1.5.6",
+        "tailwindcss": "^4.2.0",
+        "typescript": "^5.9.3",
+        "vite": "^7.3.1",
+        "vite-plugin-solid": "^2.11.6",
+        "vite-plugin-top-level-await": "^1.6.0",
+        "vite-plugin-wasm": "^3.5.0"
+    },
+    "overrides": {
+        "@swc/core": "1.15.47"
+    }
+}

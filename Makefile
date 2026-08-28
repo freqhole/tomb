@@ -298,6 +298,15 @@ build-spume: build-libs
 	@if [ ! -d client/spume/node_modules ]; then (cd client/spume && npm ci); fi
 	cd client/spume && FREQHOLE_GIT_SHA=$(GIT_SHA) npm run build
 
+# build the standalone player.freqhole.net site into player.freqhole.net/dist.
+# unlike client/spume, nothing embeds this dist dir - it's deployed
+# independently (e.g. cloudflare pages), same shape as freqhole.net/.
+.PHONY: build-player
+build-player: build-libs
+	@echo "building player.freqhole.net site..."
+	@if [ ! -d player.freqhole.net/node_modules ]; then (cd player.freqhole.net && npm ci); fi
+	cd player.freqhole.net && npm run build
+
 # macOS arm64 Tauri app (signed + notarized if env vars set)
 build-tauri-mac-arm:
 	@echo "building spume client..."
