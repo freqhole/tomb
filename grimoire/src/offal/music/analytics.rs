@@ -6,12 +6,13 @@ use crate::error::ErrorDetail;
 use crate::music::analytics::admin::{
     get_overview_stats, get_top_albums, get_top_artists, get_top_songs, get_user_stats,
 };
-use crate::music::analytics::events::{create_play_event, create_video_play_event, record_play_event};
+use crate::music::analytics::events::{
+    create_play_event, create_video_play_event, record_play_event,
+};
 use crate::music::analytics::queries::{get_song_play_analytics, get_user_listening_history};
 use crate::music::analytics::PlayEvent;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
-use crate::users::UserRole;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
@@ -24,7 +25,10 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "RecordPlayRequest",
         response_type: "EmptyResponse",
-        auth: RouteAuth::Role(UserRole::Member),
+        // viewers only ever record their own plays (caller.user_id), so
+        // this is safe to open up beyond member - see sessions.rs's
+        // create_playback_session for the same reasoning.
+        auth: RouteAuth::Authenticated,
     },
     RouteInfo {
         name: "record_video_play",
@@ -33,7 +37,7 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "RecordVideoPlayRequest",
         response_type: "EmptyResponse",
-        auth: RouteAuth::Role(UserRole::Member),
+        auth: RouteAuth::Authenticated,
     },
     RouteInfo {
         name: "listening_history",

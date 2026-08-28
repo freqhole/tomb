@@ -3,8 +3,8 @@
 use crate::api_registry::{Domain, Method, RouteAuth, RouteInfo};
 use crate::error::ErrorDetail;
 use crate::music::analytics::sessions::{
-    create_playback_session, delete_playback_session, get_playback_session,
-    list_playback_sessions, update_playback_session_items, update_playback_session_progress,
+    create_playback_session, delete_playback_session, get_playback_session, list_playback_sessions,
+    update_playback_session_items, update_playback_session_progress,
     update_playback_session_status, CreatePlaybackSessionRequest, DeletePlaybackSessionRequest,
     GetPlaybackSessionRequest, ListPlaybackSessionsRequest, UpdatePlaybackSessionItemsRequest,
     UpdatePlaybackSessionProgressRequest, UpdatePlaybackSessionStatusRequest,
@@ -23,7 +23,10 @@ pub const ROUTES: &[RouteInfo] = &[
         domain: Domain::Music,
         request_type: "CreatePlaybackSessionRequest",
         response_type: "PlaybackSession",
-        auth: RouteAuth::Role(UserRole::Member),
+        // a session is just a viewer's own playback/feed record (scoped to
+        // caller.user_id); mutating it after creation still requires
+        // Owner, so viewers can't touch anyone else's sessions.
+        auth: RouteAuth::Authenticated,
     },
     RouteInfo {
         name: "list_playback_sessions",
@@ -306,4 +309,3 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     let response = delete_playback_session(&req.id).await;
     response.map(|_| JsonValue::Null)
 }
-
