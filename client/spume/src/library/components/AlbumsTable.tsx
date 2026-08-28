@@ -377,11 +377,19 @@ export function AlbumsTable(props: AlbumsTableProps) {
   };
 
   return (
-    <div class="flex flex-col h-full min-h-0">
+    <div class="relative flex flex-col h-full min-h-0">
       {/* slim toolbar — search / sort / status filters live in the
        *  topnav now; this strip just shows counts + the bulk action
-       *  buttons that operate over the entire filtered set. */}
-      <div class="flex items-center gap-3 flex-wrap px-4 py-2 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-base)]">
+       *  buttons that operate over the entire filtered set. floats above
+       *  the scrolling rows (same z-[110] "beat the title strip"
+       *  convention as the grid/table view switcher in AlbumsView) instead
+       *  of pushing them down, so rows can scroll all the way to the top.
+       *  positioned below the topnav's own floating strip (not top-2,
+       *  which collided with the title bar / topnav on chromeless mac). */}
+      <div
+        class="absolute left-4 z-[110] flex items-center gap-3 flex-wrap bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/10 shadow-lg"
+        style={{ top: "calc(4.5rem + var(--chrome-top-inset, 0px))" }}
+      >
         {/* count. note: server's `total_count` is currently the page count
          *  (see grimoire/src/music/crud/query.rs query_albums) so we can't
          *  show "loaded of total" reliably yet — just show what's loaded.
@@ -509,7 +517,14 @@ export function AlbumsTable(props: AlbumsTableProps) {
       </div>
 
       {/* table */}
-      <div ref={scrollEl} onScroll={onScroll} class="flex-1 overflow-auto min-h-0">
+      <div
+        ref={scrollEl}
+        onScroll={onScroll}
+        class="flex-1 overflow-auto min-h-0"
+        style={{
+          "padding-top": window.matchMedia("(min-width: 768px)").matches ? "180px" : undefined,
+        }}
+      >
         <Show when={!albumsQuery.isLoading} fallback={<LoadingState text="loading albums..." />}>
           <Show
             when={filteredItems().length > 0}

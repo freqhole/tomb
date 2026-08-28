@@ -420,7 +420,12 @@ export function VideosTable(props: VideosTableProps) {
 
   return (
     <div class={`relative flex flex-col h-full min-h-0 ${props.class || ""}`}>
-      <div class="flex-1 overflow-auto min-h-0">
+      <div
+        class="flex-1 overflow-auto min-h-0"
+        style={{
+          "padding-top": window.matchMedia("(min-width: 768px)").matches ? "140px" : undefined,
+        }}
+      >
         <Show
           when={props.videos.length > 0}
           fallback={
