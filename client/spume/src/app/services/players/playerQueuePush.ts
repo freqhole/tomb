@@ -1,33 +1,39 @@
-// phase 6: pushes local songs to a paired freqhole-player device.
+// phase 6: pushes local songs (and, since phase 16, videos) to a paired
+// freqhole-player device.
 //
 // mirrors phase 4's "controller itself holds the blob" pattern: this
-// device imports the song's bytes into its own local blob store (making
+// device imports the media's bytes into its own local blob store (making
 // them fetchable by iroh-blobs verified streaming), then tells the player
 // to pull from *this* node by blake3 hash. two transports, selected via
-// isCharnelMode() (see importSongBytes() below): wasm (browser midden
+// isCharnelMode() (see importMediaBytes() below): wasm (browser midden
 // node's own store) or charnel/tauri native (`p2p_import_blob_bytes`/
 // `p2p_get_node_id`, the same iroh-blobs FsStore + pull model
 // `CharnelTransport.ts` already uses for music/video uploads).
 //
-// `getAudioURL()` already resolves every song storage backend (local
-// opfs, remote p2p, remote http, blob-cached) into a fetchable url, so
-// fetching that url + importing the bytes works regardless of where the
-// song actually lives - no per-backend branching needed here.
+// `getAudioURL()`/`getVideoURL()` already resolve every storage backend
+// (local opfs, remote p2p, remote http, blob-cached) into a fetchable url,
+// so fetching that url + importing the bytes works regardless of where the
+// media actually lives - no per-backend branching needed here.
 //
 // deliberately simple: no dedupe/hash-cache (import is idempotent per
-// content anyway), no release_blob/GC of imported blobs, video items are
-// skipped (no video-over-freqhole-player support yet).
+// content anyway), no release_blob/GC of imported blobs.
 
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { isCharnelMode } from "../charnel/mode";
 import { fetchLocalNodeId, importBlobBytes } from "../charnel/commands";
 import { getAudioURL } from "../../../music/services/storage/audioAccess";
-import type { Song } from "../../../music/services/storage/types";
+import type { ImageMetadata, Song } from "../../../music/services/storage/types";
 import { getBlob } from "../../../music/services/storage/blobs";
 import { isValidHttpUrl, resolveBlobUrl } from "../../../music/services/storage/blobResolver";
 import { getSongDisplayImages, pickBestImage } from "../../../utils/images";
 import { sendPlayerCommand } from "./playerPairingClient";
-import type { RemoteMediaRef } from "./remotePlaybackControl";
+import {
+  applyRemoteStatusFromAck,
+  type RemoteMediaRef,
+  type RemoteStatus,
+} from "./remotePlaybackControl";
+import { getVideoURL } from "../../../video/services/videoBlobAccess";
+import type { MediaItem, QueuedVideo } from "../storage/mediaItem";
 
 function bytesToBase64(bytes: Uint8Array): string {
   // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
@@ -98,20 +104,44 @@ interface ResolvedArtwork {
  * mistyped waveforms, so skipping the album-image fallback (the original
  * bug here) silently produced no artwork for most charnel/local songs. */
 async function resolveArtwork(song: Song): Promise<ResolvedArtwork> {
-  const image = pickBestImage(getSongDisplayImages(song));
-  if (!image) return {};
+  return resolveImageArtwork(pickBestImage(getSongDisplayImages(song)));
+}
 
-  const fromBlob = async (blob: Blob): Promise<ResolvedArtwork> => {
-    const [fullUrl, thumbUrl] = await Promise.all([
-      blobToDataUrl(blob),
-      makeArtworkThumbDataUrl(blob),
-    ]);
-    return { thumbUrl: thumbUrl ?? fullUrl, fullUrl };
-  };
+/** video equivalent of resolveArtwork() above - the video domain has no
+ * per-song-like `images[]` gallery used for primary display, just a single
+ * flat `poster_blob_id` (mirrors how VideoCard/VideoDetailView etc. render
+ * a video's thumbnail) - so this resolves that instead of picking from an
+ * images array. local/opfs-imported videos have no `remote_server_id` to
+ * resolve a blob through and are skipped for now (no artwork, not fatal -
+ * the queue item just carries title/duration with no thumbnail). */
+async function resolveVideoArtwork(video: QueuedVideo): Promise<ResolvedArtwork> {
+  if (!video.poster_blob_id || !video.remote_server_id) return {};
+  try {
+    const url = await resolveBlobUrl(video.poster_blob_id, video.remote_server_id, "image");
+    const res = await fetch(url);
+    if (res.ok) return artworkFromBlob(await res.blob());
+  } catch {
+    // no artwork available - not fatal, the ref just won't carry art.
+  }
+  return {};
+}
+
+/** shared by resolveImageArtwork() (songs) and resolveVideoArtwork() above -
+ * downscales/embeds a raw image blob as data urls (thumb + full). */
+async function artworkFromBlob(blob: Blob): Promise<ResolvedArtwork> {
+  const [fullUrl, thumbUrl] = await Promise.all([
+    blobToDataUrl(blob),
+    makeArtworkThumbDataUrl(blob),
+  ]);
+  return { thumbUrl: thumbUrl ?? fullUrl, fullUrl };
+}
+
+async function resolveImageArtwork(image: ImageMetadata | null): Promise<ResolvedArtwork> {
+  if (!image) return {};
 
   if (image.local_blob_id) {
     const blob = await getBlob(image.local_blob_id);
-    if (blob) return fromBlob(blob);
+    if (blob) return artworkFromBlob(blob);
   }
 
   // charnel/tauri-managed local-library images have no local_blob_id (that
@@ -127,7 +157,7 @@ async function resolveArtwork(song: Song): Promise<ResolvedArtwork> {
     try {
       const url = await resolveBlobUrl(image.remote_blob_id, image.remote_server_id, "image");
       const res = await fetch(url);
-      if (res.ok) return fromBlob(await res.blob());
+      if (res.ok) return artworkFromBlob(await res.blob());
     } catch {
       // fall through to the remote_url handling below
     }
@@ -144,17 +174,17 @@ async function resolveArtwork(song: Song): Promise<ResolvedArtwork> {
   try {
     const res = await fetch(remoteUrl);
     if (!res.ok) return {};
-    return fromBlob(await res.blob());
+    return artworkFromBlob(await res.blob());
   } catch {
     return {};
   }
 }
 
-/** imports the song's bytes into this device's local blob store (charnel:
- * native iroh-blobs FsStore via tauri; browser: the wasm midden node's own
- * store) and returns this device's own node id + the resulting blake3 hash,
- * so the player can be told to pull the bytes from us by hash. */
-async function importSongBytes(
+/** imports media bytes (song or video) into this device's local blob store
+ * (charnel: native iroh-blobs FsStore via tauri; browser: the wasm midden
+ * node's own store) and returns this device's own node id + the resulting
+ * blake3 hash, so the player can be told to pull the bytes from us by hash. */
+async function importMediaBytes(
   bytes: Uint8Array
 ): Promise<{ sourcePeerAddr: string; blake3Hash: string }> {
   if (isCharnelMode()) {
@@ -177,7 +207,7 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
   const url = await getAudioURL(song);
   const res = await fetch(url);
   const bytes = new Uint8Array(await res.arrayBuffer());
-  const { sourcePeerAddr, blake3Hash } = await importSongBytes(bytes);
+  const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
   const { thumbUrl, fullUrl } = await resolveArtwork(song);
   return {
     source_peer_addr: sourcePeerAddr,
@@ -193,12 +223,45 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
   };
 }
 
+/** video equivalent of songToMediaRef() above. `QueuedVideo` (the generated
+ * `Video` type) has no stable mime-type field of its own (unlike `Song`) -
+ * `res.blob().type`, read off the actual fetched bytes, is what
+ * `syncVideoToLocal.ts`/`localImport.ts` already use for this same reason. */
+async function videoToMediaRef(video: QueuedVideo): Promise<RemoteMediaRef> {
+  const url = await getVideoURL(video);
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
+  const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
+  return {
+    source_peer_addr: sourcePeerAddr,
+    blake3_hash: blake3Hash,
+    size_bytes: bytes.byteLength,
+    duration_ms: video.duration_seconds ? Math.round(video.duration_seconds * 1000) : undefined,
+    mime_type: blob.type || "video/mp4",
+    kind: "video",
+    title: video.title,
+    artwork_thumb_url: thumbUrl,
+    artwork_full_url: fullUrl,
+  };
+}
+
+interface CommandAckLike {
+  status?: RemoteStatus;
+}
+
 /** push a full queue of songs to a paired player, replacing whatever it
  * was playing. the first song starts playing immediately. */
 export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
   const items = await Promise.all(songs.map(songToMediaRef));
-  await sendPlayerCommand(peerAddr, { type: "control", command: "replace_queue", items });
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "replace_queue",
+    items,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
 /** append songs to a paired player's existing queue, without disturbing
@@ -206,5 +269,71 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
 export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Promise<void> {
   if (songs.length === 0) return;
   const items = await Promise.all(songs.map(songToMediaRef));
-  await sendPlayerCommand(peerAddr, { type: "control", command: "append_queue", items });
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "append_queue",
+    items,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
+}
+
+/** push a full queue of videos to a paired player, replacing whatever it
+ * was playing. */
+export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]): Promise<void> {
+  if (videos.length === 0) return;
+  const items = await Promise.all(videos.map(videoToMediaRef));
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "replace_queue",
+    items,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
+}
+
+/** append videos to a paired player's existing queue, without disturbing
+ * whatever it's currently playing. */
+export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo[]): Promise<void> {
+  if (videos.length === 0) return;
+  const items = await Promise.all(videos.map(videoToMediaRef));
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "append_queue",
+    items,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
+}
+
+/** kind-agnostic equivalent of songToMediaRef()/videoToMediaRef() above -
+ * used by pushMediaToPlayer/appendMediaToPlayer for a mixed-kind queue. */
+async function mediaItemToRef(item: MediaItem): Promise<RemoteMediaRef> {
+  return item.kind === "song" ? songToMediaRef(item.song) : videoToMediaRef(item.video);
+}
+
+/** push a full queue of songs and/or videos (mixed-kind, order-preserving)
+ * to a paired player, replacing whatever it was playing - used for the
+ * initial "select this player as my playback target" hand-off, where the
+ * local queue may be video-only, song-only, or a genuine mix (unlike
+ * pushSongsToPlayer/pushVideosToPlayer above, which only ever send one
+ * kind and so silently sent nothing at all for a video-only queue). */
+export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): Promise<void> {
+  if (items.length === 0) return;
+  const refs = await Promise.all(items.map(mediaItemToRef));
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "replace_queue",
+    items: refs,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
+}
+
+/** append equivalent of pushMediaToPlayer() above. */
+export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]): Promise<void> {
+  if (items.length === 0) return;
+  const refs = await Promise.all(items.map(mediaItemToRef));
+  const ack = (await sendPlayerCommand(peerAddr, {
+    type: "control",
+    command: "append_queue",
+    items: refs,
+  })) as CommandAckLike;
+  if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }

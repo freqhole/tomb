@@ -66,6 +66,14 @@ export async function sendPlayerCommand(peerAddr: string, command: unknown): Pro
  * alternative to polling `sendPlayerCommand({command:"get_status"})` on an
  * interval. returns an unsubscribe function.
  *
+ * auto-reconnects (after a short delay) if the stream ever closes or
+ * throws while still subscribed - a transient blip here used to silently
+ * and PERMANENTLY degrade a client to the 30s poll fallback for the rest
+ * of the session (no reconnect attempt, no visible signal), which looked
+ * like "another client's seek/queue change takes ages to show up" - the
+ * push channel had quietly died and only the next poll tick ever caught
+ * up. now it keeps retrying for as long as the caller hasn't unsubscribed.
+ *
  * wasm-only for now: charnel/tauri's `player_pairing_dial` invoke is a
  * one-shot request/response with no persistent-stream equivalent yet -
  * callers should keep polling as a fallback there (see
@@ -77,33 +85,40 @@ export function subscribeToPlayerStatus(
 ): () => void {
   if (isCharnelMode()) return () => {};
 
+  const RECONNECT_DELAY_MS = 2_000;
   let closed = false;
   let stream: BiStreamLike | null = null;
 
   void (async () => {
-    try {
-      const node = await getMiddenNode();
-      if (!node.open_bi) return;
-      const s = await node.open_bi(peerAddr, PLAYER_ALPN);
-      if (closed) {
-        s.close();
-        return;
-      }
-      stream = s;
-      await s.write_line(JSON.stringify({ type: "subscribe" }));
-      for (;;) {
-        const line = (await s.read_line()) as string | null;
-        if (line === null) break;
-        try {
-          onStatus(JSON.parse(line));
-        } catch {
-          // malformed push line - ignore, next push will arrive fine
+    while (!closed) {
+      try {
+        const node = await getMiddenNode();
+        if (!node.open_bi) return;
+        const s = await node.open_bi(peerAddr, PLAYER_ALPN);
+        if (closed) {
+          s.close();
+          return;
         }
+        stream = s;
+        await s.write_line(JSON.stringify({ type: "subscribe" }));
+        for (;;) {
+          const line = (await s.read_line()) as string | null;
+          if (line === null) break;
+          try {
+            onStatus(JSON.parse(line));
+          } catch {
+            // malformed push line - ignore, next push will arrive fine
+          }
+        }
+      } catch {
+        // dial/stream failed - fall through to the reconnect delay below
+        // (poll fallback still covers status in the meantime)
+      } finally {
+        stream?.close();
+        stream = null;
       }
-    } catch {
-      // dial/stream failed - caller's polling fallback still covers status
-    } finally {
-      stream?.close();
+      if (closed) break;
+      await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY_MS));
     }
   })();
 

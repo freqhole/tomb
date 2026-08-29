@@ -7,6 +7,7 @@ import { PlayerCommandSchema, type CommandAck } from "./schema";
 import * as playbackEngine from "../playback/playbackEngine";
 import * as radioClient from "../playback/radioClient";
 import { broadcastStatus } from "./statusSubscribers";
+import { markActivity } from "./activityIndicator";
 
 // only the handful of commands that can take the player from idle (no
 // `nowPlaying()`, qr code showing) to actually playing something count as
@@ -30,6 +31,7 @@ export async function dispatchCommand(node: MiddenNode, rawLine: string): Promis
 
   const command = parsed.data;
   const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
+  if (command.command !== "get_status") markActivity();
   if (tracksLoading) setCommandInFlight(true);
   try {
     switch (command.command) {
@@ -40,7 +42,7 @@ export async function dispatchCommand(node: MiddenNode, rawLine: string): Promis
         await playbackEngine.replaceQueue(node, command.items);
         break;
       case "append_queue":
-        playbackEngine.appendQueue(node, command.items);
+        await playbackEngine.appendQueue(node, command.items);
         break;
       case "pause":
         playbackEngine.pause();

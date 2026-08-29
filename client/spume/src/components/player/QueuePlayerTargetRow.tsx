@@ -15,6 +15,10 @@ import {
   selectLocalPlaybackTarget,
   selectPlayerPlaybackTarget,
 } from "../../app/services/players/selectPlaybackTarget";
+import {
+  remoteStatusKnown,
+  remoteCommandPending,
+} from "../../app/services/players/remotePlaybackControl";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 
@@ -30,6 +34,16 @@ export function QueuePlayerTargetRow() {
     const t = activeTarget();
     return t.kind === "player" ? t.display_name : "this device";
   };
+
+  // true while we've picked a player but haven't heard its queue/status
+  // yet - the "connecting" comet-trail ring below mirrors the playerbar's
+  // own loading ring so the button doesn't just look inert while waiting.
+  // also lit up by remoteCommandPending() - queue add/reorder/remove all
+  // round-trip to the player before the queue view reflects them (queue
+  // adds in particular can take a while: blob import + artwork resize
+  // happen before the command is even sent, see playerQueuePush.ts).
+  const isConnecting = () => activeTarget().kind === "player" && !remoteStatusKnown();
+  const showSyncRing = () => isConnecting() || remoteCommandPending();
 
   const actions = (): MenuAction[] => [
     {
@@ -47,19 +61,34 @@ export function QueuePlayerTargetRow() {
   return (
     <Show when={(pairedPlayers()?.length ?? 0) > 0}>
       <div class="flex justify-end px-3 py-2">
-        <ClickDropdownMenu
-          trigger={
-            <button
-              type="button"
-              class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/20 transition-colors focus:outline-none border"
-              data-testid="queue-target-picker"
-            >
-              <span class="truncate max-w-[10rem]">{currentLabel()}</span>
-              <Icon name="remotePlayer" size={16} />
-            </button>
-          }
-          actions={actions()}
-        />
+        <div class="relative rounded-full">
+          <Show when={showSyncRing()}>
+            <div
+              class="absolute inset-[-3px] rounded-full pointer-events-none"
+              style={{
+                background:
+                  "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
+                mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                "-webkit-mask":
+                  "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
+                animation: "spin 1.5s linear infinite",
+              }}
+            />
+          </Show>
+          <ClickDropdownMenu
+            trigger={
+              <button
+                type="button"
+                class="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/20 transition-colors focus:outline-none border"
+                data-testid="queue-target-picker"
+              >
+                <span class="truncate max-w-[10rem]">{currentLabel()}</span>
+                <Icon name="remotePlayer" size={16} />
+              </button>
+            }
+            actions={actions()}
+          />
+        </div>
       </div>
     </Show>
   );

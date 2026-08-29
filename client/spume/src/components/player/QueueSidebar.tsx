@@ -17,6 +17,7 @@ import {
 } from "../../app/services/storage/db";
 import { onAutoDownloadEnabled } from "../../music/services/autoDownload";
 import { isRemoteTargetActive } from "../../app/services/players/activeTarget";
+import { optimisticRemoteQueue } from "../../app/services/players/remoteQueueMirror";
 import {
   remoteAutoDownloadEnabled,
   remoteSetAutoDownloadEnabled,
@@ -25,6 +26,7 @@ import {
   remoteOptimisticCurrentIndex,
   remoteReorderQueue,
   remoteRemoveFromQueue,
+  remoteStatusKnown,
 } from "../../app/services/players/remotePlaybackControl";
 
 import { Icon, type IconName } from "../icons/registry";
@@ -193,12 +195,20 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   // pointer-based drag state for Tauri (HTML5 drag doesn't work in WKWebView)
   const [pointerDragIndex, setPointerDragIndex] = createSignal<number | null>(null);
-  // pending pointer drag - waiting for movement threshold before activating
+  // same, for the remote queue's own row list (see phase 14c comment above
+  // draggedIndex/dropTargetIndex) - kept as a separate signal so remote-
+  // queue pointer-dragging can't interfere with a local-queue drag still
+  // mid-flight, even though the two lists are mutually exclusive in the UI.
+  const [remotePointerDragIndex, setRemotePointerDragIndex] = createSignal<number | null>(null);
+  // pending pointer drag - waiting for movement threshold before activating.
+  // `list` picks which signals/reorder-callback activation targets once the
+  // threshold is crossed (see handlePointerMove/handlePointerUp below).
   let pendingPointerDrag: {
     index: number;
     startY: number;
     pointerId: number;
     target: HTMLElement;
+    list: "local" | "remote";
   } | null = null;
   const DRAG_THRESHOLD = 8; // pixels of movement before drag activates
 
@@ -223,16 +233,22 @@ export function QueueSidebar(props: QueueSidebarProps) {
       if (pendingPointerDrag !== null) {
         const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
         if (deltaY >= DRAG_THRESHOLD) {
-          // activate drag
-          setPointerDragIndex(pendingPointerDrag.index);
+          // activate drag - which signal depends on which list this pending
+          // drag started on (see onPointerDown handlers below).
+          if (pendingPointerDrag.list === "remote") {
+            setRemotePointerDragIndex(pendingPointerDrag.index);
+          } else {
+            setPointerDragIndex(pendingPointerDrag.index);
+          }
           pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
           pendingPointerDrag = null;
         }
         return;
       }
 
-      const idx = pointerDragIndex();
-      if (idx === null) return;
+      const remoteIdx = remotePointerDragIndex();
+      const idx = remoteIdx !== null ? null : pointerDragIndex();
+      if (remoteIdx === null && idx === null) return;
 
       // find which row we're over based on Y position
       const scrollEl = scrollElementRef;
@@ -244,18 +260,31 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
       // calculate target index based on position (68px per row)
       const targetIndex = Math.floor(relativeY / 68);
-      const clampedTarget = Math.max(0, Math.min(targetIndex, props.items.length - 1));
 
-      if (clampedTarget !== idx) {
-        setDropTargetIndex(clampedTarget);
-      } else {
-        setDropTargetIndex(null);
+      if (remoteIdx !== null) {
+        const clampedTarget = Math.max(0, Math.min(targetIndex, remoteQueue().length - 1));
+        setRemoteDropTargetIndex(clampedTarget !== remoteIdx ? clampedTarget : null);
+        return;
       }
+
+      const clampedTarget = Math.max(0, Math.min(targetIndex, props.items.length - 1));
+      setDropTargetIndex(clampedTarget !== idx ? clampedTarget : null);
     };
 
     const handlePointerUp = () => {
       // cancel pending drag if not yet activated
       pendingPointerDrag = null;
+
+      const remoteFromIndex = remotePointerDragIndex();
+      if (remoteFromIndex !== null) {
+        const toIndex = remoteDropTargetIndex();
+        if (toIndex !== null && remoteFromIndex !== toIndex) {
+          void remoteReorderQueue(remoteFromIndex, toIndex);
+        }
+        setRemotePointerDragIndex(null);
+        setRemoteDropTargetIndex(null);
+        return;
+      }
 
       const fromIndex = pointerDragIndex();
       const toIndex = dropTargetIndex();
@@ -278,6 +307,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
   // combined dragged index (works for both HTML5 drag and pointer drag)
   const effectiveDraggedIndex = () => (isCharnelMode() ? pointerDragIndex() : draggedIndex());
+  const effectiveRemoteDraggedIndex = () =>
+    isCharnelMode() ? remotePointerDragIndex() : remoteDraggedIndex();
 
   const virtualizer = createVirtualizer({
     get count() {
@@ -330,29 +361,40 @@ export function QueueSidebar(props: QueueSidebarProps) {
     props.onRemoveItem(index);
   };
 
+  // shared HTML5-drag setup for both the local queue's rows and the
+  // remote queue's rows - factored out because the remote queue's own
+  // `onDragStart` previously skipped this entirely (see phase 15's "can't
+  // drag remote queue rows" fix): without `effectAllowed`/`setData`, some
+  // browsers refuse the drop outright, and without the Safari drag-image
+  // workaround below, dragging a `transform`-positioned row (both lists
+  // use `transform: translateY(...)` for row placement) can produce a
+  // broken/invisible drag in Safari.
+  const setupDragImage = (e: DragEvent, index: number) => {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    // Safari has issues with drag images on transformed elements
+    // Create a temporary clone positioned at 0,0 for the drag image
+    const target = e.currentTarget as HTMLElement;
+    const clone = target.cloneNode(true) as HTMLElement;
+    clone.style.position = "absolute";
+    clone.style.top = "-9999px";
+    clone.style.left = "-9999px";
+    clone.style.transform = "none";
+    clone.style.width = `${target.offsetWidth}px`;
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(
+      clone,
+      e.clientX - target.getBoundingClientRect().left,
+      e.clientY - target.getBoundingClientRect().top
+    );
+    // Clean up clone after drag starts
+    requestAnimationFrame(() => clone.remove());
+  };
+
   const handleDragStart = (index: number) => (e: DragEvent) => {
     setDraggedIndex(index);
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
-      // Safari has issues with drag images on transformed elements
-      // Create a temporary clone positioned at 0,0 for the drag image
-      const target = e.currentTarget as HTMLElement;
-      const clone = target.cloneNode(true) as HTMLElement;
-      clone.style.position = "absolute";
-      clone.style.top = "-9999px";
-      clone.style.left = "-9999px";
-      clone.style.transform = "none";
-      clone.style.width = `${target.offsetWidth}px`;
-      document.body.appendChild(clone);
-      e.dataTransfer.setDragImage(
-        clone,
-        e.clientX - target.getBoundingClientRect().left,
-        e.clientY - target.getBoundingClientRect().top
-      );
-      // Clean up clone after drag starts
-      requestAnimationFrame(() => clone.remove());
-    }
+    setupDragImage(e, index);
   };
 
   const handleDragOver = (index: number) => (e: DragEvent) => {
@@ -610,10 +652,18 @@ export function QueueSidebar(props: QueueSidebarProps) {
           }}
         >
           <Show
-            when={!isRemoteTargetActive()}
+            // stay on the LOCAL queue view (still showing whatever this
+            // device had queued pre-switch) until the player's own status
+            // actually arrives - avoids a jarring "queue is empty" flash
+            // the instant a remote target is selected (see
+            // selectPlaybackTarget.ts's resetRemoteStatus() call, which
+            // intentionally clears remoteStatus right away so a PREVIOUS
+            // target's stale status never shows through). once the real
+            // status lands, this swaps to the confirmed remote queue.
+            when={!isRemoteTargetActive() || !remoteStatusKnown()}
             fallback={
               <Show
-                when={remoteQueue().length > 0}
+                when={optimisticRemoteQueue().length > 0}
                 fallback={
                   <div class="flex flex-col items-center justify-center h-full text-center px-8">
                     <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
@@ -638,15 +688,23 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     all purely display-layer, self-correcting once the
                     next real status lands. no virtualizer yet (remote
                     queues are expected to stay modest-sized) - revisit if
-                    that becomes a real limitation. */}
+                    that becomes a real limitation.
+                    phase 18: rows beyond confirmedCount() are this
+                    device's own optimistic, not-yet-acked additions (see
+                    remoteQueueMirror.ts's optimisticRemoteQueue) - shown
+                    right away instead of waiting for the player's ack,
+                    but not yet draggable/removable since they don't have
+                    a real remote index yet. */}
                 <div
                   class="relative p-2"
-                  style={{ height: `${remoteQueue().length * ROW_HEIGHT}px` }}
+                  style={{ height: `${optimisticRemoteQueue().length * ROW_HEIGHT}px` }}
                 >
-                  <For each={remoteQueue()} fallback={null}>
+                  <For each={optimisticRemoteQueue()} fallback={null}>
                     {(ref, i) => {
+                      const confirmedCount = () => remoteQueue().length;
+                      const isPending = () => i() >= confirmedCount();
                       const isCurrentlyPlaying = () => i() === remoteOptimisticCurrentIndex();
-                      const isDragging = () => remoteDraggedIndex() === i();
+                      const isDragging = () => effectiveRemoteDraggedIndex() === i();
                       const isDropTarget = () => remoteDropTargetIndex() === i();
 
                       return (
@@ -654,6 +712,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           item={ref}
                           index={i()}
                           isCurrentlyPlaying={isCurrentlyPlaying()}
+                          isPending={isPending()}
                           positionMs={isCurrentlyPlaying() ? remotePositionMs() : undefined}
                           isDragging={isDragging()}
                           isDropTarget={isDropTarget()}
@@ -662,14 +721,18 @@ export function QueueSidebar(props: QueueSidebarProps) {
                           onDoubleClick={() => {}}
                           onRemove={(e) => {
                             e.stopPropagation();
+                            if (isPending()) return;
                             void remoteRemoveFromQueue(i());
                           }}
                           onDragStart={(e) => {
+                            if (isPending()) return;
                             setRemoteDraggedIndex(i());
-                            e.dataTransfer?.setData("text/plain", String(i()));
+                            setupDragImage(e, i());
                           }}
                           onDragOver={(e) => {
+                            if (isPending()) return;
                             e.preventDefault();
+                            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
                             setRemoteDropTargetIndex(i());
                           }}
                           onDragLeave={() => setRemoteDropTargetIndex(null)}
@@ -678,12 +741,28 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             setRemoteDropTargetIndex(null);
                           }}
                           onDrop={() => {
+                            if (isPending()) return;
                             const fromIndex = remoteDraggedIndex();
                             const toIndex = i();
                             setRemoteDraggedIndex(null);
                             setRemoteDropTargetIndex(null);
                             if (fromIndex === null || fromIndex === toIndex) return;
                             void remoteReorderQueue(fromIndex, toIndex);
+                          }}
+                          onPointerDown={(e) => {
+                            // pointer-based drag for Tauri only (native HTML5
+                            // drag doesn't work in WKWebView) - see the local
+                            // queue's identical pattern above.
+                            if (isPending()) return;
+                            if (isCharnelMode() && e.button === 0) {
+                              pendingPointerDrag = {
+                                index: i(),
+                                startY: e.clientY,
+                                pointerId: e.pointerId,
+                                target: e.currentTarget as HTMLElement,
+                                list: "remote",
+                              };
+                            }
                           }}
                         />
                       );
@@ -785,6 +864,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             startY: e.clientY,
                             pointerId: e.pointerId,
                             target: e.currentTarget as HTMLElement,
+                            list: "local",
                           };
                         }
                       },

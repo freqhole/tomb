@@ -52,6 +52,8 @@ import {
   remoteDurationMs,
   remoteVolume,
   remoteSeek,
+  remoteQueue,
+  remoteOptimisticCurrentIndex,
   remoteCommandPending,
   remoteStatusKnown,
   remoteCurrentItem,
@@ -1847,8 +1849,14 @@ export function AppLayout(props: AppLayoutProps) {
                 onImageClick={onImageClick}
                 onSongMetaClick={onSongMetaClick}
                 queueLength={appState()?.queue.length || 0}
-                canGoNext={isRadio() ? canAdminSkipRadioTrack() : canGoNext()}
-                canGoPrevious={isRadio() ? false : canGoPrevious()}
+                canGoNext={
+                  isRadio()
+                    ? canAdminSkipRadioTrack()
+                    : isRemoteTargetActive()
+                      ? remoteQueue().length > remoteOptimisticCurrentIndex() + 1
+                      : canGoNext()
+                }
+                canGoPrevious={isRadio() || isRemoteTargetActive() ? false : canGoPrevious()}
                 showNext={!isRadio() || canAdminSkipRadioTrack()}
                 showPrevious={!isRadio()}
                 statusBadge={statusBadge()}

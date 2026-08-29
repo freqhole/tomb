@@ -108,7 +108,7 @@ async function handleConnection(node: MiddenNode, stream: BiStream): Promise<voi
     // wait - see lib/midden/src/lib.rs).
     await stream.read_line();
   } catch (err) {
-    console.error("[player] connection handling failed:", err);
+    // console.error("[player] connection handling failed:", err);
   } finally {
     stream.close();
   }

@@ -20,6 +20,32 @@ export type EngineState =
 const media = document.createElement("video");
 media.preload = "auto";
 media.playsInline = true;
+// pinned to the viewport directly from JS (not CSS %/vw/vh, which proved
+// unreliable across mobile browser chrome/pinch-zoom) - see
+// applyViewportSize() below. `object-fit: contain` (not `cover`): cover
+// crops to fill the whole box on both axes, which for a video whose aspect
+// ratio doesn't match the screen means zooming in a lot - looks like the
+// video is "too big" even though the box itself never exceeds the
+// viewport. contain always shows the whole frame, letterboxed if needed,
+// so it can never look oversized.
+media.style.position = "fixed";
+media.style.top = "0";
+media.style.left = "0";
+media.style.objectFit = "contain";
+
+function applyViewportSize(): void {
+  // visualViewport (not universally supported - e.g. older webviews) tracks
+  // pinch-zoom/on-screen-keyboard changes that innerWidth/innerHeight miss;
+  // fall back to those where it's unavailable.
+  const vv = window.visualViewport;
+  const width = vv ? vv.width : window.innerWidth;
+  const height = vv ? vv.height : window.innerHeight;
+  media.style.width = `${width}px`;
+  media.style.height = `${height}px`;
+}
+applyViewportSize();
+window.addEventListener("resize", applyViewportSize);
+window.visualViewport?.addEventListener("resize", applyViewportSize);
 
 const [state, setState] = createSignal<EngineState>("idle");
 const [currentItem, setCurrentItem] = createSignal<MediaRef | null>(null);
@@ -36,6 +62,22 @@ let currentObjectUrl: string | null = null;
 // toggle by one controller shows up on every other client sharing this
 // player - see control/schema.ts's set_auto_download_enabled command.
 let autoDownloadEnabled = false;
+// blake3 hashes this player is done with this session (played through,
+// manually skipped, or explicitly removed) - most-recent-last, capped at
+// RECENTLY_PLAYED_LIMIT. lets a controller that reconnects later (see
+// schema.ts's PlayerStatusSchema doc comment) skip re-queueing songs this
+// player already dealt with instead of blindly re-appending its whole
+// local queue. cleared once the queue fully empties (see stop() below) -
+// that's the "session" boundary: a still-running queue keeps its history,
+// a fully finished/stopped one starts fresh.
+const RECENTLY_PLAYED_LIMIT = 50;
+let recentlyPlayed: string[] = [];
+function recordRecentlyPlayed(hash: string | undefined): void {
+  if (!hash) return;
+  recentlyPlayed = recentlyPlayed.filter((h) => h !== hash);
+  recentlyPlayed.push(hash);
+  if (recentlyPlayed.length > RECENTLY_PLAYED_LIMIT) recentlyPlayed.shift();
+}
 // remembered so the "ended" listener below can auto-advance the queue without
 // waiting for a remote "skip" command - the queue plays through on its own
 // regardless of whether a controller is currently connected.
@@ -44,6 +86,10 @@ let lastNode: MiddenNode | null = null;
 // are kept here keyed by blake3 hash, so a queue item already downloaded
 // while it was "up next" plays instantly instead of re-fetching.
 const blobCache = new Map<string, Blob>();
+// bumped by every playItem() call - lets a stale, still-in-flight call
+// (an old fetch that hasn't resolved/rejected yet) recognize a newer call
+// has already superseded it and skip applying its result - see playItem().
+let playGeneration = 0;
 
 media.addEventListener("timeupdate", () => setPositionSec(media.currentTime));
 media.addEventListener("durationchange", () => setDurationSec(media.duration || 0));
@@ -162,6 +208,14 @@ function isAutoplayBlocked(err: unknown): boolean {
 
 async function playItem(node: MiddenNode, item: MediaRef): Promise<void> {
   lastNode = node;
+  // guards against out-of-order async resolution: if a NEWER playItem() call
+  // supersedes this one (e.g. a second command arrives while this one is
+  // still mid-fetch, a slow/large video), this stale call's eventual
+  // resolution must not clobber the newer item's state - previously it
+  // could, which looked like "the player gets stuck and won't play
+  // anything" whenever an old, abandoned fetch finally settled after a
+  // newer one had already taken over.
+  const myGeneration = ++playGeneration;
   // show what's about to play right away, before the download even starts
   setCurrentItem(item);
   setErrorMessage(null);
@@ -173,21 +227,24 @@ async function playItem(node: MiddenNode, item: MediaRef): Promise<void> {
       cached ??
       (await (async () => {
         setStatusFor(item.blake3_hash, "loading");
-        const fetched = await fetchMediaBlob(node, item, (fraction) =>
-          setDownloadFraction(fraction),
-        );
+        const fetched = await fetchMediaBlob(node, item, (fraction) => {
+          if (myGeneration === playGeneration) setDownloadFraction(fraction);
+        });
         blobCache.set(item.blake3_hash, fetched);
         return fetched;
       })());
     setStatusFor(item.blake3_hash, "ready");
+    if (myGeneration !== playGeneration) return;
     releaseObjectUrl();
     currentObjectUrl = URL.createObjectURL(blob);
     media.src = currentObjectUrl;
     setDownloadFraction(null);
     await media.play();
+    if (myGeneration !== playGeneration) return;
     setState("playing");
     void prefetchUpcoming(node);
   } catch (err) {
+    if (myGeneration !== playGeneration) return;
     setDownloadFraction(null);
     setStatusFor(item.blake3_hash, undefined);
     if (isAutoplayBlocked(err)) {
@@ -228,9 +285,19 @@ export async function replaceQueue(node: MiddenNode, items: MediaRef[]): Promise
   void prefetchUpcoming(node);
 }
 
-export function appendQueue(node: MiddenNode, items: MediaRef[]): void {
+export async function appendQueue(node: MiddenNode, items: MediaRef[]): Promise<void> {
+  // if the player was genuinely idle (nothing queued/playing yet), an
+  // append needs to actually start playback of the newly-arrived first
+  // item, same as replaceQueue does for its first item - previously this
+  // just grew the queue array and left `state` at "idle" forever, so a
+  // player whose very first queued item ever arrived via append_queue
+  // (e.g. a video added to an already-selected-but-idle remote target's
+  // queue, rather than via a replace_queue hand-off) never played anything
+  // until some unrelated later command happened to kick it into gear.
+  const wasIdle = queue.length === 0 && (state() === "idle" || state() === "stopped");
   queue.push(...items);
   syncQueueSignal();
+  if (wasIdle && queue[0]) await playItem(node, queue[0]);
   void prefetchUpcoming(node);
 }
 
@@ -262,9 +329,14 @@ export function stop(): void {
   queue = [];
   syncQueueSignal();
   pruneStaleCacheEntries();
+  // session boundary - the queue just fully emptied out, so the history
+  // that was only there to stop a *live* session from re-queueing its own
+  // recently-finished songs no longer serves a purpose.
+  recentlyPlayed = [];
 }
 
 export async function skip(node: MiddenNode): Promise<void> {
+  recordRecentlyPlayed(queue[0]?.blake3_hash);
   queue.shift();
   syncQueueSignal();
   pruneStaleCacheEntries();
@@ -284,6 +356,7 @@ export async function removeFromQueue(node: MiddenNode, index: number): Promise<
     await skip(node);
     return;
   }
+  recordRecentlyPlayed(queue[index]?.blake3_hash);
   queue.splice(index, 1);
   syncQueueSignal();
   pruneStaleCacheEntries();
@@ -310,6 +383,7 @@ export function currentStatus(): PlayerStatus {
   const item = currentItem();
   const currentQueue = [...queue];
   const volume = media.volume;
+  const played = [...recentlyPlayed];
   switch (state()) {
     case "playing":
       if (item) {
@@ -322,6 +396,7 @@ export function currentStatus(): PlayerStatus {
           queue: currentQueue,
           auto_download_enabled: autoDownloadEnabled,
           volume,
+          recently_played: played,
         };
       }
       return {
@@ -330,6 +405,7 @@ export function currentStatus(): PlayerStatus {
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
         volume,
+        recently_played: played,
       };
     case "buffering":
       return {
@@ -338,6 +414,7 @@ export function currentStatus(): PlayerStatus {
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
         volume,
+        recently_played: played,
       };
     case "paused":
     case "blocked":
@@ -348,6 +425,7 @@ export function currentStatus(): PlayerStatus {
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
         volume,
+        recently_played: played,
       };
     case "error":
       return {
@@ -357,6 +435,7 @@ export function currentStatus(): PlayerStatus {
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
         volume,
+        recently_played: played,
       };
     case "idle":
     case "stopped":
@@ -367,6 +446,7 @@ export function currentStatus(): PlayerStatus {
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
         volume,
+        recently_played: played,
       };
   }
 }

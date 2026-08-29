@@ -18,3 +18,17 @@ body {
     transform: translateX(100%);
   }
 }
+
+/* pairing-qr loading spinner - see App.tsx/activityIndicator.ts. duration is
+   set inline per-frame so it can ramp speed, hence its own named animation
+   rather than tailwind's fixed-duration `animate-spin` utility. */
+@keyframes spin-ramp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin-ramp {
+  animation-name: spin-ramp;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}

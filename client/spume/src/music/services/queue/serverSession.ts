@@ -96,7 +96,9 @@ function itemEntityId(item: MediaItem): string {
 
 function itemDurationMs(item: MediaItem): number {
   const seconds = item.kind === "song" ? item.song.duration_seconds : item.video.duration_seconds;
-  return (seconds || 0) * 1000;
+  // duration_seconds can carry sub-second precision (esp. video) - round or the
+  // server's i64 duration_ms field rejects the result (e.g. 50959.135).
+  return Math.round((seconds || 0) * 1000);
 }
 
 // map a client-side source `type` (song-side or video-side) to the

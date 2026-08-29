@@ -96,6 +96,14 @@ export type SubscribeRequest = z.infer<typeof SubscribeRequestSchema>;
 // `auto_download_enabled` rides along the same way, so every subscribed
 // controller's own auto-download toggle can mirror whichever controller
 // last changed it (see `set_auto_download_enabled` above).
+//
+// `recently_played` (blake3 hashes, most-recent-last, capped - see
+// playbackEngine.ts's RECENTLY_PLAYED_LIMIT) rides along too: a reconnecting
+// controller that's been away for a while (e.g. switched back to local
+// playback, then picks this player again later) can diff its own queue
+// against this list instead of blindly re-appending everything, so songs
+// this player already played/dropped this session don't get silently
+// re-queued. cleared once the queue fully empties out (session boundary).
 export const PlayerStatusSchema = z.discriminatedUnion("state", [
   z.object({
     type: z.literal("status"),
@@ -110,6 +118,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
   }),
   z.object({
     type: z.literal("status"),
@@ -118,6 +127,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
   }),
   z.object({
     type: z.literal("status"),
@@ -125,6 +135,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
   }),
   z.object({
     type: z.literal("status"),
@@ -132,6 +143,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
   }),
   z.object({
     type: z.literal("status"),
@@ -140,6 +152,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
+    recently_played: z.array(z.string()),
   }),
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;

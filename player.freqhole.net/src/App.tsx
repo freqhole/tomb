@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, onMount, Show, For } from "solid-js";
+import { createResource, createSignal, onCleanup, onMount, Show, For } from "solid-js";
 import { getPlayerNode } from "./midden/node";
 import { startAcceptLoop } from "./midden/acceptLoop";
 import { currentPin } from "./pairing/pinStore";
@@ -20,6 +20,7 @@ import {
 } from "./playback/playbackEngine";
 import { connectedControllers } from "./control/connectedControllers";
 import { commandInFlight } from "./control/dispatcher";
+import { activityRamp } from "./control/activityIndicator";
 import {
   radioState,
   radioNowPlaying,
@@ -27,6 +28,9 @@ import {
   radioListenerCount,
 } from "./playback/radioClient";
 import { deviceName, loadDeviceName } from "./settings/deviceNameStore";
+import { develMode, loadDevelMode, setDevelMode } from "./settings/develModeStore";
+import { installConsoleCapture } from "./debug/consoleCapture";
+import DebugOverlay from "./debug/DebugOverlay";
 import SettingsPanel from "./settings/SettingsPanel";
 
 function formatTime(seconds: number): string {
@@ -40,14 +44,30 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   onMount(() => {
+    installConsoleCapture();
     void loadDeviceName();
-  });
+    void loadDevelMode();
 
-  // in-memory, never resets back to false once flipped (a reload starts
-  // fresh, which is fine - this only gates the qr loading spinner below).
-  const [hasEverConnected, setHasEverConnected] = createSignal(false);
-  createEffect(() => {
-    if (connectedControllers().length > 0) setHasEverConnected(true);
+    // "s" toggles settings open/closed, "d" toggles devel mode (console-log
+    // debug overlay), escape closes settings - "s"/"d" are both ignored while
+    // typing in a form field (e.g. the device name input inside settings
+    // itself); escape always closes, even from a form field, since that's
+    // the conventional "back out" key.
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (settingsOpen()) setSettingsOpen(false);
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      if (e.key === "s" || e.key === "S") {
+        setSettingsOpen((open) => !open);
+        return;
+      }
+      if (e.key === "d" || e.key === "D") void setDevelMode(!develMode());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   const [node] = createResource(async () => {
@@ -66,10 +86,26 @@ export default function App() {
       }),
   );
 
+  // `nowPlaying()` flips true the instant playItem() starts (before any
+  // media has actually loaded - see playbackEngine.ts's playItem), so
+  // gating the pairing/qr view on `!nowPlaying()` alone unmounted it (and
+  // the activity spinner along with it) before the spinner ever got a
+  // chance to render for a fresh play/append/replace command. keep it
+  // mounted through the rest of that in-flight command too - see the
+  // matching `!commandInFlight()` guard on the audio now-playing view
+  // below, which keeps the two mutually exclusive.
+  const showPairingView = () => !nowPlaying() || commandInFlight();
+
   return (
     <div class="h-screen flex flex-col items-center justify-center gap-6 p-6 text-center overflow-y-auto">
-      {/* full-screen overlay for video playback; stays in the DOM (just hidden)
-          for audio so the same <video> element keeps driving playback. */}
+      {/* video playback surface; stays in the DOM (just hidden) for audio so
+          the same <video> element keeps driving playback. the video itself
+          is `position: fixed` and sized directly from JS to the visual
+          viewport (see playbackEngine.ts's applyViewportSize) - this div
+          just supplies the black backdrop, stacking, and hide toggle.
+          always full window, even in devel mode - DebugOverlay renders on
+          top (own higher z-index, semi-transparent background) instead of
+          shrinking the video into a side panel. */}
       <div
         class="fixed inset-0 z-50 bg-black"
         classList={{ hidden: !(nowPlaying() && mediaKind() === "video") }}
@@ -77,6 +113,10 @@ export default function App() {
       >
         {mediaElement}
       </div>
+
+      <Show when={develMode()}>
+        <DebugOverlay />
+      </Show>
 
       <button
         type="button"
@@ -136,7 +176,7 @@ export default function App() {
         <SettingsPanel onClose={() => setSettingsOpen(false)} nodeId={node()?.node_id()} />
       </Show>
 
-      <Show when={!nowPlaying()}>
+      <Show when={showPairingView()}>
         {/* note commenting out device name for a bit, will come back, soon */}
         {/* <h1 class="text-2xl font-semibold">{deviceName()}</h1> */}
 
@@ -158,14 +198,16 @@ export default function App() {
                     static raster composite - it can't be animated directly.
                     layer an identical-looking, independently-animatable
                     overlay exactly on top of it instead: same backing
-                    square + same logo asset, spun via css only while a
-                    command that's about to hide this qr (see
-                    dispatcher.ts's commandInFlight) is being processed -
-                    NOT just because a controller is connected (a paired
-                    but idle controller shouldn't make this spin forever).
+                    square + same logo asset, spun via css. visible while a
+                    command is in flight (full speed, see dispatcher.ts's
+                    commandInFlight) or for IDLE_TIMEOUT_MS after the last
+                    real client command (see activityIndicator.ts) -
+                    ramping down smoothly rather than snapping straight to
+                    hidden, so a paired-but-idle controller that never
+                    queues anything eventually goes fully quiet again.
                     hidden otherwise, revealing the static baked-in logo
                     underneath. */}
-                <Show when={hasEverConnected() && commandInFlight()}>
+                <Show when={commandInFlight() || activityRamp() !== null}>
                   <div
                     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black flex items-center justify-center"
                     style={{ width: "28.6%", height: "28.6%" }}
@@ -174,8 +216,12 @@ export default function App() {
                     <img
                       src="/freqhole.svg"
                       alt=""
-                      class="animate-spin"
-                      style={{ width: "77%", height: "77%" }}
+                      class="spin-ramp"
+                      style={{
+                        width: "77%",
+                        height: "77%",
+                        "animation-duration": `${0.6 + 2.4 * (commandInFlight() ? 0 : (activityRamp() ?? 1))}s`,
+                      }}
                     />
                   </div>
                 </Show>
@@ -191,7 +237,7 @@ export default function App() {
         </Show>
       </Show>
 
-      <Show when={mediaKind() === "audio" ? nowPlaying() : null}>
+      <Show when={mediaKind() === "audio" && !commandInFlight() ? nowPlaying() : null}>
         {(item) => (
           <div class="flex flex-col items-center gap-4 w-full max-w-md" data-testid="now-playing">
             <Show

@@ -268,6 +268,7 @@ export async function playQueue(
   // if queue is empty, just set and play
   if (currentQueue.length === 0) {
     await setQueue(finalItems);
+    mirrorReplaceQueue(finalSongs);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));

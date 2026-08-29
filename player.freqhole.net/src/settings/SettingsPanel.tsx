@@ -10,6 +10,7 @@ import {
   type TrustedController,
 } from "../pairing/trustStore";
 import { deviceName, setDeviceName } from "./deviceNameStore";
+import { develMode, setDevelMode } from "./develModeStore";
 import { formatBytes, getStorageUsage } from "./storageUsage";
 
 export default function SettingsPanel(props: { onClose: () => void; nodeId?: string }) {
@@ -36,7 +37,7 @@ export default function SettingsPanel(props: { onClose: () => void; nodeId?: str
 
   return (
     <div
-      class="fixed inset-0 z-40 bg-black/90 flex items-center justify-center p-6"
+      class="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-6"
       data-testid="settings-panel"
     >
       <div class="w-full max-w-md flex flex-col gap-6 text-left">
@@ -152,6 +153,23 @@ export default function SettingsPanel(props: { onClose: () => void; nodeId?: str
               </p>
             )}
           </Show>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-xs uppercase tracking-widest text-neutral-500">devel mode</label>
+          <button
+            type="button"
+            class="self-start text-sm bg-neutral-700 rounded px-3 py-1"
+            aria-pressed={develMode()}
+            onClick={() => void setDevelMode(!develMode())}
+            data-testid="devel-mode-toggle"
+          >
+            {develMode() ? "on" : "off"}
+          </button>
+          <p class="text-xs text-neutral-500">
+            suppresses fullscreen video and shows a console-log debug overlay - for debugging on
+            devices with no accessible devtools.
+          </p>
         </div>
       </div>
     </div>

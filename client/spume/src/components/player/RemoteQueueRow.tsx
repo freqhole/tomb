@@ -18,6 +18,7 @@ import { getSongByBlake3 } from "../../music/services/storage/db/songs";
 import { getSongDisplayImages, getWaveformImage } from "../../utils/images";
 import { formatDuration } from "../../utils/formatDuration";
 import { isMobile } from "../../utils/isMobile";
+import { isCharnelMode } from "../../app/services/charnel";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 import { Icon } from "../icons/registry";
@@ -29,6 +30,10 @@ export interface RemoteQueueRowProps {
   /** this row's index in the remote queue (0 = currently playing). */
   index: number;
   isCurrentlyPlaying: boolean;
+  /** phase 18: this device's own optimistic, not-yet-acked addition (see
+   * remoteQueueMirror.ts's optimisticRemoteQueue) - has no real remote
+   * index yet, so drag/reorder/remove are disabled until it's confirmed. */
+  isPending?: boolean;
   /** live position (ms) — only meaningful when `isCurrentlyPlaying`. */
   positionMs?: number;
   isDragging: boolean;
@@ -44,6 +49,9 @@ export interface RemoteQueueRowProps {
   onDragLeave: () => void;
   onDragEnd: () => void;
   onDrop: () => void;
+  /** pointer-based drag fallback for Tauri (native HTML5 `draggable` drag
+   * doesn't work in WKWebView) - only wired up when `isCharnelMode()`. */
+  onPointerDown: (e: PointerEvent) => void;
 }
 
 export function RemoteQueueRow(props: RemoteQueueRowProps) {
@@ -93,8 +101,10 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
 
   return (
     <div
-      draggable
-      class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group transition-all duration-200 cursor-move overflow-hidden ${
+      draggable={!isCharnelMode() && !props.isPending}
+      class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group transition-all duration-200 overflow-hidden ${
+        props.isPending ? "cursor-default opacity-60" : "cursor-move"
+      } ${
         props.isDropTarget
           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
           : props.isDragging
@@ -109,6 +119,7 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
       onDragLeave={props.onDragLeave}
       onDragEnd={props.onDragEnd}
       onDrop={props.onDrop}
+      onPointerDown={props.onPointerDown}
       onClick={() => {
         if (isMobile()) props.onClick();
       }}
@@ -194,22 +205,37 @@ export function RemoteQueueRow(props: RemoteQueueRowProps) {
       </div>
 
       <div class="flex flex-col items-center ml-3 flex-shrink-0 relative z-10">
-        <span class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]">
-          {formatDuration(
-            props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
-          )}
-        </span>
+        <Show
+          when={!props.isPending}
+          fallback={
+            <span class="text-xs text-shadow-glow px-1 text-[var(--color-text-muted)] italic">
+              queueing…
+            </span>
+          }
+        >
+          <span
+            class="text-xs text-shadow-glow px-1 tabular-nums text-center min-w-[2.5rem] text-[var(--color-text-secondary)]"
+            style={{ "text-decoration": resolvedSong() ? "underline" : undefined }}
+            title={resolvedSong() ? "already in your local library" : undefined}
+          >
+            {formatDuration(
+              props.item.duration_ms !== undefined ? props.item.duration_ms / 1000 : undefined
+            )}
+          </span>
+        </Show>
       </div>
 
-      {/* remove button */}
-      <button
-        class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
-        onClick={props.onRemove}
-        title="remove from queue"
-        aria-label="remove from queue"
-      >
-        <Icon name="close" size={14} />
-      </button>
+      {/* remove button - hidden while pending (no real remote index yet) */}
+      <Show when={!props.isPending}>
+        <button
+          class={`relative z-10 ${isMobile() ? "" : "opacity-0 group-hover:opacity-100 "}p-2 ml-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 transition-all duration-200 flex-shrink-0`}
+          onClick={props.onRemove}
+          title="remove from queue"
+          aria-label="remove from queue"
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </Show>
     </div>
   );
 }

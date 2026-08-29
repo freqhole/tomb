@@ -21,6 +21,7 @@ import type {
 import { addVideoHistoryEntry, updateVideoHistoryServerSession } from "./videoQueueHistory";
 import { resumeVideoTracking, startVideoTracking } from "./videoListenProgress";
 import { startVideoRemoteSync } from "./videoServerProgressSync";
+import { mirrorReplaceVideosToQueue } from "../../../app/services/players/remoteQueueMirror";
 import { preCacheNextVideos } from "../videoPreCache";
 import type { VideoSummary } from "../../data/types";
 import {
@@ -37,6 +38,10 @@ export async function playVideoQueue(
   if (videos.length === 0) return;
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
   await setQueue(items);
+  // playVideoQueue always fully replaces the local queue (no insert-after-
+  // current merge logic like queue.ts's playQueue) - mirror that as a
+  // replace on the remote target too, same as queue.ts's mirrorReplaceQueue.
+  mirrorReplaceVideosToQueue(videosOnly(items));
   await playMediaItem(items[startIndex], { userInitiated: true });
   void preCacheNextVideos(videosOnly(items), 30, startIndex + 1);
 

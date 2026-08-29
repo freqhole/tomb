@@ -17,6 +17,8 @@
 import { createSignal } from "solid-js";
 import { sendPlayerCommand, subscribeToPlayerStatus } from "./playerPairingClient";
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
+import { appState, setQueue } from "../storage/db";
+import { isSongItem } from "../storage/mediaItem";
 
 export interface RemoteMediaRef {
   source_peer_addr: string;
@@ -43,6 +45,7 @@ export type RemoteStatus =
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
+      recently_played: string[];
     }
   | {
       type: "status";
@@ -51,6 +54,7 @@ export type RemoteStatus =
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
+      recently_played: string[];
     }
   | {
       type: "status";
@@ -58,6 +62,7 @@ export type RemoteStatus =
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
+      recently_played: string[];
     }
   | {
       type: "status";
@@ -65,6 +70,7 @@ export type RemoteStatus =
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
+      recently_played: string[];
     }
   | {
       type: "status";
@@ -73,11 +79,20 @@ export type RemoteStatus =
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
+      recently_played: string[];
     };
 
 /** the shared queue of the active remote target, or an empty array when
  * nothing is active/no status has arrived yet. */
 export const remoteQueue = (): RemoteMediaRef[] => remoteStatus()?.queue ?? [];
+
+/** blake3 hashes the active remote target already dealt with this session
+ * (played through, manually skipped, or explicitly removed - see
+ * player.freqhole.net's playbackEngine.ts `recordRecentlyPlayed()`). used
+ * when re-selecting a remote target after having played locally for a
+ * while, so the handoff doesn't blindly re-queue songs the player already
+ * finished with. */
+export const remoteRecentlyPlayed = (): string[] => remoteStatus()?.recently_played ?? [];
 
 /** the currently-playing (or last-known-current, e.g. while paused) queue
  * item for the active remote target. only `now_playing` status carries it
@@ -127,8 +142,50 @@ export { remoteStatus };
 let lastStatusAt = 0;
 
 function applyRemoteStatus(status: RemoteStatus | null): void {
-  if (status) lastStatusAt = Date.now();
+  if (status) {
+    lastStatusAt = Date.now();
+    const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
+    const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
+    if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
+  }
   setRemoteStatus(status);
+}
+
+/** phase 18: real-time counterpart to selectPlaybackTarget.ts's
+ * syncLocalQueueFromRemote() (which only re-syncs once, at the moment the
+ * user actually switches back to local) - as soon as the remote player
+ * reports an item finished (recently_played grows), drop the matching
+ * local queue entry right away, so the local queue is already caught up
+ * by the time the user switches back instead of jumping all at once. songs
+ * only, matched by blake3 hash - same limitation as
+ * syncLocalQueueFromRemote (videos have no stable local hash to match a
+ * remote blake3_hash against). fire-and-forget; a failed local write here
+ * isn't worth surfacing to the user, and syncLocalQueueFromRemote acts as
+ * a final catch-all at switch-back time regardless. */
+function pruneLocalQueueForFinishedItems(finishedHashes: string[]): void {
+  const state = appState();
+  if (!state) return;
+  const finished = new Set(finishedHashes);
+  const kept = state.queue.filter((item) => {
+    if (!isSongItem(item)) return true;
+    return !item.song.blake3 || !finished.has(item.song.blake3);
+  });
+  if (kept.length === state.queue.length) return;
+  void setQueue(kept);
+}
+
+/** applies a status carried on a raw sendPlayerCommand ack - used by
+ * playerQueuePush.ts's replace_queue/append_queue senders, which dial
+ * directly via playerPairingClient (not through sendControl below, since
+ * they do real work - blob import, artwork resize - before sending) but
+ * still get the fresh post-command status back in the same ack, per
+ * dispatcher.ts's `{ type: "command_ack", ok: true, status }`. applying it
+ * immediately here means the calling client's own queue view updates the
+ * instant its own command completes, instead of waiting for the next
+ * separate push/poll status cycle - the actual fix for a slow (esp. video)
+ * queue add otherwise looking like "nothing happened" for several seconds. */
+export function applyRemoteStatusFromAck(status: RemoteStatus): void {
+  applyRemoteStatus(status);
 }
 
 /** clears any known status for the active target - call right when
@@ -221,6 +278,23 @@ export const remoteTargetOffline = (): boolean =>
 const [pendingCount, setPendingCount] = createSignal(0);
 export const remoteCommandPending = () => pendingCount() > 0;
 
+/** wraps an arbitrary in-flight remote-queue operation (e.g. playerQueuePush's
+ * appendSongsToPlayer/pushSongsToPlayer, called from remoteQueueMirror.ts)
+ * so it feeds the same `remoteCommandPending()` indicator sendControl's
+ * `trackPending` option provides for its own commands - these two don't go
+ * through sendControl themselves (they send `append_queue`/`replace_queue`
+ * directly via playerPairingClient, plus do real work - blob import,
+ * artwork resize - before ever sending anything), but the user should still
+ * see the same "syncing with player" feedback while that's in flight. */
+export async function remoteTrackPending<T>(work: Promise<T>): Promise<T> {
+  setPendingCount((n) => n + 1);
+  try {
+    return await work;
+  } finally {
+    setPendingCount((n) => Math.max(0, n - 1));
+  }
+}
+
 async function sendControl(
   command: Record<string, unknown>,
   opts?: { trackPending?: boolean }
@@ -251,7 +325,7 @@ export async function remoteSkip(): Promise<void> {
 
 /** removes the queue entry at `index` (0 = currently playing). */
 export async function remoteRemoveFromQueue(index: number): Promise<void> {
-  await sendControl({ command: "remove_from_queue", index });
+  await sendControl({ command: "remove_from_queue", index }, { trackPending: true });
 }
 
 /** moves a not-yet-playing queue entry from one position to another. */
