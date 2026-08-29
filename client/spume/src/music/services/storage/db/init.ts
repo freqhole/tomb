@@ -58,6 +58,7 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
           keyPath: "id",
         });
         songsStore.createIndex("by_sha256", "sha256", { unique: true });
+        songsStore.createIndex("by_blake3", "blake3");
         songsStore.createIndex("by_title", "title");
         songsStore.createIndex("by_artist_id", "artist_id");
         songsStore.createIndex("by_album_id", "album_id");
@@ -380,6 +381,20 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
             cursor = await cursor.continue();
           }
           db.deleteObjectStore("playlist_video_items");
+        }
+      }
+
+      // v17 -> v18: add a `by_blake3` index on songs (phase 14b) - lets the
+      // remote-queue-rendering code look up "is this remote queue entry's
+      // blake3_hash already in my local library" with a single indexed
+      // get instead of a full-table scan. non-unique + sparse: plenty of
+      // older songs have no `blake3` yet (only populated once iroh-blobs
+      // verified streaming was added), and IDB indexes simply skip records
+      // whose indexed path is null/undefined.
+      if (oldVersion < 18 && db.objectStoreNames.contains(STORE_SONGS)) {
+        const songsStore = tx.objectStore(STORE_SONGS);
+        if (!songsStore.indexNames.contains("by_blake3")) {
+          songsStore.createIndex("by_blake3", "blake3");
         }
       }
     },

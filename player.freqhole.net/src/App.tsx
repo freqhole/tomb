@@ -1,4 +1,4 @@
-import { createResource, createSignal, onMount, Show, For } from "solid-js";
+import { createEffect, createResource, createSignal, onMount, Show, For } from "solid-js";
 import { getPlayerNode } from "./midden/node";
 import { startAcceptLoop } from "./midden/acceptLoop";
 import { currentPin } from "./pairing/pinStore";
@@ -19,6 +19,7 @@ import {
   skip as skipTrack,
 } from "./playback/playbackEngine";
 import { connectedControllers } from "./control/connectedControllers";
+import { commandInFlight } from "./control/dispatcher";
 import {
   radioState,
   radioNowPlaying,
@@ -40,6 +41,13 @@ export default function App() {
 
   onMount(() => {
     void loadDeviceName();
+  });
+
+  // in-memory, never resets back to false once flipped (a reload starts
+  // fresh, which is fine - this only gates the qr loading spinner below).
+  const [hasEverConnected, setHasEverConnected] = createSignal(false);
+  createEffect(() => {
+    if (connectedControllers().length > 0) setHasEverConnected(true);
   });
 
   const [node] = createResource(async () => {
@@ -150,12 +158,14 @@ export default function App() {
                     static raster composite - it can't be animated directly.
                     layer an identical-looking, independently-animatable
                     overlay exactly on top of it instead: same backing
-                    square + same logo asset, spun via css whenever a
-                    remote client is connected and actively driving
-                    playback, as a lightweight "something's happening"
-                    loading indicator. hidden otherwise, revealing the
-                    static baked-in logo underneath. */}
-                <Show when={connectedControllers().length > 0}>
+                    square + same logo asset, spun via css only while a
+                    command that's about to hide this qr (see
+                    dispatcher.ts's commandInFlight) is being processed -
+                    NOT just because a controller is connected (a paired
+                    but idle controller shouldn't make this spin forever).
+                    hidden otherwise, revealing the static baked-in logo
+                    underneath. */}
+                <Show when={hasEverConnected() && commandInFlight()}>
                   <div
                     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black flex items-center justify-center"
                     style={{ width: "28.6%", height: "28.6%" }}
@@ -185,7 +195,7 @@ export default function App() {
         {(item) => (
           <div class="flex flex-col items-center gap-4 w-full max-w-md" data-testid="now-playing">
             <Show
-              when={item().artwork_url}
+              when={item().artwork_full_url}
               fallback={
                 <div
                   class="w-64 h-64 rounded-lg bg-neutral-800 flex items-center justify-center"

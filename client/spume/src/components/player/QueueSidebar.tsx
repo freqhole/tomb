@@ -4,6 +4,7 @@ import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { mediaItemKey } from "../../app/services/storage/mediaItem";
 import { QueueSongRow } from "./QueueSongRow";
 import { VideoQueueRow } from "./VideoQueueRow";
+import { RemoteQueueRow } from "./RemoteQueueRow";
 import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -19,6 +20,11 @@ import { isRemoteTargetActive } from "../../app/services/players/activeTarget";
 import {
   remoteAutoDownloadEnabled,
   remoteSetAutoDownloadEnabled,
+  remoteQueue,
+  remotePositionMs,
+  remoteOptimisticCurrentIndex,
+  remoteReorderQueue,
+  remoteRemoveFromQueue,
 } from "../../app/services/players/remotePlaybackControl";
 
 import { Icon, type IconName } from "../icons/registry";
@@ -28,6 +34,11 @@ import { MarqueeText } from "../text/MarqueeText";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
 
 type QueueTab = "queue" | "history";
+
+// fixed row height for the remote-queue block (phase 14a) - no
+// virtualizer there yet, see the render block's comment for why; matches
+// the local list's virtualizer `estimateSize`.
+const ROW_HEIGHT = 68;
 
 // relative time formatting
 function timeAgo(timestamp: number): string {
@@ -140,6 +151,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [activeTab, setActiveTab] = createSignal<QueueTab>("queue");
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = createSignal<number | null>(null);
+  // phase 14c: separate, independent drag state for the remote-queue
+  // block - kept isolated from the local queue's drag state above (which
+  // is more involved: HTML5 drag-image cloning, Tauri pointer-drag) to
+  // avoid risking a regression there for a feature only active while a
+  // remote target is active anyway (the two blocks are mutually
+  // exclusive, see the render's outer `<Show when={!isRemoteTargetActive()}>`).
+  const [remoteDraggedIndex, setRemoteDraggedIndex] = createSignal<number | null>(null);
+  const [remoteDropTargetIndex, setRemoteDropTargetIndex] = createSignal<number | null>(null);
   const hasRadioQueueEntry = () => !!props.currentRadioStation;
   const queueEntryCount = () => props.items.length + (hasRadioQueueEntry() ? 1 : 0);
 
@@ -590,160 +609,249 @@ export function QueueSidebar(props: QueueSidebarProps) {
             display: activeTab() === "queue" ? undefined : "none",
           }}
         >
-          <Show when={props.items.length === 0}>
-            <Show
-              when={!hasRadioQueueEntry()}
-              fallback={
+          <Show
+            when={!isRemoteTargetActive()}
+            fallback={
+              <Show
+                when={remoteQueue().length > 0}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                    <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                      <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                    </div>
+                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
+                      queue is empty
+                    </p>
+                    <p class="text-[var(--color-text-muted)] text-xs m-0">
+                      add songs to see them here
+                    </p>
+                  </div>
+                }
+              >
+                {/* phase 14a/14c: remote target's shared queue - any
+                    connected client can reorder/remove (14c), current
+                    entry (index 0, "current item first" per the player's
+                    status protocol) is highlighted and ticks its own
+                    progress from the local clock (14d), and the current
+                    index optimistically advances a single step once the
+                    ticking clock predicts the item has finished (14e) -
+                    all purely display-layer, self-correcting once the
+                    next real status lands. no virtualizer yet (remote
+                    queues are expected to stay modest-sized) - revisit if
+                    that becomes a real limitation. */}
+                <div
+                  class="relative p-2"
+                  style={{ height: `${remoteQueue().length * ROW_HEIGHT}px` }}
+                >
+                  <For each={remoteQueue()} fallback={null}>
+                    {(ref, i) => {
+                      const isCurrentlyPlaying = () => i() === remoteOptimisticCurrentIndex();
+                      const isDragging = () => remoteDraggedIndex() === i();
+                      const isDropTarget = () => remoteDropTargetIndex() === i();
+
+                      return (
+                        <RemoteQueueRow
+                          item={ref}
+                          index={i()}
+                          isCurrentlyPlaying={isCurrentlyPlaying()}
+                          positionMs={isCurrentlyPlaying() ? remotePositionMs() : undefined}
+                          isDragging={isDragging()}
+                          isDropTarget={isDropTarget()}
+                          top={i() * ROW_HEIGHT}
+                          onClick={() => {}}
+                          onDoubleClick={() => {}}
+                          onRemove={(e) => {
+                            e.stopPropagation();
+                            void remoteRemoveFromQueue(i());
+                          }}
+                          onDragStart={(e) => {
+                            setRemoteDraggedIndex(i());
+                            e.dataTransfer?.setData("text/plain", String(i()));
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setRemoteDropTargetIndex(i());
+                          }}
+                          onDragLeave={() => setRemoteDropTargetIndex(null)}
+                          onDragEnd={() => {
+                            setRemoteDraggedIndex(null);
+                            setRemoteDropTargetIndex(null);
+                          }}
+                          onDrop={() => {
+                            const fromIndex = remoteDraggedIndex();
+                            const toIndex = i();
+                            setRemoteDraggedIndex(null);
+                            setRemoteDropTargetIndex(null);
+                            if (fromIndex === null || fromIndex === toIndex) return;
+                            void remoteReorderQueue(fromIndex, toIndex);
+                          }}
+                        />
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
+            }
+          >
+            <Show when={props.items.length === 0}>
+              <Show
+                when={!hasRadioQueueEntry()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                    <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">
+                      no songs queued
+                    </p>
+                    <p class="text-[var(--color-text-muted)] text-xs m-0">
+                      radio is saved above as a queue entry
+                    </p>
+                  </div>
+                }
+              >
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">no songs queued</p>
+                  <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
+                    <Icon name="queue" size={32} color="var(--color-accent-500)" />
+                  </div>
+                  <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
                   <p class="text-[var(--color-text-muted)] text-xs m-0">
-                    radio is saved above as a queue entry
+                    add songs to see them here
                   </p>
                 </div>
-              }
-            >
-              <div class="flex flex-col items-center justify-center h-full text-center px-8">
-                <div class="w-16 h-16 mb-4 bg-[var(--color-accent-500)]/10 flex items-center justify-center">
-                  <Icon name="queue" size={32} color="var(--color-accent-500)" />
-                </div>
-                <p class="text-[var(--color-text-secondary)] text-sm m-0 mb-2">queue is empty</p>
-                <p class="text-[var(--color-text-muted)] text-xs m-0">add songs to see them here</p>
+              </Show>
+            </Show>
+
+            {/* unified, virtualized song+video queue list (phase 4b) - one
+                virtualizer/reconciliation pass for the whole interleaved
+                queue instead of a separate non-virtualized video block,
+                which also fixes video rows losing their identity (and
+                re-mounting/flickering their thumbnail) on every queue
+                change since they were rebuilt as brand-new wrapper objects
+                on each render. */}
+            <Show when={props.items.length > 0}>
+              <div
+                class="relative p-2"
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                }}
+              >
+                <For each={virtualizer.getVirtualItems()} fallback={null}>
+                  {(virtualItem) => {
+                    const itemIndex = virtualItem.index;
+                    // memoized: `createMemo`'s default `===` equality bails
+                    // out downstream recomputation whenever `props.items`
+                    // re-derives (e.g. every periodic `saveProgressToIDB`
+                    // flush during playback) but the object reference at
+                    // THIS index is unchanged - without this, every row
+                    // (including untouched video rows) would tear down and
+                    // rebuild its whole child component on every flush,
+                    // which is what caused the video-thumbnail flicker.
+                    const item = createMemo(() => props.items[itemIndex]);
+                    const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
+                    const isUpNext = () => itemIndex === props.upNextIndex;
+                    const isDragging = () => effectiveDraggedIndex() === itemIndex;
+                    const isDropTarget = () => dropTargetIndex() === itemIndex;
+
+                    // calculate progress for currently-relevant rows. songs
+                    // have a stored per-queue-entry max progress; videos
+                    // don't (yet) - only their live currently-playing
+                    // progress is shown.
+                    const progress = (): number => {
+                      const it = item();
+                      if (!it) return 0;
+                      if (isCurrentlyPlaying()) {
+                        const dur = props.duration ?? 0;
+                        const ct = props.currentTime ?? 0;
+                        return dur > 0 ? ct / dur : 0;
+                      }
+                      if (it.kind === "song") {
+                        const queueEntryId = it.song.queue_entry_id;
+                        if (queueEntryId && props.progressMap) {
+                          return props.progressMap.get(queueEntryId) ?? 0;
+                        }
+                      }
+                      return 0;
+                    };
+
+                    const dragHandlers = {
+                      onDragStart: handleDragStart(itemIndex),
+                      onDragOver: handleDragOver(itemIndex),
+                      onDragLeave: handleDragLeave,
+                      onDragEnd: handleDragEnd,
+                      onDrop: () => handleDrop(itemIndex),
+                      onPointerDown: (e: PointerEvent) => {
+                        // pointer-based drag for Tauri only - set up pending drag
+                        if (isCharnelMode() && e.button === 0) {
+                          pendingPointerDrag = {
+                            index: itemIndex,
+                            startY: e.clientY,
+                            pointerId: e.pointerId,
+                            target: e.currentTarget as HTMLElement,
+                          };
+                        }
+                      },
+                    };
+
+                    return (
+                      // `keyed`: the children callback below only re-runs
+                      // (and thus only reconstructs `<QueueSongRow>`/
+                      // `<VideoQueueRow>`) when `item()`'s memoized value
+                      // actually changes reference - individual props
+                      // (isCurrentlyPlaying, progress, etc.) still update
+                      // live via Solid's per-attribute getter reactivity,
+                      // since those are read fresh on each JSX prop access
+                      // regardless of how often this outer callback reruns.
+                      <Show when={item()} keyed>
+                        {(it) => {
+                          const row =
+                            it.kind === "song" ? (
+                              <QueueSongRow
+                                song={it.song}
+                                index={itemIndex}
+                                isCurrentlyPlaying={isCurrentlyPlaying()}
+                                isUpNext={isUpNext()}
+                                isDragging={isDragging()}
+                                isDropTarget={isDropTarget()}
+                                top={virtualItem.start}
+                                progress={progress()}
+                                loadingIds={props.loadingIds}
+                                onClick={() => handleItemDoubleClick(itemIndex)}
+                                onDoubleClick={() => handleItemDoubleClick(itemIndex)}
+                                onRemove={(e) => handleRemove(e, itemIndex)}
+                                {...dragHandlers}
+                              />
+                            ) : (
+                              <VideoQueueRow
+                                video={it.video}
+                                index={itemIndex}
+                                isCurrentlyPlaying={isCurrentlyPlaying()}
+                                isUpNext={isUpNext()}
+                                isDragging={isDragging()}
+                                isDropTarget={isDropTarget()}
+                                top={virtualItem.start}
+                                progress={progress()}
+                                loadingIds={props.loadingIds}
+                                onClick={() => handleItemDoubleClick(itemIndex)}
+                                onDoubleClick={() => handleItemDoubleClick(itemIndex)}
+                                onRemove={(e) => handleRemove(e, itemIndex)}
+                                {...dragHandlers}
+                              />
+                            );
+
+                          const actions = () => props.getContextMenuActions?.(itemIndex, it);
+
+                          return (
+                            <Show when={actions()} fallback={row}>
+                              {(menuActions) => (
+                                <ContextMenu actions={menuActions()}>{row}</ContextMenu>
+                              )}
+                            </Show>
+                          );
+                        }}
+                      </Show>
+                    );
+                  }}
+                </For>
               </div>
             </Show>
-          </Show>
-
-          {/* unified, virtualized song+video queue list (phase 4b) - one
-              virtualizer/reconciliation pass for the whole interleaved
-              queue instead of a separate non-virtualized video block,
-              which also fixes video rows losing their identity (and
-              re-mounting/flickering their thumbnail) on every queue
-              change since they were rebuilt as brand-new wrapper objects
-              on each render. */}
-          <Show when={props.items.length > 0}>
-            <div
-              class="relative p-2"
-              style={{
-                height: `${virtualizer.getTotalSize()}px`,
-              }}
-            >
-              <For each={virtualizer.getVirtualItems()} fallback={null}>
-                {(virtualItem) => {
-                  const itemIndex = virtualItem.index;
-                  // memoized: `createMemo`'s default `===` equality bails
-                  // out downstream recomputation whenever `props.items`
-                  // re-derives (e.g. every periodic `saveProgressToIDB`
-                  // flush during playback) but the object reference at
-                  // THIS index is unchanged - without this, every row
-                  // (including untouched video rows) would tear down and
-                  // rebuild its whole child component on every flush,
-                  // which is what caused the video-thumbnail flicker.
-                  const item = createMemo(() => props.items[itemIndex]);
-                  const isCurrentlyPlaying = () => itemIndex === props.currentIndex;
-                  const isUpNext = () => itemIndex === props.upNextIndex;
-                  const isDragging = () => effectiveDraggedIndex() === itemIndex;
-                  const isDropTarget = () => dropTargetIndex() === itemIndex;
-
-                  // calculate progress for currently-relevant rows. songs
-                  // have a stored per-queue-entry max progress; videos
-                  // don't (yet) - only their live currently-playing
-                  // progress is shown.
-                  const progress = (): number => {
-                    const it = item();
-                    if (!it) return 0;
-                    if (isCurrentlyPlaying()) {
-                      const dur = props.duration ?? 0;
-                      const ct = props.currentTime ?? 0;
-                      return dur > 0 ? ct / dur : 0;
-                    }
-                    if (it.kind === "song") {
-                      const queueEntryId = it.song.queue_entry_id;
-                      if (queueEntryId && props.progressMap) {
-                        return props.progressMap.get(queueEntryId) ?? 0;
-                      }
-                    }
-                    return 0;
-                  };
-
-                  const dragHandlers = {
-                    onDragStart: handleDragStart(itemIndex),
-                    onDragOver: handleDragOver(itemIndex),
-                    onDragLeave: handleDragLeave,
-                    onDragEnd: handleDragEnd,
-                    onDrop: () => handleDrop(itemIndex),
-                    onPointerDown: (e: PointerEvent) => {
-                      // pointer-based drag for Tauri only - set up pending drag
-                      if (isCharnelMode() && e.button === 0) {
-                        pendingPointerDrag = {
-                          index: itemIndex,
-                          startY: e.clientY,
-                          pointerId: e.pointerId,
-                          target: e.currentTarget as HTMLElement,
-                        };
-                      }
-                    },
-                  };
-
-                  return (
-                    // `keyed`: the children callback below only re-runs
-                    // (and thus only reconstructs `<QueueSongRow>`/
-                    // `<VideoQueueRow>`) when `item()`'s memoized value
-                    // actually changes reference - individual props
-                    // (isCurrentlyPlaying, progress, etc.) still update
-                    // live via Solid's per-attribute getter reactivity,
-                    // since those are read fresh on each JSX prop access
-                    // regardless of how often this outer callback reruns.
-                    <Show when={item()} keyed>
-                      {(it) => {
-                        const row =
-                          it.kind === "song" ? (
-                            <QueueSongRow
-                              song={it.song}
-                              index={itemIndex}
-                              isCurrentlyPlaying={isCurrentlyPlaying()}
-                              isUpNext={isUpNext()}
-                              isDragging={isDragging()}
-                              isDropTarget={isDropTarget()}
-                              top={virtualItem.start}
-                              progress={progress()}
-                              loadingIds={props.loadingIds}
-                              onClick={() => handleItemDoubleClick(itemIndex)}
-                              onDoubleClick={() => handleItemDoubleClick(itemIndex)}
-                              onRemove={(e) => handleRemove(e, itemIndex)}
-                              {...dragHandlers}
-                            />
-                          ) : (
-                            <VideoQueueRow
-                              video={it.video}
-                              index={itemIndex}
-                              isCurrentlyPlaying={isCurrentlyPlaying()}
-                              isUpNext={isUpNext()}
-                              isDragging={isDragging()}
-                              isDropTarget={isDropTarget()}
-                              top={virtualItem.start}
-                              progress={progress()}
-                              loadingIds={props.loadingIds}
-                              onClick={() => handleItemDoubleClick(itemIndex)}
-                              onDoubleClick={() => handleItemDoubleClick(itemIndex)}
-                              onRemove={(e) => handleRemove(e, itemIndex)}
-                              {...dragHandlers}
-                            />
-                          );
-
-                        const actions = () => props.getContextMenuActions?.(itemIndex, it);
-
-                        return (
-                          <Show when={actions()} fallback={row}>
-                            {(menuActions) => (
-                              <ContextMenu actions={menuActions()}>{row}</ContextMenu>
-                            )}
-                          </Show>
-                        );
-                      }}
-                    </Show>
-                  );
-                }}
-              </For>
-            </div>
           </Show>
         </div>
 

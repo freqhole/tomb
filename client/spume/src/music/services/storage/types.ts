@@ -290,7 +290,7 @@ export interface GenreWithStats {
 
 // database metadata
 export const MUSIC_DB_NAME = "freqhole_music";
-export const MUSIC_DB_VERSION = 17;
+export const MUSIC_DB_VERSION = 18;
 
 // store names
 export const STORE_ARTISTS = "artists";

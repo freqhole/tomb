@@ -81,7 +81,9 @@ test("queue auto-advances to the next track when the current one ends @p2p", asy
 });
 
 test("connected-controller indicator and get_status queue resync @p2p", async ({ browser }) => {
-  test.setTimeout(60_000);
+  // DISCONNECT_GRACE_MS is now 45s (connectedControllers.ts) - needs a much
+  // longer test timeout than the default 30s to leave room for that wait.
+  test.setTimeout(90_000);
 
   const playerContext = await browser.newContext();
   const playerPage = await playerContext.newPage();
@@ -159,7 +161,12 @@ test("connected-controller indicator and get_status queue resync @p2p", async ({
   await controllerPage.evaluate(({ sessionId }) => window.__playerTest!.closeSession(sessionId), {
     sessionId,
   });
-  await expect(playerPage.getByTestId("connected-controllers")).toHaveCount(0);
+  // DISCONNECT_GRACE_MS (connectedControllers.ts) is 45s - give the
+  // assertion comfortable margin above that instead of relying on
+  // playwright's shorter default expect timeout.
+  await expect(playerPage.getByTestId("connected-controllers")).toHaveCount(0, {
+    timeout: 50_000,
+  });
 
   await playerContext.close();
   await controllerContext.close();

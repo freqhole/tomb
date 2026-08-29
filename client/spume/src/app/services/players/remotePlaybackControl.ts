@@ -27,7 +27,10 @@ export interface RemoteMediaRef {
   kind?: "audio" | "video";
   title?: string;
   artist?: string;
-  artwork_url?: string;
+  /** small thumbnail (queue rows, synced cheaply to every client). */
+  artwork_thumb_url?: string;
+  /** full-size art (player's own now-playing view). */
+  artwork_full_url?: string;
 }
 
 export type RemoteStatus =
@@ -76,6 +79,22 @@ export type RemoteStatus =
  * nothing is active/no status has arrived yet. */
 export const remoteQueue = (): RemoteMediaRef[] => remoteStatus()?.queue ?? [];
 
+/** the currently-playing (or last-known-current, e.g. while paused) queue
+ * item for the active remote target. only `now_playing` status carries it
+ * directly as `item` - every other state (paused/buffering/stopped/error)
+ * only carries `queue`, whose index 0 is "current" by protocol convention
+ * (see RemoteStatus above) - `stopped`/`error` genuinely have nothing
+ * playing, so those (and an empty queue) return undefined. used so the
+ * player bar keeps showing the right title/artist/artwork/duration across
+ * a play<->pause transition instead of only while actively playing. */
+export const remoteCurrentItem = (): RemoteMediaRef | undefined => {
+  const s = remoteStatus();
+  if (!s) return undefined;
+  if (s.state === "now_playing") return s.item;
+  if (s.state === "stopped" || s.state === "error") return undefined;
+  return s.queue[0];
+};
+
 /** the active remote target's auto-download toggle, mirrored from whichever
  * client last set it via `remoteSetAutoDownloadEnabled()`. */
 export const remoteAutoDownloadEnabled = (): boolean =>
@@ -89,10 +108,7 @@ export const remoteVolume = (): number => remoteStatus()?.volume ?? 1;
 /** the currently-playing item's duration, in ms, if known - `undefined`
  * while nothing is playing or the item's duration wasn't reported (treated
  * like a live stream by callers, same as radio). */
-export const remoteDurationMs = (): number | undefined => {
-  const s = remoteStatus();
-  return s?.state === "now_playing" ? s.item.duration_ms : undefined;
-};
+export const remoteDurationMs = (): number | undefined => remoteCurrentItem()?.duration_ms;
 
 interface CommandAck {
   type: "command_ack";
@@ -104,6 +120,17 @@ interface CommandAck {
 const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null);
 export { remoteStatus };
 
+// client-side offline detection: `Date.now()` of the last time a REAL
+// status (poll response, push, or command ack) actually landed for the
+// currently-active target - distinct from `remoteStatusKnown()` (which
+// only asks "have we EVER heard from this target", not "recently").
+let lastStatusAt = 0;
+
+function applyRemoteStatus(status: RemoteStatus | null): void {
+  if (status) lastStatusAt = Date.now();
+  setRemoteStatus(status);
+}
+
 /** clears any known status for the active target - call right when
  * switching to a (possibly different) remote target, so `remoteStatusKnown()`
  * immediately goes back to false and the playerbar shows its loading state
@@ -113,7 +140,7 @@ export { remoteStatus };
  * local - switching directly between two different remote targets never
  * hit that path). */
 export function resetRemoteStatus(): void {
-  setRemoteStatus(null);
+  applyRemoteStatus(null);
 }
 
 export const remoteIsPlaying = () => remoteStatus()?.state === "now_playing";
@@ -139,17 +166,58 @@ export const remotePositionMs = () => {
   return 0;
 };
 
+/** phase 14e: optimistic client-side prediction of "has the currently
+ * playing item already finished" - purely a DISPLAY-layer prediction, it
+ * never mutates `remoteQueue()`/`remoteStatus()` themselves, so the next
+ * real status update (which always wholesale-replaces `remoteStatus`)
+ * automatically reconciles/corrects it - there's no persisted "advanced"
+ * state to undo. deliberately only ever predicts a single step ahead
+ * (not cascading through multiple finished songs) - "not too aggressive",
+ * mirrors the same restraint the user asked for on the offline-timeout
+ * item. used by QueueSidebar's remote-queue rendering to avoid visibly
+ * freezing on a finished track for up to one heartbeat interval (30s,
+ * see POLL_INTERVAL_MS) or a dropped push subscription. */
+export const remoteOptimisticCurrentIndex = (): number => {
+  const s = remoteStatus();
+  if (!s || s.state !== "now_playing") return 0;
+  const dur = s.item.duration_ms;
+  if (dur === undefined) return 0;
+  return remotePositionMs() >= dur ? 1 : 0;
+};
+
 /** true once at least one real status (poll response, push, or command ack)
  * has arrived for the currently-active remote target - lets callers show a
  * neutral "syncing" state instead of a possibly-wrong default (e.g. looking
  * paused) right after connecting or after a subscription drop/reconnect. */
 export const remoteStatusKnown = () => remoteStatus() !== null;
 
+// client-side "haven't heard from this player in N seconds" timeout -
+// user explicitly asked for this ("good for clients to have some timeout
+// mechanism in case the player goes offline - shouldn't be too aggressive,
+// but also not too lax and slow"). tuned the same way as the player-side
+// DISCONNECT_GRACE_MS (connectedControllers.ts): comfortably above the
+// 30s heartbeat/poll interval (so one slow/delayed tick doesn't falsely
+// flag offline) while still resolving a genuine outage well under a
+// minute. re-derives every tick of the existing `tickNow` clock (250ms,
+// already running whenever a remote target is active), so no extra timer
+// is needed - it simply stops ticking (and this signal stops updating)
+// once polling is disabled, same as remotePositionMs() above.
+const OFFLINE_TIMEOUT_MS = 45_000;
+
+/** true once we've gone suspiciously long (`OFFLINE_TIMEOUT_MS`) without a
+ * real status landing for the active target - covers both a dead poll
+ * (dial/fetch throwing, e.g. player unreachable) and a silently-dropped
+ * push subscription. gated on `remoteStatusKnown()` first so a
+ * still-connecting target (never heard from at all yet) shows the
+ * existing "syncing" state instead of a premature "offline". */
+export const remoteTargetOffline = (): boolean =>
+  remoteStatusKnown() && tickNow() - lastStatusAt > OFFLINE_TIMEOUT_MS;
+
 // command-pending feedback (phase 13): sendControl callers below opt in via
 // `trackPending: true` for the handful of playerbar-driven commands (play/
 // pause, skip, seek, volume) so the UI can show a brief loading state while
 // waiting on the ack - NOT set for the background status poll/get_status,
-// which would otherwise flicker the same indicator every 3s.
+// which would otherwise flicker the same indicator every heartbeat tick.
 const [pendingCount, setPendingCount] = createSignal(0);
 export const remoteCommandPending = () => pendingCount() > 0;
 
@@ -162,7 +230,7 @@ async function sendControl(
   if (opts?.trackPending) setPendingCount((n) => n + 1);
   try {
     const ack = (await sendPlayerCommand(nodeId, { type: "control", ...command })) as CommandAck;
-    if (ack?.status) setRemoteStatus(ack.status);
+    if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
   } finally {
     if (opts?.trackPending) setPendingCount((n) => Math.max(0, n - 1));
@@ -188,7 +256,10 @@ export async function remoteRemoveFromQueue(index: number): Promise<void> {
 
 /** moves a not-yet-playing queue entry from one position to another. */
 export async function remoteReorderQueue(fromIndex: number, toIndex: number): Promise<void> {
-  await sendControl({ command: "reorder_queue", from_index: fromIndex, to_index: toIndex });
+  await sendControl(
+    { command: "reorder_queue", from_index: fromIndex, to_index: toIndex },
+    { trackPending: true }
+  );
 }
 
 export async function remoteSetAutoDownloadEnabled(enabled: boolean): Promise<void> {
@@ -224,7 +295,23 @@ export async function fetchRemoteStatus(): Promise<RemoteStatus | null> {
   return ack?.status ?? null;
 }
 
-const POLL_INTERVAL_MS = 3000;
+// this used to poll every 3s, but that's redundant/wasteful now: every
+// state change (play/pause/seek/skip/queue edit, from ANY connected
+// client, plus the player's own auto-advance-on-track-end) already gets
+// pushed immediately via broadcastStatus() -> subscribeToPlayerStatus()
+// (wasm) or reflected instantly in the issuing client's own command ack
+// (see sendControl() above) - and playback POSITION is handled entirely
+// by the local `tickNow` extrapolation clock below, never by this poll.
+// so this interval is really just an idle keep-alive/heartbeat (mirrors
+// how a websocket ping/pong stays quiet while idle): a periodic resync
+// fallback in case a push was missed (dropped subscription, reconnect
+// race) and, for charnel/tauri mode (no persistent subscribe stream at
+// all - see subscribeToPlayerStatus()'s wasm-only comment), the ONLY way
+// another client's changes ever get picked up. 30s keeps this comfortably
+// debounced against other network traffic while still catching a missed
+// push reasonably promptly. DISCONNECT_GRACE_MS (player.freqhole.net's
+// connectedControllers.ts) is tuned to comfortably outlast this interval.
+const POLL_INTERVAL_MS = 30_000;
 let pollHandle: ReturnType<typeof setInterval> | null = null;
 let unsubscribeStatus: (() => void) | null = null;
 
@@ -235,7 +322,11 @@ export function setRemoteStatusPolling(enabled: boolean): void {
   if (enabled && !pollHandle) {
     void remoteGetStatus();
     pollHandle = setInterval(() => {
-      if (isRemoteTargetActive()) void remoteGetStatus();
+      // swallow dial/fetch failures here (e.g. player unreachable) rather
+      // than letting them surface as unhandled rejections - a run of
+      // these failing silently is exactly what remoteTargetOffline() above
+      // is watching for (lastStatusAt just stops advancing).
+      if (isRemoteTargetActive()) void remoteGetStatus().catch(() => {});
     }, POLL_INTERVAL_MS);
 
     if (!tickHandle) {
@@ -246,13 +337,13 @@ export function setRemoteStatusPolling(enabled: boolean): void {
     const nodeId = activeTargetNodeId();
     if (nodeId) {
       unsubscribeStatus = subscribeToPlayerStatus(nodeId, (status) => {
-        setRemoteStatus(status as RemoteStatus);
+        applyRemoteStatus(status as RemoteStatus);
       });
     }
   } else if (!enabled && pollHandle) {
     clearInterval(pollHandle);
     pollHandle = null;
-    setRemoteStatus(null);
+    applyRemoteStatus(null);
     unsubscribeStatus?.();
     unsubscribeStatus = null;
     if (tickHandle) {

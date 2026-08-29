@@ -22,7 +22,10 @@ const MediaRefSchema = z.object({
   kind: z.enum(["audio", "video"]).optional(),
   title: z.string().optional(),
   artist: z.string().optional(),
-  artwork_url: z.string().optional(),
+  /** small thumbnail (queue rows, synced cheaply to every client). */
+  artwork_thumb_url: z.string().optional(),
+  /** full-size art (this player's own now-playing view). */
+  artwork_full_url: z.string().optional(),
 });
 export type MediaRef = z.infer<typeof MediaRefSchema>;
 

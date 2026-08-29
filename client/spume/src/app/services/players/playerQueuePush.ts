@@ -48,28 +48,70 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+const ARTWORK_THUMB_MAX_DIM = 96;
+
+/** downscales an image blob to a small jpeg data url for queue-row-sized
+ * thumbnails - keeps the per-song thumbnail payload small so syncing a
+ * whole queue's worth of art to a paired player (phase 6+/14) stays cheap,
+ * distinct from the full-size art used for the player's own now-playing
+ * view. returns undefined (caller falls back to the full-size art) if the
+ * source isn't decodable as an image or canvas isn't available. */
+async function makeArtworkThumbDataUrl(blob: Blob): Promise<string | undefined> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, ARTWORK_THUMB_MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.8);
+  } catch {
+    return undefined;
+  }
+}
+
+interface ResolvedArtwork {
+  thumbUrl?: string;
+  fullUrl?: string;
+}
+
 /** resolves a song's cover art to something the paired player can display
- * directly - a data: url (embedded bytes) whenever the art is only
- * reachable from this device (cached locally, or - charnel/tauri's local
- * library case - a `remote_url` that's actually this device's own
- * embedded-grimoire sidecar on localhost, which the *player* device can
- * never reach), falling back to passing a real remote http(s) url through
- * as-is (cheaper: the player fetches it directly instead of a giant
- * embedded data url). mirrors the same localhost safeguard already used
- * by blobResolver.ts/MediaThumbnail.tsx for spume's own image rendering.
+ * directly - both a small thumbnail (for queue rows, synced cheaply to
+ * every client) and the full-size image (for the player's own now-playing
+ * view) - a data: url (embedded bytes) whenever the art is only reachable
+ * from this device (cached locally, or - charnel/tauri's local library
+ * case - a `remote_url` that's actually this device's own embedded-grimoire
+ * sidecar on localhost, which the *player* device can never reach), falling
+ * back to passing a real remote http(s) url through as-is for BOTH sizes
+ * (cheaper: the player fetches it directly instead of a giant embedded
+ * data url; no bytes on hand locally to downscale from in that case).
+ * mirrors the same localhost safeguard already used by
+ * blobResolver.ts/MediaThumbnail.tsx for spume's own image rendering.
  *
  * uses getSongDisplayImages()/pickBestImage() (utils/images.ts) rather than
  * raw song.images - many songs have no song-level image at all (only their
  * album does), and song-level "original"-typed images are often actually
  * mistyped waveforms, so skipping the album-image fallback (the original
  * bug here) silently produced no artwork for most charnel/local songs. */
-async function resolveArtworkUrl(song: Song): Promise<string | undefined> {
+async function resolveArtwork(song: Song): Promise<ResolvedArtwork> {
   const image = pickBestImage(getSongDisplayImages(song));
-  if (!image) return undefined;
+  if (!image) return {};
+
+  const fromBlob = async (blob: Blob): Promise<ResolvedArtwork> => {
+    const [fullUrl, thumbUrl] = await Promise.all([
+      blobToDataUrl(blob),
+      makeArtworkThumbDataUrl(blob),
+    ]);
+    return { thumbUrl: thumbUrl ?? fullUrl, fullUrl };
+  };
 
   if (image.local_blob_id) {
     const blob = await getBlob(image.local_blob_id);
-    if (blob) return blobToDataUrl(blob);
+    if (blob) return fromBlob(blob);
   }
 
   // charnel/tauri-managed local-library images have no local_blob_id (that
@@ -85,26 +127,26 @@ async function resolveArtworkUrl(song: Song): Promise<string | undefined> {
     try {
       const url = await resolveBlobUrl(image.remote_blob_id, image.remote_server_id, "image");
       const res = await fetch(url);
-      if (res.ok) return await blobToDataUrl(await res.blob());
+      if (res.ok) return fromBlob(await res.blob());
     } catch {
       // fall through to the remote_url handling below
     }
   }
 
   const remoteUrl = image.remote_url;
-  if (!remoteUrl) return undefined;
+  if (!remoteUrl) return {};
 
   const isLocalOnly = isCharnelAvailable() && remoteUrl.includes("localhost");
-  if (isValidHttpUrl(remoteUrl) && !isLocalOnly) return remoteUrl;
+  if (isValidHttpUrl(remoteUrl) && !isLocalOnly) return { thumbUrl: remoteUrl, fullUrl: remoteUrl };
 
   // only this device can reach this url (charnel's own localhost sidecar,
   // or a relative/non-http url) - fetch the bytes ourselves and embed them.
   try {
     const res = await fetch(remoteUrl);
-    if (!res.ok) return undefined;
-    return await blobToDataUrl(await res.blob());
+    if (!res.ok) return {};
+    return fromBlob(await res.blob());
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -136,7 +178,7 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
   const res = await fetch(url);
   const bytes = new Uint8Array(await res.arrayBuffer());
   const { sourcePeerAddr, blake3Hash } = await importSongBytes(bytes);
-  const artworkUrl = await resolveArtworkUrl(song);
+  const { thumbUrl, fullUrl } = await resolveArtwork(song);
   return {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
@@ -146,7 +188,8 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
     kind: "audio",
     title: song.title,
     artist: song.artist_name,
-    artwork_url: artworkUrl,
+    artwork_thumb_url: thumbUrl,
+    artwork_full_url: fullUrl,
   };
 }
 

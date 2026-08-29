@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   on,
   onCleanup,
@@ -53,6 +54,8 @@ import {
   remoteSeek,
   remoteCommandPending,
   remoteStatusKnown,
+  remoteCurrentItem,
+  remoteTargetOffline,
   setRemoteStatusPolling,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
@@ -87,6 +90,7 @@ import {
   getLoadingIds,
 } from "../music/services/download";
 import { getLoadingP2PSongIds } from "../music/services/storage/blobResolver";
+import { getSongByBlake3 } from "../music/services/storage/db/songs";
 import { getClientForRemote } from "./api/client";
 import { adminLocalRawDispatch, adminRawDispatch } from "./api/adminClient";
 import { deleteSongFromLocal } from "../music/services/sync";
@@ -286,6 +290,19 @@ export function AppLayout(props: AppLayoutProps) {
   // the "play on" picker itself now lives in QueueSidebar's bottom row.
   createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
   onCleanup(() => setRemoteStatusPolling(false));
+
+  // "optimistic remote-target playerbar sync" follow-up: surface the
+  // client-side offline timeout (remoteTargetOffline(), see
+  // remotePlaybackControl.ts) as a one-shot toast on the rising edge only
+  // - not a persistent banner, so it doesn't need its own dismiss/retry ui
+  // yet, and doesn't repeat on every tick while still offline.
+  createEffect(
+    on(remoteTargetOffline, (offline, prevOffline) => {
+      if (offline && !prevOffline) {
+        toast.error("lost connection to the player - controls may not respond");
+      }
+    })
+  );
 
   // responsive: track narrow viewport
   const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
@@ -1364,15 +1381,57 @@ export function AppLayout(props: AppLayoutProps) {
           `setRadioAudioSink` is called once on mount. */}
       <Show
         when={
-          (appState()?.queue.length || 0) > 0 || radioStatus() !== "idle" || !!currentRadioStation()
+          (appState()?.queue.length || 0) > 0 ||
+          radioStatus() !== "idle" ||
+          !!currentRadioStation() ||
+          isRemoteTargetActive()
         }
       >
         {(() => {
           const isRadio = () => playbackMode() === "radio";
 
+          // phase 14b-style local-library lookup for whatever's currently
+          // playing on a remote target - mirrors RemoteQueueRow.tsx's own
+          // per-row lookup, so the bar can show a resolved song's real
+          // images/favorite state instead of just the raw thumb the source
+          // device sent, when this device happens to already have it.
+          const [remoteBarSong] = createResource(
+            () => remoteCurrentItem()?.blake3_hash,
+            getSongByBlake3
+          );
+
           // build the song-shaped object the bar consumes. in radio mode,
           // map fields from radioNowPlaying() + radioArtUrl().
           const barSong = () => {
+            if (isRemoteTargetActive()) {
+              const item = remoteCurrentItem();
+              if (!item) return undefined;
+              const resolved = remoteBarSong();
+              if (resolved) {
+                return {
+                  id: resolved.id,
+                  sha256: resolved.sha256,
+                  title: resolved.title,
+                  artist:
+                    resolved.album_type === "compilation" && resolved.track_artist?.trim()
+                      ? resolved.track_artist
+                      : resolved.artist_name,
+                  album: resolved.album_title,
+                  images: resolved.images,
+                  album_images: resolved.album_images,
+                  isFavorite: resolved.is_favorite || false,
+                };
+              }
+              return {
+                id: item.blake3_hash,
+                title: item.title || "untitled",
+                artist: item.artist ?? "unknown artist",
+                album: undefined,
+                thumbnailUrl: item.artwork_full_url ?? item.artwork_thumb_url,
+                images: undefined,
+                isFavorite: false,
+              };
+            }
             if (isRadio()) {
               const np = radioNowPlaying();
               if (!np) {
@@ -1555,6 +1614,7 @@ export function AppLayout(props: AppLayoutProps) {
 
           const onPlayPause = () => {
             if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
               void (remoteIsPlaying() ? remotePause() : remoteResume());
               return;
             }
@@ -1587,6 +1647,7 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onNext = () => {
             if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
               void remoteSkip();
               return;
             }
@@ -1601,6 +1662,7 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onSeekCb = (pct: number) => {
             if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
               const ms = remoteDurationMs();
               if (!ms) return; // no known duration - seek ui is hidden anyway
               void remoteSeek((pct / 100) * ms);
@@ -1611,6 +1673,7 @@ export function AppLayout(props: AppLayoutProps) {
           };
           const onVolumeChangeCb = (vol: number) => {
             if (isRemoteTargetActive()) {
+              if (remoteTargetOffline()) return;
               void remoteSetVolume(vol);
               return;
             }
