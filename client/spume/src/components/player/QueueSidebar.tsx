@@ -4,6 +4,7 @@ import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { mediaItemKey } from "../../app/services/storage/mediaItem";
 import { QueueSongRow } from "./QueueSongRow";
 import { VideoQueueRow } from "./VideoQueueRow";
+import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { QueueHistoryEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { isMobile } from "../../utils/isMobile";
@@ -14,6 +15,11 @@ import {
   getSyncQueueToLocal,
 } from "../../app/services/storage/db";
 import { onAutoDownloadEnabled } from "../../music/services/autoDownload";
+import { isRemoteTargetActive } from "../../app/services/players/activeTarget";
+import {
+  remoteAutoDownloadEnabled,
+  remoteSetAutoDownloadEnabled,
+} from "../../app/services/players/remotePlaybackControl";
 
 import { Icon, type IconName } from "../icons/registry";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -137,11 +143,27 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const hasRadioQueueEntry = () => !!props.currentRadioStation;
   const queueEntryCount = () => props.items.length + (hasRadioQueueEntry() ? 1 : 0);
 
-  // auto-download toggle state
+  // history doesn't make sense once the queue is shared with a remote
+  // player - bounce back to the queue tab if it was open when that starts.
+  createEffect(() => {
+    if (isRemoteTargetActive() && activeTab() === "history") setActiveTab("queue");
+  });
+
+  // auto-download toggle state - while a remote target is active, this
+  // reflects/propagates the *shared* setting (see remotePlaybackControl.ts's
+  // remoteAutoDownloadEnabled/remoteSetAutoDownloadEnabled) instead of this
+  // device's own local preference, so every client watching the same
+  // player shows and controls the same toggle.
   const [autoDownloadOn, setAutoDownloadOn] = createSignal(getAutoDownloadEnabled());
+  const effectiveAutoDownloadOn = () =>
+    isRemoteTargetActive() ? remoteAutoDownloadEnabled() : autoDownloadOn();
 
   const toggleAutoDownload = () => {
-    const newValue = !autoDownloadOn();
+    const newValue = !effectiveAutoDownloadOn();
+    if (isRemoteTargetActive()) {
+      void remoteSetAutoDownloadEnabled(newValue);
+      return;
+    }
     setAutoDownloadOn(newValue);
     setAutoDownloadEnabled(newValue);
     // when toggling ON, clear failed downloads to allow retry
@@ -409,34 +431,38 @@ export function QueueSidebar(props: QueueSidebarProps) {
             >
               queue{queueEntryCount() > 0 ? ` (${queueEntryCount()})` : ""}
             </button>
-            <button
-              class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
-                activeTab() === "history"
-                  ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
-              }`}
-              onClick={() => setActiveTab("history")}
-            >
-              history
-              {/* {props.historyEntries.length > 0 ? ` (${props.historyEntries.length})` : ""} */}
-            </button>
+            <Show when={!isRemoteTargetActive()}>
+              <button
+                class={`px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                  activeTab() === "history"
+                    ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-accent-500)]/5"
+                }`}
+                onClick={() => setActiveTab("history")}
+              >
+                history
+                {/* {props.historyEntries.length > 0 ? ` (${props.historyEntries.length})` : ""} */}
+              </button>
+            </Show>
           </div>
 
           <div class="flex items-center gap-1">
             <Show when={activeTab() === "queue"}>
               <button
                 class={`px-1.5 py-1.5 rounded transition-colors ${
-                  autoDownloadOn()
+                  effectiveAutoDownloadOn()
                     ? "text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/20"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-500)]/10"
                 }`}
                 onClick={toggleAutoDownload}
                 title={
-                  autoDownloadOn()
+                  effectiveAutoDownloadOn()
                     ? "turn off auto download for all songs in the queue"
                     : "turn on auto download for all songs in the queue"
                 }
-                aria-label={autoDownloadOn() ? "disable auto download" : "enable auto download"}
+                aria-label={
+                  effectiveAutoDownloadOn() ? "disable auto download" : "enable auto download"
+                }
               >
                 <Icon name="autoDownload" size={14} />
               </button>
@@ -916,6 +942,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
             </div>
           </Show>
         </div>
+
+        <QueuePlayerTargetRow />
       </div>
     </>
   );

@@ -44,7 +44,6 @@ const radioAudio = new Audio();
 radioAudio.preload = "auto";
 export const radioElement = radioAudio;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let radioHandle: { leave(): void } | null = null;
 let mediaSource: MediaSource | null = null;
 let sourceBuffer: SourceBuffer | null = null;

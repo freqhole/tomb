@@ -133,13 +133,6 @@ pub enum Commands {
         action: plumbing::RadioAction,
     },
 
-    /// Rust rodio player daemon (plays audio on this machine)
-    #[cfg(feature = "rodio-playback")]
-    Player {
-        #[command(subcommand)]
-        action: plumbing::PlayerAction,
-    },
-
     /// Start HTTP server and/or P2P endpoint based on config
     Serve {
         /// Path to configuration file (overrides --config global flag)
@@ -406,10 +399,6 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         }
         Commands::Radio { action } => {
             plumbing::handle_radio(action, json_output).await?;
-        }
-        #[cfg(feature = "rodio-playback")]
-        Commands::Player { action } => {
-            plumbing::handle_player(action, json_output).await?;
         }
         Commands::Serve { .. } | Commands::Http { .. } | Commands::P2p { .. } => {
             // handled above with early return

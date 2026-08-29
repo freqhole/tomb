@@ -25,10 +25,8 @@ const navItems: SettingsNavItem[] = [
 ];
 
 // items that are hidden in charnel/tauri mode because the charnel wizard
-// handles them, or because the feature needs the browser wasm p2p
-// transport (players pairing dials directly via getMiddenNode(), which
-// throws under charnel/tauri - see playerPairingClient.ts).
-const CHARNEL_HIDES_PATHS = new Set<string>(["/settings/players"]);
+// handles them already.
+const CHARNEL_HIDES_PATHS = new Set<string>([]);
 
 export function SettingsLayout(props: { children: JSX.Element }) {
   const location = useLocation();

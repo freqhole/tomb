@@ -13,6 +13,8 @@ import { handlePairRequest } from "../pairing/pairingHandler";
 import { getTrustedController, isTrustedController } from "../pairing/trustStore";
 import { dispatchCommand } from "../control/dispatcher";
 import { handleApiRequest } from "../hello/helloHandler";
+import { SubscribeRequestSchema } from "../control/schema";
+import { registerSubscriber, unregisterSubscriber } from "../control/statusSubscribers";
 import {
   markControllerConnected,
   markControllerDisconnected,
@@ -48,19 +50,43 @@ async function handleConnection(node: MiddenNode, stream: BiStream): Promise<voi
     const trusted = await isTrustedController(peerNodeId);
 
     if (trusted) {
-      // control session: keep the stream open and dispatch every command
-      // line sent on it, until the controller closes its side.
+      const firstLine = (await stream.read_line()) as string | null;
+      if (firstLine === null) return;
+
       const controller = await getTrustedController(peerNodeId);
-      markControllerConnected({
+      const connectedInfo = {
         node_id: peerNodeId,
         display_name: controller?.display_name ?? peerNodeId.slice(0, 8),
-      });
+      };
+
+      if (isSubscribeRequest(firstLine)) {
+        // push-subscription session (phase 12 follow-up): no commands are
+        // ever dispatched on this stream - just register it for
+        // statusSubscribers.broadcastStatus() pushes and wait for the
+        // controller to close it.
+        registerSubscriber(peerNodeId, stream);
+        markControllerConnected(connectedInfo);
+        try {
+          for (;;) {
+            const line = (await stream.read_line()) as string | null;
+            if (line === null) break;
+          }
+        } finally {
+          unregisterSubscriber(peerNodeId, stream);
+          markControllerDisconnected(peerNodeId);
+        }
+        return;
+      }
+
+      // control session: keep the stream open and dispatch every command
+      // line sent on it, until the controller closes its side.
+      markControllerConnected(connectedInfo);
       try {
-        for (;;) {
-          const line = (await stream.read_line()) as string | null;
-          if (line === null) break;
+        let line: string | null = firstLine;
+        while (line !== null) {
           const ack = await dispatchCommand(node, line);
           await stream.write_line(JSON.stringify(ack));
+          line = (await stream.read_line()) as string | null;
         }
       } finally {
         markControllerDisconnected(peerNodeId);
@@ -85,5 +111,13 @@ async function handleConnection(node: MiddenNode, stream: BiStream): Promise<voi
     console.error("[player] connection handling failed:", err);
   } finally {
     stream.close();
+  }
+}
+
+function isSubscribeRequest(rawLine: string): boolean {
+  try {
+    return SubscribeRequestSchema.safeParse(JSON.parse(rawLine)).success;
+  } catch {
+    return false;
   }
 }

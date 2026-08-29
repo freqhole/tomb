@@ -12,6 +12,7 @@ mod p2p_commands;
 mod p2p_state;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 mod player_commands;
+mod player_pairing_commands;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 mod player_commands {
     //! mobile fallback: rodio is desktop-only. these stubs satisfy the
@@ -892,6 +893,8 @@ pub fn run() {
             player_commands::player_snapshot,
             player_commands::player_init,
             player_commands::resolve_blob_path,
+            // native transport for player.freqhole.net pairing/control
+            player_pairing_commands::player_pairing_dial,
             // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)
             ephemeral_blob_commands::fetch_ephemeral_blob,
             ephemeral_blob_commands::delete_ephemeral_blob,

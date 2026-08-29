@@ -202,6 +202,19 @@ export async function fetchLocalNodeId(): Promise<string | null> {
 }
 
 /**
+ * import raw bytes into this charnel app's local iroh-blobs store so they
+ * can be pulled by a remote peer via verified download. mirrors
+ * `CharnelTransport.ts`'s `uploadMediaViaBytes` use of the same tauri
+ * command for music/video uploads - same store, same pull model.
+ *
+ * @returns the blake3 hash the bytes were stored under.
+ */
+export async function importBlobBytes(base64: string): Promise<string> {
+  const invoke = await getInvoke();
+  return invoke<string>("p2p_import_blob_bytes", { data: base64 });
+}
+
+/**
  * update server.name / server.description in the freqhole config toml.
  * used by the rename flow for the charnel-managed local-library remote so
  * the new name survives an app restart (otherwise startup re-seeds the

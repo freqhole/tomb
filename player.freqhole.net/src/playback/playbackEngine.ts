@@ -12,6 +12,7 @@ import { createSignal } from "solid-js";
 import type { MiddenNode } from "@freqhole/midden";
 import type { MediaRef, PlayerStatus } from "../control/schema";
 import { fetchMediaBlob } from "./mediaFetch";
+import { broadcastStatus } from "../control/statusSubscribers";
 
 export type EngineState =
   "idle" | "buffering" | "playing" | "paused" | "stopped" | "error" | "blocked";
@@ -31,6 +32,10 @@ const [itemStatus, setItemStatus] = createSignal<Map<string, "loading" | "ready"
 
 let queue: MediaRef[] = [];
 let currentObjectUrl: string | null = null;
+// relayed to every subscribed controller via currentStatus() below, so a
+// toggle by one controller shows up on every other client sharing this
+// player - see control/schema.ts's set_auto_download_enabled command.
+let autoDownloadEnabled = false;
 // remembered so the "ended" listener below can auto-advance the queue without
 // waiting for a remote "skip" command - the queue plays through on its own
 // regardless of whether a controller is currently connected.
@@ -43,7 +48,9 @@ const blobCache = new Map<string, Blob>();
 media.addEventListener("timeupdate", () => setPositionSec(media.currentTime));
 media.addEventListener("durationchange", () => setDurationSec(media.duration || 0));
 media.addEventListener("ended", () => {
-  if (lastNode) void skip(lastNode);
+  // not driven by any controller command - push the resulting status
+  // directly (dispatcher.ts's broadcast only covers command-driven changes).
+  if (lastNode) void skip(lastNode).then(() => broadcastStatus(currentStatus()));
 });
 
 function syncQueueSignal(): void {
@@ -108,14 +115,26 @@ async function ensureCached(node: MiddenNode, item: MediaRef): Promise<Blob> {
 // just gets picked up by the next call once the current one finishes.
 let prefetching = false;
 
+// don't prefetch the whole remaining queue - just enough to smooth over
+// upcoming transitions. items with an unknown duration_ms count as this
+// fallback estimate towards the budget so a long run of them can't prefetch
+// forever.
+const PREFETCH_WINDOW_MS = 30 * 60 * 1000;
+const UNKNOWN_DURATION_FALLBACK_MS = 4 * 60 * 1000;
+
 /** downloads "up next" items in the background, one at a time, so they're
- * already cached (and show an underlined time) once they're due to play. */
+ * already cached (and show an underlined time) once they're due to play.
+ * stops once the cumulative duration of the items it has queued up (cached
+ * or newly fetched this walk) reaches ~30 minutes - not the whole queue. */
 async function prefetchUpcoming(node: MiddenNode): Promise<void> {
   if (prefetching) return;
   prefetching = true;
   try {
     // skip index 0 - playItem() fetches (and caches) the current item itself.
+    let windowMs = 0;
     for (const item of queue.slice(1)) {
+      if (windowMs >= PREFETCH_WINDOW_MS) break;
+      windowMs += item.duration_ms ?? UNKNOWN_DURATION_FALLBACK_MS;
       if (blobCache.has(item.blake3_hash)) continue;
       if (itemStatus().get(item.blake3_hash) === "loading") continue;
       try {
@@ -257,6 +276,36 @@ export async function skip(node: MiddenNode): Promise<void> {
   }
 }
 
+/** removes a queue entry by index. removing the currently-playing item
+ * (index 0) plays through to the next one, same as skip(). */
+export async function removeFromQueue(node: MiddenNode, index: number): Promise<void> {
+  if (index < 0 || index >= queue.length) return;
+  if (index === 0) {
+    await skip(node);
+    return;
+  }
+  queue.splice(index, 1);
+  syncQueueSignal();
+  pruneStaleCacheEntries();
+}
+
+/** moves a not-yet-playing queue entry to a new position. the currently-
+ * playing item (index 0) can neither be moved nor be a destination - it
+ * stays pinned until it's skipped or removed. */
+export function reorderQueue(fromIndex: number, toIndex: number): void {
+  if (fromIndex <= 0 || toIndex <= 0) return;
+  if (fromIndex >= queue.length || toIndex >= queue.length) return;
+  if (fromIndex === toIndex) return;
+  const [item] = queue.splice(fromIndex, 1);
+  if (!item) return;
+  queue.splice(toIndex, 0, item);
+  syncQueueSignal();
+}
+
+export function setAutoDownloadEnabled(enabled: boolean): void {
+  autoDownloadEnabled = enabled;
+}
+
 export function currentStatus(): PlayerStatus {
   const item = currentItem();
   const currentQueue = [...queue];
@@ -269,11 +318,22 @@ export function currentStatus(): PlayerStatus {
           item,
           position_ms: Math.round(media.currentTime * 1000),
           queue: currentQueue,
+          auto_download_enabled: autoDownloadEnabled,
         };
       }
-      return { type: "status", state: "buffering", queue: currentQueue };
+      return {
+        type: "status",
+        state: "buffering",
+        queue: currentQueue,
+        auto_download_enabled: autoDownloadEnabled,
+      };
     case "buffering":
-      return { type: "status", state: "buffering", queue: currentQueue };
+      return {
+        type: "status",
+        state: "buffering",
+        queue: currentQueue,
+        auto_download_enabled: autoDownloadEnabled,
+      };
     case "paused":
     case "blocked":
       return {
@@ -281,6 +341,7 @@ export function currentStatus(): PlayerStatus {
         state: "paused",
         position_ms: Math.round(media.currentTime * 1000),
         queue: currentQueue,
+        auto_download_enabled: autoDownloadEnabled,
       };
     case "error":
       return {
@@ -288,10 +349,16 @@ export function currentStatus(): PlayerStatus {
         state: "error",
         message: errorMessage() ?? "unknown error",
         queue: currentQueue,
+        auto_download_enabled: autoDownloadEnabled,
       };
     case "idle":
     case "stopped":
     default:
-      return { type: "status", state: "stopped", queue: currentQueue };
+      return {
+        type: "status",
+        state: "stopped",
+        queue: currentQueue,
+        auto_download_enabled: autoDownloadEnabled,
+      };
   }
 }

@@ -12,6 +12,8 @@ import type { SearchSuggestion } from "../forms/SearchInput";
 import { SearchInput } from "../forms/SearchInput";
 import type { MenuAction } from "../overlays/ContextMenu";
 import { extractShareTokenFromAnyText, SHARE_HASH_PARAM } from "../../utils/permalink";
+import { extractAddRemoteValue } from "../../utils/addRemoteLink";
+import { requestAddRemote } from "../../app/services/remotes/addRemoteRequest";
 import { recordSharedItemFromToken } from "../../app/services/storage/sharedItems";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { showPlaylistSelector } from "../../music/hooks/playlistSelectorState";
@@ -257,6 +259,16 @@ export function TopNavSearch(props: TopNavSearchProps) {
         void recordSharedItemFromToken(token);
         // App.tsx listens for hashchange and opens ResolveShareModal.
         window.location.hash = `#?${SHARE_HASH_PARAM}=${token}`;
+        collapse();
+        return;
+      }
+    }
+    // add-remote link interception: a pasted `?r=<node_id>` url (or bare
+    // node_id) opens AddRemoteModal pre-filled instead of searching.
+    if (value.length >= 20) {
+      const addRemoteValue = extractAddRemoteValue(value);
+      if (addRemoteValue) {
+        requestAddRemote(addRemoteValue);
         collapse();
         return;
       }

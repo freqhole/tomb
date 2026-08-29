@@ -12,8 +12,23 @@ export interface PlayerQrPayload {
   role: "player_remote";
 }
 
+function base64UrlEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * encodes the payload as a base64url json blob wrapped in a spume url, so
+ * scanning the qr with any camera app (not just spume's own scanner) opens
+ * spume and offers to pair - spume's qr scanner and top-nav-search paste
+ * handling both strip the url and decode the `p` param back to json (see
+ * spume's PairPlayerModal.tsx).
+ */
 export function encodePlayerQrPayload(payload: PlayerQrPayload): string {
-  return JSON.stringify(payload);
+  const json = JSON.stringify(payload);
+  const b64 = base64UrlEncode(new TextEncoder().encode(json));
+  return `https://spume.freqhole.net/?p=${b64}`;
 }
 
 const QR_DARK = "#ff00c8"; // magenta

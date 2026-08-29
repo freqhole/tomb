@@ -4,32 +4,35 @@
 //! playback in freqhole". it exposes:
 //!
 //! - a typed [`PlayerCommand`] / [`PlayerEvent`] enum pair that
-//!   doubles as the wire format for ipc, the iroh ALPN, and the
-//!   forthcoming cli daemon — derived [`zod_gen::ZodSchema`] so
-//!   the typescript client picks them up via `client-codegen`.
+//!   doubles as the wire format for ipc — derived [`zod_gen::ZodSchema`]
+//!   so the typescript client picks them up via `client-codegen`.
 //! - a [`PlayerController`] trait — the only surface frontends
-//!   (tauri commands, iroh handler, cli daemon) ever depend on.
+//!   (tauri commands) ever depend on.
 //! - a [`NoopPlayerController`] for tests + headless callers.
 //!
-//! the actual rodio backend + supervisor live behind the `rodio`
-//! cargo feature and land in phase 2 (see
-//! [`docs/rodio-into-freqhole-plan.md`]).
+//! the actual rodio backend + supervisor live behind the
+//! `rodio-playback` cargo feature.
 //!
 //! design rule: **the shared core has zero knowledge of which
 //! frontend is calling it.** nothing in this module imports tauri,
 //! iroh, or clap.
+//!
+//! note: this module previously also exposed a networked
+//! `freqhole-player/1` iroh ALPN (remote-control surface, admin-role
+//! gated). that layer was removed as dead/half-baked code (no ui, no
+//! tests, no config example ever shipped, no docs) - see repo memory
+//! `tomb-grimoire-player-alpn-half-baked.md` for the full trace. this
+//! module's local-only surface (tauri commands driving the same-host
+//! rodio backend) is unaffected and remains the real, load-bearing use.
 
 pub mod control;
 pub mod noop;
-
-pub mod alpn;
 
 #[cfg(feature = "rodio-playback")]
 pub mod rodio;
 #[cfg(feature = "rodio-playback")]
 pub mod supervisor;
 
-pub use alpn::{PlayerProtocol, PLAYER_ALPN};
 pub use control::{PlayerCommand, PlayerEvent, PlayerSnapshot, PlayerState, RestartPolicy};
 pub use noop::NoopPlayerController;
 

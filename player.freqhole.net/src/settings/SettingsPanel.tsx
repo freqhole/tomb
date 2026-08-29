@@ -45,7 +45,7 @@ export default function SettingsPanel(props: { onClose: () => void; nodeId?: str
           <button
             type="button"
             class="text-sm text-neutral-400"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
             data-testid="settings-close"
           >
             close

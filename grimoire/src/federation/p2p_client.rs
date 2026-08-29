@@ -242,6 +242,92 @@ pub async fn api_request(
     })
 }
 
+/// send a single ndjson line to a peer on an arbitrary ALPN and read a
+/// single line back, then close.
+///
+/// this is a raw, protocol-agnostic line request/response primitive —
+/// it doesn't know or care what json shape the line carries. mirrors
+/// `@freqhole/midden`'s `BiStream::write_line`/`read_line`/`close` byte
+/// for byte, so it interoperates with any peer speaking that same
+/// framing (currently: charnel's native player-pairing transport talking
+/// to a player.freqhole.net device's `freqhole-player/1` ALPN).
+///
+/// returns `Ok(None)` on a clean EOF before any bytes were read
+/// (mirrors midden's `read_line` returning `null`).
+pub async fn line_request(
+    peer_addr: &str,
+    alpn: &'static [u8],
+    line: &str,
+) -> GrimoireResult<Option<String>> {
+    let endpoint = get_endpoint()?;
+    let addr = parse_peer_address(peer_addr)?;
+    let node_id_short = &addr.id.to_string()[..16.min(addr.id.to_string().len())];
+
+    debug!("P2P line request to {}", node_id_short);
+
+    let conn =
+        endpoint
+            .connect(addr, alpn)
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to connect to peer {}: {}", node_id_short, e),
+            })?;
+
+    let (mut send, mut recv) =
+        conn.open_bi()
+            .await
+            .map_err(|e| GrimoireError::FederationApiError {
+                message: format!("failed to open stream to {}: {}", node_id_short, e),
+            })?;
+
+    let mut bytes = line.as_bytes().to_vec();
+    if !bytes.ends_with(b"\n") {
+        bytes.push(b'\n');
+    }
+    send.write_all(&bytes)
+        .await
+        .map_err(|e| GrimoireError::FederationApiError {
+            message: format!("failed to write line to {}: {}", node_id_short, e),
+        })?;
+
+    // hand-rolled read-until-newline, mirrors midden's BiStream::read_line.
+    let mut buf: Vec<u8> = Vec::with_capacity(256);
+    let mut byte = [0u8; 1];
+    let response = loop {
+        match recv.read_exact(&mut byte).await {
+            Ok(()) => {
+                if byte[0] == b'\n' {
+                    break Some(String::from_utf8_lossy(&buf).into_owned());
+                }
+                buf.push(byte[0]);
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                let clean_eof = err_str.contains("finished")
+                    || err_str.contains("closed")
+                    || err_str.contains("eof");
+                if clean_eof {
+                    break if buf.is_empty() {
+                        None
+                    } else {
+                        Some(String::from_utf8_lossy(&buf).into_owned())
+                    };
+                }
+                return Err(GrimoireError::FederationApiError {
+                    message: format!("failed to read line from {}: {}", node_id_short, e),
+                });
+            }
+        }
+    };
+
+    // signal EOF on our send half so the peer's trailing read (if any,
+    // e.g. player.freqhole.net's pairing handler waits for our close
+    // before tearing down) unblocks.
+    let _ = send.finish();
+
+    Ok(response)
+}
+
 /// fetch a blob from a remote peer using iroh-blobs verified streaming
 ///
 /// uses blake3 content hash for cryptographic verification.

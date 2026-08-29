@@ -29,6 +29,13 @@ import { hasPlaybackEnded } from "./queueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
 import {
+  mirrorAppendToQueue,
+  mirrorRemoveFromQueue,
+  mirrorReorderQueue,
+  mirrorReplaceQueue,
+} from "../../../app/services/players/remoteQueueMirror";
+import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
+import {
   activeHistoryEntryId,
   resumeTracking,
   startTracking,
@@ -45,6 +52,7 @@ import {
   reconnectServerSession,
 } from "./serverSession";
 import { getQueueSizeLimit, showQueueFullModal } from "./queueLimit";
+import { showReplaceQueueConfirm } from "./queueReplaceConfirm";
 import { syncPlaylistToLocalFromQueue } from "../sync";
 import type { Song } from "../storage/types";
 import { debug, error as errorLog } from "../../../utils/logger";
@@ -285,6 +293,17 @@ export async function playQueue(
   // branch above, but with cleanup of any prior tracking/server session).
   const shouldReplace = options?.source && REPLACE_SOURCE_TYPES.has(options.source.type);
   if (shouldReplace) {
+    // a remote target shares this queue with every other connected client -
+    // confirm before wiping it out from under them (local-only playback
+    // keeps replacing instantly, as before).
+    if (isRemoteTargetActive() && currentQueue.length > 0) {
+      const choice = await showReplaceQueueConfirm(finalItems);
+      if (choice === "cancel") return;
+      if (choice === "append") {
+        return addToQueue(finalItems, { position: "end", source: options?.source });
+      }
+    }
+
     // reuse the existing session (same entity + type already playing, e.g.
     // skipping to another song within the same album/playlist/shuffle) so
     // we don't mint a duplicate listen session + feed event.
@@ -300,6 +319,7 @@ export async function playQueue(
     clearPendingUpNext();
 
     await setQueue(finalItems);
+    mirrorReplaceQueue(finalSongs);
     const startItem = finalItems[startIndex];
     await playMediaItem(startItem, { userInitiated: true });
     triggerImmediatePreCache(finalItems, mediaItemKey(startItem));
@@ -599,6 +619,11 @@ async function addToQueueInternal(
 
   await setQueue(newQueue);
 
+  // an already-active remote target keeps playing what it has - newly
+  // added songs just extend its queue, they don't take over playback (a
+  // fresh replaceQueue only happens via the "play on" handoff itself).
+  mirrorAppendToQueue(songsOnly(items));
+
   // autoplay if: explicitly requested, nothing is currently playing, or playback ended
   const willAutoPlay = startPlaying || !currentId || hasPlaybackEnded();
   if (willAutoPlay) {
@@ -650,6 +675,9 @@ async function addToQueueInternal(
 export async function removeFromQueue(index: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
+
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  mirrorRemoveFromQueue(index, currentIdx);
 
   const removedItem = state.queue[index];
   const newQueue = state.queue.filter((_, i) => i !== index);
@@ -802,6 +830,9 @@ export async function clearSongsBelow(index: number): Promise<void> {
 export async function reorderQueue(fromIndex: number, toIndex: number): Promise<void> {
   const state = appState();
   if (!state?.queue) return;
+
+  const currentIdx = state.queue.findIndex((i) => mediaItemKey(i) === state.current_sha256);
+  mirrorReorderQueue(fromIndex, toIndex, currentIdx);
 
   const newQueue = [...state.queue];
   const [movedItem] = newQueue.splice(fromIndex, 1);

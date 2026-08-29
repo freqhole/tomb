@@ -31,14 +31,10 @@ use tracing::{debug, warn};
 pub const PLAYER_EVENT: &str = "freqhole:player_event";
 
 /// process-global supervised player. lazily spawned on first use
-/// from either:
+/// from a tauri command (`player_send` / `player_init` / `player_snapshot`).
 ///
-/// - a tauri command (`player_send` / `player_init` / `player_snapshot`)
-/// - p2p init wiring `PLAYER_ALPN` into the iroh router
-///
-/// having a single instance ensures the wizard's local-control
-/// commands and any incoming remote-control connections drive the
-/// same audio device. clone the `Arc` freely.
+/// having a single instance ensures every local-control command
+/// drives the same audio device. clone the `Arc` freely.
 static GLOBAL_PLAYER: OnceCell<Arc<RodioController>> = OnceCell::const_new();
 
 /// get-or-init the process-global controller. safe to call from any
@@ -53,24 +49,6 @@ async fn get_or_init_global() -> Arc<RodioController> {
         })
         .await
         .clone()
-}
-
-/// non-async accessor for callers that just want to know whether the
-/// player is up. used by the iroh router wiring to avoid forcing init
-/// in `ProtocolHandler` callbacks.
-#[allow(dead_code)]
-pub fn try_get_global() -> Option<Arc<RodioController>> {
-    GLOBAL_PLAYER.get().cloned()
-}
-
-/// async wrapper exported for the p2p init path: returns an
-/// `Arc<dyn PlayerController>` ready to hand to
-/// [`grimoire::player::PlayerProtocol::new`]. spawning the audio
-/// thread on iroh-router setup matches the existing radio pattern
-/// (broadcaster spawned alongside the router) and means the first
-/// remote control connection doesn't pay a cold-start penalty.
-pub async fn get_or_init_for_alpn() -> Arc<dyn PlayerController> {
-    get_or_init_global().await as Arc<dyn PlayerController>
 }
 
 /// tauri-managed state. the controller itself lives in

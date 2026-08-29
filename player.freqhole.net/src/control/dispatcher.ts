@@ -5,6 +5,7 @@ import type { MiddenNode } from "@freqhole/midden";
 import { PlayerCommandSchema, type CommandAck } from "./schema";
 import * as playbackEngine from "../playback/playbackEngine";
 import * as radioClient from "../playback/radioClient";
+import { broadcastStatus } from "./statusSubscribers";
 
 export async function dispatchCommand(node: MiddenNode, rawLine: string): Promise<CommandAck> {
   const parsed = PlayerCommandSchema.safeParse(JSON.parse(rawLine));
@@ -35,6 +36,12 @@ export async function dispatchCommand(node: MiddenNode, rawLine: string): Promis
     case "skip":
       await playbackEngine.skip(node);
       break;
+    case "remove_from_queue":
+      await playbackEngine.removeFromQueue(node, command.index);
+      break;
+    case "reorder_queue":
+      playbackEngine.reorderQueue(command.from_index, command.to_index);
+      break;
     case "set_volume":
       playbackEngine.setVolume(command.volume);
       break;
@@ -47,9 +54,17 @@ export async function dispatchCommand(node: MiddenNode, rawLine: string): Promis
     case "stop_radio":
       radioClient.stopRadio();
       break;
+    case "set_auto_download_enabled":
+      playbackEngine.setAutoDownloadEnabled(command.enabled);
+      break;
     case "get_status":
       break;
   }
 
-  return { type: "command_ack", ok: true, status: playbackEngine.currentStatus() };
+  const status = playbackEngine.currentStatus();
+  // push the same status to every other subscribed controller too - not
+  // just the one that sent this command - so a shared/multi-user queue
+  // stays in sync without everyone polling.
+  broadcastStatus(status);
+  return { type: "command_ack", ok: true, status };
 }

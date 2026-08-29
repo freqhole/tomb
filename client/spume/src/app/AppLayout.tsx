@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/solid-query";
 import {
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   on,
   onCleanup,
@@ -40,8 +39,7 @@ import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar, type PlayerBarVideo } from "../components/player/PlayerBar";
 import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
-import { TargetSwitcherModal } from "../components/modals/TargetSwitcherModal";
-import { pairedPlayersVersion, listPairedPlayers } from "./services/players/pairedPlayers";
+
 import { isRemoteTargetActive } from "./services/players/activeTarget";
 import {
   remotePause,
@@ -279,9 +277,8 @@ export function AppLayout(props: AppLayoutProps) {
   const [storageQuota, setStorageQuota] = createSignal<number>(0);
   const [externalStorageMounted, setExternalStorageMounted] = createSignal(false);
 
-  // phase 6: unified playback target (paired freqhole-player devices)
-  const [targetSwitcherOpen, setTargetSwitcherOpen] = createSignal(false);
-  const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
+  // phase 6: unified playback target (paired freqhole-player devices) -
+  // the "play on" picker itself now lives in QueueSidebar's bottom row.
   createEffect(() => setRemoteStatusPolling(isRemoteTargetActive()));
   onCleanup(() => setRemoteStatusPolling(false));
 
@@ -1774,18 +1771,12 @@ export function AppLayout(props: AppLayoutProps) {
                 externalStorageBusy={externalStorageSyncingSignal()}
                 externalStorageProgress={externalStorageSyncProgressSignal()}
                 onExternalStorageIconClick={() => navigate("/storage-overview")}
-                showTargetSwitcherIcon={(pairedPlayers()?.length ?? 0) > 0}
                 activeTargetIsRemote={isRemoteTargetActive()}
-                onTargetSwitcherIconClick={() => setTargetSwitcherOpen(true)}
                 isVideoActive={!isRadio() && !!currentVideoData()}
                 videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
                 video={!isRadio() ? barVideo() : null}
                 isVideoFavorite={isCurrentVideoFavorite()}
                 onVideoFavoriteToggle={handleVideoFavoriteToggle}
-              />
-              <TargetSwitcherModal
-                isOpen={targetSwitcherOpen()}
-                onClose={() => setTargetSwitcherOpen(false)}
               />
             </>
           );

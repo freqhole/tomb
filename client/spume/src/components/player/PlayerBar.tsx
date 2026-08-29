@@ -122,13 +122,10 @@ export interface PlayerBarProps {
   externalStorageProgress?: { current: number; total: number } | null;
   /** callback when the removable-storage icon is clicked (opens the storage overview). */
   onExternalStorageIconClick?: () => void;
-  /** show the playback-target switcher icon slot (phase 6 - only when at
-   * least one player is paired). */
-  showTargetSwitcherIcon?: boolean;
-  /** whether the active target is a remote paired player (tints the icon). */
+  /** whether the active target is a remote paired player (phase 6 - swaps
+   * the queue-toggle icon to `remotePlayer`; the picker itself now lives in
+   * QueueSidebar's bottom row rather than a standalone player-bar button). */
   activeTargetIsRemote?: boolean;
-  /** callback when the target-switcher icon is clicked (opens the target picker). */
-  onTargetSwitcherIconClick?: () => void;
   /** whether the active backend is playing video (mounts `videoElement`
    * into the thumbnail slot + shows a fullscreen toggle, instead of the
    * usual song artwork). */
@@ -473,25 +470,6 @@ export function PlayerBar(props: PlayerBarProps) {
             </div>
           </Show>
 
-          {/* playback-target switcher icon */}
-          <Show when={props.showTargetSwitcherIcon}>
-            <button
-              class="w-8 h-8 rounded-full border-none cursor-pointer transition-colors flex items-center justify-center flex-shrink-0"
-              classList={{
-                "bg-[var(--color-accent-500)]/30 text-[var(--color-accent-500)]":
-                  !!props.activeTargetIsRemote,
-                "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30":
-                  !props.activeTargetIsRemote,
-              }}
-              onClick={() => props.onTargetSwitcherIconClick?.()}
-              title="play on..."
-              aria-label="playback target"
-              data-testid="target-switcher-icon"
-            >
-              <Icon name={IconNames.radioTower} size={16} />
-            </button>
-          </Show>
-
           {/* thumbnail */}
           <Show
             when={props.isVideoActive && props.videoElement}
@@ -664,10 +642,16 @@ export function PlayerBar(props: PlayerBarProps) {
                   : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
               }`}
               onClick={() => props.onQueueToggle()}
-              title={props.queueOpen ? "hide queue" : "show queue"}
+              title={
+                props.activeTargetIsRemote
+                  ? "queue (playing on remote)"
+                  : props.queueOpen
+                    ? "hide queue"
+                    : "show queue"
+              }
               aria-label={props.queueOpen ? "hide queue" : "show queue"}
             >
-              <Icon name="queue" size={16} />
+              <Icon name={props.activeTargetIsRemote ? "remotePlayer" : "queue"} size={16} />
               <Show when={(props.queueLength || 0) > 0}>
                 <span class="absolute -top-1 -right-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-medium">
                   {props.queueLength}
@@ -726,25 +710,6 @@ export function PlayerBar(props: PlayerBarProps) {
                   )}
                 </Show>
               </div>
-            </Show>
-
-            {/* playback-target switcher icon */}
-            <Show when={props.showTargetSwitcherIcon}>
-              <button
-                class="w-10 h-10 rounded-full border-none cursor-pointer transition-colors flex items-center justify-center flex-shrink-0"
-                classList={{
-                  "bg-[var(--color-accent-500)]/30 text-[var(--color-accent-500)]":
-                    !!props.activeTargetIsRemote,
-                  "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30":
-                    !props.activeTargetIsRemote,
-                }}
-                onClick={() => props.onTargetSwitcherIconClick?.()}
-                title="play on..."
-                aria-label="playback target"
-                data-testid="target-switcher-icon"
-              >
-                <Icon name={IconNames.radioTower} size={20} />
-              </button>
             </Show>
 
             {/* thumbnail */}
@@ -1038,10 +1003,16 @@ export function PlayerBar(props: PlayerBarProps) {
                 : "bg-[var(--color-accent-500)]/10 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/30"
             }`}
             onClick={() => props.onQueueToggle()}
-            title={props.queueOpen ? "hide queue" : "show queue"}
+            title={
+              props.activeTargetIsRemote
+                ? "queue (playing on remote)"
+                : props.queueOpen
+                  ? "hide queue"
+                  : "show queue"
+            }
             aria-label={props.queueOpen ? "hide queue" : "show queue"}
           >
-            <Icon name="queue" size={20} />
+            <Icon name={props.activeTargetIsRemote ? "remotePlayer" : "queue"} size={20} />
             <Show when={(props.queueLength || 0) > 0}>
               <span class="absolute -top-1 -right-1 bg-[var(--color-accent-500)] text-[var(--color-text-on-accent)] text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
                 {props.queueLength}

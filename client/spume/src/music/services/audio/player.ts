@@ -59,6 +59,7 @@ import { getDataSource } from "../../data";
 import { toggleSongFavoriteDirect } from "../../queries/favorites";
 import { getMediaSessionArtwork } from "./mediaSessionArtwork";
 import { resolveSongOrId } from "./facadeHelpers";
+import { isRemoteTargetActive } from "../../../app/services/players/activeTarget";
 
 import type { Song } from "../storage/types";
 // auto-advance past unplayable songs before giving up.
@@ -389,6 +390,15 @@ export async function playSong(
   const userInitiated = !!options?.userInitiated;
   const song = await resolveSongOrId(songOrId);
 
+  // a remote target (paired freqhole-player) owns playback instead of
+  // this device - playSong is queue/state-driven and gets called from
+  // many code paths that don't know about the active target, so guard
+  // centrally here rather than at every call site.
+  if (isRemoteTargetActive()) {
+    debug("player", `skipping local playback for "${song.title}" - remote target is active`);
+    return;
+  }
+
   // user-initiated playback wins over any active radio session.
   // centralized here so every backend gets the same coexistence
   // behavior (silence radio + clear pause gate).
@@ -443,6 +453,13 @@ export async function playVideo(
   }
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
+
+  // see playSong's identical guard - no video-over-freqhole-player support
+  // exists anyway (phase 6), so a remote target should never play locally.
+  if (isRemoteTargetActive()) {
+    debug("player", `skipping local playback for "${video.title}" - remote target is active`);
+    return;
+  }
 
   if (userInitiated) {
     await stopRadioForMusic();

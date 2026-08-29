@@ -361,6 +361,21 @@ export const RadioTowerIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
+// remote-player "play on" indicator: a wifi/broadcast glyph rotated ~35deg
+// (past the standard 90deg for a bit more of an intentional/stylized tilt)
+// so its arcs fan out sideways instead of upward - deliberately distinct
+// from RadioTowerIcon above (used for radio stations, not player handoff).
+export const RemotePlayerIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Playing on remote"}>
+    <g transform="rotate(35 12 12)">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <circle cx="12" cy="20" r="1.4" fill="currentColor" stroke="none" />
+    </g>
+  </StrokeBaseIcon>
+);
+
 export const CarouselIcon = (props: IconProps) => (
   <BaseIcon {...props} aria-label={props["aria-label"] ?? "Image carousel"}>
     {/* merry-go-round: conical top, center pole, platform, hanging elements */}
@@ -604,6 +619,7 @@ export const IconRegistry = {
   sdCard: SdCardIcon,
   headphones: HeadphonesIcon,
   radioTower: RadioTowerIcon,
+  remotePlayer: RemotePlayerIcon,
   carousel: CarouselIcon,
   fullscreen: FullscreenIcon,
   expandWindow: ExpandWindowIcon,
@@ -720,6 +736,7 @@ export const IconNames = {
   sdCard: "sdCard",
   headphones: "headphones",
   radioTower: "radioTower",
+  remotePlayer: "remotePlayer",
   carousel: "carousel",
   fullscreen: "fullscreen",
   expandWindow: "expandWindow",

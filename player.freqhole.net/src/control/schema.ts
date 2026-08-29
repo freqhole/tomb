@@ -48,11 +48,27 @@ export const PlayerCommandSchema = z.discriminatedUnion("command", [
   z.object({ type: z.literal("control"), command: z.literal("skip") }),
   z.object({
     type: z.literal("control"),
+    command: z.literal("remove_from_queue"),
+    index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("reorder_queue"),
+    from_index: z.number().int().nonnegative(),
+    to_index: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("control"),
     command: z.literal("set_volume"),
     volume: z.number().min(0).max(1),
   }),
   z.object({ type: z.literal("control"), command: z.literal("stop") }),
   z.object({ type: z.literal("control"), command: z.literal("get_status") }),
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("set_auto_download_enabled"),
+    enabled: z.boolean(),
+  }),
   z.object({
     type: z.literal("control"),
     command: z.literal("tune_radio"),
@@ -63,9 +79,20 @@ export const PlayerCommandSchema = z.discriminatedUnion("command", [
 ]);
 export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
 
+// a dedicated push-subscription session (phase 12 follow-up): sent once as
+// the first (and only) line on a stream the controller keeps open
+// indefinitely, instead of the dial-per-command shape every other message
+// on this protocol uses. the player pushes a `PlayerStatus` line on this
+// same stream every time something changes - see control/statusSubscribers.ts.
+export const SubscribeRequestSchema = z.object({ type: z.literal("subscribe") });
+export type SubscribeRequest = z.infer<typeof SubscribeRequestSchema>;
+
 // `queue` (the full upcoming queue, current item first) rides along on every
 // status variant so a reconnecting controller can resync via `get_status`
 // instead of only learning about the single currently-playing item.
+// `auto_download_enabled` rides along the same way, so every subscribed
+// controller's own auto-download toggle can mirror whichever controller
+// last changed it (see `set_auto_download_enabled` above).
 export const PlayerStatusSchema = z.discriminatedUnion("state", [
   z.object({
     type: z.literal("status"),
@@ -73,28 +100,33 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     item: MediaRefSchema,
     position_ms: z.number().nonnegative(),
     queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("paused"),
     position_ms: z.number().nonnegative(),
     queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("buffering"),
     queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("stopped"),
     queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("error"),
     message: z.string(),
     queue: z.array(MediaRefSchema),
+    auto_download_enabled: z.boolean(),
   }),
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;

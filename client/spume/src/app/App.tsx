@@ -23,6 +23,7 @@ import { TagSelectorModal } from "../components/modals/TagSelectorModal";
 import { BulkEnrichmentReviewModal } from "../library/review/BulkEnrichmentReviewModal";
 import { hideBulkReview, useBulkReviewState } from "../library/review/bulkReviewModal";
 import { QueueFullModal } from "../music/components/QueueFullModal";
+import { ReplaceQueueConfirmModal } from "../music/components/ReplaceQueueConfirmModal";
 import { getCurrentRemote, getDataSource, useLocalSource, useRemoteSource } from "../music/data";
 import type { CurrentRemoteInfo } from "../music/data/currentState";
 import { isAdmin } from "../music/data/permissions";
@@ -90,6 +91,7 @@ import { recoverLegacyImages } from "../music/services/storage/legacyImageRecove
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
 import { extractShareTokenFromHash, SHARE_HASH_PARAM } from "../utils/permalink";
+import { addRemoteRequest } from "./services/remotes/addRemoteRequest";
 import { AUDIO_EXTS, VIDEO_EXTS } from "../utils/filePicker";
 import { onMiddenReady } from "./api/client";
 import { routes } from "./routes";
@@ -268,6 +270,18 @@ export function App() {
       window.location.hash = "/link";
     }
   });
+
+  // pasted/scanned add-remote links (e.g. a `?r=` url pasted into
+  // TopNavSearch) arrive via this request channel rather than a query
+  // param, since they're detected mid-session, not just on page load.
+  createEffect(
+    on(addRemoteRequest, (req) => {
+      if (!req) return;
+      debug("App", `add-remote request: ${req.value.slice(0, 16)}...`);
+      setAddRemoteInitialValue(req.value);
+      setIsAddRemoteOpen(true);
+    })
+  );
 
   // check for #?share=<token> in the url hash on every load + hash change.
   // see SEND_TO_REMOTE_PLAN step 15 — ResolveShareModal handles decode +
@@ -1596,6 +1610,7 @@ export function App() {
 
       {/* queue full modal (global, managed by queue service) */}
       <QueueFullModal />
+      <ReplaceQueueConfirmModal />
     </>
   );
 }

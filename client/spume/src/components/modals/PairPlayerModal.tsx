@@ -24,9 +24,34 @@ interface ScannedPlayerQr {
   role: "player_remote";
 }
 
+function base64UrlDecode(token: string): string {
+  const pad = token.length % 4 === 0 ? "" : "=".repeat(4 - (token.length % 4));
+  const b64 = token.replace(/-/g, "+").replace(/_/g, "/") + pad;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// player.freqhole.net's qr encodes `https://spume.freqhole.net/?p=<base64url
+// json>` so any camera app can open spume directly - strip the url wrapper
+// and decode the `p` param back to json. falls back to parsing `text`
+// as-is for back-compat with older bare-json qr codes.
 function parseScannedPlayerQr(text: string): ScannedPlayerQr | null {
+  const trimmed = text.trim();
+  let jsonText = trimmed;
+
   try {
-    const parsed = JSON.parse(text);
+    const url = new URL(trimmed);
+    const pParam = url.searchParams.get("p");
+    if (pParam) jsonText = base64UrlDecode(pParam);
+  } catch {
+    const match = trimmed.match(/[?&]p=([A-Za-z0-9_-]+)/);
+    if (match) jsonText = base64UrlDecode(match[1]);
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText);
     if (parsed?.role === "player_remote" && typeof parsed.node_id === "string") {
       return parsed as ScannedPlayerQr;
     }
