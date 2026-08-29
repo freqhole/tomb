@@ -139,12 +139,37 @@ export default function App() {
         <Show when={node()}>
           <Show when={qrDataUrl()}>
             {(url) => (
-              <img
-                src={url()}
-                alt="pairing qr code"
-                class="w-[min(70vmin,900px)] h-[min(70vmin,900px)] shrink-0"
-                data-testid="pairing-qr"
-              />
+              <div class="relative w-[min(70vmin,900px)] h-[min(70vmin,900px)] shrink-0">
+                <img
+                  src={url()}
+                  alt="pairing qr code"
+                  class="w-full h-full"
+                  data-testid="pairing-qr"
+                />
+                {/* the logo baked into the qr's center (see qrCode.ts) is a
+                    static raster composite - it can't be animated directly.
+                    layer an identical-looking, independently-animatable
+                    overlay exactly on top of it instead: same backing
+                    square + same logo asset, spun via css whenever a
+                    remote client is connected and actively driving
+                    playback, as a lightweight "something's happening"
+                    loading indicator. hidden otherwise, revealing the
+                    static baked-in logo underneath. */}
+                <Show when={connectedControllers().length > 0}>
+                  <div
+                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black flex items-center justify-center"
+                    style={{ width: "28.6%", height: "28.6%" }}
+                    data-testid="pairing-qr-loading"
+                  >
+                    <img
+                      src="/freqhole.svg"
+                      alt=""
+                      class="animate-spin"
+                      style={{ width: "77%", height: "77%" }}
+                    />
+                  </div>
+                </Show>
+              </div>
             )}
           </Show>
           <p
@@ -161,7 +186,27 @@ export default function App() {
           <div class="flex flex-col items-center gap-4 w-full max-w-md" data-testid="now-playing">
             <Show
               when={item().artwork_url}
-              fallback={<div class="w-64 h-64 rounded-lg bg-neutral-800" />}
+              fallback={
+                <div
+                  class="w-64 h-64 rounded-lg bg-neutral-800 flex items-center justify-center"
+                  data-testid="artwork-fallback"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    class="w-20 h-20 text-neutral-600"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+              }
             >
               {(url) => (
                 <img src={url()} alt="" class="w-64 h-64 rounded-lg object-cover shadow-lg" />

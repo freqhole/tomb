@@ -99,8 +99,14 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     state: z.literal("now_playing"),
     item: MediaRefSchema,
     position_ms: z.number().nonnegative(),
+    // wall-clock time (ms since epoch, this device's `Date.now()`) this
+    // status was built at - lets a controller extrapolate a locally-ticking
+    // clock between polls/pushes instead of freezing on the last-received
+    // `position_ms` (phase 13 local-clock item).
+    server_time_ms: z.number().nonnegative(),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
   }),
   z.object({
     type: z.literal("status"),
@@ -108,18 +114,21 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     position_ms: z.number().nonnegative(),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("buffering"),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
   }),
   z.object({
     type: z.literal("status"),
     state: z.literal("stopped"),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
   }),
   z.object({
     type: z.literal("status"),
@@ -127,6 +136,7 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     message: z.string(),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
+    volume: z.number().min(0).max(1),
   }),
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;

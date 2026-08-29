@@ -48,6 +48,11 @@ import {
   remoteSetVolume,
   remoteIsPlaying,
   remotePositionMs,
+  remoteDurationMs,
+  remoteVolume,
+  remoteSeek,
+  remoteCommandPending,
+  remoteStatusKnown,
   setRemoteStatusPolling,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
@@ -1515,7 +1520,17 @@ export function AppLayout(props: AppLayoutProps) {
               : isRadio()
                 ? radioStatus() === "playing"
                 : isPlaying();
-          const barIsLoading = () => (isRadio() ? radioStatus() === "connecting" : isLoading());
+          // for remote targets: show the loading ring while a control
+          // command is in flight (play/pause/skip/seek/volume) or before
+          // the first status has arrived for this target (reconnect-safe -
+          // avoids briefly showing a stale/wrong play-pause icon while the
+          // real state is still unknown).
+          const barIsLoading = () =>
+            isRemoteTargetActive()
+              ? remoteCommandPending() || !remoteStatusKnown()
+              : isRadio()
+                ? radioStatus() === "connecting"
+                : isLoading();
           const debouncedBarIsLoading = createDebouncedBoolean(barIsLoading);
           const barCurrentTime = () =>
             isRemoteTargetActive()
@@ -1524,15 +1539,19 @@ export function AppLayout(props: AppLayoutProps) {
                 ? radioElapsedMs() / 1000
                 : currentTime();
           const barDuration = () => {
-            // remote targets: player.freqhole.net's status protocol doesn't
-            // report duration yet, so this is treated like a live stream
-            // (isLiveStream below hides the seek/duration ui rather than
-            // showing a stale/wrong number - phase 6 known gap).
-            if (isRadio() || isRemoteTargetActive()) {
-              return 0;
+            if (isRemoteTargetActive()) {
+              const ms = remoteDurationMs();
+              return ms ? ms / 1000 : 0;
             }
+            if (isRadio()) return 0;
             return duration();
           };
+          // hides the seek/duration ui for radio (always live) and for
+          // remote targets whose current item didn't report a duration
+          // (e.g. tuned radio relayed through a player) - a remote item with
+          // a known duration gets full seek support (phase 13).
+          const barIsLiveStream = () =>
+            isRadio() || (isRemoteTargetActive() && barDuration() === 0);
 
           const onPlayPause = () => {
             if (isRemoteTargetActive()) {
@@ -1581,8 +1600,12 @@ export function AppLayout(props: AppLayoutProps) {
             playNext();
           };
           const onSeekCb = (pct: number) => {
-            // seek not supported yet for remote targets (isLiveStream hides the ui)
-            if (isRemoteTargetActive()) return;
+            if (isRemoteTargetActive()) {
+              const ms = remoteDurationMs();
+              if (!ms) return; // no known duration - seek ui is hidden anyway
+              void remoteSeek((pct / 100) * ms);
+              return;
+            }
             if (isRadio()) return; // live audio is not seekable
             handleSeek(pct);
           };
@@ -1749,7 +1772,7 @@ export function AppLayout(props: AppLayoutProps) {
                 hasUpNext={isRadio() ? false : !!pendingUpNextSha256()}
                 currentTime={barCurrentTime()}
                 duration={barDuration()}
-                volume={volume()}
+                volume={isRemoteTargetActive() ? remoteVolume() : volume()}
                 queueOpen={queueOpen()}
                 onPlayPause={onPlayPause}
                 onPrevious={onPrev}
@@ -1766,7 +1789,7 @@ export function AppLayout(props: AppLayoutProps) {
                 showNext={!isRadio() || canAdminSkipRadioTrack()}
                 showPrevious={!isRadio()}
                 statusBadge={statusBadge()}
-                isLiveStream={isRadio() || isRemoteTargetActive()}
+                isLiveStream={barIsLiveStream()}
                 showExternalStorageIcon={externalStorageMounted()}
                 externalStorageBusy={externalStorageSyncingSignal()}
                 externalStorageProgress={externalStorageSyncProgressSignal()}

@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, createEffect, Show } from "solid-js";
 import { Icon } from "../icons/registry";
 
 export interface VolumeControlProps {
@@ -13,7 +13,18 @@ export interface VolumeControlProps {
 // volume control with popup vertical slider
 export function VolumeControl(props: VolumeControlProps) {
   const [showSlider, setShowSlider] = createSignal(false);
+  // tracked separately from props.volume so the slider updates instantly
+  // while dragging, without firing onVolumeChange (and, for remote targets,
+  // a network round-trip) on every intermediate value - only on release.
+  const [displayVolume, setDisplayVolume] = createSignal(props.volume);
+  const [dragging, setDragging] = createSignal(false);
   let hideTimeout: number | null = null;
+
+  // adopt external volume changes (e.g. from another synced client) as
+  // long as the user isn't actively dragging this slider right now.
+  createEffect(() => {
+    if (!dragging()) setDisplayVolume(props.volume);
+  });
 
   const handleMouseEnter = () => {
     if (hideTimeout) {
@@ -34,9 +45,16 @@ export function VolumeControl(props: VolumeControlProps) {
     setShowSlider(!showSlider());
   };
 
-  const handleVolumeChange = (e: InputEvent) => {
+  const handleVolumeInput = (e: InputEvent) => {
+    const target = e.currentTarget as HTMLInputElement;
+    setDisplayVolume(parseFloat(target.value));
+  };
+
+  const handleVolumeCommit = (e: Event) => {
     const target = e.currentTarget as HTMLInputElement;
     const newVolume = parseFloat(target.value);
+    setDisplayVolume(newVolume);
+    setDragging(false);
     props.onVolumeChange(newVolume);
   };
 
@@ -46,8 +64,8 @@ export function VolumeControl(props: VolumeControlProps) {
     }
   });
 
-  const volumeIcon = () => (props.volume === 0 ? "volumeOff" : "volume");
-  const volumePercentage = () => Math.round(props.volume * 100);
+  const volumeIcon = () => (displayVolume() === 0 ? "volumeOff" : "volume");
+  const volumePercentage = () => Math.round(displayVolume() * 100);
 
   return (
     <div
@@ -80,11 +98,13 @@ export function VolumeControl(props: VolumeControlProps) {
               min="0"
               max="1"
               step="0.01"
-              value={props.volume}
-              onInput={handleVolumeChange}
+              value={displayVolume()}
+              onPointerDown={() => setDragging(true)}
+              onInput={handleVolumeInput}
+              onChange={handleVolumeCommit}
               class="flex-1 w-1.5 bg-[var(--color-accent-500)]/20 border-none rounded-full outline-none cursor-pointer hover:w-2 transition-all"
               style={{
-                background: `linear-gradient(to top, var(--color-accent-500) 0%, var(--color-accent-500) ${props.volume * 100}%, rgba(255, 26, 158, 0.2) ${props.volume * 100}%, rgba(255, 26, 158, 0.2) 100%)`,
+                background: `linear-gradient(to top, var(--color-accent-500) 0%, var(--color-accent-500) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) ${displayVolume() * 100}%, rgba(255, 26, 158, 0.2) 100%)`,
                 "writing-mode": "vertical-lr",
                 direction: "rtl",
                 "-webkit-appearance": "slider-vertical",

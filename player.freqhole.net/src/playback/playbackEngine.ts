@@ -309,6 +309,7 @@ export function setAutoDownloadEnabled(enabled: boolean): void {
 export function currentStatus(): PlayerStatus {
   const item = currentItem();
   const currentQueue = [...queue];
+  const volume = media.volume;
   switch (state()) {
     case "playing":
       if (item) {
@@ -317,8 +318,10 @@ export function currentStatus(): PlayerStatus {
           state: "now_playing",
           item,
           position_ms: Math.round(media.currentTime * 1000),
+          server_time_ms: Date.now(),
           queue: currentQueue,
           auto_download_enabled: autoDownloadEnabled,
+          volume,
         };
       }
       return {
@@ -326,6 +329,7 @@ export function currentStatus(): PlayerStatus {
         state: "buffering",
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
+        volume,
       };
     case "buffering":
       return {
@@ -333,6 +337,7 @@ export function currentStatus(): PlayerStatus {
         state: "buffering",
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
+        volume,
       };
     case "paused":
     case "blocked":
@@ -342,6 +347,7 @@ export function currentStatus(): PlayerStatus {
         position_ms: Math.round(media.currentTime * 1000),
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
+        volume,
       };
     case "error":
       return {
@@ -350,6 +356,7 @@ export function currentStatus(): PlayerStatus {
         message: errorMessage() ?? "unknown error",
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
+        volume,
       };
     case "idle":
     case "stopped":
@@ -359,6 +366,7 @@ export function currentStatus(): PlayerStatus {
         state: "stopped",
         queue: currentQueue,
         auto_download_enabled: autoDownloadEnabled,
+        volume,
       };
   }
 }
