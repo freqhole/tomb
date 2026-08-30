@@ -15,7 +15,7 @@ import {
 } from "../pairing/playerSession";
 import type { PlayerSessionStore } from "../pairing/playerSession";
 import { dispatchCommand } from "./dispatcher";
-import { SubscribeRequestSchema } from "./schema";
+import { PresenceQuerySchema, SubscribeRequestSchema } from "./schema";
 import { registerSubscriber, unregisterSubscriber } from "./statusSubscribers";
 import { markControllerConnected, markControllerDisconnected } from "./connectedControllers";
 import type { PlaybackBackend } from "./playbackBackend";
@@ -100,6 +100,19 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           display_name: controller?.display_name ?? peerNodeId.slice(0, 8),
         };
 
+        if (isPresenceQuery(firstLine)) {
+          // one-shot: answer with the current presence and close - no
+          // persistent registration, unlike subscribe below (see schema.ts's
+          // `PresenceQuery` doc comment). reaching this point already means
+          // isEnabled() was true (checked at the very top of this function),
+          // so the answer is always "active" here - a peer that dials while
+          // presence is off gets no response at all (connection rejected
+          // before ever reading a line), which callers should treat the same
+          // as "stopped"/unreachable.
+          await stream.write_line(JSON.stringify({ type: "presence", state: "active" }));
+          return;
+        }
+
         if (isSubscribeRequest(firstLine)) {
           // push-subscription session: no commands are ever dispatched on
           // this stream - just register it for statusSubscribers.
@@ -167,6 +180,14 @@ export function createPlayerConnectionHandler<TNode = unknown>(
 function isSubscribeRequest(rawLine: string): boolean {
   try {
     return SubscribeRequestSchema.safeParse(JSON.parse(rawLine)).success;
+  } catch {
+    return false;
+  }
+}
+
+function isPresenceQuery(rawLine: string): boolean {
+  try {
+    return PresenceQuerySchema.safeParse(JSON.parse(rawLine)).success;
   } catch {
     return false;
   }

@@ -142,10 +142,13 @@ export interface DropdownMenuProps {
   actions: MenuAction[];
   /** additional content to show at the top of the menu */
   header?: JSX.Element;
+  /** called each time the menu opens - e.g. to refresh data the actions
+   * depend on right before they're shown */
+  onOpen?: () => void;
 }
 
 export function DropdownMenu(props: DropdownMenuProps) {
-  const [local, rest] = splitProps(props, ["trigger", "actions", "header"]);
+  const [local, rest] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
 
   return (
     <KobalteContextMenu {...rest}>
@@ -218,7 +221,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
 // for reliable viewport-relative placement regardless of ancestor transforms or
 // overflow contexts.
 export function ClickDropdownMenu(props: DropdownMenuProps) {
-  const [local] = splitProps(props, ["trigger", "actions", "header"]);
+  const [local] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
 
   type MenuPos = { top?: number; bottom?: number; right: number; maxHeight: number };
   const [open, setOpen] = createSignal(false);
@@ -249,6 +252,7 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
     if (!triggerRef) return;
     setMenuPos(computePos());
     setOpen(true);
+    local.onOpen?.();
   };
 
   const closeMenu = () => setOpen(false);

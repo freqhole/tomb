@@ -26,6 +26,7 @@ import {
   connectToRemote,
 } from "./services/remotes/connectionProgress";
 import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitching";
+import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarget";
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
 import { TopNav } from "../components/navigation/TopNav";
@@ -297,11 +298,14 @@ export function AppLayout(props: AppLayoutProps) {
   // client-side offline timeout (remoteTargetOffline(), see
   // remotePlaybackControl.ts) as a one-shot toast on the rising edge only
   // - not a persistent banner, so it doesn't need its own dismiss/retry ui
-  // yet, and doesn't repeat on every tick while still offline.
+  // yet, and doesn't repeat on every tick while still offline. also falls
+  // back to local playback automatically (docs/player-peer-trust-bridge-plan.md
+  // step 6) rather than leaving the user stuck on a dead remote target.
   createEffect(
     on(remoteTargetOffline, (offline, prevOffline) => {
       if (offline && !prevOffline) {
         toast.error("lost connection to the player - controls may not respond");
+        void selectLocalPlaybackTarget();
       }
     })
   );

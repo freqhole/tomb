@@ -8,7 +8,7 @@
 // never clips inside the sidebar's scroll container) - no inline-pills/
 // modal split by player count, since that added an extra component +
 // counting threshold for no real benefit.
-import { createResource, Show } from "solid-js";
+import { createResource, createSignal, Show } from "solid-js";
 import { pairedPlayersVersion, listPairedPlayers } from "../../app/services/players/pairedPlayers";
 import { activeTarget } from "../../app/services/players/activeTarget";
 import {
@@ -19,11 +19,32 @@ import {
   remoteStatusKnown,
   remoteCommandPending,
 } from "../../app/services/players/remotePlaybackControl";
+import {
+  queryPlayerPresence,
+  type PlayerPresence,
+} from "../../app/services/players/playerPairingClient";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 
 export function QueuePlayerTargetRow() {
   const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
+
+  // step 6 (docs/player-peer-trust-bridge-plan.md): on-demand presence per
+  // paired player, queried fresh each time the flyout opens (via
+  // ClickDropdownMenu's onOpen) rather than kept continuously live -
+  // there's no shutdown()/close() binding yet for a background poll to
+  // reliably tear down, so "query when the picker is actually opened" is
+  // the simplest correct behavior. keyed by node_id; undefined means
+  // "not queried yet this time" (shown as neither online nor offline).
+  const [presence, setPresence] = createSignal<Record<string, PlayerPresence>>({});
+
+  const refreshPresence = () => {
+    for (const player of pairedPlayers() ?? []) {
+      void queryPlayerPresence(player.node_id).then((state) => {
+        setPresence((prev) => ({ ...prev, [player.node_id]: state }));
+      });
+    }
+  };
 
   const isActivePlayer = (nodeId: string) => {
     const t = activeTarget();
@@ -51,11 +72,15 @@ export function QueuePlayerTargetRow() {
       icon: activeTarget().kind === "local" ? "check" : undefined,
       onClick: () => selectLocalPlaybackTarget(),
     },
-    ...(pairedPlayers() ?? []).map((player): MenuAction => ({
-      label: player.username,
-      icon: isActivePlayer(player.node_id) ? "check" : "remotePlayer",
-      onClick: () => void selectPlayerPlaybackTarget(player),
-    })),
+    ...(pairedPlayers() ?? []).map((player): MenuAction => {
+      const state = presence()[player.node_id];
+      const label = state === "stopped" ? `${player.username} (offline)` : player.username;
+      return {
+        label,
+        icon: isActivePlayer(player.node_id) ? "check" : "remotePlayer",
+        onClick: () => void selectPlayerPlaybackTarget(player),
+      };
+    }),
   ];
 
   return (
@@ -87,6 +112,7 @@ export function QueuePlayerTargetRow() {
               </button>
             }
             actions={actions()}
+            onOpen={refreshPresence}
           />
         </div>
       </div>

@@ -90,6 +90,30 @@ export type PlayerCommand = z.infer<typeof PlayerCommandSchema>;
 export const SubscribeRequestSchema = z.object({ type: z.literal("subscribe") });
 export type SubscribeRequest = z.infer<typeof SubscribeRequestSchema>;
 
+// one-shot presence check: "are you currently acting as a player?" - sent
+// as the only line on a fresh dial (not a persistent stream, unlike
+// `subscribe` above). used by a controller that wants a specific paired
+// peer's live player-mode status without committing to a full
+// subscribeToPlayerStatus() stream just to find out - e.g. populating a
+// "play on" picker with live online/offline status when it opens.
+// answered with a `PresenceAnnouncement` below, then the stream closes.
+export const PresenceQuerySchema = z.object({ type: z.literal("presence_query") });
+export type PresenceQuery = z.infer<typeof PresenceQuerySchema>;
+
+// pushed unprompted to every open `subscribe` stream whenever this
+// player's live presence state changes (see control/statusSubscribers.ts's
+// `broadcastPresence`) - also the direct response to a one-shot
+// `PresenceQuery` above. "active" only ever means "this device currently
+// has its player route open and is accepting commands" (see
+// control/playerConnectionHandler.ts's `isEnabled` gate) - it says nothing
+// about whether anything is actually playing right now, that's what
+// `PlayerStatus` is for.
+export const PresenceAnnouncementSchema = z.object({
+  type: z.literal("presence"),
+  state: z.enum(["active", "stopped"]),
+});
+export type PresenceAnnouncement = z.infer<typeof PresenceAnnouncementSchema>;
+
 // `queue` (the full upcoming queue, current item first) rides along on every
 // status variant so a reconnecting controller can resync via `get_status`
 // instead of only learning about the single currently-playing item.

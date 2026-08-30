@@ -20,16 +20,21 @@ export {
   PlayerStatusSchema,
   CommandAckSchema,
   SubscribeRequestSchema,
+  PresenceQuerySchema,
+  PresenceAnnouncementSchema,
   type PlayerCommand,
   type PlayerStatus,
   type CommandAck,
   type SubscribeRequest,
+  type PresenceQuery,
+  type PresenceAnnouncement,
   type MediaRef,
 } from "./control/schema";
 export {
   registerSubscriber,
   unregisterSubscriber,
   broadcastStatus,
+  broadcastPresence,
 } from "./control/statusSubscribers";
 export {
   connectedControllers,

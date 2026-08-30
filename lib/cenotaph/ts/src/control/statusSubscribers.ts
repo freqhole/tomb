@@ -11,7 +11,7 @@
 // gets built.
 
 import type { CenotaphBiStream } from "../midden/node";
-import type { PlayerStatus } from "./schema";
+import type { PlayerStatus, PresenceAnnouncement } from "./schema";
 
 const subscribers = new Map<string, Set<CenotaphBiStream>>();
 
@@ -31,12 +31,11 @@ export function unregisterSubscriber(nodeId: string, stream: CenotaphBiStream): 
   if (set.size === 0) subscribers.delete(nodeId);
 }
 
-/** pushes a status update to every currently-subscribed controller stream.
- * a write failure just drops that stream from the registry - the accept
+/** pushes one line to every currently-subscribed controller stream. a
+ * write failure just drops that stream from the registry - the accept
  * loop's own read side independently notices the close and cleans up too. */
-export function broadcastStatus(status: PlayerStatus): void {
+function broadcastLine(line: string): void {
   if (subscribers.size === 0) return;
-  const line = JSON.stringify(status);
   for (const [nodeId, streams] of subscribers) {
     for (const stream of streams) {
       stream.write_line(line).catch(() => {
@@ -44,4 +43,18 @@ export function broadcastStatus(status: PlayerStatus): void {
       });
     }
   }
+}
+
+export function broadcastStatus(status: PlayerStatus): void {
+  broadcastLine(JSON.stringify(status));
+}
+
+/** pushes a presence change (this device starting/stopping acting as a
+ * player) to every currently-subscribed controller stream - a host app
+ * calls this from its own start/stop lifecycle (mount/unmount, a remote-
+ * playback toggle, beforeunload/pagehide) since cenotaph has no lifecycle
+ * hook of its own for "the player is about to stop". see schema.ts's
+ * `PresenceAnnouncement` for what "active"/"stopped" mean. */
+export function broadcastPresence(presence: PresenceAnnouncement): void {
+  broadcastLine(JSON.stringify(presence));
 }

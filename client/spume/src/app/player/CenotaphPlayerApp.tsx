@@ -12,9 +12,18 @@
 // docs/cenotaph-migration-plan.md phase 5 - kept only as a reference for
 // this fresh, spume-native component).
 
-import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import {
   activityRamp,
+  broadcastPresence,
   commandInFlight,
   currentPin,
   currentSession,
@@ -74,6 +83,31 @@ export function CenotaphPlayerApp() {
     document.body.appendChild(mediaElement);
     installConsoleCapture();
     void loadDevelMode();
+
+    // step 6 (docs/player-peer-trust-bridge-plan.md): announce presence to
+    // any paired controller holding an open subscribe stream, mirroring
+    // acceptModeBootstrap.ts's own "active" definition (remote playback
+    // toggled on, and mounted on /player - this component only ever
+    // renders there at all). "stopped" fires on unmount too (SPA
+    // navigation away from /player), but Solid's onCleanup does NOT run on
+    // an actual tab close/reload/crash - only on Solid itself disposing
+    // the component - so a real "pagehide" listener below covers that case
+    // separately (best-effort: lib/midden's wasm api has no node/endpoint-
+    // level close()/shutdown() binding, only a per-stream one already used
+    // elsewhere, so this is just a fire-and-forget write to already-open
+    // subscribe streams during unload, not a guaranteed flush - a crash or
+    // force-quit still falls back to remoteTargetOffline()'s timeout).
+    createEffect(() => {
+      broadcastPresence({
+        type: "presence",
+        state: remotePlaybackEnabled() ? "active" : "stopped",
+      });
+    });
+    onCleanup(() => broadcastPresence({ type: "presence", state: "stopped" }));
+
+    const onPageHide = () => broadcastPresence({ type: "presence", state: "stopped" });
+    window.addEventListener("pagehide", onPageHide);
+    onCleanup(() => window.removeEventListener("pagehide", onPageHide));
 
     // "s" toggles settings, "d" toggles devel mode (console-log debug
     // overlay), escape closes settings - "s"/"d" ignored while typing in a

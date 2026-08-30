@@ -81,6 +81,29 @@ export async function pairWithPlayer(
   return { ok: parsed.ok === true, reason: parsed.reason };
 }
 
+export type PlayerPresence = "active" | "stopped";
+
+/** one-shot "is this paired player currently accepting connections?" probe
+ * (see `@freqhole/cenotaph`'s `PresenceQuery`/`PresenceAnnouncement`) -
+ * used to populate the "play on" picker with live online/offline status
+ * without committing to a full `subscribeToPlayerStatus()` stream. a
+ * single dial attempt, deliberately NOT `dialLine()`'s multi-second retry
+ * ladder (built for a first cold pairing dial) - a picker showing several
+ * players at once needs a quick, best-effort answer per entry, not a ~3s
+ * wait on each unreachable one. any failure (dial error, no response,
+ * malformed response) is just "stopped" - there's no separate
+ * "unreachable" state surfaced to callers. */
+export async function queryPlayerPresence(peerAddr: string): Promise<PlayerPresence> {
+  try {
+    const line = await dialLineOnce(peerAddr, JSON.stringify({ type: "presence_query" }));
+    if (!line) return "stopped";
+    const parsed = JSON.parse(line) as { type?: string; state?: string };
+    return parsed.type === "presence" && parsed.state === "active" ? "active" : "stopped";
+  } catch {
+    return "stopped";
+  }
+}
+
 // persistent control session per peer: acceptLoop.ts's server-side
 // handleConnection already keeps a trusted controller's stream open and
 // loops dispatchCommand()/write_line()/read_line() on it for as long as

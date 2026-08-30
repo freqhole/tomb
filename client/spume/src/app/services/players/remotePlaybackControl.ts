@@ -144,6 +144,7 @@ let lastStatusAt = 0;
 function applyRemoteStatus(status: RemoteStatus | null): void {
   if (status) {
     lastStatusAt = Date.now();
+    setRemoteAnnouncedOffline(false);
     const prevRecentlyPlayed = remoteStatus()?.recently_played ?? [];
     const newlyFinished = status.recently_played.filter((h) => !prevRecentlyPlayed.includes(h));
     if (newlyFinished.length > 0) pruneLocalQueueForFinishedItems(newlyFinished);
@@ -198,8 +199,8 @@ export function applyRemoteStatusFromAck(status: RemoteStatus): void {
  * hit that path). */
 export function resetRemoteStatus(): void {
   applyRemoteStatus(null);
+  setRemoteAnnouncedOffline(false);
 }
-
 export const remoteIsPlaying = () => remoteStatus()?.state === "now_playing";
 
 // local ticking clock (phase 13): `now_playing` status carries a
@@ -261,14 +262,33 @@ export const remoteStatusKnown = () => remoteStatus() !== null;
 // once polling is disabled, same as remotePositionMs() above.
 const OFFLINE_TIMEOUT_MS = 45_000;
 
+// set on receiving a live `{type:"presence", state:"stopped"}` push (see
+// setRemoteStatusPolling's onStatus handler below) - the player announcing
+// it just stopped accepting connections (remote-playback toggle turned
+// off, or its tab navigated away from /player) reported this immediately,
+// well before OFFLINE_TIMEOUT_MS would otherwise notice via silence alone.
+// reset on every real status (applyRemoteStatus) and on resetRemoteStatus()
+// (switching target).
+const [remoteAnnouncedOffline, setRemoteAnnouncedOffline] = createSignal(false);
+
+/** call from a push-subscription's raw line handler - kept as a plain
+ * function (rather than calling the setter inline there) so that
+ * callback isn't flagged as reactivity-in-an-untracked-scope. */
+function markRemoteAnnouncedOffline(): void {
+  setRemoteAnnouncedOffline(true);
+}
+
 /** true once we've gone suspiciously long (`OFFLINE_TIMEOUT_MS`) without a
  * real status landing for the active target - covers both a dead poll
  * (dial/fetch throwing, e.g. player unreachable) and a silently-dropped
  * push subscription. gated on `remoteStatusKnown()` first so a
  * still-connecting target (never heard from at all yet) shows the
- * existing "syncing" state instead of a premature "offline". */
+ * existing "syncing" state instead of a premature "offline". also true
+ * immediately (no need to wait out the timeout) once the player has
+ * explicitly announced it stopped, via `remoteAnnouncedOffline` above. */
 export const remoteTargetOffline = (): boolean =>
-  remoteStatusKnown() && tickNow() - lastStatusAt > OFFLINE_TIMEOUT_MS;
+  remoteStatusKnown() &&
+  (remoteAnnouncedOffline() || tickNow() - lastStatusAt > OFFLINE_TIMEOUT_MS);
 
 // command-pending feedback (phase 13): sendControl callers below opt in via
 // `trackPending: true` for the handful of playerbar-driven commands (play/
@@ -394,6 +414,7 @@ let unsubscribeStatus: (() => void) | null = null;
  * isRemoteTargetActive()). */
 export function setRemoteStatusPolling(enabled: boolean): void {
   if (enabled && !pollHandle) {
+    setRemoteAnnouncedOffline(false);
     void remoteGetStatus();
     pollHandle = setInterval(() => {
       // swallow dial/fetch failures here (e.g. player unreachable) rather
@@ -410,8 +431,18 @@ export function setRemoteStatusPolling(enabled: boolean): void {
 
     const nodeId = activeTargetNodeId();
     if (nodeId) {
-      unsubscribeStatus = subscribeToPlayerStatus(nodeId, (status) => {
-        applyRemoteStatus(status as RemoteStatus);
+      unsubscribeStatus = subscribeToPlayerStatus(nodeId, (line) => {
+        const parsed = line as { type?: string; state?: string };
+        if (parsed.type === "presence") {
+          // pushed unprompted whenever the player's own presence changes
+          // (see `@freqhole/cenotaph`'s `broadcastPresence`) - a "stopped"
+          // push means the player just announced it's no longer
+          // reachable/accepting commands, well before OFFLINE_TIMEOUT_MS
+          // would otherwise notice via silence alone.
+          if (parsed.state === "stopped") markRemoteAnnouncedOffline();
+          return;
+        }
+        applyRemoteStatus(line as RemoteStatus);
       });
     }
   } else if (!enabled && pollHandle) {
