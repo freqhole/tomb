@@ -75,7 +75,7 @@ export async function selectLocalPlaybackTarget(): Promise<void> {
 
 export async function selectPlayerPlaybackTarget(player: {
   node_id: string;
-  display_name: string;
+  username: string;
 }): Promise<void> {
   const items = mediaToHandOff();
   // capture this device's own playback position *before* switching targets,

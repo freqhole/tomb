@@ -35,6 +35,7 @@ import {
 import { getCurrentUser } from "../../music/data/currentState";
 import { pairWithPlayer } from "../../app/services/players/playerPairingClient";
 import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
+import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
 import { pushModal, popModal } from "../../music/hooks/modals";
@@ -50,7 +51,7 @@ export interface AddRemoteModalProps {
   onSuccess?: (remote: SavedRemote) => void;
   /** called once a detected freqhole-player device is paired via the
    *  inline pin form (see the "auth" step's player_device branch). */
-  onPlayerPaired?: (player: { node_id: string; display_name: string }) => void;
+  onPlayerPaired?: (player: { node_id: string; username: string }) => void;
   /** initial value to pre-fill the input (e.g., from ?r= query param) */
   initialValue?: string;
   /**
@@ -135,9 +136,38 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         setPlayerPin("");
         setPlayerPairStatus("idle");
         setPlayerPairError(null);
+        setSetUpLocalUser(false);
+        setLocalUserRole("viewer");
+        setRoleLoaded(false);
       }
     )
   );
+
+  // "set up a local user for this node id" - grants the paired player
+  // trust to call back into the general freqhole/1 api (see
+  // docs/player-peer-trust-bridge-plan.md's implementation plan, step 2).
+  // only meaningful in charnel/tauri mode - local admin_dispatch has no
+  // equivalent in a plain browser build.
+  const [setUpLocalUser, setSetUpLocalUser] = createSignal(false);
+  const [localUserRole, setLocalUserRole] = createSignal<"admin" | "member" | "viewer">("viewer");
+  const [roleLoaded, setRoleLoaded] = createSignal(false);
+
+  const handleToggleLocalUser = async (checked: boolean) => {
+    setSetUpLocalUser(checked);
+    if (!checked || roleLoaded()) return;
+    setRoleLoaded(true);
+    try {
+      const cfg = await adminLocalRawDispatch<{
+        parsed?: { federation?: { default_role?: string } };
+      }>("config_get");
+      const role = cfg?.parsed?.federation?.default_role;
+      if (role === "admin" || role === "member" || role === "viewer") {
+        setLocalUserRole(role);
+      }
+    } catch {
+      // best-effort prefill only - default stays "viewer"
+    }
+  };
 
   const handlePairPlayer = async (peerAddr: string, displayNameHint: string) => {
     const pin = playerPin().trim();
@@ -152,6 +182,22 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
         return;
       }
       const player = await savePairedPlayer(peerAddr, displayNameHint);
+      if (setUpLocalUser()) {
+        try {
+          const client = getLocalAdminClient();
+          if (client) {
+            await client.dispatchOrThrow("peers_allow", {
+              node_id: peerAddr,
+              username: displayNameHint,
+              role: localUserRole(),
+            });
+          }
+        } catch (err) {
+          toast.error(
+            `paired, but failed to grant local trust: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       await deletePendingRemoteByPeerAddr(peerAddr).catch(() => {});
       toast.success(`paired with ${displayNameHint}`);
       props.onClose();
@@ -950,6 +996,37 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                               <p class="text-sm text-[var(--color-status-error)]">
                                 {playerPairError()}
                               </p>
+                            </div>
+                          </Show>
+                          <Show when={isCharnelAvailable()}>
+                            <div class="flex flex-col gap-2">
+                              <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                                <input
+                                  type="checkbox"
+                                  checked={setUpLocalUser()}
+                                  onChange={(e) =>
+                                    void handleToggleLocalUser(e.currentTarget.checked)
+                                  }
+                                  disabled={playerPairStatus() === "pairing"}
+                                />
+                                set up a local user for this node id
+                              </label>
+                              <Show when={setUpLocalUser()}>
+                                <select
+                                  value={localUserRole()}
+                                  onChange={(e) =>
+                                    setLocalUserRole(
+                                      e.currentTarget.value as "admin" | "member" | "viewer"
+                                    )
+                                  }
+                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                                  disabled={playerPairStatus() === "pairing"}
+                                >
+                                  <option value="viewer">viewer</option>
+                                  <option value="member">member</option>
+                                  <option value="admin">admin</option>
+                                </select>
+                              </Show>
                             </div>
                           </Show>
                           <Button

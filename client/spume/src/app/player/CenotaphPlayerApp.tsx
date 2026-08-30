@@ -12,11 +12,12 @@
 // docs/cenotaph-migration-plan.md phase 5 - kept only as a reference for
 // this fresh, spume-native component).
 
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import {
   activityRamp,
   commandInFlight,
   currentPin,
+  currentSession,
   develMode,
   downloadProgress,
   engineError,
@@ -37,7 +38,9 @@ import {
   upcomingQueue,
   type MediaPlaybackNode,
 } from "@freqhole/cenotaph";
+import { spumeTrustStore } from "../services/remotePlayback/trustStoreAdapter";
 import { getMiddenNode } from "../api/client";
+
 import { getLocalLibraryName } from "../services/storage/db";
 import {
   remotePlaybackEnabled,
@@ -61,6 +64,11 @@ export function CenotaphPlayerApp() {
   const [nodeId, setNodeId] = createSignal<string | undefined>(undefined);
   // kept (not just its id) so the skip button can drive the next download.
   const [middenNode, setMiddenNode] = createSignal<MediaPlaybackNode | null>(null);
+  // no trusted controllers yet => the pin currently shown is this
+  // player's admin-bootstrap invite (see docs/player-peer-trust-bridge-plan.md).
+  const [controllers] = createResource(spumeTrustStore.listTrustedControllers);
+  const isAdminBootstrapPin = () =>
+    (controllers()?.length ?? 0) === 0 || currentSession()?.admin_grant_pending === true;
 
   onMount(() => {
     document.body.appendChild(mediaElement);
@@ -197,6 +205,14 @@ export function CenotaphPlayerApp() {
           >
             {currentPin()}
           </p>
+          <Show when={isAdminBootstrapPin()}>
+            <p
+              class="shrink-0 text-xs tracking-widest text-amber-400 uppercase"
+              data-testid="admin-bootstrap-badge"
+            >
+              this code grants admin access
+            </p>
+          </Show>
         </Show>
       </Show>
 

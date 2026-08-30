@@ -159,7 +159,7 @@ export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
 export const CommandAckSchema = z.object({
   type: z.literal("command_ack"),
   ok: z.boolean(),
-  reason: z.enum(["untrusted", "invalid_command"]).optional(),
+  reason: z.enum(["untrusted", "invalid_command", "not_in_session"]).optional(),
   status: PlayerStatusSchema.optional(),
 });
 export type CommandAck = z.infer<typeof CommandAckSchema>;

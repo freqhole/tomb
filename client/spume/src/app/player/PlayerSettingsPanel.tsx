@@ -8,11 +8,18 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import {
   currentPin,
+  currentSession,
   develMode,
   formatBytes,
   getStorageUsage,
+  isPeerAllowedInSession,
+  joinSession,
+  leaveSession,
+  regenerateAdminPin,
   regeneratePin,
   setDevelMode,
+  setSessionMode,
+  setSessionSignal,
   type TrustedController,
 } from "@freqhole/cenotaph";
 import {
@@ -26,6 +33,7 @@ import {
   setRemotePlaybackEnabled,
 } from "../services/remotePlayback/remoteModeSettings";
 import { spumeTrustStore } from "../services/remotePlayback/trustStoreAdapter";
+import { spumeSessionStore } from "../services/remotePlayback/playerSessionAdapter";
 
 export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: string }) {
   const [nameInput, setNameInput] = createSignal(getLocalLibraryName());
@@ -49,6 +57,32 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
   const forget = async (controller: TrustedController) => {
     await spumeTrustStore.forgetController(controller.node_id);
     await refetchControllers();
+  };
+
+  const toggleSessionMode = async () => {
+    const session = currentSession();
+    if (!session) return;
+    const next = await setSessionMode(
+      spumeSessionStore,
+      session,
+      session.mode === "everyone" ? "selected" : "everyone"
+    );
+    setSessionSignal(next);
+  };
+
+  const toggleSessionMember = async (nodeId: string) => {
+    const session = currentSession();
+    if (!session) return;
+    const next = isPeerAllowedInSession(session, nodeId)
+      ? await leaveSession(spumeSessionStore, session, nodeId)
+      : await joinSession(spumeSessionStore, session, nodeId);
+    setSessionSignal(next);
+  };
+
+  const requestAdminPin = async () => {
+    const session = currentSession();
+    if (!session) return;
+    setSessionSignal(await regenerateAdminPin(spumeSessionStore, session));
   };
 
   return (
@@ -171,12 +205,48 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
             <button
               type="button"
               class="rounded bg-neutral-700 px-3 py-1 text-sm"
-              onClick={() => regeneratePin()}
+              onClick={() => void regeneratePin(spumeSessionStore)}
               data-testid="rotate-pin-button"
             >
               rotate pin
             </button>
           </div>
+          <Show when={currentSession()?.admin_grant_pending}>
+            <p class="text-xs text-amber-400" data-testid="admin-grant-pending-badge">
+              this pin grants admin access to whoever redeems it next.
+            </p>
+          </Show>
+          <button
+            type="button"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            onClick={requestAdminPin}
+            data-testid="regenerate-admin-pin-button"
+          >
+            regenerate admin pairing code
+          </button>
+          <p class="text-xs text-neutral-500">
+            mints a fresh one-time pin that grants the next device to redeem it admin access - for
+            bootstrapping a first (or additional) admin.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+            who can send commands
+          </label>
+          <button
+            type="button"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            aria-pressed={currentSession()?.mode === "everyone"}
+            onClick={toggleSessionMode}
+            data-testid="session-mode-toggle"
+          >
+            {currentSession()?.mode === "everyone" ? "everyone" : "selected devices"}
+          </button>
+          <p class="text-xs text-neutral-500">
+            "selected devices" (default) - only devices you've added below (or that redeemed the
+            current pin) can send playback/queue commands. "everyone" - any paired device can.
+          </p>
         </div>
 
         <div class="flex flex-col gap-2">
@@ -190,15 +260,38 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
                   class="flex items-center justify-between rounded bg-neutral-800 px-2 py-1 text-sm"
                   data-testid="trusted-controller-row"
                 >
-                  <span class="truncate">{controller.display_name}</span>
-                  <button
-                    type="button"
-                    class="text-neutral-400"
-                    onClick={() => forget(controller)}
-                    data-testid="forget-controller-button"
-                  >
-                    forget
-                  </button>
+                  <span class="truncate">
+                    {controller.display_name}{" "}
+                    <span class="text-neutral-500">({controller.role})</span>
+                  </span>
+                  <span class="flex items-center gap-2">
+                    <Show when={currentSession()?.mode !== "everyone"}>
+                      <button
+                        type="button"
+                        class="text-neutral-400"
+                        aria-pressed={
+                          currentSession()
+                            ? isPeerAllowedInSession(currentSession()!, controller.node_id)
+                            : false
+                        }
+                        onClick={() => toggleSessionMember(controller.node_id)}
+                        data-testid="toggle-session-member-button"
+                      >
+                        {currentSession() &&
+                        isPeerAllowedInSession(currentSession()!, controller.node_id)
+                          ? "in session"
+                          : "not in session"}
+                      </button>
+                    </Show>
+                    <button
+                      type="button"
+                      class="text-neutral-400"
+                      onClick={() => forget(controller)}
+                      data-testid="forget-controller-button"
+                    >
+                      forget
+                    </button>
+                  </span>
                 </li>
               )}
             </For>

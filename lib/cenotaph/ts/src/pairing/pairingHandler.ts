@@ -1,14 +1,19 @@
 // pairing handshake handler: validates a pair_request against the current
-// pin + rate limiter, and updates the caller-supplied trust store on
-// success (see trustStore.ts for why this is injected rather than owned).
+// session pin + rate limiter, and updates the caller-supplied trust store
+// on success (see trustStore.ts for why this is injected rather than
+// owned). a successful redemption also joins the peer into the session
+// (see playerSession.ts) - the session pin doubles as the pairing pin, so
+// there's only one code for a peer to type in.
 
-import { currentPin } from "./pinStore";
 import { isRateLimited, recordPairingFailure, clearPairingFailures } from "./rateLimiter";
-import type { TrustStore } from "./trustStore";
+import type { TrustStore, PeerRole } from "./trustStore";
 import { PairRequestSchema, type PairResponse } from "./protocol";
+import { joinSession, type PlayerSession, type PlayerSessionStore } from "./playerSession";
 
 export async function handlePairRequest(
   trustStore: TrustStore,
+  sessionStore: PlayerSessionStore,
+  session: PlayerSession,
   peerNodeId: string,
   rawLine: string,
 ): Promise<PairResponse> {
@@ -23,12 +28,21 @@ export async function handlePairRequest(
   }
 
   const { pin, display_name } = parsed.data;
-  if (pin !== currentPin()) {
+  if (pin !== session.pin) {
     recordPairingFailure(peerNodeId);
     return { type: "pair_response", ok: false, reason: "invalid_pin" };
   }
 
   clearPairingFailures(peerNodeId);
-  await trustStore.trustController(peerNodeId, display_name);
+
+  // first peer ever paired (or a pending one-time "regenerate admin
+  // pairing code" grant) becomes an admin; everyone else defaults to the
+  // lowest-privilege role, same "safe default" philosophy as grimoire's
+  // own route auth (see apiRouter.ts).
+  const existing = await trustStore.listTrustedControllers();
+  const role: PeerRole = existing.length === 0 || session.admin_grant_pending ? "admin" : "viewer";
+  await trustStore.trustController(peerNodeId, display_name, role);
+  await joinSession(sessionStore, session, peerNodeId);
+
   return { type: "pair_response", ok: true };
 }

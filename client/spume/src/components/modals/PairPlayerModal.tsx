@@ -8,6 +8,7 @@ import { isCharnelAvailable } from "../../app/api/client";
 import { getCurrentUser } from "../../music/data/currentState";
 import { pairWithPlayer } from "../../app/services/players/playerPairingClient";
 import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
+import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { toast } from "../feedback/Toast";
 import { QrScanner } from "../inputs/QrScanner";
 import { Button } from "../buttons/Button";
@@ -15,7 +16,7 @@ import { Button } from "../buttons/Button";
 export interface PairPlayerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (player: { node_id: string; display_name: string }) => void;
+  onSuccess?: (player: { node_id: string; username: string }) => void;
 }
 
 interface ScannedPlayerQr {
@@ -70,6 +71,32 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
   const [status, setStatus] = createSignal<"idle" | "pairing" | "error">("idle");
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
 
+  // "set up a local user for this node id" - grants the paired player
+  // trust to call back into the general freqhole/1 api (see
+  // docs/player-peer-trust-bridge-plan.md's implementation plan, step 2).
+  // only meaningful in charnel/tauri mode - local admin_dispatch has no
+  // equivalent in a plain browser build.
+  const [setUpLocalUser, setSetUpLocalUser] = createSignal(false);
+  const [localUserRole, setLocalUserRole] = createSignal<"admin" | "member" | "viewer">("viewer");
+  const [roleLoaded, setRoleLoaded] = createSignal(false);
+
+  const handleToggleLocalUser = async (checked: boolean) => {
+    setSetUpLocalUser(checked);
+    if (!checked || roleLoaded()) return;
+    setRoleLoaded(true);
+    try {
+      const cfg = await adminLocalRawDispatch<{
+        parsed?: { federation?: { default_role?: string } };
+      }>("config_get");
+      const role = cfg?.parsed?.federation?.default_role;
+      if (role === "admin" || role === "member" || role === "viewer") {
+        setLocalUserRole(role);
+      }
+    } catch {
+      // best-effort prefill only - default stays "viewer"
+    }
+  };
+
   const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
 
   const reset = () => {
@@ -78,6 +105,9 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
     setPlayerNameHint(null);
     setStatus("idle");
     setErrorMessage(null);
+    setSetUpLocalUser(false);
+    setLocalUserRole("viewer");
+    setRoleLoaded(false);
   };
 
   const handleClose = () => {
@@ -117,6 +147,22 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
       }
       const displayName = playerNameHint() ?? `player ${trimmedNodeId.slice(0, 8)}`;
       const player = await savePairedPlayer(trimmedNodeId, displayName);
+      if (setUpLocalUser()) {
+        try {
+          const client = getLocalAdminClient();
+          if (client) {
+            await client.dispatchOrThrow("peers_allow", {
+              node_id: trimmedNodeId,
+              username: displayName,
+              role: localUserRole(),
+            });
+          }
+        } catch (err) {
+          toast.error(
+            `paired, but failed to grant local trust: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       toast.success(`paired with ${displayName}`);
       reset();
       props.onClose();
@@ -230,6 +276,34 @@ export function PairPlayerModal(props: PairPlayerModalProps) {
             <Show when={status() === "error"}>
               <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
                 <p class="text-sm text-[var(--color-status-error)]">{errorMessage()}</p>
+              </div>
+            </Show>
+
+            <Show when={isCharnelAvailable()}>
+              <div class="flex flex-col gap-2">
+                <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={setUpLocalUser()}
+                    onChange={(e) => void handleToggleLocalUser(e.currentTarget.checked)}
+                    disabled={status() === "pairing"}
+                  />
+                  set up a local user for this node id
+                </label>
+                <Show when={setUpLocalUser()}>
+                  <select
+                    value={localUserRole()}
+                    onChange={(e) =>
+                      setLocalUserRole(e.currentTarget.value as "admin" | "member" | "viewer")
+                    }
+                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                    disabled={status() === "pairing"}
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </Show>
               </div>
             </Show>
 

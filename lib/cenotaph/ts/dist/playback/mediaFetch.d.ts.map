@@ -1,1 +1,0 @@
-{"version":3,"file":"mediaFetch.d.ts","sourceRoot":"","sources":["../../src/playback/mediaFetch.ts"],"names":[],"mappings":"AAIA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,SAAS,CAAC;AACjD,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,mBAAmB,CAAC;AAElD,wBAAsB,cAAc,CAAC,KAAK,SAAS,iBAAiB,EAClE,IAAI,EAAE,KAAK,EACX,IAAI,EAAE,QAAQ,EACd,UAAU,CAAC,EAAE,CAAC,QAAQ,EAAE,MAAM,KAAK,IAAI,GACtC,OAAO,CAAC,IAAI,CAAC,CAWf"}

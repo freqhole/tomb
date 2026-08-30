@@ -169,7 +169,7 @@ export type { P2PIdentity } from "@freqhole/haruspex/identity";
 
 // database schema version
 export const APP_DB_NAME = "freqhole_app";
-export const APP_DB_VERSION = 11; // added trusted_controllers store
+export const APP_DB_VERSION = 13; // replaced paired_players/trusted_controllers with users/user_peer_nodes
 
 // app store names
 export const STORE_APP_STATE = "app_state"; // also stores P2PIdentity with id: "p2p_identity"
@@ -180,8 +180,9 @@ export const STORE_PENDING_REMOTES = "pending_remotes";
 export const STORE_RADIO_HISTORY = "radio_history";
 export const STORE_SHARED_ITEMS = "shared_items";
 export const STORE_VIDEO_QUEUE_HISTORY = "video_queue_history"; // capped at 200 entries by videoQueueHistory.ts
-export const STORE_PAIRED_PLAYERS = "paired_players";
-export const STORE_TRUSTED_CONTROLLERS = "trusted_controllers";
+export const STORE_USERS = "users";
+export const STORE_USER_PEER_NODES = "user_peer_nodes";
+export const STORE_PLAYER_SESSION = "player_session"; // singleton row, see remotePlayback/playerSessionAdapter.ts
 
 export type SharedItemKind =
   "album" | "playlist" | "song" | "artist" | "radio_station" | "video" | "video_series";
@@ -202,27 +203,61 @@ export interface SharedItemEntry {
   seen_count: number;
 }
 
-// a paired freqhole-player device (a `player.freqhole.net`-style p2p
-// playback target), NOT a `Remote` - a paired player has no HTTP/admin api
-// surface, so it's kept out of the Remote discriminated union entirely
-// (see docs/player-remote-site-plan.md phase 5 for the rationale).
-export interface PairedPlayer {
-  node_id: string;
-  display_name: string;
-  paired_at: number;
-  last_used_at: number | null;
+// mirrors grimoire's `UserRole`, minus `"root"` (see
+// grimoire/src/users/models.rs and cenotaph's own `PeerRole`, which this is
+// deliberately kept structurally identical to) - a root/instance-owner
+// concept doesn't apply to a browser peer identity.
+export type UserRole = "admin" | "member" | "viewer";
+
+// mirrors grimoire's `users::User` (grimoire/src/users/models.rs) as
+// closely as idb allows - a single, shared record of "a known peer
+// identity", used for BOTH outbound player pairing (see
+// services/players/pairedPlayers.ts) and inbound controller trust (see
+// services/remotePlayback/trustStoreAdapter.ts). kept as its own store
+// rather than flattened into `UserPeerNode` below, and kept structurally
+// identical to grimoire's own `User` (not renamed/reshaped for browser
+// convenience), so a future real grimoire-backed multi-device user is a
+// straightforward mapping rather than a redesign (see
+// docs/player-peer-trust-bridge-plan.md). `api_key`/`haruspex_user_id` are
+// unused in browser-only mode today but kept for schema parity.
+export interface User {
+  id: string;
+  username: string;
+  role: UserRole;
+  api_key: string | null;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null; // soft-delete modeled for parity; browser ui hard-deletes for now
+  haruspex_user_id: string | null;
+  metadata: string | null;
 }
 
-// the mirror-image relationship of `PairedPlayer` above: a controller node
-// that has paired IN to THIS spume instance (cenotaph's remote-playback
-// accept mode - see docs/cenotaph-migration-plan.md phase 1), rather than
-// a player device spume dials OUT to. backs cenotaph's injectable
-// `TrustStore` interface directly (see app/services/remotePlayback/
-// trustStoreAdapter.ts) instead of a second, separate indexeddb database.
-export interface TrustedController {
+// mirrors grimoire's `users::UserPeerNode` (grimoire/src/users/models.rs) -
+// maps an iroh node_id to a `User.id`. `node_id` is the primary key
+// (unique across the whole store, same constraint grimoire enforces).
+export interface UserPeerNode {
   node_id: string;
-  display_name: string;
-  paired_at: number;
+  user_id: string;
+  instance_name: string | null;
+  metadata: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  deleted_at: number | null; // soft-delete modeled for parity; browser ui hard-deletes for now
+}
+
+// mirrors grimoire's `users::PeerNodeWithUser` (grimoire/src/users/models.rs)
+// exactly - a peer node joined with its user's username/role, for listing.
+// this is the shape `services/users/usersStore.ts`'s join helpers return.
+export interface PeerNodeWithUser {
+  user_id: string;
+  node_id: string;
+  instance_name: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  username: string;
+  role: UserRole;
+  deleted_at: number | null; // soft-delete on the peer row
+  user_deleted_at: number | null; // soft-delete on the joined user row
 }
 
 // radio history entry — one per (station, song_id) transition observed by

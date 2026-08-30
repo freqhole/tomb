@@ -8,7 +8,7 @@ import {
   pairedPlayersVersion,
   renamePairedPlayer,
 } from "../../app/services/players/pairedPlayers";
-import type { PairedPlayer } from "../../app/services/storage/types";
+import type { PeerNodeWithUser } from "../../app/services/storage/types";
 import { PairPlayerModal } from "../../components/modals/PairPlayerModal";
 import { Button } from "../../components/buttons/Button";
 import { formatDate } from "../../utils/dateTime";
@@ -19,9 +19,9 @@ export function PairedPlayersView() {
   const [renamingId, setRenamingId] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal("");
 
-  const startRename = (player: PairedPlayer) => {
+  const startRename = (player: PeerNodeWithUser) => {
     setRenamingId(player.node_id);
-    setRenameValue(player.display_name);
+    setRenameValue(player.username);
   };
 
   const commitRename = async (nodeId: string) => {
@@ -30,8 +30,8 @@ export function PairedPlayersView() {
     await refetch();
   };
 
-  const handleForget = async (player: PairedPlayer) => {
-    if (!confirm(`forget "${player.display_name}"? you'll need to pair again to use it.`)) return;
+  const handleForget = async (player: PeerNodeWithUser) => {
+    if (!confirm(`forget "${player.username}"? you'll need to pair again to use it.`)) return;
     await forgetPairedPlayer(player.node_id);
     await refetch();
   };
@@ -57,7 +57,7 @@ export function PairedPlayersView() {
                   when={renamingId() === player.node_id}
                   fallback={
                     <p class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                      {player.display_name}
+                      {player.username}
                     </p>
                   }
                 >
@@ -76,7 +76,7 @@ export function PairedPlayersView() {
                   {player.node_id}
                 </p>
                 <p class="text-xs text-[var(--color-text-tertiary)]">
-                  paired {formatDate(player.paired_at)}
+                  paired {formatDate(player.created_at)}
                 </p>
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">

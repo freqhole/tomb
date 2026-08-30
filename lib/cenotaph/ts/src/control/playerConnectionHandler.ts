@@ -8,6 +8,12 @@
 import type { CenotaphBiStream } from "../midden/node";
 import { handlePairRequest } from "../pairing/pairingHandler";
 import type { TrustStore } from "../pairing/trustStore";
+import {
+  ensureActiveSession,
+  isPeerAllowedInSession,
+  touchSession,
+} from "../pairing/playerSession";
+import type { PlayerSessionStore } from "../pairing/playerSession";
 import { dispatchCommand } from "./dispatcher";
 import { SubscribeRequestSchema } from "./schema";
 import { registerSubscriber, unregisterSubscriber } from "./statusSubscribers";
@@ -19,6 +25,9 @@ export interface PlayerConnectionHandlerOptions<TNode = unknown> {
   /** where pairing/trust state is persisted - see trustStore.ts for why
    * this is injected rather than owned by cenotaph itself. */
   trustStore: TrustStore;
+  /** where the ephemeral player session (who's currently allowed to send
+   * commands, see playerSession.ts) is persisted. */
+  sessionStore: PlayerSessionStore;
   /** called once per connection attempt, before any pairing/trust handling
    * runs; return false to reject the connection outright (e.g. a host-side
    * "remote mode" toggle that's currently off) - the stream is closed
@@ -32,7 +41,7 @@ export interface PlayerConnectionHandlerOptions<TNode = unknown> {
 export function createPlayerConnectionHandler<TNode = unknown>(
   options: PlayerConnectionHandlerOptions<TNode>,
 ): (node: TNode, stream: CenotaphBiStream) => Promise<void> {
-  const { backend, trustStore, isEnabled } = options;
+  const { backend, trustStore, sessionStore, isEnabled } = options;
 
   return async function handleConnection(node: TNode, stream: CenotaphBiStream): Promise<void> {
     if (isEnabled && !isEnabled()) {
@@ -63,7 +72,14 @@ export function createPlayerConnectionHandler<TNode = unknown>(
         // already-trusted node_id (previously this fell through to
         // command dispatch as an untrusted-shaped check, and dispatchCommand
         // rejected it as {ok:false, reason:"invalid_command"}).
-        const response = await handlePairRequest(trustStore, peerNodeId, firstLine);
+        const session = await ensureActiveSession(sessionStore);
+        const response = await handlePairRequest(
+          trustStore,
+          sessionStore,
+          session,
+          peerNodeId,
+          firstLine,
+        );
         // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
         console.log("[debug/playerConn] pair response:", response);
         await stream.write_line(JSON.stringify(response));
@@ -88,7 +104,8 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           // push-subscription session: no commands are ever dispatched on
           // this stream - just register it for statusSubscribers.
           // broadcastStatus() pushes and wait for the controller to close
-          // it.
+          // it. status is read-only, so this doesn't need session
+          // membership - any trusted peer can watch what's playing.
           registerSubscriber(peerNodeId, stream);
           markControllerConnected(connectedInfo);
           try {
@@ -103,6 +120,18 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           return;
         }
 
+        // sending actual commands additionally requires being part of the
+        // current session (see playerSession.ts) - a peer can be a
+        // long-known trusted controller from a past gathering without
+        // being part of this one.
+        let session = await ensureActiveSession(sessionStore);
+        if (!isPeerAllowedInSession(session, peerNodeId)) {
+          await stream.write_line(
+            JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" }),
+          );
+          return;
+        }
+
         // control session: keep the stream open and dispatch every
         // command line sent on it, until the controller closes its side.
         markControllerConnected(connectedInfo);
@@ -111,6 +140,7 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           while (line !== null) {
             const ack = await dispatchCommand(backend, node, line);
             await stream.write_line(JSON.stringify(ack));
+            session = await touchSession(sessionStore, session);
             line = (await stream.read_line()) as string | null;
           }
         } finally {

@@ -1,1 +1,0 @@
-{"version":3,"file":"connectedControllers.d.ts","sourceRoot":"","sources":["../../src/control/connectedControllers.ts"],"names":[],"mappings":"AAuBA,MAAM,WAAW,mBAAmB;IAClC,OAAO,EAAE,MAAM,CAAC;IAChB,YAAY,EAAE,MAAM,CAAC;CACtB;AAKD,eAAO,MAAM,oBAAoB,oDAAY,CAAC;AAI9C,wBAAgB,uBAAuB,CAAC,UAAU,EAAE,mBAAmB,GAAG,IAAI,CAS7E;AAED,wBAAgB,0BAA0B,CAAC,MAAM,EAAE,MAAM,GAAG,IAAI,CAQ/D"}

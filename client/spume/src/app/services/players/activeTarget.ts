@@ -9,7 +9,7 @@ import { createSignal } from "solid-js";
 import { closePlayerControlSession } from "./playerPairingClient";
 
 export type ActiveTarget =
-  { kind: "local" } | { kind: "player"; node_id: string; display_name: string };
+  { kind: "local" } | { kind: "player"; node_id: string; username: string };
 
 const LOCAL_TARGET: ActiveTarget = { kind: "local" };
 
@@ -22,14 +22,14 @@ export function setActiveTargetToLocal(): void {
   setTargetSignal(LOCAL_TARGET);
 }
 
-export function setActiveTargetToPlayer(player: { node_id: string; display_name: string }): void {
+export function setActiveTargetToPlayer(player: { node_id: string; username: string }): void {
   const prev = target();
   // switching directly from one player to another - don't leave the old
   // one's persistent stream open past the point it'll ever be reused.
   if (prev.kind === "player" && prev.node_id !== player.node_id) {
     closePlayerControlSession(prev.node_id);
   }
-  setTargetSignal({ kind: "player", node_id: player.node_id, display_name: player.display_name });
+  setTargetSignal({ kind: "player", node_id: player.node_id, username: player.username });
 }
 
 export function isRemoteTargetActive(): boolean {

@@ -18,6 +18,7 @@ import {
   createApiRouter,
   createHelloRouteHandler,
   createPlayerConnectionHandler,
+  initSessionSignal,
   mediaPlaybackBackend,
   startAcceptLoop,
   type CenotaphAcceptableNode,
@@ -25,6 +26,7 @@ import {
   type MediaPlaybackNode,
 } from "@freqhole/cenotaph";
 import { spumeTrustStore } from "./trustStoreAdapter";
+import { spumeSessionStore } from "./playerSessionAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
 import { isRemotePlaybackEnabled } from "./remoteModeSettings";
 import { registerBrowserApiRoutes } from "../../../lib/api/router";
@@ -50,8 +52,26 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
 
   const acceptNode = node as unknown as AcceptModeNode;
 
-  const apiRouter = createApiRouter();
-  apiRouter.registerRoute("GET", "/api/hello", createHelloRouteHandler(getSpumeHelloInfo));
+  const apiRouter = createApiRouter({
+    // a peer may call any non-"public" freqhole/1 route (e.g. the browser
+    // song/blob-metadata routes below) only once it's a recognized,
+    // role-carrying peer - i.e. it went through the same add-remote/pairing
+    // flow this same instance uses for the player-pairing accept mode
+    // below. this is spume's single, unified incoming-peer-trust list
+    // (docs/player-peer-trust-bridge-plan.md) - NOT the `remotes` store,
+    // which is the mirror-image, outbound "who does spume dial out to"
+    // relationship.
+    resolvePeerRole: async (nodeId) => {
+      const controller = await spumeTrustStore.getTrustedController(nodeId).catch(() => undefined);
+      return controller?.role ?? null;
+    },
+  });
+  apiRouter.registerRoute(
+    "GET",
+    "/api/hello",
+    createHelloRouteHandler(getSpumeHelloInfo),
+    "public"
+  );
   // browser-side implementation of a small slice of grimoire's own api
   // contract (docs/cenotaph-migration-plan.md phase 3, tier 2) - lets a
   // browser peer answer song/blob metadata lookups the same way a real
@@ -59,9 +79,16 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
   // flow doesn't need to know which kind of remote it's talking to.
   registerBrowserApiRoutes(apiRouter);
 
+  // load (or create) the ephemeral player session once at startup, so its
+  // pin/mode/allowlist are ready before the first connection attempt - see
+  // playerSession.ts for what this session gates vs. base peer trust
+  // above.
+  void initSessionSignal(spumeSessionStore);
+
   const playerHandler = createPlayerConnectionHandler<AcceptModeNode>({
     backend: mediaPlaybackBackend,
     trustStore: spumeTrustStore,
+    sessionStore: spumeSessionStore,
     // only actually accept playback commands while this tab is showing
     // /player/ - otherwise mediaPlaybackBackend (and its own <video>
     // element) would get driven silently, with no UI observing it at all

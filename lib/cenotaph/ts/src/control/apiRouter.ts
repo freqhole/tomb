@@ -7,11 +7,36 @@
 // request/response per stream) matches grimoire's own native federation
 // transport and midden's dial-side `api_request()` client - see
 // lib/midden/src/lib.rs.
+//
+// route auth mirrors grimoire's own `RouteAuth`/`UserRole` pattern (see
+// grimoire/src/api_registry and grimoire/src/users/models.rs) directly:
+// `"public"` (open to anyone, e.g. a hello/probe route) or a minimum role
+// - `"viewer"` | `"member"` | `"admin"` (root deliberately omitted here,
+// same as the `peers_allow` role picker) - the peer must meet or exceed.
+// cenotaph itself has no opinion on how roles are assigned; the host app
+// injects a `resolvePeerRole` callback via `createApiRouter(options)` that
+// answers "what role (if any) does this node_id have" (see
+// docs/player-peer-trust-bridge-plan.md's implementation plan, step 4).
 
 import type { CenotaphBiStream } from "../midden/node";
+import { ROLE_LEVEL, type PeerRole } from "../pairing/trustStore";
 
 export interface ApiRouteHandler {
   (body: unknown): Promise<{ status: number; body: unknown }> | { status: number; body: unknown };
+}
+
+/** re-exported for callers that only import from apiRouter.ts - same
+ * type as `PeerRole` in pairing/trustStore.ts, kept as one canonical
+ * definition there since roles are assigned at pairing time. */
+export type ApiPeerRole = PeerRole;
+
+/** `"public"`: no auth check at all. otherwise: the minimum `ApiPeerRole`
+ * the requester must have, per the injected `resolvePeerRole` check. */
+export type ApiRouteAuth = "public" | ApiPeerRole;
+
+interface RegisteredRoute {
+  handler: ApiRouteHandler;
+  auth: ApiRouteAuth;
 }
 
 interface ApiRequestMessage {
@@ -42,17 +67,36 @@ function routeKey(method: string, path: string): string {
   return `${method.toUpperCase()} ${path}`;
 }
 
+export interface ApiRouterOptions {
+  /** resolves `nodeId` (the verified peer identity of whoever opened the
+   * current stream) to its `ApiPeerRole`, or `null`/`undefined` if the
+   * peer isn't recognized at all. when omitted, every non-`"public"`
+   * route is rejected outright (fail closed) - a host app must actively
+   * wire this to open anything beyond its `"public"` routes up. */
+  resolvePeerRole?: (
+    nodeId: string,
+  ) => Promise<ApiPeerRole | null | undefined> | ApiPeerRole | null | undefined;
+}
+
 export interface ApiRouter {
-  registerRoute(method: string, path: string, handler: ApiRouteHandler): void;
+  registerRoute(method: string, path: string, handler: ApiRouteHandler, auth?: ApiRouteAuth): void;
   /** handle a single request/response round-trip on the `freqhole/1` ALPN. */
   dispatch(stream: CenotaphBiStream): Promise<void>;
 }
 
-export function createApiRouter(): ApiRouter {
-  const routes = new Map<string, ApiRouteHandler>();
+export function createApiRouter(options: ApiRouterOptions = {}): ApiRouter {
+  const routes = new Map<string, RegisteredRoute>();
 
-  function registerRoute(method: string, path: string, handler: ApiRouteHandler): void {
-    routes.set(routeKey(method, path), handler);
+  function registerRoute(
+    method: string,
+    path: string,
+    handler: ApiRouteHandler,
+    // mirrors grimoire's `RouteAuth::default()` ("safe default, routes
+    // should explicitly set Public if needed") - "viewer" is the lowest
+    // privilege level, i.e. any recognized peer at all.
+    auth: ApiRouteAuth = "viewer",
+  ): void {
+    routes.set(routeKey(method, path), { handler, auth });
   }
 
   async function dispatch(stream: CenotaphBiStream): Promise<void> {
@@ -73,20 +117,40 @@ export function createApiRouter(): ApiRouter {
       }
       requestId = parsed.id;
 
-      const handler = routes.get(routeKey(parsed.method, parsed.path));
+      const route = routes.get(routeKey(parsed.method, parsed.path));
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
       console.log(
-        `[debug/apiRouter] dispatching ${parsed.method} ${parsed.path}, handler found: ${!!handler}`,
+        `[debug/apiRouter] dispatching ${parsed.method} ${parsed.path}, handler found: ${!!route}`,
       );
-      if (!handler) {
+      if (!route) {
         await writeApiResponse(stream, parsed.id, 404, { error: "not found" });
         return;
+      }
+
+      if (route.auth !== "public") {
+        const peerNodeId = stream.peer_node_id();
+        const role = options.resolvePeerRole ? await options.resolvePeerRole(peerNodeId) : null;
+        console.log(
+          `[debug/apiRouter] ${parsed.method} ${parsed.path} role check for ${peerNodeId}: ${role ?? "none"} (needs >= ${route.auth})`,
+        );
+        if (!role) {
+          await writeApiResponse(stream, parsed.id, 401, {
+            error: "unauthorized: peer not registered",
+          });
+          return;
+        }
+        if (ROLE_LEVEL[role] > ROLE_LEVEL[route.auth]) {
+          await writeApiResponse(stream, parsed.id, 403, {
+            error: `forbidden: route requires role ${route.auth} or higher`,
+          });
+          return;
+        }
       }
 
       const parsedBody: unknown = parsed.body ? JSON.parse(parsed.body) : null;
       // TEMP DEBUG - remove once sync-to-local wiring bug is found
       console.log(`[debug/apiRouter] ${parsed.method} ${parsed.path} body:`, parsedBody);
-      const result = await handler(parsedBody);
+      const result = await route.handler(parsedBody);
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
       console.log(`[debug/apiRouter] handler result status=${result.status}`, result.body);
       await writeApiResponse(stream, parsed.id, result.status, result.body);

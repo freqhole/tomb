@@ -10,16 +10,32 @@
 
 import { openDB, type IDBPDatabase } from "idb";
 
+/** mirrors grimoire's `UserRole`, minus `"root"` (see
+ * `grimoire/src/users/models.rs`) - the role a paired controller carries,
+ * whether the player itself is charnel/grimoire-backed or a plain
+ * browser peer with its own idb trust store (see `createIdbTrustStore`).
+ */
+export type PeerRole = "admin" | "member" | "viewer";
+
+/** privilege level per role - lower is more privileged, matching
+ * grimoire's `UserRole::level()` exactly so the two stay comparable. */
+export const ROLE_LEVEL: Record<PeerRole, number> = {
+  admin: 10,
+  member: 20,
+  viewer: 30,
+};
+
 export interface TrustedController {
   node_id: string;
   display_name: string;
+  role: PeerRole;
   paired_at: number;
 }
 
 export interface TrustStore {
   isTrustedController(nodeId: string): Promise<boolean>;
   getTrustedController(nodeId: string): Promise<TrustedController | undefined>;
-  trustController(nodeId: string, displayName: string): Promise<void>;
+  trustController(nodeId: string, displayName: string, role: PeerRole): Promise<void>;
   forgetController(nodeId: string): Promise<void>;
   listTrustedControllers(): Promise<TrustedController[]>;
 }
@@ -60,11 +76,12 @@ export function createIdbTrustStore(options: IdbTrustStoreOptions = {}): TrustSt
       const db = await getDb();
       return db.get(storeName, nodeId);
     },
-    async trustController(nodeId, displayName) {
+    async trustController(nodeId, displayName, role) {
       const db = await getDb();
       const controller: TrustedController = {
         node_id: nodeId,
         display_name: displayName,
+        role,
         paired_at: Date.now(),
       };
       await db.put(storeName, controller);

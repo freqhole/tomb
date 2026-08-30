@@ -39,7 +39,14 @@ export {
 } from "./control/connectedControllers";
 export { activityRamp, markActivity } from "./control/activityIndicator";
 
-export { createApiRouter, type ApiRouter, type ApiRouteHandler } from "./control/apiRouter";
+export {
+  createApiRouter,
+  type ApiRouter,
+  type ApiRouteHandler,
+  type ApiRouteAuth,
+  type ApiPeerRole,
+  type ApiRouterOptions,
+} from "./control/apiRouter";
 export {
   createHelloRouteHandler,
   type HelloInfo,
@@ -47,15 +54,38 @@ export {
 } from "./hello/helloHandler";
 
 export { generatePin, isValidPinFormat } from "./pairing/pin";
-export { currentPin, regeneratePin } from "./pairing/pinStore";
+export {
+  currentPin,
+  currentSession,
+  initSessionSignal,
+  setSessionSignal,
+  regeneratePin,
+} from "./pairing/pinStore";
 export { isRateLimited, recordPairingFailure, clearPairingFailures } from "./pairing/rateLimiter";
 export {
   createIdbTrustStore,
   type TrustStore,
   type TrustedController,
+  type PeerRole,
   type IdbTrustStoreOptions,
+  ROLE_LEVEL,
 } from "./pairing/trustStore";
 export { handlePairRequest } from "./pairing/pairingHandler";
+export {
+  ensureActiveSession,
+  touchSession,
+  isPeerAllowedInSession,
+  joinSession,
+  leaveSession,
+  setSessionMode,
+  regenerateAdminPin,
+  regenerateSessionPin,
+  createIdbPlayerSessionStore,
+  type PlayerSession,
+  type PlayerSessionStore,
+  type SessionMode,
+  type IdbPlayerSessionStoreOptions,
+} from "./pairing/playerSession";
 export {
   PairRequestSchema,
   PairResponseSchema,

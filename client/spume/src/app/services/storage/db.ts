@@ -16,8 +16,9 @@ import {
   STORE_RADIO_HISTORY,
   STORE_SHARED_ITEMS,
   STORE_VIDEO_QUEUE_HISTORY,
-  STORE_PAIRED_PLAYERS,
-  STORE_TRUSTED_CONTROLLERS,
+  STORE_USERS,
+  STORE_USER_PEER_NODES,
+  STORE_PLAYER_SESSION,
   type AppState,
   type GraphPrefs,
   type P2PIdentity,
@@ -110,24 +111,45 @@ async function initAppDB(): Promise<IDBPDatabase> {
         videoHistoryStore.createIndex("by_queued_at", "queued_at");
       }
 
-      // create paired_players store (v10)
-      if (!db.objectStoreNames.contains(STORE_PAIRED_PLAYERS)) {
-        const pairedPlayersStore = db.createObjectStore(STORE_PAIRED_PLAYERS, {
-          keyPath: "node_id",
-        });
-        pairedPlayersStore.createIndex("by_paired_at", "paired_at");
+      // drop the old paired_players (v10) / trusted_controllers (v11)
+      // stores — replaced by the unified users/user_peer_nodes model below
+      // (v13), never had a real deployed userbase to migrate (see
+      // docs/player-peer-trust-bridge-plan.md).
+      if (db.objectStoreNames.contains("paired_players")) {
+        db.deleteObjectStore("paired_players");
+      }
+      if (db.objectStoreNames.contains("trusted_controllers")) {
+        db.deleteObjectStore("trusted_controllers");
       }
 
-      // create trusted_controllers store (v11) — mirror-image of
-      // paired_players above: controllers paired IN to this instance,
-      // rather than player devices this instance dials OUT to. backs
-      // cenotaph's injectable TrustStore (see
-      // app/services/remotePlayback/trustStoreAdapter.ts).
-      if (!db.objectStoreNames.contains(STORE_TRUSTED_CONTROLLERS)) {
-        const trustedControllersStore = db.createObjectStore(STORE_TRUSTED_CONTROLLERS, {
+      // create player_session store (v12) — singleton row (see
+      // remotePlayback/playerSessionAdapter.ts, backs cenotaph's
+      // injectable PlayerSessionStore).
+      if (!db.objectStoreNames.contains(STORE_PLAYER_SESSION)) {
+        db.createObjectStore(STORE_PLAYER_SESSION);
+      }
+
+      // create users store (v13) — mirrors grimoire's `users::User`
+      // exactly, one record per known peer identity (see
+      // app/services/users/usersStore.ts).
+      if (!db.objectStoreNames.contains(STORE_USERS)) {
+        const usersStore = db.createObjectStore(STORE_USERS, { keyPath: "id" });
+        usersStore.createIndex("by_username", "username");
+        usersStore.createIndex("by_created_at", "created_at");
+      }
+
+      // create user_peer_nodes store (v13) — mirrors grimoire's
+      // `users::UserPeerNode` exactly, maps a node_id to a users.id.
+      // replaces both paired_players (outbound - players this instance
+      // dials) and trusted_controllers (inbound - controllers trusted to
+      // dial this instance), since both are just "known peer identities"
+      // (see docs/player-peer-trust-bridge-plan.md).
+      if (!db.objectStoreNames.contains(STORE_USER_PEER_NODES)) {
+        const userPeerNodesStore = db.createObjectStore(STORE_USER_PEER_NODES, {
           keyPath: "node_id",
         });
-        trustedControllersStore.createIndex("by_paired_at", "paired_at");
+        userPeerNodesStore.createIndex("by_user_id", "user_id");
+        userPeerNodesStore.createIndex("by_created_at", "created_at");
       }
     },
   });

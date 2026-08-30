@@ -32,7 +32,7 @@ export function QueuePlayerTargetRow() {
 
   const currentLabel = () => {
     const t = activeTarget();
-    return t.kind === "player" ? t.display_name : "this device";
+    return t.kind === "player" ? t.username : "this device";
   };
 
   // true while we've picked a player but haven't heard its queue/status
@@ -52,7 +52,7 @@ export function QueuePlayerTargetRow() {
       onClick: () => selectLocalPlaybackTarget(),
     },
     ...(pairedPlayers() ?? []).map((player): MenuAction => ({
-      label: player.display_name,
+      label: player.username,
       icon: isActivePlayer(player.node_id) ? "check" : "remotePlayer",
       onClick: () => void selectPlayerPlaybackTarget(player),
     })),
