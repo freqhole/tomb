@@ -304,7 +304,9 @@ export function AppLayout(props: AppLayoutProps) {
   createEffect(
     on(remoteTargetOffline, (offline, prevOffline) => {
       if (offline && !prevOffline) {
-        toast.error("lost connection to the player - controls may not respond");
+        toast.error("lost connection to the player - controls may not respond", {
+          title: "remote-player-connection-error",
+        });
         void selectLocalPlaybackTarget();
       }
     })

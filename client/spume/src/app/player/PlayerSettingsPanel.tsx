@@ -7,6 +7,7 @@
 
 import { createResource, createSignal, For, Show } from "solid-js";
 import {
+  connectedControllers,
   currentPin,
   currentSession,
   develMode,
@@ -59,6 +60,12 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
     await refetchControllers();
   };
 
+  // live ("holding an open control-session stream right now") vs.
+  // trustStore's "ever paired" list above - see cenotaph's
+  // connectedControllers.ts for the ~45s disconnect grace period.
+  const isConnectedNow = (nodeId: string) =>
+    connectedControllers().some((c) => c.node_id === nodeId);
+
   const toggleSessionMode = async () => {
     const session = currentSession();
     if (!session) return;
@@ -101,11 +108,11 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
             >
               &#8592;
             </a>
-            <h2 class="text-lg font-semibold">player settings</h2>
+            <h2 class="text-xl font-semibold">player settings</h2>
           </div>
           <button
             type="button"
-            class="text-sm text-neutral-400"
+            class="text-base text-neutral-400"
             onClick={() => props.onClose()}
             data-testid="settings-close"
           >
@@ -114,17 +121,17 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">device name</label>
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">device name</label>
           <div class="flex gap-2">
             <input
-              class="flex-1 rounded bg-neutral-800 px-2 py-1 text-sm"
+              class="flex-1 rounded bg-neutral-800 px-2 py-1 text-base"
               value={nameInput()}
               onInput={(e) => setNameInput(e.currentTarget.value)}
               data-testid="device-name-input"
             />
             <button
               type="button"
-              class="rounded bg-neutral-700 px-3 py-1 text-sm"
+              class="rounded bg-neutral-700 px-3 py-1 text-base"
               onClick={saveName}
               data-testid="device-name-save"
             >
@@ -136,17 +143,17 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
         <Show when={props.nodeId}>
           {(id) => (
             <div class="flex flex-col gap-2">
-              <label class="text-xs tracking-widest text-neutral-500 uppercase">device id</label>
+              <label class="text-sm tracking-widest text-neutral-500 uppercase">device id</label>
               <div class="flex items-center gap-2">
                 <p
-                  class="flex-1 truncate font-mono text-xs text-neutral-400"
+                  class="flex-1 truncate font-mono text-sm text-neutral-400"
                   data-testid="settings-node-id"
                 >
                   {id()}
                 </p>
                 <button
                   type="button"
-                  class="rounded bg-neutral-700 px-3 py-1 text-sm"
+                  class="rounded bg-neutral-700 px-3 py-1 text-base"
                   onClick={copyNodeId}
                   data-testid="copy-node-id-button"
                 >
@@ -158,38 +165,38 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
         </Show>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">
             accept player connections
           </label>
           <button
             type="button"
-            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
             aria-pressed={remotePlaybackEnabled()}
             onClick={() => setRemotePlaybackEnabled(!remotePlaybackEnabled())}
             data-testid="remote-playback-enabled-toggle"
           >
             {remotePlaybackEnabled() ? "on" : "off"}
           </button>
-          <p class="text-xs text-neutral-500">
+          <p class="text-sm text-neutral-500">
             off by default - turn on to let other devices pair with (and control playback on) this
             one, via pin or qr code.
           </p>
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">
             sync queue to local library
           </label>
           <button
             type="button"
-            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
             aria-pressed={getSyncQueueToLocal()}
             onClick={() => void setSyncQueueToLocal(!getSyncQueueToLocal())}
             data-testid="sync-queue-to-local-toggle"
           >
             {getSyncQueueToLocal() ? "on" : "off"}
           </button>
-          <p class="text-xs text-neutral-500">
+          <p class="text-sm text-neutral-500">
             on by default - saves queued media into this device's own local library instead of just
             an ephemeral cache, so it plays back offline. shares the same setting as spume's normal
             library auto-download feature.
@@ -197,14 +204,14 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">pairing pin</label>
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">pairing pin</label>
           <div class="flex items-center gap-2">
-            <p class="font-mono text-2xl tracking-widest" data-testid="settings-pin">
+            <p class="font-mono text-4xl tracking-widest" data-testid="settings-pin">
               {currentPin()}
             </p>
             <button
               type="button"
-              class="rounded bg-neutral-700 px-3 py-1 text-sm"
+              class="rounded bg-neutral-700 px-3 py-1 text-base"
               onClick={() => void regeneratePin(spumeSessionStore)}
               data-testid="rotate-pin-button"
             >
@@ -212,57 +219,70 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
             </button>
           </div>
           <Show when={currentSession()?.admin_grant_pending}>
-            <p class="text-xs text-amber-400" data-testid="admin-grant-pending-badge">
+            <p class="text-sm text-amber-400" data-testid="admin-grant-pending-badge">
               this pin grants admin access to whoever redeems it next.
             </p>
           </Show>
           <button
             type="button"
-            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
             onClick={requestAdminPin}
             data-testid="regenerate-admin-pin-button"
           >
             regenerate admin pairing code
           </button>
-          <p class="text-xs text-neutral-500">
+          <p class="text-sm text-neutral-500">
             mints a fresh one-time pin that grants the next device to redeem it admin access - for
             bootstrapping a first (or additional) admin.
           </p>
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">
             who can send commands
           </label>
           <button
             type="button"
-            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
             aria-pressed={currentSession()?.mode === "everyone"}
             onClick={toggleSessionMode}
             data-testid="session-mode-toggle"
           >
             {currentSession()?.mode === "everyone" ? "everyone" : "selected devices"}
           </button>
-          <p class="text-xs text-neutral-500">
+          <p class="text-sm text-neutral-500">
             "selected devices" (default) - only devices you've added below (or that redeemed the
             current pin) can send playback/queue commands. "everyone" - any paired device can.
           </p>
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">
             trusted controllers
           </label>
           <ul class="flex flex-col gap-1" data-testid="trusted-controller-list">
             <For each={controllers() ?? []}>
               {(controller) => (
                 <li
-                  class="flex items-center justify-between rounded bg-neutral-800 px-2 py-1 text-sm"
+                  class="flex items-center justify-between rounded bg-neutral-800 px-2 py-1 text-base"
                   data-testid="trusted-controller-row"
                 >
-                  <span class="truncate">
-                    {controller.display_name}{" "}
-                    <span class="text-neutral-500">({controller.role})</span>
+                  <span class="flex min-w-0 items-center gap-2 truncate">
+                    <span
+                      class="inline-block h-2 w-2 shrink-0 rounded-full"
+                      classList={{
+                        "bg-green-500": isConnectedNow(controller.node_id),
+                        "bg-neutral-600": !isConnectedNow(controller.node_id),
+                      }}
+                      aria-label={
+                        isConnectedNow(controller.node_id) ? "connected now" : "not connected"
+                      }
+                      data-testid="controller-connected-indicator"
+                    />
+                    <span class="truncate">
+                      {controller.display_name}{" "}
+                      <span class="text-neutral-500">({controller.role})</span>
+                    </span>
                   </span>
                   <span class="flex items-center gap-2">
                     <Show when={currentSession()?.mode !== "everyone"}>
@@ -296,16 +316,16 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
               )}
             </For>
             <Show when={controllers()?.length === 0}>
-              <li class="text-sm text-neutral-500">no paired controllers</li>
+              <li class="text-base text-neutral-500">no paired controllers</li>
             </Show>
           </ul>
         </div>
 
         <div class="flex flex-col gap-1">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">local storage</label>
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">local storage</label>
           <Show when={usage()}>
             {(u) => (
-              <p class="text-sm text-neutral-400" data-testid="storage-usage">
+              <p class="text-base text-neutral-400" data-testid="storage-usage">
                 {formatBytes(u().usageBytes)}
                 <Show when={u().quotaBytes !== null}> / {formatBytes(u().quotaBytes!)}</Show>
               </p>
@@ -314,17 +334,17 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs tracking-widest text-neutral-500 uppercase">devel mode</label>
+          <label class="text-sm tracking-widest text-neutral-500 uppercase">devel mode</label>
           <button
             type="button"
-            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-base"
             aria-pressed={develMode()}
             onClick={() => void setDevelMode(!develMode())}
             data-testid="devel-mode-toggle"
           >
             {develMode() ? "on" : "off"}
           </button>
-          <p class="text-xs text-neutral-500">
+          <p class="text-sm text-neutral-500">
             shows a console-log debug overlay - for debugging on devices with no accessible
             devtools.
           </p>

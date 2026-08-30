@@ -41,6 +41,7 @@ import { isP2PRemote, type P2PRemote } from "../storage/schemas/remote";
 import { sendPlayerCommand } from "./playerPairingClient";
 import {
   applyRemoteStatusFromAck,
+  reportCommandAckFailure,
   type RemoteMediaRef,
   type RemoteStatus,
 } from "./remotePlaybackControl";
@@ -372,6 +373,8 @@ async function videoToMediaRef(
 }
 
 interface CommandAckLike {
+  ok?: boolean;
+  reason?: string;
   status?: RemoteStatus;
 }
 
@@ -388,6 +391,7 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] pushSongsToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -404,6 +408,7 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] appendSongsToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -422,6 +427,7 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] pushVideosToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -440,6 +446,7 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] appendVideosToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -472,6 +479,7 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] pushMediaToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -487,5 +495,6 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
   })) as CommandAckLike;
   // TEMP DEBUG - remove once sync-to-local wiring bug is found
   console.log(`[debug/playerQueuePush] appendMediaToPlayer(${peerAddr}) ack:`, ack);
+  reportCommandAckFailure(ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }

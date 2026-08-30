@@ -133,17 +133,17 @@ export function createPlayerConnectionHandler<TNode = unknown>(
           return;
         }
 
-        // sending actual commands additionally requires being part of the
-        // current session (see playerSession.ts) - a peer can be a
-        // long-known trusted controller from a past gathering without
-        // being part of this one.
+        // sending actual (mutating) commands additionally requires being
+        // part of the current session (see playerSession.ts) - a peer can
+        // be a long-known trusted controller from a past gathering
+        // without being part of this one. checked per-command (not once
+        // for the whole stream) and `get_status` is exempted, same as
+        // subscribe/presence above - it's read-only (sent constantly by
+        // every paired client's background poll, see dispatcher.ts's
+        // `QR_HIDING_COMMANDS` comment) and rejecting it just because a
+        // peer isn't in-session breaks reconciliation polling for no
+        // security benefit.
         let session = await ensureActiveSession(sessionStore);
-        if (!isPeerAllowedInSession(session, peerNodeId)) {
-          await stream.write_line(
-            JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" }),
-          );
-          return;
-        }
 
         // control session: keep the stream open and dispatch every
         // command line sent on it, until the controller closes its side.
@@ -151,9 +151,15 @@ export function createPlayerConnectionHandler<TNode = unknown>(
         try {
           let line: string | null = firstLine;
           while (line !== null) {
-            const ack = await dispatchCommand(backend, node, line);
-            await stream.write_line(JSON.stringify(ack));
-            session = await touchSession(sessionStore, session);
+            if (!isGetStatusCommand(line) && !isPeerAllowedInSession(session, peerNodeId)) {
+              await stream.write_line(
+                JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" }),
+              );
+            } else {
+              const ack = await dispatchCommand(backend, node, line);
+              await stream.write_line(JSON.stringify(ack));
+              session = await touchSession(sessionStore, session);
+            }
             line = (await stream.read_line()) as string | null;
           }
         } finally {
@@ -188,6 +194,15 @@ function isSubscribeRequest(rawLine: string): boolean {
 function isPresenceQuery(rawLine: string): boolean {
   try {
     return PresenceQuerySchema.safeParse(JSON.parse(rawLine)).success;
+  } catch {
+    return false;
+  }
+}
+
+function isGetStatusCommand(rawLine: string): boolean {
+  try {
+    const parsed = JSON.parse(rawLine) as { type?: unknown; command?: unknown };
+    return parsed.type === "control" && parsed.command === "get_status";
   } catch {
     return false;
   }

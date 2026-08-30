@@ -105,7 +105,9 @@ export async function selectPlayerPlaybackTarget(player: {
     try {
       await fetchRemoteStatus();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "failed to reach player");
+      toast.error(e instanceof Error ? e.message : "failed to reach player", {
+        title: "remote-player-connection-error",
+      });
     }
     return;
   }
@@ -143,6 +145,8 @@ export async function selectPlayerPlaybackTarget(player: {
     // existing one) - safe to stop this device's own audio.
     pause();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : "failed to send queue to player");
+    toast.error(e instanceof Error ? e.message : "failed to send queue to player", {
+      title: "remote-player-connection-error",
+    });
   }
 }

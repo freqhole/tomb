@@ -19,6 +19,7 @@ import { sendPlayerCommand, subscribeToPlayerStatus } from "./playerPairingClien
 import { activeTargetNodeId, isRemoteTargetActive } from "./activeTarget";
 import { appState, setQueue } from "../storage/db";
 import { isSongItem } from "../storage/mediaItem";
+import { toast } from "../../../components/feedback/Toast";
 
 export interface RemoteMediaRef {
   source_peer_addr: string;
@@ -130,6 +131,38 @@ interface CommandAck {
   ok: boolean;
   reason?: string;
   status?: RemoteStatus;
+}
+
+/** turns a command_ack's machine-readable `reason` into something worth
+ * showing a user - see cenotaph's dispatcher.ts/playerConnectionHandler.ts
+ * for where each reason string comes from. */
+function describeCommandAckFailure(reason?: string): string {
+  switch (reason) {
+    case "not_in_session":
+      return "this device isn't allowed to control the player right now - open player settings on the player and add it to the session";
+    case "invalid_command":
+      return "the player didn't understand that command";
+    default:
+      return reason
+        ? `the player rejected the command (${reason})`
+        : "the player rejected the command";
+  }
+}
+
+/** surfaces a deduped toast whenever a command_ack comes back `ok:false` -
+ * used by sendControl() below and by playerQueuePush.ts's replace_queue/
+ * append_queue senders (which dial directly via playerPairingClient, not
+ * through sendControl, so they need to report failures themselves). before
+ * this existed, an `ok:false` ack (e.g. `not_in_session`) was silently
+ * swallowed: no toast, no thrown error, just the pending/loading indicator
+ * clearing as if the command had actually gone through. */
+export function reportCommandAckFailure(
+  ack: { ok?: boolean; reason?: string } | null | undefined
+): void {
+  if (!ack || ack.ok !== false) return;
+  toast.error(describeCommandAckFailure(ack.reason), {
+    title: "remote-player-command-rejected",
+  });
 }
 
 const [remoteStatus, setRemoteStatus] = createSignal<RemoteStatus | null>(null);
@@ -324,6 +357,7 @@ async function sendControl(
   if (opts?.trackPending) setPendingCount((n) => n + 1);
   try {
     const ack = (await sendPlayerCommand(nodeId, { type: "control", ...command })) as CommandAck;
+    if (command.command !== "get_status") reportCommandAckFailure(ack);
     if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
   } finally {
