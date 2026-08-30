@@ -325,6 +325,10 @@ export class WasmTransport implements Transport {
       const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
       console.log(`[debug/WasmTransport] request ok ${method} ${path} status=${result.status}`);
+      if (result.status < 200 || result.status >= 300) {
+        // TEMP DEBUG - remove once sync-to-local wiring bug is found
+        console.log(`[debug/WasmTransport] ${method} ${path} non-2xx body:`, result.body);
+      }
       return {
         status: result.status,
         body: result.body,
@@ -332,6 +336,8 @@ export class WasmTransport implements Transport {
     } catch (e) {
       // P2P connection errors - rethrow with message that isNetworkError will catch
       const { message, errorType } = extractErrorType(e);
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(`[debug/WasmTransport] ${method} ${path} threw:`, e);
       console.warn(`[WasmTransport] P2P request failed: ${message}`);
       throw new TransportError(`connection failed: ${message}`, { errorType });
     }

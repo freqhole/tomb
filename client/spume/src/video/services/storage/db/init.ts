@@ -3,7 +3,7 @@
 import { openDB, type IDBPDatabase } from "idb";
 
 export const VIDEO_DB_NAME = "freqhole-video";
-export const VIDEO_DB_VERSION = 2;
+export const VIDEO_DB_VERSION = 3;
 
 export const STORE_VIDEOS = "videos";
 export const STORE_VIDEO_SERIES = "video_series";
@@ -19,7 +19,7 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
   }
 
   dbInstance = await openDB(VIDEO_DB_NAME, VIDEO_DB_VERSION, {
-    upgrade(db) {
+    upgrade(db, oldVersion, _newVersion, tx) {
       if (!db.objectStoreNames.contains(STORE_VIDEOS)) {
         const videosStore = db.createObjectStore(STORE_VIDEOS, {
           keyPath: "id",
@@ -68,6 +68,20 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
         });
         entityTagsStore.createIndex("by_entity", ["entity_type", "entity_id"]);
         entityTagsStore.createIndex("by_tag_id", "tag_id");
+      }
+
+      // v2 -> v3: add a `by_blake3` index on videos (cenotaph tier-2 sync
+      // queue to local, see docs/cenotaph-migration-plan.md) - mirrors
+      // music's `by_blake3` index (songs, v17 -> v18). non-unique +
+      // sparse: only remote-synced videos and freshly-uploaded local
+      // videos get a `blake3`; older local videos imported before this
+      // migration have no `blake3` and IDB indexes simply skip records
+      // whose indexed path is null/undefined.
+      if (oldVersion < 3 && db.objectStoreNames.contains(STORE_VIDEOS)) {
+        const videosStore = tx.objectStore(STORE_VIDEOS);
+        if (!videosStore.indexNames.contains("by_blake3")) {
+          videosStore.createIndex("by_blake3", "blake3");
+        }
       }
     },
   });

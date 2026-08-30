@@ -11,6 +11,7 @@ import {
 } from "../services/opfs/helpers";
 import { addLocalVideo } from "../services/storage/db/videos";
 import { isCharnelMode } from "../../app/services/charnel";
+import { hashBlake3 } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
 import type { LocalImportProgress } from "../../music/import";
 
@@ -183,6 +184,18 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       debug("video/localImport", `writing to opfs: ${file.name}`);
       const opfsPath = await writeVideoToOPFS(file, id, extension);
 
+      // only local uploads need to hash here - videos synced in from a
+      // remote already carry a blake3 from that remote's media_blobz
+      // record (see syncVideoToLocal.ts). non-fatal if this fails (e.g.
+      // huge file, low memory): the video still imports, just without
+      // blake3 identity, same as any pre-migration local video.
+      let blake3: string | null = null;
+      try {
+        blake3 = await hashBlake3(new Uint8Array(await file.arrayBuffer()));
+      } catch (err) {
+        warn("video/localImport", `failed to hash ${file.name}, importing without blake3:`, err);
+      }
+
       const { durationSeconds, posterBlob } = await extractVideoMetadata(file);
       let posterOpfsPath: string | null = null;
       if (posterBlob) {
@@ -198,6 +211,7 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
         file_size: file.size,
         mime_type: file.type || "video/mp4",
         duration_seconds: durationSeconds > 0 ? durationSeconds : null,
+        blake3,
       });
       imported++;
       debug("video/localImport", `added: ${file.name}`);

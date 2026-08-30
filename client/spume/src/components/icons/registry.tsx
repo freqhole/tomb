@@ -394,6 +394,14 @@ export const FullscreenIcon = (props: IconProps) => (
   </StrokeBaseIcon>
 );
 
+// navigate to /player/ (this app's separate remote-playback screen)
+export const TvIcon = (props: IconProps) => (
+  <StrokeBaseIcon {...props} aria-label={props["aria-label"] ?? "Player mode"}>
+    <rect x="2" y="7" width="20" height="15" rx="2" ry="2" />
+    <path d="M17 2l-5 5-5-5" />
+  </StrokeBaseIcon>
+);
+
 // expand-to-fill-window toggle (distinct from browser Fullscreen API above,
 // and from navigation.tsx's unrelated ExpandIcon used for graph zoom)
 export const ExpandWindowIcon = (props: IconProps) => (
@@ -624,6 +632,7 @@ export const IconRegistry = {
   fullscreen: FullscreenIcon,
   expandWindow: ExpandWindowIcon,
   collapseWindow: CollapseWindowIcon,
+  tv: TvIcon,
   video: VideoIcon,
   videoSeries: VideoSeriesIcon,
   externalLink: ExternalLinkIcon,
@@ -741,6 +750,7 @@ export const IconNames = {
   fullscreen: "fullscreen",
   expandWindow: "expandWindow",
   collapseWindow: "collapseWindow",
+  tv: "tv",
   video: "video",
   videoSeries: "videoSeries",
   externalLink: "externalLink",

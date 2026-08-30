@@ -3,6 +3,7 @@ import { getVideoDB, STORE_VIDEOS, STORE_VIDEO_SERIES, STORE_VIDEO_SEASONS } fro
 import { getEntityTags } from "./entityTags";
 import type { PaginatedVideos, VideoQueryParams, VideoSummary } from "../../../data/types";
 import type { ImageMetadata } from "../../../../music/services/storage/types";
+import { debug } from "../../../../utils/logger";
 
 // local-only bookkeeping fields kept on the stored row but not part of
 // the server-derived VideoSummary shape. `images` is overridden from
@@ -13,11 +14,17 @@ import type { ImageMetadata } from "../../../../music/services/storage/types";
 // et al, via VideoDataSource.getEntityImages) actually reads/writes —
 // mirrors how music's local Album/Artist/Playlist row types declare
 // `images?: ImageMetadata[]` directly.
-interface LocalVideoRow extends Omit<VideoSummary, "images"> {
+export interface LocalVideoRow extends Omit<VideoSummary, "images"> {
   file_name: string;
   file_size: number;
   mime_type: string;
   images?: ImageMetadata[];
+  /** blake3 content hash (64 hex chars) for iroh-blobs verified
+   * streaming/serving - mirrors Song.blake3. only set for videos synced
+   * in from a remote (already hashed there) or freshly-uploaded local
+   * videos (hashed at import time, see video/import/localImport.ts);
+   * older local videos predating this field are null. */
+  blake3?: string | null;
 }
 
 export async function addLocalVideo(input: {
@@ -29,6 +36,10 @@ export async function addLocalVideo(input: {
   file_size: number;
   mime_type: string;
   duration_seconds?: number | null;
+  /** blake3 hash - required for the video to be reachable via a peer's
+   * blake3-keyed queries (cenotaph tier-2), see LocalVideoRow's field
+   * comment for who's expected to supply this. */
+  blake3?: string | null;
 }): Promise<LocalVideoRow> {
   const now = Date.now();
   const row: LocalVideoRow = {
@@ -58,6 +69,7 @@ export async function addLocalVideo(input: {
     file_name: input.file_name,
     file_size: input.file_size,
     mime_type: input.mime_type,
+    blake3: input.blake3 ?? null,
   };
 
   const db = await getVideoDB();
@@ -68,6 +80,21 @@ export async function addLocalVideo(input: {
 export async function deleteLocalVideo(id: string): Promise<void> {
   const db = await getVideoDB();
   await db.delete(STORE_VIDEOS, id);
+}
+
+/** look up a local video by its blake3 hash - mirrors
+ * music/services/storage/db/songs.ts's getSongByBlake3(), used the same
+ * way: deciding whether a remote/peer queue entry (blake3_hash) already
+ * exists in this device's own local library. */
+export async function getVideoByBlake3(blake3: string): Promise<LocalVideoRow | undefined> {
+  const db = await getVideoDB();
+  const index = db.transaction(STORE_VIDEOS).store.index("by_blake3");
+  const video = (await index.get(blake3)) as LocalVideoRow | undefined;
+  debug(
+    "getVideoByBlake3",
+    `${blake3.slice(0, 8)}...: ${video ? `found video id ${video.id}` : "not found"}`
+  );
+  return video;
 }
 
 export async function getLocalVideos(params?: VideoQueryParams): Promise<PaginatedVideos> {

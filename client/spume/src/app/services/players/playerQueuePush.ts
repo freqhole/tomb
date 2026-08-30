@@ -193,6 +193,10 @@ async function importMediaBytes(
       importBlobBytes(bytesToBase64(bytes)),
     ]);
     if (!nodeId) throw new Error("charnel p2p node id unavailable - is federation enabled?");
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/playerQueuePush] importMediaBytes (charnel) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${nodeId}`
+    );
     return { sourcePeerAddr: nodeId, blake3Hash };
   }
   const node = await getMiddenNode();
@@ -200,6 +204,10 @@ async function importMediaBytes(
     throw new Error("this transport cannot make blobs available to a paired player");
   }
   const blake3Hash = await node.import_blob(bytes);
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(
+    `[debug/playerQueuePush] importMediaBytes (wasm) ${bytes.byteLength}b -> blake3=${blake3Hash}, sourcePeerAddr=${node.node_id()}`
+  );
   return { sourcePeerAddr: node.node_id(), blake3Hash };
 }
 
@@ -209,7 +217,7 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
   const bytes = new Uint8Array(await res.arrayBuffer());
   const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
   const { thumbUrl, fullUrl } = await resolveArtwork(song);
-  return {
+  const ref: RemoteMediaRef = {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
     size_bytes: bytes.byteLength,
@@ -221,6 +229,9 @@ async function songToMediaRef(song: Song): Promise<RemoteMediaRef> {
     artwork_thumb_url: thumbUrl,
     artwork_full_url: fullUrl,
   };
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] songToMediaRef built:`, ref);
+  return ref;
 }
 
 /** video equivalent of songToMediaRef() above. `QueuedVideo` (the generated
@@ -234,7 +245,7 @@ async function videoToMediaRef(video: QueuedVideo): Promise<RemoteMediaRef> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const { sourcePeerAddr, blake3Hash } = await importMediaBytes(bytes);
   const { thumbUrl, fullUrl } = await resolveVideoArtwork(video);
-  return {
+  const ref: RemoteMediaRef = {
     source_peer_addr: sourcePeerAddr,
     blake3_hash: blake3Hash,
     size_bytes: bytes.byteLength,
@@ -245,6 +256,9 @@ async function videoToMediaRef(video: QueuedVideo): Promise<RemoteMediaRef> {
     artwork_thumb_url: thumbUrl,
     artwork_full_url: fullUrl,
   };
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] videoToMediaRef built:`, ref);
+  return ref;
 }
 
 interface CommandAckLike {
@@ -261,6 +275,8 @@ export async function pushSongsToPlayer(peerAddr: string, songs: Song[]): Promis
     command: "replace_queue",
     items,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] pushSongsToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -274,6 +290,8 @@ export async function appendSongsToPlayer(peerAddr: string, songs: Song[]): Prom
     command: "append_queue",
     items,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] appendSongsToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -287,6 +305,8 @@ export async function pushVideosToPlayer(peerAddr: string, videos: QueuedVideo[]
     command: "replace_queue",
     items,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] pushVideosToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -300,6 +320,8 @@ export async function appendVideosToPlayer(peerAddr: string, videos: QueuedVideo
     command: "append_queue",
     items,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] appendVideosToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -323,6 +345,8 @@ export async function pushMediaToPlayer(peerAddr: string, items: MediaItem[]): P
     command: "replace_queue",
     items: refs,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] pushMediaToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }
 
@@ -335,5 +359,7 @@ export async function appendMediaToPlayer(peerAddr: string, items: MediaItem[]):
     command: "append_queue",
     items: refs,
   })) as CommandAckLike;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/playerQueuePush] appendMediaToPlayer(${peerAddr}) ack:`, ack);
   if (ack?.status) applyRemoteStatusFromAck(ack.status);
 }

@@ -31,10 +31,16 @@ export async function dispatchCommand<TNode = unknown>(
 ): Promise<CommandAck> {
   const parsed = PlayerCommandSchema.safeParse(JSON.parse(rawLine));
   if (!parsed.success) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(`[debug/dispatcher] failed to parse command:`, rawLine, parsed.error);
     return { type: "command_ack", ok: false, reason: "invalid_command" };
   }
 
   const command = parsed.data;
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  if (command.command !== "get_status") {
+    console.log(`[debug/dispatcher] dispatching command:`, command);
+  }
   const tracksLoading = QR_HIDING_COMMANDS.has(command.command);
   if (command.command !== "get_status") markActivity();
   if (tracksLoading) setCommandInFlight(true);

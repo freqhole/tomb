@@ -159,9 +159,8 @@ function setStatusFor(hash: string, value: "loading" | "ready" | undefined): voi
 }
 
 /** drops cache/status entries for anything no longer in the queue - also
- * evicts the persistent cache, which is always safe: it's a distinct store
- * from the real local library (see `LocalLibraryHooks.getLocalBlob`), so
- * this can never delete/orphan a song that's actually been synced there. */
+ *  evicts the persistent cache (only relevant when no host library hooks
+ *  are registered - see resolveBlob()/fetchAndCache() below). */
 function pruneStaleCacheEntries(): void {
   const live = new Set(queue.map((i) => i.blake3_hash));
   for (const hash of blobCache.keys()) {
@@ -182,12 +181,38 @@ function pruneStaleCacheEntries(): void {
 }
 
 // resolution order: real local library (if the host wired one up) - then
-// the in-memory map (this session) - then the persistent on-disk cache
-// (survives a reload) - null if it has to be fetched fresh.
+// the in-memory map (this session) - then, ONLY if no host library is
+// wired up at all, the persistent on-disk cache (survives a reload).
+// a host that provides `localLibraryHooks` (spume) has its own real
+// backing storage - the persistent cache here must never become a second,
+// disconnected on-disk store alongside it (previously it could silently
+// satisfy this resolve and skip fetchAndCache()/syncToLocal() forever for
+// anything replayed after its first fetch, even with sync-to-local on).
 async function resolveBlob(item: MediaRef): Promise<Blob | null> {
   const local = await localLibraryHooks?.getLocalBlob(item.blake3_hash);
-  if (local) return local;
-  return blobCache.get(item.blake3_hash) ?? (await getCachedMediaBlob(item.blake3_hash));
+  if (local) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... resolved from real local library`,
+    );
+    return local;
+  }
+  const inMemory = blobCache.get(item.blake3_hash);
+  if (inMemory) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... resolved from in-memory blobCache`,
+    );
+    return inMemory;
+  }
+  if (localLibraryHooks) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/resolveBlob] ${item.blake3_hash.slice(0, 8)}... not in real library or memory - host has its own storage, skipping persistent cache, will fetchAndCache/syncToLocal`,
+    );
+    return null;
+  }
+  return getCachedMediaBlob(item.blake3_hash);
 }
 
 async function fetchAndCache(
@@ -198,18 +223,33 @@ async function fetchAndCache(
   if (localLibraryHooks?.isSyncEnabled()) {
     try {
       const synced = await localLibraryHooks.syncToLocal(item);
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(
+        `[debug/fetchAndCache] ${item.blake3_hash.slice(0, 8)}... syncToLocal returned ${synced ? "a blob (promoted to real library)" : "null"}`,
+      );
       // now part of the real library - no need to also persist into the
       // ephemeral cache below.
       if (synced) return synced;
-    } catch {
+    } catch (err) {
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(
+        `[debug/fetchAndCache] ${item.blake3_hash.slice(0, 8)}... syncToLocal threw:`,
+        err,
+      );
       // best-effort upgrade only - fall through to the ephemeral cache.
     }
   }
   const fetched = await fetchMediaBlob(node, item, onProgress);
   blobCache.set(item.blake3_hash, fetched);
-  // not worth surfacing a failed disk write to the user - playback
-  // already has the bytes it needs, this is purely a "for next time" cache.
-  void cacheMediaBlob(item.blake3_hash, fetched).catch(() => {});
+  // a host with its own real library (localLibraryHooks registered) must
+  // never get a second, disconnected on-disk store - only persist here as
+  // a fallback for a host with no real backing storage at all (this
+  // package's original standalone use case). not worth surfacing a failed
+  // disk write to the user either way - playback already has the bytes it
+  // needs, this is purely a "for next time" cache.
+  if (!localLibraryHooks) {
+    void cacheMediaBlob(item.blake3_hash, fetched).catch(() => {});
+  }
   return fetched;
 }
 

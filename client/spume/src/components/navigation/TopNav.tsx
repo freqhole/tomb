@@ -1077,6 +1077,18 @@ export function TopNav(props: TopNavProps) {
                               add media
                             </button>
                           </Show>
+                          <button
+                            class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
+                            title="player mode"
+                            onClick={() => {
+                              // /player/ is a separate top-level pathname
+                              // branch (see index.tsx), not one of this
+                              // HashRouter's own routes - a real nav.
+                              window.location.href = "/player/";
+                            }}
+                          >
+                            <Icon name="tv" size={16} />
+                          </button>
                         </div>
                       </div>
 

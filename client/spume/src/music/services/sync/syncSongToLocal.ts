@@ -13,11 +13,7 @@ import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
-import {
-  getOrCreateAlbum,
-  getOrCreateArtist,
-  initMusicDB,
-} from "../storage/db";
+import { getOrCreateAlbum, getOrCreateArtist, initMusicDB } from "../storage/db";
 import { updateAlbum } from "../storage/db/albums";
 import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
@@ -49,10 +45,7 @@ interface SyncImageRefBody {
 // per-image-bytes cache keyed by source remote_blob_id, so an album cover
 // that appears both as song.images[k] AND song.album_images[k] across many
 // tracks is fetched once.
-type InlineImageCache = Map<
-  string,
-  { sha256: string; b64: string; mime: string }
->;
+type InlineImageCache = Map<string, { sha256: string; b64: string; mime: string }>;
 
 function bytesToBase64(bytes: Uint8Array): string {
   // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
@@ -67,7 +60,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const ab = bytes.buffer.slice(
     bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
+    bytes.byteOffset + bytes.byteLength
   ) as ArrayBuffer;
   const digest = await crypto.subtle.digest("SHA-256", ab);
   const view = new Uint8Array(digest);
@@ -88,7 +81,7 @@ async function inlineImagesForSync(
   images: ImageMetadata[] | undefined,
   sourceTransport: Transport,
   cache: InlineImageCache,
-  logPrefix: string,
+  logPrefix: string
 ): Promise<SyncImageRefBody[]> {
   if (!images || images.length === 0) return [];
   const out: SyncImageRefBody[] = [];
@@ -97,10 +90,7 @@ async function inlineImagesForSync(
     const img = images[idx];
     const blobId = img.remote_blob_id;
     if (!blobId) {
-      debug(
-        "syncSongViaLocalGrimoire",
-        `${logPrefix} [img ${idx}] no remote_blob_id, skipping`,
-      );
+      debug("syncSongViaLocalGrimoire", `${logPrefix} [img ${idx}] no remote_blob_id, skipping`);
       continue;
     }
     let entry = cache.get(blobId);
@@ -119,12 +109,12 @@ async function inlineImagesForSync(
         cache.set(blobId, entry);
         debug(
           "syncSongViaLocalGrimoire",
-          `${logPrefix} [img ${idx}] fetched source blob ${blobId.slice(0, 8)} (${bytes.byteLength}b, ${entry.mime}, sha=${sha256.slice(0, 8)})`,
+          `${logPrefix} [img ${idx}] fetched source blob ${blobId.slice(0, 8)} (${bytes.byteLength}b, ${entry.mime}, sha=${sha256.slice(0, 8)})`
         );
       } catch (e) {
         warn(
           "syncSongViaLocalGrimoire",
-          `${logPrefix} [img ${idx}] fetchBlob failed for ${blobId}: ${String(e)}`,
+          `${logPrefix} [img ${idx}] fetchBlob failed for ${blobId}: ${String(e)}`
         );
         continue;
       }
@@ -151,10 +141,7 @@ async function inlineImagesForSync(
  *  - song.blake3 + song.sha256
  *  - source remote is a p2p remote with a usable peer_addr
  */
-async function syncSongViaLocalGrimoire(
-  song: SyncableSong,
-  remote: Remote,
-): Promise<SyncResult> {
+async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Promise<SyncResult> {
   if (!song.blake3) {
     return { success: false, error: "song missing blake3 (cannot pull via iroh)" };
   }
@@ -183,13 +170,13 @@ async function syncSongViaLocalGrimoire(
       song.images,
       sourceTransport,
       inlineCache,
-      `[song "${song.title}"]`,
+      `[song "${song.title}"]`
     );
     const albumImagesBody = await inlineImagesForSync(
       song.album_images,
       sourceTransport,
       inlineCache,
-      `[album "${song.album_title}"]`,
+      `[album "${song.album_title}"]`
     );
 
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
@@ -206,10 +193,7 @@ async function syncSongViaLocalGrimoire(
       album_title: song.album_title || "unknown album",
       track_number: song.track_number ?? 0,
       disc_number: song.disc_number ?? 1,
-      duration_ms:
-        song.duration_seconds != null
-          ? Math.round(song.duration_seconds * 1000)
-          : null,
+      duration_ms: song.duration_seconds != null ? Math.round(song.duration_seconds * 1000) : null,
       year: song.year ?? null,
       bpm: song.bpm ?? null,
       track_artist: song.track_artist ?? null,
@@ -240,11 +224,7 @@ async function syncSongViaLocalGrimoire(
     };
 
     if (!response.success) {
-      errorLog(
-        "sync",
-        `sync_song_by_blake3 failed for "${song.title}":`,
-        response.message,
-      );
+      errorLog("sync", `sync_song_by_blake3 failed for "${song.title}":`, response.message);
       return { success: false, error: response.message };
     }
 
@@ -252,12 +232,15 @@ async function syncSongViaLocalGrimoire(
     markSongSynced(song.sha256);
     debug(
       "syncSongViaLocalGrimoire",
-      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_sha256s=${data?.missing_image_sha256s?.length ?? 0}`,
+      `synced song ${song.title} via iroh (existing=${data?.existing ?? false}) images_linked=${data?.images_linked ?? 0} missing_image_sha256s=${data?.missing_image_sha256s?.length ?? 0}`
     );
     if (data?.missing_image_sha256s && data.missing_image_sha256s.length > 0) {
       debug(
         "syncSongViaLocalGrimoire",
-        `missing_image_sha256s for "${song.title}": ${data.missing_image_sha256s.slice(0, 5).map((s) => s.slice(0, 8)).join(", ")}`,
+        `missing_image_sha256s for "${song.title}": ${data.missing_image_sha256s
+          .slice(0, 5)
+          .map((s) => s.slice(0, 8))
+          .join(", ")}`
       );
     }
     return {
@@ -355,12 +338,9 @@ function getExtensionFromMimeType(mimeType: string): string {
  */
 export async function downloadAndStoreImages(
   remote: Remote,
-  apiImages: ImageMetadata[] | undefined,
+  apiImages: ImageMetadata[] | undefined
 ): Promise<ImageMetadata[]> {
-  debug(
-    "downloadAndStoreImages",
-    `remote=${remote.name} count=${apiImages?.length ?? 0}`,
-  );
+  debug("downloadAndStoreImages", `remote=${remote.name} count=${apiImages?.length ?? 0}`);
   if (!apiImages?.length) return [];
 
   const results: ImageMetadata[] = [];
@@ -370,7 +350,7 @@ export async function downloadAndStoreImages(
     try {
       debug(
         "downloadAndStoreImages",
-        `img blob_type=${img.blob_type ?? "?"} remote_blob_id=${img.remote_blob_id?.slice(0, 8) ?? "?"} primary=${!!img.is_primary}`,
+        `img blob_type=${img.blob_type ?? "?"} remote_blob_id=${img.remote_blob_id?.slice(0, 8) ?? "?"} primary=${!!img.is_primary}`
       );
       // need remote_blob_id to fetch via transport
       if (!img.remote_blob_id) {
@@ -415,7 +395,10 @@ export async function downloadAndStoreImages(
         blob_type: img.blob_type || "thumbnail",
       });
 
-      debug("syncSongToLocal", `stored image ${img.remote_blob_id?.slice(0, 8)}... as local blob ${localBlobId.slice(0, 8)}...`);
+      debug(
+        "syncSongToLocal",
+        `stored image ${img.remote_blob_id?.slice(0, 8)}... as local blob ${localBlobId.slice(0, 8)}...`
+      );
     } catch (err) {
       debug("syncSongToLocal", `error downloading image ${img.remote_blob_id}:`, err);
       // keep remote reference as fallback
@@ -442,8 +425,12 @@ export async function downloadAndStoreImages(
 async function syncAlbumTaxons(
   albumId: string,
   remoteTaxons: TaxonRef[] | undefined,
-  sourceRemoteId: string,
-): Promise<{ primaryGenreId: string | null; primaryGenreName: string | null; taxonRefs: TaxonRef[] }> {
+  sourceRemoteId: string
+): Promise<{
+  primaryGenreId: string | null;
+  primaryGenreName: string | null;
+  taxonRefs: TaxonRef[];
+}> {
   if (!remoteTaxons?.length) {
     return { primaryGenreId: null, primaryGenreName: null, taxonRefs: [] };
   }
@@ -479,7 +466,7 @@ async function syncAlbumTaxons(
     } catch (err) {
       warn(
         "syncAlbumTaxons",
-        `failed to mirror taxon ${remoteTaxon.kind_slug}:${remoteTaxon.label} for album ${albumId}: ${err}`,
+        `failed to mirror taxon ${remoteTaxon.kind_slug}:${remoteTaxon.label} for album ${albumId}: ${err}`
       );
     }
   }
@@ -495,18 +482,37 @@ async function syncAlbumTaxons(
 /**
  * sync a remote song to local storage.
  * downloads the audio blob to OPFS and creates local IDB records.
- * 
+ *
  * @param song - the remote song data to sync
  * @param onProgress - optional progress callback for download
+ * @param remoteOverride - skip the internal `getRemoteById(remote_server_id)`
+ *   lookup and use this instead. for callers with a peer that was never
+ *   added as a persisted `Remote` (e.g. cenotaph's tier-2 sync-to-local,
+ *   syncing straight from a `MediaRef.source_peer_addr` the user never
+ *   explicitly "added" as a remote) - only needs to satisfy the `Remote`
+ *   shape structurally (`getTransportForRemote`/`getClientForRemote` don't
+ *   require a DB-persisted row).
  * @returns sync result with success status and local song ID
  */
 export async function syncSongToLocal(
   song: SyncableSong,
   onProgress?: SyncProgressCallback,
+  remoteOverride?: Remote
 ): Promise<SyncResult> {
   const { sha256, media_blob_id, remote_server_id } = song;
 
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/syncSongToLocal] called with:`, {
+    sha256,
+    media_blob_id,
+    remote_server_id,
+    blake3: song.blake3,
+    title: song.title,
+  });
+
   if (!sha256) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(`[debug/syncSongToLocal] bailing: song missing sha256 (title=${song.title})`);
     return { success: false, error: "song missing sha256" };
   }
 
@@ -534,8 +540,11 @@ export async function syncSongToLocal(
       debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (already synced)`);
       return { success: true, localSongId: sha256, skipped: true };
     }
-    debug("syncSongToLocal", `${sha256.slice(0, 8)}... already synced — resolving local path via grimoire`);
-    const remote = await getRemoteById(remote_server_id);
+    debug(
+      "syncSongToLocal",
+      `${sha256.slice(0, 8)}... already synced — resolving local path via grimoire`
+    );
+    const remote = remoteOverride ?? (await getRemoteById(remote_server_id));
     if (!remote) return { success: false, error: `remote not found: ${remote_server_id}` };
     return syncSongViaLocalGrimoire(song, remote);
   }
@@ -552,159 +561,169 @@ export async function syncSongToLocal(
         return { success: true, localSongId: sha256, skipped: true };
       }
 
-    // get the remote configuration
-    const remote = await getRemoteById(remote_server_id);
-    if (!remote) {
-      return { success: false, error: `remote not found: ${remote_server_id}` };
-    }
+      // get the remote configuration
+      const remote = remoteOverride ?? (await getRemoteById(remote_server_id));
+      if (!remote) {
+        return { success: false, error: `remote not found: ${remote_server_id}` };
+      }
 
-    debug("syncSongToLocal", `syncing song ${song.title} (${sha256.slice(0, 8)}...) from ${remote.name}`);
+      debug(
+        "syncSongToLocal",
+        `syncing song ${song.title} (${sha256.slice(0, 8)}...) from ${remote.name}`
+      );
 
-    // in charnel mode, delegate to the local grimoire via the iroh-blobs
-    // path. the local grimoire pulls audio directly from the source remote's
-    // iroh node id by blake3; no audio bytes cross the IPC boundary.
-    if (isCharnelMode()) {
-      return syncSongViaLocalGrimoire(song, remote);
-    }
+      // in charnel mode, delegate to the local grimoire via the iroh-blobs
+      // path. the local grimoire pulls audio directly from the source remote's
+      // iroh node id by blake3; no audio bytes cross the IPC boundary.
+      if (isCharnelMode()) {
+        return syncSongViaLocalGrimoire(song, remote);
+      }
 
-    // browser mode: fetch via transport and persist to OPFS + IDB.
-    // (transport handles iroh-blobs verified streaming under the hood when
-    // the remote is p2p and a blake3 is available.)
+      // browser mode: fetch via transport and persist to OPFS + IDB.
+      // (transport handles iroh-blobs verified streaming under the hood when
+      // the remote is p2p and a blake3 is available.)
 
-    // get transport for fetching
-    const transport = await getTransportForRemote(remote);
+      // get transport for fetching
+      const transport = await getTransportForRemote(remote);
 
-    // get blob metadata for mime type
-    const client = await getClientForRemote(remote);
-    const metadataResult = await client.music.blobMetadata({ id: media_blob_id });
-    
-    if (!metadataResult.success || !metadataResult.data) {
-      return { success: false, error: `failed to fetch blob metadata for ${media_blob_id}` };
-    }
+      // get blob metadata for mime type
+      const client = await getClientForRemote(remote);
+      const metadataResult = await client.music.blobMetadata({ id: media_blob_id });
 
-    const blobMetadata = metadataResult.data;
-    const mimeType = blobMetadata.mime || "audio/mpeg";
-    const extension = getExtensionFromMimeType(mimeType);
+      if (!metadataResult.success || !metadataResult.data) {
+        return { success: false, error: `failed to fetch blob metadata for ${media_blob_id}` };
+      }
 
-    // fetch audio blob via transport (handles P2P vs HTTP)
-    let blobUrl: string;
-    if (onProgress && transport.getBlobUrlWithProgress) {
-      blobUrl = await transport.getBlobUrlWithProgress(media_blob_id, onProgress, song.blake3 ?? undefined);
-    } else {
-      blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined);
-    }
+      const blobMetadata = metadataResult.data;
+      const mimeType = blobMetadata.mime || "audio/mpeg";
+      const extension = getExtensionFromMimeType(mimeType);
 
-    // fetch the blob data
-    const response = await fetch(blobUrl);
-    if (!response.ok) {
-      return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
-    }
+      // fetch audio blob via transport (handles P2P vs HTTP)
+      let blobUrl: string;
+      if (onProgress && transport.getBlobUrlWithProgress) {
+        blobUrl = await transport.getBlobUrlWithProgress(
+          media_blob_id,
+          onProgress,
+          song.blake3 ?? undefined
+        );
+      } else {
+        blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined);
+      }
 
-    const blob = await response.blob();
+      // fetch the blob data
+      const response = await fetch(blobUrl);
+      if (!response.ok) {
+        return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
+      }
 
-    // browser mode: save to OPFS and IndexedDB
+      const blob = await response.blob();
 
-    // save to OPFS using sha256 as filename
-    const opfsPath = await writeAudioToOPFS(blob, sha256, extension);
+      // browser mode: save to OPFS and IndexedDB
 
-    // create or get artist record
-    const artistRecord = await getOrCreateArtist(song.artist_name || "unknown artist");
-    const artistId = artistRecord.artist_id;
+      // save to OPFS using sha256 as filename
+      const opfsPath = await writeAudioToOPFS(blob, sha256, extension);
 
-    // create or get album record
-    const albumRecord = await getOrCreateAlbum(song.album_title || "unknown album", artistId);
-    const albumId = albumRecord.album_id;
+      // create or get artist record
+      const artistRecord = await getOrCreateArtist(song.artist_name || "unknown artist");
+      const artistId = artistRecord.artist_id;
 
-    // tag album with remote name for discoverability
-    const existingTags = await getAlbumTags(albumId);
-    const existingTagNames = new Set(existingTags.map(t => t.name));
-    
-    // add remote name as tag
-    if (!existingTagNames.has(remote.name)) {
-      const tag = await createTag(remote.name);
-      await addAlbumTag(albumId, tag.tag_id);
-      debug("syncSongToLocal", `tagged album ${albumId.slice(0, 8)}... with "${remote.name}"`);
-    }
-    
-    // sync album tags from remote
-    if (song.album_tags?.length) {
-      for (const tagName of song.album_tags) {
-        if (!existingTagNames.has(tagName)) {
-          const tag = await createTag(tagName);
-          await addAlbumTag(albumId, tag.tag_id);
-          debug("syncSongToLocal", `synced remote tag "${tagName}" to album ${albumId.slice(0, 8)}...`);
+      // create or get album record
+      const albumRecord = await getOrCreateAlbum(song.album_title || "unknown album", artistId);
+      const albumId = albumRecord.album_id;
+
+      // tag album with remote name for discoverability
+      const existingTags = await getAlbumTags(albumId);
+      const existingTagNames = new Set(existingTags.map((t) => t.name));
+
+      // add remote name as tag
+      if (!existingTagNames.has(remote.name)) {
+        const tag = await createTag(remote.name);
+        await addAlbumTag(albumId, tag.tag_id);
+        debug("syncSongToLocal", `tagged album ${albumId.slice(0, 8)}... with "${remote.name}"`);
+      }
+
+      // sync album tags from remote
+      if (song.album_tags?.length) {
+        for (const tagName of song.album_tags) {
+          if (!existingTagNames.has(tagName)) {
+            const tag = await createTag(tagName);
+            await addAlbumTag(albumId, tag.tag_id);
+            debug(
+              "syncSongToLocal",
+              `synced remote tag "${tagName}" to album ${albumId.slice(0, 8)}...`
+            );
+          }
         }
       }
-    }
 
-    // download and store images
-    const songImages = await downloadAndStoreImages(remote, song.images);
-    const albumImages = await downloadAndStoreImages(remote, song.album_images);
+      // download and store images
+      const songImages = await downloadAndStoreImages(remote, song.images);
+      const albumImages = await downloadAndStoreImages(remote, song.album_images);
 
-    // update album images if we got new ones and album doesn't have any
-    if (albumImages.length > 0 && !albumRecord.images?.length) {
-      await updateAlbum(albumId, { images: albumImages });
-    }
+      // update album images if we got new ones and album doesn't have any
+      if (albumImages.length > 0 && !albumRecord.images?.length) {
+        await updateAlbum(albumId, { images: albumImages });
+      }
 
-    // sync album taxons (genre kind plus pass-through of others).
-    // mirrors every taxon into the unified taxons store tagged with the
-    // source remote_id so the local graph viz can navigate peer-cached
-    // taxons offline.
-    const { primaryGenreId, primaryGenreName, taxonRefs } = await syncAlbumTaxons(
-      albumId,
-      song.album_taxons,
-      remote_server_id,
-    );
+      // sync album taxons (genre kind plus pass-through of others).
+      // mirrors every taxon into the unified taxons store tagged with the
+      // source remote_id so the local graph viz can navigate peer-cached
+      // taxons offline.
+      const { primaryGenreId, primaryGenreName, taxonRefs } = await syncAlbumTaxons(
+        albumId,
+        song.album_taxons,
+        remote_server_id
+      );
 
-    // create local song record
-    const localSong: Song = {
-      id: sha256, // use sha256 as the primary key
-      sha256,
-      media_blob_id,
-      title: song.title || "untitled",
-      artist_id: artistId,
-      album_id: albumId,
-      track_number: song.track_number || 0,
-      disc_number: song.disc_number || 1,
-      duration_seconds: song.duration_seconds || 0,
-      year: song.year ?? null,
-      bpm: song.bpm ?? null,
-      track_artist: song.track_artist ?? null,
-      lyrics: song.lyrics ?? null,
-      metadata: song.metadata ?? null,
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      artist_name: song.artist_name || "unknown artist",
-      album_title: song.album_title || "unknown album",
-      images: songImages.length > 0 ? songImages : undefined,
-      // unwrap proxy array before storing in IDB (same pattern as queueHistory.ts)
-      urls: song.urls ? song.urls.map((url) => ({ ...url })) : undefined,
-      album_added_at: Date.now(),
-      album_primary_genre_id: primaryGenreId,
-      album_primary_genre_name: primaryGenreName,
-      album_taxons: taxonRefs.length > 0 ? taxonRefs : undefined,
-      source_type: "synced" as Song["source_type"],
-      opfs_path: opfsPath,
-      file_name: `${song.title || "untitled"}.${extension}`,
-      file_size: blob.size,
-      last_modified: Date.now(),
-      mime_type: mimeType,
-      source_url: null, // not downloaded via HTTP URL
-      downloaded_at: Date.now(),
-      remote_server_id: null, // no longer remote after sync
-      remote_song_id: song.remote_song_id ?? null, // keep for reference
-      blake3: song.blake3 ?? null,
-      added_at: Date.now(),
-    };
+      // create local song record
+      const localSong: Song = {
+        id: sha256, // use sha256 as the primary key
+        sha256,
+        media_blob_id,
+        title: song.title || "untitled",
+        artist_id: artistId,
+        album_id: albumId,
+        track_number: song.track_number || 0,
+        disc_number: song.disc_number || 1,
+        duration_seconds: song.duration_seconds || 0,
+        year: song.year ?? null,
+        bpm: song.bpm ?? null,
+        track_artist: song.track_artist ?? null,
+        lyrics: song.lyrics ?? null,
+        metadata: song.metadata ?? null,
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        artist_name: song.artist_name || "unknown artist",
+        album_title: song.album_title || "unknown album",
+        images: songImages.length > 0 ? songImages : undefined,
+        // unwrap proxy array before storing in IDB (same pattern as queueHistory.ts)
+        urls: song.urls ? song.urls.map((url) => ({ ...url })) : undefined,
+        album_added_at: Date.now(),
+        album_primary_genre_id: primaryGenreId,
+        album_primary_genre_name: primaryGenreName,
+        album_taxons: taxonRefs.length > 0 ? taxonRefs : undefined,
+        source_type: "synced" as Song["source_type"],
+        opfs_path: opfsPath,
+        file_name: `${song.title || "untitled"}.${extension}`,
+        file_size: blob.size,
+        last_modified: Date.now(),
+        mime_type: mimeType,
+        source_url: null, // not downloaded via HTTP URL
+        downloaded_at: Date.now(),
+        remote_server_id: null, // no longer remote after sync
+        remote_song_id: song.remote_song_id ?? null, // keep for reference
+        blake3: song.blake3 ?? null,
+        added_at: Date.now(),
+      };
 
-    // save to database
-    await db.put("songs", localSong);
+      // save to database
+      await db.put("songs", localSong);
 
-    // mark as synced in reactive store for UI updates
-    markSongSynced(sha256);
+      // mark as synced in reactive store for UI updates
+      markSongSynced(sha256);
 
-    debug("syncSongToLocal", `synced song ${song.title} to local storage`);
-    return { success: true, localSongId: sha256 };
+      debug("syncSongToLocal", `synced song ${song.title} to local storage`);
+      return { success: true, localSongId: sha256 };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errorLog("sync", `sync failed for "${song.title}":`, error);

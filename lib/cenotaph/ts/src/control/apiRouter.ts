@@ -56,6 +56,10 @@ export function createApiRouter(): ApiRouter {
   }
 
   async function dispatch(stream: CenotaphBiStream): Promise<void> {
+    // tracked outside the try so the catch block below can still respond
+    // with a real error status instead of just dropping the stream, even
+    // if the handler itself throws after this point.
+    let requestId: number | undefined;
     try {
       const bytes = await stream.read_to_end(64 * 1024);
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
@@ -67,6 +71,7 @@ export function createApiRouter(): ApiRouter {
         console.log("[debug/apiRouter] not an api_request message:", parsed);
         return;
       }
+      requestId = parsed.id;
 
       const handler = routes.get(routeKey(parsed.method, parsed.path));
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
@@ -79,12 +84,35 @@ export function createApiRouter(): ApiRouter {
       }
 
       const parsedBody: unknown = parsed.body ? JSON.parse(parsed.body) : null;
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(`[debug/apiRouter] ${parsed.method} ${parsed.path} body:`, parsedBody);
       const result = await handler(parsedBody);
       // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
       console.log(`[debug/apiRouter] handler result status=${result.status}`, result.body);
       await writeApiResponse(stream, parsed.id, result.status, result.body);
     } catch (err) {
       console.error("[cenotaph] api request handling failed:", err);
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(
+        `[debug/apiRouter] handler threw, sending 500 instead of dropping the stream:`,
+        err,
+      );
+      // previously this just fell through to `finally`'s `stream.close()`
+      // with no response ever written - the caller saw a bare "connection
+      // lost" with no way to tell a thrown exception from a real network
+      // drop. if `requestId` never got set (e.g. the bytes/JSON itself
+      // were malformed), there's no request to respond to - still just a
+      // close in that case.
+      if (requestId !== undefined) {
+        try {
+          await writeApiResponse(stream, requestId, 500, {
+            success: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        } catch {
+          // best-effort only - the stream may already be unusable.
+        }
+      }
     } finally {
       stream.close();
     }

@@ -21,6 +21,8 @@ import { preCacheBlob, getCachedBlob } from "../../../music/services/cache/blobC
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
+import { getClientForRemote } from "../../../app/api/client";
+import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { addLocalVideo, getLocalVideoById } from "../storage/db/videos";
 import { markVideoSynced } from "../syncState";
 import { writeVideoPosterToOPFS, writeVideoToOPFS } from "../opfs/helpers";
@@ -35,7 +37,8 @@ import { debug, warn } from "../../../utils/logger";
 async function fetchVideoBlobWithProgress(
   video: QueuedVideo,
   remoteId: string,
-  blobId: string
+  blobId: string,
+  remoteOverride?: Remote
 ): Promise<Blob> {
   if (await usesBlobResolver(remoteId)) {
     // P2P/charnel: preCacheP2PBlob tracks addToLoadingSet/updateLoadingProgress
@@ -53,7 +56,7 @@ async function fetchVideoBlobWithProgress(
 
   // plain HTTP remote: preCacheBlob streams into the Cache API with real
   // received/total progress (same call videoBlobAccess.ts's HTTP path uses).
-  const remote = await getRemoteById(remoteId);
+  const remote = remoteOverride ?? (await getRemoteById(remoteId));
   if (!remote?.base_url) {
     throw new Error(`remote ${remoteId} has no base_url`);
   }
@@ -84,8 +87,22 @@ function extensionFromMime(mime: string): string {
  * synced. syncs whichever blob is actually being played (the selected
  * rendition, if any, else the original) — the same file downloaded to
  * play, per the user's own framing. never throws; failures are logged
- * and simply skip the sync so playback is never affected. */
-export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
+ * and simply skip the sync so playback is never affected.
+ *
+ * @param remoteOverride - skip the internal `getRemoteById(remote_server_id)`
+ *   lookup and use this instead - for callers with a peer that was never
+ *   added as a persisted `Remote` (e.g. cenotaph's tier-2 sync-to-local).
+ *   see syncSongToLocal.ts's identical param for the full rationale. */
+export async function syncVideoToLocal(video: QueuedVideo, remoteOverride?: Remote): Promise<void> {
+  // TEMP DEBUG - remove once sync-to-local wiring bug is found
+  console.log(`[debug/syncVideoToLocal] called with:`, {
+    id: video.id,
+    source_type: video.source_type,
+    remote_server_id: video.remote_server_id,
+    media_blob_id: video.media_blob_id,
+    title: video.title,
+    syncQueueToLocal: getSyncQueueToLocal(),
+  });
   if (video.source_type !== "remote") return;
   if (!video.remote_server_id || !video.media_blob_id) return;
   if (!getSyncQueueToLocal()) return;
@@ -106,19 +123,56 @@ export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
 
   try {
     if (await getLocalVideoById(video.id)) {
+      // TEMP DEBUG - remove once sync-to-local wiring bug is found
+      console.log(
+        `[debug/syncVideoToLocal] ${video.id} already exists locally - skipping (dedup by source id)`
+      );
       return; // already synced
     }
 
     const blobId = await resolvePlaybackBlobId(video, video.remote_server_id);
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(`[debug/syncVideoToLocal] resolvePlaybackBlobId(${video.id}) = ${blobId}`);
     let videoBlob: Blob;
     try {
-      videoBlob = await fetchVideoBlobWithProgress(video, video.remote_server_id, blobId);
+      videoBlob = await fetchVideoBlobWithProgress(
+        video,
+        video.remote_server_id,
+        blobId,
+        remoteOverride
+      );
     } catch (err) {
       warn("videoSync", `fetch failed for video ${video.id}, skipping sync:`, err);
       return;
     }
     const extension = extensionFromMime(videoBlob.type);
     const opfsPath = await writeVideoToOPFS(videoBlob, video.id, extension);
+
+    // a video synced in from a remote already has a blake3 on its
+    // media_blobz record there - fetch it via the same shared
+    // blob_metadata route videoBlobAccess.ts already uses for progress
+    // (never hash client-side for a remote video; only local uploads need
+    // that, see video/import/localImport.ts). best-effort: a missing
+    // blake3 just means this synced copy won't be servable by blake3 to a
+    // further peer, not a sync failure.
+    let blake3: string | null = null;
+    try {
+      const remote = remoteOverride ?? (await getRemoteById(video.remote_server_id));
+      if (remote) {
+        const client = await getClientForRemote(remote);
+        const metadataResult = await client.music.blobMetadata({ id: blobId });
+        if (metadataResult.success && metadataResult.data) {
+          blake3 = metadataResult.data.blake3 ?? null;
+        }
+      }
+    } catch (err) {
+      warn("videoSync", `failed to fetch blake3 for video ${video.id} (non-fatal):`, err);
+    }
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/syncVideoToLocal] resolved blake3 for ${video.id} (blobId=${blobId}) =`,
+      blake3
+    );
 
     let posterOpfsPath: string | null = null;
     if (video.poster_blob_id) {
@@ -146,11 +200,18 @@ export async function syncVideoToLocal(video: QueuedVideo): Promise<void> {
       file_size: videoBlob.size,
       mime_type: videoBlob.type || "video/mp4",
       duration_seconds: video.duration_seconds ?? null,
+      blake3,
     });
     markVideoSynced(video.id);
 
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(
+      `[debug/syncVideoToLocal] addLocalVideo succeeded for ${video.id} (blake3=${blake3})`
+    );
     debug("videoSync", `synced video "${video.title}" (${video.id}) to local library`);
   } catch (err) {
+    // TEMP DEBUG - remove once sync-to-local wiring bug is found
+    console.log(`[debug/syncVideoToLocal] threw for ${video.id}:`, err);
     warn("videoSync", `sync-to-local failed for video ${video.id}:`, err);
   }
 }

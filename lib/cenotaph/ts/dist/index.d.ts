@@ -23,5 +23,5 @@ export { hasMSE, choosePlaybackMode, type PlaybackMode } from "./playback/mseSup
 export { fetchMediaBlob } from "./playback/mediaFetch";
 export type { MediaPlaybackNode } from "./playback/types";
 export { startRadio, stopRadio, radioState, radioNowPlaying, radioStationId, radioListenerCount, radioError, radioElement, type RadioState, type RadioNowPlaying, } from "./playback/radioClient";
-export { mediaPlaybackBackend, retryPlayback, engineState, nowPlaying, engineError, upcomingQueue, mediaElement, mediaKind, downloadProgress, playbackPosition, playbackDuration, queueItemStatus, pause, resume, skip, type EngineState, } from "./playback/playbackEngine";
+export { mediaPlaybackBackend, retryPlayback, engineState, nowPlaying, engineError, upcomingQueue, mediaElement, mediaKind, downloadProgress, playbackPosition, playbackDuration, queueItemStatus, pause, resume, skip, setLocalLibraryHooks, type EngineState, type LocalLibraryHooks, } from "./playback/playbackEngine";
 //# sourceMappingURL=index.d.ts.map

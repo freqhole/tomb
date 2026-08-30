@@ -1,6 +1,24 @@
 import type { MediaRef, PlayerStatus } from "../control/schema";
 import type { PlaybackBackend } from "../control/playbackBackend";
 import type { MediaPlaybackNode } from "./types";
+/**
+ * host-supplied bridge to a real local media library (e.g. spume's own
+ * IDB/OPFS song catalog) - optional. with no hooks registered, cenotaph
+ * behaves exactly as it did before tier 2 existed: every item goes through
+ * the persistent-then-network blob cache below, nothing gets promoted into
+ * a real library.
+ */
+export interface LocalLibraryHooks {
+    /** null if this blake3 hash isn't already cataloged in the local library. */
+    getLocalBlob(blake3Hash: string): Promise<Blob | null>;
+    /** whether newly-fetched items should be promoted into the real local
+     * library instead of the ephemeral/persistent cache. */
+    isSyncEnabled(): boolean;
+    /** best-effort: pull the full item (audio + metadata) into the local
+     * library. return null (or throw) to fall back to the ephemeral cache. */
+    syncToLocal(item: MediaRef): Promise<Blob | null>;
+}
+export declare function setLocalLibraryHooks(hooks: LocalLibraryHooks | null): void;
 export type EngineState = "idle" | "buffering" | "playing" | "paused" | "stopped" | "error" | "blocked";
 export declare const engineState: import("solid-js").Accessor<EngineState>;
 export declare const nowPlaying: import("solid-js").Accessor<{

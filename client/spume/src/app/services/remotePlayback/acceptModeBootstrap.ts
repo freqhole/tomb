@@ -27,6 +27,7 @@ import {
 import { spumeTrustStore } from "./trustStoreAdapter";
 import { getSpumeHelloInfo } from "./spumeHelloRoute";
 import { isRemotePlaybackEnabled } from "./remoteModeSettings";
+import { registerBrowserApiRoutes } from "../../../lib/api/router";
 
 /** the node shape this module's two accept-loop handlers actually need.
  * `getMiddenNode()`'s declared return type (`MiddenNodeLike`, from
@@ -51,11 +52,21 @@ export function initRemotePlaybackAcceptMode(node: MiddenNodeLike): void {
 
   const apiRouter = createApiRouter();
   apiRouter.registerRoute("GET", "/api/hello", createHelloRouteHandler(getSpumeHelloInfo));
+  // browser-side implementation of a small slice of grimoire's own api
+  // contract (docs/cenotaph-migration-plan.md phase 3, tier 2) - lets a
+  // browser peer answer song/blob metadata lookups the same way a real
+  // grimoire remote does, so a controlling peer's cenotaph sync-to-local
+  // flow doesn't need to know which kind of remote it's talking to.
+  registerBrowserApiRoutes(apiRouter);
 
   const playerHandler = createPlayerConnectionHandler<AcceptModeNode>({
     backend: mediaPlaybackBackend,
     trustStore: spumeTrustStore,
-    isEnabled: isRemotePlaybackEnabled,
+    // only actually accept playback commands while this tab is showing
+    // /player/ - otherwise mediaPlaybackBackend (and its own <video>
+    // element) would get driven silently, with no UI observing it at all
+    // (only CenotaphPlayerApp renders this backend's state).
+    isEnabled: () => isRemotePlaybackEnabled() && window.location.pathname.startsWith("/player"),
   });
 
   startAcceptLoop<AcceptModeNode>(acceptNode, {

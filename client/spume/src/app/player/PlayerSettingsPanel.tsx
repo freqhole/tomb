@@ -15,7 +15,12 @@ import {
   setDevelMode,
   type TrustedController,
 } from "@freqhole/cenotaph";
-import { getLocalLibraryName, setLocalLibraryName } from "../services/storage/db";
+import {
+  getLocalLibraryName,
+  getSyncQueueToLocal,
+  setLocalLibraryName,
+  setSyncQueueToLocal,
+} from "../services/storage/db";
 import {
   remotePlaybackEnabled,
   setRemotePlaybackEnabled,
@@ -48,12 +53,22 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
 
   return (
     <div
-      class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-6"
+      class="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/90 p-6"
       data-testid="settings-panel"
     >
-      <div class="flex w-full max-w-md flex-col gap-6 text-left">
+      <div class="flex max-h-full w-full max-w-md flex-col gap-6 overflow-y-auto text-left">
         <div class="flex items-center justify-between">
-          <h2 class="text-lg font-semibold">player settings</h2>
+          <div class="flex items-center gap-3">
+            <a
+              href="/"
+              class="text-neutral-400"
+              title="back to spume"
+              data-testid="back-to-spume-link"
+            >
+              &#8592;
+            </a>
+            <h2 class="text-lg font-semibold">player settings</h2>
+          </div>
           <button
             type="button"
             class="text-sm text-neutral-400"
@@ -124,6 +139,26 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
           <p class="text-xs text-neutral-500">
             off by default - turn on to let other devices pair with (and control playback on) this
             one, via pin or qr code.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <label class="text-xs tracking-widest text-neutral-500 uppercase">
+            sync queue to local library
+          </label>
+          <button
+            type="button"
+            class="self-start rounded bg-neutral-700 px-3 py-1 text-sm"
+            aria-pressed={getSyncQueueToLocal()}
+            onClick={() => void setSyncQueueToLocal(!getSyncQueueToLocal())}
+            data-testid="sync-queue-to-local-toggle"
+          >
+            {getSyncQueueToLocal() ? "on" : "off"}
+          </button>
+          <p class="text-xs text-neutral-500">
+            on by default - saves queued media into this device's own local library instead of just
+            an ephemeral cache, so it plays back offline. shares the same setting as spume's normal
+            library auto-download feature.
           </p>
         </div>
 

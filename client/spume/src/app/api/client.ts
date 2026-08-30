@@ -27,6 +27,7 @@ import { isCharnelMode } from "../services/charnel";
 import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
 import { PLAYER_ALPN } from "@freqhole/cenotaph";
 import { initRemotePlaybackAcceptMode } from "../services/remotePlayback/acceptModeBootstrap";
+import { initLocalLibraryHooks } from "../services/remotePlayback/localLibraryHooks";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -166,6 +167,11 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     // pairing/control accept loop - see acceptModeBootstrap.ts. safe to
     // call unconditionally (isEnabled gates on the actual opt-in toggle).
     initRemotePlaybackAcceptMode(node);
+    // wires spume's own browser library into cenotaph's playback engine
+    // (docs/cenotaph-migration-plan.md phase 3, tier 2) - independent of
+    // remote-playback accept mode, since this tab may also be the one
+    // driving playback itself (e.g. via /player/).
+    initLocalLibraryHooks();
 
     return node;
   })();
