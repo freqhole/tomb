@@ -100,9 +100,8 @@ static YOUTUBE_ID_SUFFIX_PATTERN: Lazy<Regex> =
 /// `SEASON_EPISODE_PATTERNS` above) is the primary, much more reliable
 /// signal for where a title starts/ends, so this boundary list is
 /// intentionally conservative rather than exhaustive.
-static EPISODE_TITLE_BOUNDARY_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\s*(?:\||\u2022|\u00b7|\u2016|--+|\u2013|\u2014)\s*").unwrap()
-});
+static EPISODE_TITLE_BOUNDARY_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s*(?:\||\u2022|\u00b7|\u2016|--+|\u2013|\u2014)\s*").unwrap());
 
 /// ordered season/episode regexes - first match wins. compiled once.
 static SEASON_EPISODE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
@@ -177,7 +176,11 @@ fn parse_video_filename_inner(stem: &str) -> ParsedVideoFilename {
             let title = clean_title(&title_source);
 
             let prefix = clean_title(&stem[..whole_match.start()]);
-            let series_title = if prefix.is_empty() { None } else { Some(prefix) };
+            let series_title = if prefix.is_empty() {
+                None
+            } else {
+                Some(prefix)
+            };
 
             // YouTube full-episode uploads commonly pack extra branding/
             // promo text after the real episode title, separated by one of
@@ -188,7 +191,11 @@ fn parse_video_filename_inner(stem: &str) -> ParsedVideoFilename {
                 .next()
                 .unwrap_or_default();
             let suffix = clean_title(suffix_first_segment.trim_start_matches(':'));
-            let episode_title = if suffix.is_empty() { None } else { Some(suffix) };
+            let episode_title = if suffix.is_empty() {
+                None
+            } else {
+                Some(suffix)
+            };
 
             return ParsedVideoFilename {
                 season,
@@ -371,8 +378,9 @@ mod tests {
 
     #[test]
     fn test_spelled_out_with_extra_title_after() {
-        let parsed =
-            parse_video_filename(&PathBuf::from("Show Name Season 01 Episode 02 - The One.mkv"));
+        let parsed = parse_video_filename(&PathBuf::from(
+            "Show Name Season 01 Episode 02 - The One.mkv",
+        ));
         assert_eq!(parsed.season, Some(1));
         assert_eq!(parsed.episode, Some(2));
         // both the leading and trailing text are joined into the title
@@ -397,7 +405,10 @@ mod tests {
         );
         assert_eq!(parsed.season, Some(2));
         assert_eq!(parsed.episode, Some(7));
-        assert_eq!(parsed.series_title, Some("Aqua Teen Hunger Force".to_string()));
+        assert_eq!(
+            parsed.series_title,
+            Some("Aqua Teen Hunger Force".to_string())
+        );
         assert_eq!(parsed.episode_title, Some("Super Sirloin".to_string()));
     }
 
@@ -407,7 +418,10 @@ mod tests {
             strip_youtube_video_id("Super Sirloin-[cJflurmelhY]"),
             "Super Sirloin"
         );
-        assert_eq!(strip_youtube_video_id("Some Movie (2020)"), "Some Movie (2020)");
+        assert_eq!(
+            strip_youtube_video_id("Some Movie (2020)"),
+            "Some Movie (2020)"
+        );
     }
 
     #[test]

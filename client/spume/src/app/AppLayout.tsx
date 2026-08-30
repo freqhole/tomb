@@ -29,6 +29,7 @@ import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitchin
 import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarget";
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
+import { isTouchDevice } from "../utils/isMobile";
 import { TopNav } from "../components/navigation/TopNav";
 import {
   topNavRightContent,
@@ -39,7 +40,11 @@ import {
 } from "./shell/topNavSlots";
 import type { ViewOption } from "../components/navigation/ViewSelector";
 import { PlayerBar, type PlayerBarVideo } from "../components/player/PlayerBar";
-import { VideoMiniPlayer } from "../components/player/VideoMiniPlayer";
+import {
+  VideoMiniPlayer,
+  videoMiniPlayerExpanded,
+  collapseVideoMiniPlayer,
+} from "../components/player/VideoMiniPlayer";
 import { QueueSidebar } from "../components/player/QueueSidebar";
 
 import { isRemoteTargetActive } from "./services/players/activeTarget";
@@ -854,6 +859,13 @@ export function AppLayout(props: AppLayoutProps) {
   };
 
   const handleQueueToggle = async () => {
+    // the queue sidebar never renders above the expanded mini player, so
+    // its toggle button is otherwise dead while expanded on touch devices
+    // (no hover affordance to collapse it instead) - repurpose it.
+    if (isTouchDevice() && videoMiniPlayerExpanded()) {
+      collapseVideoMiniPlayer();
+      return;
+    }
     await setQueueOpen(!queueOpen());
   };
 

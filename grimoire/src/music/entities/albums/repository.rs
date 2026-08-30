@@ -772,8 +772,8 @@ pub async fn delete_album(id: &str, deleted_by: Option<String>) -> GrimoireRespo
             "DELETE FROM playlist_itemz WHERE entity_type = 'song' AND entity_id = ?",
             song_id
         )
-            .execute(&pool)
-            .await
+        .execute(&pool)
+        .await
         {
             return GrimoireResponse::failure(
                 "Failed to remove song from playlists",

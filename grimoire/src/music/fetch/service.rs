@@ -267,17 +267,15 @@ pub async fn download_media(
     let output_dir = format!("{}/{}", base_output_dir, job_id);
 
     // ensure output directory exists
-    tokio::fs::create_dir_all(&output_dir)
-        .await
-        .map_err(|e| {
-            // base output dir missing/no permission is a config problem that
-            // will fail identically on every retry - don't burn the job's
-            // retry budget on it.
-            not_retryable(
-                FETCH_ERROR_OUTPUT_DIR,
-                format!("failed to create output directory {}: {}", output_dir, e),
-            )
-        })?;
+    tokio::fs::create_dir_all(&output_dir).await.map_err(|e| {
+        // base output dir missing/no permission is a config problem that
+        // will fail identically on every retry - don't burn the job's
+        // retry budget on it.
+        not_retryable(
+            FETCH_ERROR_OUTPUT_DIR,
+            format!("failed to create output directory {}: {}", output_dir, e),
+        )
+    })?;
 
     info!("downloading media from URL: {} to {}", url, output_dir);
 

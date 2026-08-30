@@ -18,7 +18,6 @@ use crate::response::GrimoireResponse;
 /// mirroring the ~90% completion heuristic used elsewhere for plays.
 const WATCHED_THRESHOLD: f64 = 0.9;
 
-
 /// a single playback progress row
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
 pub struct PlaybackProgress {

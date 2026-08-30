@@ -131,14 +131,9 @@ pub async fn create_media_blob_from_file(
                     // mid-stream, disk read error, permission denied, etc) so this is
                     // diagnosable later - one error_type covers every cause on purpose,
                     // but the detail text still tells them apart.
-                    format!(
-                        "Failed to hash file {}: {} ({:?})",
-                        file_path,
-                        e,
-                        e.kind()
-                    ),
+                    format!("Failed to hash file {}: {} ({:?})", file_path, e, e.kind()),
                 )],
-            )
+            );
         }
     };
 
@@ -162,7 +157,6 @@ pub async fn create_media_blob_from_file(
             None // non-fatal, can compute on-demand later
         }
     };
-
 
     let request = CreateMediaBlobRequest {
         sha256,

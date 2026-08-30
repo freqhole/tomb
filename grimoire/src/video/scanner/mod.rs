@@ -64,8 +64,6 @@ pub async fn scan_directory(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn defaults_to_video_extensions_when_none_given() {
         crate::config::init_config_for_tests();

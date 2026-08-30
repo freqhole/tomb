@@ -131,18 +131,24 @@ jobs:
         with:
           node-version: 24
 
-      # spume links @freqhole/haruspex, @freqhole/reliquary and
-      # @freqhole/midden by `file:` into lib/haruspex/ts, lib/reliquary/ts and
-      # lib/midden/pkg respectively - all part of this checkout now, so no
-      # sibling repo checkout is needed. midden's pkg/ output is committed to
-      # git, but haruspex/reliquary's dist/ is gitignored, so they must be
-      # built here before spume can resolve their subpath exports.
+      # spume links @freqhole/haruspex, @freqhole/reliquary, @freqhole/cenotaph
+      # and @freqhole/midden by `file:` into lib/haruspex/ts, lib/reliquary/ts,
+      # lib/cenotaph/ts and lib/midden/pkg respectively - all part of this
+      # checkout now, so no sibling repo checkout is needed. midden's pkg/
+      # output is committed to git, but haruspex/reliquary/cenotaph's dist/ is
+      # gitignored, so they must be built here before spume can resolve their
+      # subpath exports. cenotaph depends on haruspex+reliquary's own dist/
+      # output, so it must be built last.
       - name: install + build haruspex
         working-directory: lib/haruspex/ts
         run: npm ci && npm run build
 
       - name: install + build reliquary
         working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
+
+      - name: install + build cenotaph
+        working-directory: lib/cenotaph/ts
         run: npm ci && npm run build
 
       # spume also links freqhole-api-client by `file:` (a symlink to its raw
@@ -278,15 +284,19 @@ jobs:
         with:
           node-version: 24
 
-      # eslint resolves imports into the haruspex/reliquary `file:` links
-      # too, so their dist/ output must be built first (same reason as the
-      # typecheck job above).
+      # eslint resolves imports into the haruspex/reliquary/cenotaph `file:`
+      # links too, so their dist/ output must be built first (same reason as
+      # the typecheck job above).
       - name: install + build haruspex
         working-directory: lib/haruspex/ts
         run: npm ci && npm run build
 
       - name: install + build reliquary
         working-directory: lib/reliquary/ts
+        run: npm ci && npm run build
+
+      - name: install + build cenotaph
+        working-directory: lib/cenotaph/ts
         run: npm ci && npm run build
 
       # eslint resolves imports into the api-client `file:` symlink, so its

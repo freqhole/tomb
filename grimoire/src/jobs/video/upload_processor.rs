@@ -90,9 +90,12 @@ pub async fn process_import_video_job(job: &Job) -> Result<Option<serde_json::Va
 
     // purges the just-uploaded file instead if it's a duplicate of an
     // already-owned file elsewhere (see the function's doc comment).
-    if let Err(e) =
-        set_blob_local_path_or_purge_duplicate(&blob_id, local_path_str, Some("job_processor".to_string()))
-            .await
+    if let Err(e) = set_blob_local_path_or_purge_duplicate(
+        &blob_id,
+        local_path_str,
+        Some("job_processor".to_string()),
+    )
+    .await
     {
         // may already be set - not fatal, mirrors ImportMusic's handling
         info!(

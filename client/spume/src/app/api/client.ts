@@ -26,8 +26,6 @@ import { isCharnelMode } from "../services/charnel";
 // that Safari JSC throws a TDZ error on before the chunk has evaluated
 import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
 import { PLAYER_ALPN } from "@freqhole/cenotaph";
-import { initRemotePlaybackAcceptMode } from "../services/remotePlayback/acceptModeBootstrap";
-import { initLocalLibraryHooks } from "../services/remotePlayback/localLibraryHooks";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -163,15 +161,11 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
       console.log("[midden] blob server started (accepting iroh-blobs connections)");
     }
 
-    // freqhole/1 hello route (server-info probes) + freqhole-player/1
-    // pairing/control accept loop - see acceptModeBootstrap.ts. safe to
-    // call unconditionally (isEnabled gates on the actual opt-in toggle).
-    initRemotePlaybackAcceptMode(node);
-    // wires spume's own browser library into cenotaph's playback engine
-    // (docs/cenotaph-migration-plan.md phase 3, tier 2) - independent of
-    // remote-playback accept mode, since this tab may also be the one
-    // driving playback itself (e.g. via /player/).
-    initLocalLibraryHooks();
+    // freqhole/1 hello route + freqhole-player/1 accept loop + local
+    // library hooks are wired up by initRemotePlaybackBootstrap() (see
+    // app/services/remotePlayback/bootstrap.ts), registered once from
+    // App.tsx's boot sequence via onMiddenReady - kept out of this
+    // function to avoid a static import cycle back into client.ts.
 
     return node;
   })();

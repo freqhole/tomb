@@ -48,12 +48,14 @@ pub async fn process_precheck_fetch_job(job: &Job) -> Result<Option<Value>, JobE
         });
     }
 
-    let precheck_cmd = fetch_config.precheck_command.as_ref().ok_or_else(|| {
-        JobError::ProcessingFailedFinal {
-            reason: "precheck_command not configured".to_string(),
-            error_type: "fetch_precheck_command_not_configured".to_string(),
-        }
-    })?;
+    let precheck_cmd =
+        fetch_config
+            .precheck_command
+            .as_ref()
+            .ok_or_else(|| JobError::ProcessingFailedFinal {
+                reason: "precheck_command not configured".to_string(),
+                error_type: "fetch_precheck_command_not_configured".to_string(),
+            })?;
 
     let parts: Vec<&str> = precheck_cmd.split_whitespace().collect();
     if parts.is_empty() {

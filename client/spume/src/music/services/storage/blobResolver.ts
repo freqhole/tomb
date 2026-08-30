@@ -31,7 +31,9 @@ import {
 } from "../download";
 import { canSyncSong, syncSongToLocal } from "../sync";
 import type { SyncableSong } from "../sync";
-import { isRodioEnabled } from "../audio/select";
+// import directly from the leaf module (not select.ts) - select.ts pulls
+// in RodioBackend's own import chain, which would close a cycle back here.
+import { isRodioEnabled } from "../audio/rodioPreference";
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { fetchEphemeralForSong } from "../audio/ephemeralFetch";
 import type { Song } from "./types";

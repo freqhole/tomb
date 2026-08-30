@@ -1,6 +1,7 @@
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Icon, IconNames } from "../icons/registry";
 import { debug } from "../../utils/logger";
+import { isTouchDevice } from "../../utils/isMobile";
 import { isPlaying, pause, togglePlayback } from "../../music/services/audio/player";
 
 // delay before a click's play/pause toggle fires, so a second click
@@ -14,6 +15,14 @@ const CLICK_VS_DBLCLICK_DELAY_MS = 220;
 // incidental remount of this component.
 const [expanded, setExpanded] = createSignal(false);
 export const videoMiniPlayerExpanded = expanded;
+
+/** collapses an expanded mini player from outside this component - used
+ * by the player bar's queue toggle on touch devices, where the queue
+ * sidebar never renders above the expanded video anyway (see
+ * AppLayout.tsx's handleQueueToggle). no-op if already collapsed. */
+export function collapseVideoMiniPlayer(): void {
+  setExpanded(false);
+}
 
 export interface VideoMiniPlayerProps {
   /** the singleton `<video>` element owned by the video backend — moved
@@ -105,67 +114,102 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     requestFullscreen();
   };
 
+  // shared button markup for both placements below - a touch device with
+  // the panel collapsed renders these in a row above the video (no hover
+  // affordance to reveal an overlay), everyone else gets the overlay.
+  const ControlButtons = () => (
+    <>
+      <button
+        type="button"
+        class="bg-black/50 rounded p-1.5"
+        onClick={toggleExpand}
+        title={expanded() ? "collapse" : "expand"}
+      >
+        <Icon
+          name={expanded() ? IconNames.collapseWindow : IconNames.expandWindow}
+          size={16}
+          className="text-white drop-shadow-lg"
+        />
+      </button>
+      <button
+        type="button"
+        class="bg-black/50 rounded p-1.5"
+        onClick={requestFullscreen}
+        title="fullscreen"
+      >
+        <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
+      </button>
+      <button type="button" class="bg-black/50 rounded p-1.5" onClick={handleClose} title="close">
+        <Icon name={IconNames.close} size={16} className="text-white drop-shadow-lg" />
+      </button>
+    </>
+  );
+
+  // controls sit above the video (own row, no overlap) only when
+  // collapsed on a touch device - expanded has no "above" space to move
+  // into (the panel already fills the viewport), so it keeps the overlay.
+  const controlsAboveVideo = () => isTouchDevice() && !expanded();
+
   return (
     <div
-      class="fixed z-[1500] bg-black overflow-hidden group"
+      class="fixed z-[1500] flex flex-col"
       classList={{
-        "inset-x-0 wide:inset-x-auto wide:right-[66px] wide:w-96 lg:w-[28rem] xl:w-[36rem] 2xl:w-[40rem] aspect-video":
+        "inset-x-0 wide:inset-x-auto wide:right-[66px] wide:w-96 lg:w-[28rem] xl:w-[36rem] 2xl:w-[40rem]":
           !expanded(),
         "inset-0": expanded(),
       }}
-      style={{
-        bottom: "var(--player-bar-height, 0px)",
-        ...(expanded()
-          ? {}
-          : {
-              "box-shadow":
-                "0 20px 60px -15px rgba(0, 0, 0, 0.9), 0 0 24px 4px rgba(255, 255, 255, 0.12)",
-              // clip the shadow itself at the bottom edge (sits flush against
-              // the player bar there) while letting it show on the other sides
-              "clip-path": "inset(-40px -40px 0 -40px)",
-            }),
-      }}
+      style={{ bottom: "var(--player-bar-height, 0px)" }}
     >
+      <Show when={controlsAboveVideo()}>
+        <div class="flex justify-end pb-1.5">
+          <div class="flex items-center gap-1 bg-black/40 rounded-lg p-1">
+            <ControlButtons />
+          </div>
+        </div>
+      </Show>
       <div
-        ref={(el) => (mount = el)}
-        class="w-full h-full cursor-pointer"
-        onClick={handleClick}
-        onDblClick={handleDblClick}
-      />
-      <div
-        class="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{
-          // while expanded, the chromeless title-bar strip renders above
-          // this panel (see TitleBarStrip.tsx) - drop below its height so
-          // it doesn't cover these buttons. --chrome-top-inset is 0 when
-          // the strip isn't active (non-mac/non-tauri), so this is a
-          // no-op there.
-          top: expanded() ? "calc(0.5rem + var(--chrome-top-inset, 0px))" : "0.5rem",
-        }}
+        class="relative bg-black overflow-hidden group"
+        classList={{ "aspect-video": !expanded(), "h-full": expanded() }}
+        style={
+          expanded()
+            ? {}
+            : {
+                "box-shadow":
+                  "0 20px 60px -15px rgba(0, 0, 0, 0.9), 0 0 24px 4px rgba(255, 255, 255, 0.12)",
+                // clip the shadow itself at the bottom edge (sits flush against
+                // the player bar there) while letting it show on the other sides
+                "clip-path": "inset(-40px -40px 0 -40px)",
+              }
+        }
       >
-        <button
-          type="button"
-          class="bg-black/50 rounded p-1.5"
-          onClick={toggleExpand}
-          title={expanded() ? "collapse" : "expand"}
-        >
-          <Icon
-            name={expanded() ? IconNames.collapseWindow : IconNames.expandWindow}
-            size={16}
-            className="text-white drop-shadow-lg"
-          />
-        </button>
-        <button
-          type="button"
-          class="bg-black/50 rounded p-1.5"
-          onClick={requestFullscreen}
-          title="fullscreen"
-        >
-          <Icon name={IconNames.fullscreen} size={16} className="text-white drop-shadow-lg" />
-        </button>
-        <button type="button" class="bg-black/50 rounded p-1.5" onClick={handleClose} title="close">
-          <Icon name={IconNames.close} size={16} className="text-white drop-shadow-lg" />
-        </button>
+        <div
+          ref={(el) => (mount = el)}
+          class="w-full h-full cursor-pointer"
+          onClick={handleClick}
+          onDblClick={handleDblClick}
+        />
+        <Show when={!controlsAboveVideo()}>
+          <div
+            class="absolute right-2 flex items-center gap-1"
+            classList={{
+              // hover has no touch equivalent - keep the controls always
+              // visible on touch devices instead of hiding them behind an
+              // unreachable hover state.
+              "opacity-100": isTouchDevice(),
+              "opacity-0 group-hover:opacity-100 transition-opacity": !isTouchDevice(),
+            }}
+            style={{
+              // while expanded, the chromeless title-bar strip renders above
+              // this panel (see TitleBarStrip.tsx) - drop below its height so
+              // it doesn't cover these buttons. --chrome-top-inset is 0 when
+              // the strip isn't active (non-mac/non-tauri), so this is a
+              // no-op there.
+              top: expanded() ? "calc(0.5rem + var(--chrome-top-inset, 0px))" : "0.5rem",
+            }}
+          >
+            <ControlButtons />
+          </div>
+        </Show>
       </div>
     </div>
   );

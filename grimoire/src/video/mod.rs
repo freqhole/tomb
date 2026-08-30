@@ -23,9 +23,9 @@ pub use entities::seasons::{
     UpdateVideoSeasonRequest, VideoSeason,
 };
 pub use entities::series::{
-    create_video_series, find_or_create_video_series, find_video_series_by_title,
-    get_video_series, list_video_seriez, update_video_series, CreateVideoSeriesRequest,
-    UpdateVideoSeriesRequest, VideoSeries,
+    create_video_series, find_or_create_video_series, find_video_series_by_title, get_video_series,
+    list_video_seriez, update_video_series, CreateVideoSeriesRequest, UpdateVideoSeriesRequest,
+    VideoSeries,
 };
 pub use entities::videos::{
     create_video, get_video, get_video_with_metadata, list_recently_added_videos,
@@ -77,10 +77,10 @@ pub use search::{
 
 // import review (grouped by detected series) - mirrors
 // `crate::music::entities::import_review`
+pub use entities::import_review::repository as import_review_repository;
 pub use entities::import_review::{
     ListPendingVideoReviewRequest, MarkVideoGroupReviewedRequest, MoveVideoReviewRequest,
     PatchVideoGroupReviewRequest, PendingReviewVideoSummary, PendingVideoReviewGroup,
     PendingVideoReviewSession, VideoImportReviewOk, VideoPendingRequest, VideoPendingResponse,
     VideoReviewPatch,
 };
-pub use entities::import_review::repository as import_review_repository;

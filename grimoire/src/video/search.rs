@@ -177,9 +177,15 @@ pub async fn search_video_seriez(
         .map(|row| {
             let primary_match = text_contains_query(&row.series_title, query);
             let (match_type, highlight) = if primary_match {
-                ("title".to_string(), generate_highlight(&row.series_title, query))
+                (
+                    "title".to_string(),
+                    generate_highlight(&row.series_title, query),
+                )
             } else {
-                ("description".to_string(), generate_highlight(&row.series_title, query))
+                (
+                    "description".to_string(),
+                    generate_highlight(&row.series_title, query),
+                )
             };
 
             VideoSeriesSearchResult {

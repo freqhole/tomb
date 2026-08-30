@@ -41,13 +41,12 @@ pub async fn record_play_event(
     };
 
     // Then record the denormalized play event with the media_event_id
-    let play_event_id =
-        match record_play_event_with_conn(&mut tx, &media_event_id, play_event).await {
-            Ok(id) => id,
-            Err(e) => {
-                return GrimoireResponse::failure("Failed to record play event", vec![e.into()])
-            }
-        };
+    let play_event_id = match record_play_event_with_conn(&mut tx, &media_event_id, play_event)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => return GrimoireResponse::failure("Failed to record play event", vec![e.into()]),
+    };
 
     if let Err(e) = tx.commit().await {
         return GrimoireResponse::failure("Failed to commit transaction", vec![e.into()]);
@@ -277,7 +276,6 @@ pub fn create_complete_event(
 
     (media_event, play_event)
 }
-
 
 #[cfg(test)]
 mod tests {

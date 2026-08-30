@@ -150,12 +150,17 @@ pub async fn get_suggestions(
                 }
             }
         }
-        SearchField::Videos => match crate::video::get_video_suggestions(&pool, &req.partial, user_id).await {
-            Ok(s) => s,
-            Err(e) => {
-                return GrimoireResponse::failure("failed to get video suggestions", vec![e.into()])
+        SearchField::Videos => {
+            match crate::video::get_video_suggestions(&pool, &req.partial, user_id).await {
+                Ok(s) => s,
+                Err(e) => {
+                    return GrimoireResponse::failure(
+                        "failed to get video suggestions",
+                        vec![e.into()],
+                    )
+                }
             }
-        },
+        }
         SearchField::VideoSeries => {
             match crate::video::get_video_series_suggestions(&pool, &req.partial).await {
                 Ok(s) => s,

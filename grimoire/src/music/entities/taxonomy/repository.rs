@@ -323,7 +323,9 @@ pub async fn list_taxon_kinds(domain: Option<&str>) -> GrimoireResponse<Vec<Taxo
             id: "synth::unassigned".to_string(),
             slug: "unassigned".to_string(),
             label: "unassigned".to_string(),
-            description: Some("synthesized hub: albums/videos with no taxon assignments".to_string()),
+            description: Some(
+                "synthesized hub: albums/videos with no taxon assignments".to_string(),
+            ),
             color: None,
             value_type: "categorical".to_string(),
             unit: None,

@@ -43,7 +43,10 @@ pub async fn add_entity_url(
     {
         Ok(row) => row.id,
         Err(e) => {
-            return GrimoireResponse::failure("Failed to add entity url", vec![ErrorDetail::from(e)])
+            return GrimoireResponse::failure(
+                "Failed to add entity url",
+                vec![ErrorDetail::from(e)],
+            )
         }
     };
 
@@ -83,7 +86,10 @@ pub async fn remove_entity_url(
     .execute(&pool)
     .await
     {
-        return GrimoireResponse::failure("Failed to remove entity url", vec![ErrorDetail::from(e)]);
+        return GrimoireResponse::failure(
+            "Failed to remove entity url",
+            vec![ErrorDetail::from(e)],
+        );
     }
 
     GrimoireResponse::success_unit("Entity url removed successfully")

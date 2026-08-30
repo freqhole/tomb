@@ -260,8 +260,7 @@ async fn validate_items(pool: &SqlitePool, items: &[SessionItem]) -> Vec<Session
     let valid_video_ids: std::collections::HashSet<String> = if video_ids.is_empty() {
         Default::default()
     } else {
-        let video_ids_json =
-            serde_json::to_string(&video_ids).unwrap_or_else(|_| "[]".to_string());
+        let video_ids_json = serde_json::to_string(&video_ids).unwrap_or_else(|_| "[]".to_string());
         let result: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar!(
             r#"
             SELECT v.id as "id!"
@@ -840,4 +839,3 @@ pub async fn delete_playback_session(session_id: &str) -> GrimoireResponse<()> {
         Err(e) => GrimoireResponse::failure("failed to delete session", vec![e.into()]),
     }
 }
-

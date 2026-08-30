@@ -344,13 +344,15 @@ async fn count_entity_images(
             .fetch_one(pool)
             .await?
         }
-        "video" | "video_series" => sqlx::query_scalar!(
+        "video" | "video_series" => {
+            sqlx::query_scalar!(
             "SELECT COUNT(*) as count FROM entity_imagez WHERE entity_type = ? AND entity_id = ?",
             entity_type,
             entity_id
         )
-        .fetch_one(pool)
-        .await?,
+            .fetch_one(pool)
+            .await?
+        }
         _ => 0,
     };
 

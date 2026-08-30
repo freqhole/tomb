@@ -38,6 +38,7 @@ import { savePairedPlayer } from "../../app/services/players/pairedPlayers";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug } from "../../utils/logger";
+import { parsePlayerPairingQr } from "../../utils/playerPairingQr";
 import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
@@ -354,7 +355,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   };
 
   const handleTestConnection = (input: string) => {
-    void dispatch({ type: "SUBMIT_URL", input });
+    // a scanned/pasted freqhole-player pairing qr (`?p=<base64url json>` -
+    // see app/player/renderPairingQr.ts) wraps its node_id in a url whose
+    // host is meaningless (often the player's own dev-server localhost
+    // origin, unreachable from another device) - decode it and hand off
+    // the bare node_id instead of the wrapper url, so the flow's existing
+    // p2p connection test (and its player_device pin-pairing step below)
+    // runs against the real peer_addr rather than trying to fetch the
+    // wrapper as an http remote.
+    const playerQr = parsePlayerPairingQr(input);
+    void dispatch({ type: "SUBMIT_URL", input: playerQr?.node_id ?? input });
   };
 
   const handleRequestAccess = (username: string, message: string) => {

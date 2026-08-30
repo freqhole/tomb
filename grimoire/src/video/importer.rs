@@ -128,7 +128,8 @@ pub async fn import_video_file(
             parsed.episode,
             parsed.series_title.clone().filter(|t| !t.is_empty()),
         ) {
-            match resolve_series_and_season(&detected_series_title, season, created_by.clone()).await
+            match resolve_series_and_season(&detected_series_title, season, created_by.clone())
+                .await
             {
                 Some((resolved_series_id, resolved_season_id)) => {
                     series_id = Some(resolved_series_id);
@@ -172,7 +173,6 @@ pub async fn import_video_file(
         release_date: None,
         created_by: created_by.clone(),
     };
-
 
     let video = match create_video(create_req).await {
         response if response.success => {
@@ -544,15 +544,14 @@ async fn resolve_series_and_season(
         resp => match resp.data.flatten() {
             Some(existing) => existing.id,
             None => {
-                let create_resp = crate::video::create_video_series(
-                    crate::video::CreateVideoSeriesRequest {
+                let create_resp =
+                    crate::video::create_video_series(crate::video::CreateVideoSeriesRequest {
                         title: series_title.to_string(),
                         description: None,
                         poster_blob_id: None,
                         created_by: created_by.clone(),
-                    },
-                )
-                .await;
+                    })
+                    .await;
                 match create_resp.data {
                     Some(series) => series.id,
                     None => {
@@ -579,16 +578,15 @@ async fn resolve_series_and_season(
         resp => match resp.data.flatten() {
             Some(existing) => existing.id,
             None => {
-                let create_resp = crate::video::create_video_season(
-                    crate::video::CreateVideoSeasonRequest {
+                let create_resp =
+                    crate::video::create_video_season(crate::video::CreateVideoSeasonRequest {
                         series_id: series_id.clone(),
                         season_number,
                         title: None,
                         description: None,
                         poster_blob_id: None,
-                    },
-                )
-                .await;
+                    })
+                    .await;
                 match create_resp.data {
                     Some(season) => season.id,
                     None => {

@@ -238,7 +238,7 @@ pub async fn generate_sized_thumbnails(
                             "Thumbnail Read Failed",
                             format!("failed to read {}: {}", local_path, e),
                         )],
-                    )
+                    );
                 }
             }
         }

@@ -106,11 +106,7 @@ fn draw_detail(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 
     if let Some(series_id) = &video.series_id {
-        let series_name = video
-            .series_name
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("<unknown>");
+        let series_name = video.series_name.as_deref().unwrap_or("<unknown>");
         lines.push(Line::from(vec![
             Span::styled("Series: ", Style::new().bold()),
             Span::raw(format!("{} ({})", series_name, series_id)),
@@ -279,11 +275,7 @@ fn format_row(v: &crate::ratcore::app::VideoRow) -> Line<'_> {
         .episode_number
         .map(|e| format!("E{:02}", e))
         .unwrap_or_else(|| "    ".to_string());
-    let series = v
-        .series_name
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("<standalone>");
+    let series = v.series_name.as_deref().unwrap_or("<standalone>");
     Line::from(vec![
         Span::raw(format!("{:>6}  ", dur)).dim(),
         Span::raw(format!("{:5} ", episode)).dim(),

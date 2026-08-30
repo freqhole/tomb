@@ -789,10 +789,18 @@ fn is_within_managed_scratch_dir(candidate: &str) -> bool {
     let cfg = config::get_config();
     let mut roots = vec![cfg.data_dir.join("fetch")];
     if let Some(server) = cfg.server.as_ref() {
-        if let Some(dir) = server.fetch_music.as_ref().and_then(|f| f.output_dir.as_deref()) {
+        if let Some(dir) = server
+            .fetch_music
+            .as_ref()
+            .and_then(|f| f.output_dir.as_deref())
+        {
             roots.push(std::path::PathBuf::from(dir));
         }
-        if let Some(dir) = server.fetch_video.as_ref().and_then(|f| f.output_dir.as_deref()) {
+        if let Some(dir) = server
+            .fetch_video
+            .as_ref()
+            .and_then(|f| f.output_dir.as_deref())
+        {
             roots.push(std::path::PathBuf::from(dir));
         }
     }
@@ -842,11 +850,7 @@ async fn purge_duplicate_local_file(existing: &MediaBlob, new_path: &str) {
             // already gone - nothing to clean up
         }
         Err(e) => {
-            tracing::warn!(
-                "failed to delete duplicate file {}: {}",
-                new_path,
-                e
-            );
+            tracing::warn!("failed to delete duplicate file {}: {}", new_path, e);
         }
     }
 }

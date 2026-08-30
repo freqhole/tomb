@@ -325,6 +325,13 @@ mod tests {
             "add_songs_to_playlist",
             "remove_songs_from_playlist",
             "reorder_playlist_songs",
+            // generic playlist item mutations - additive alongside the
+            // song-only routes above, same require_owner_or_scope check
+            "add_playlist_item",
+            "remove_playlist_item",
+            "reorder_playlist_items",
+            "add_playlist_items",
+            "remove_playlist_items",
             // import review mutations - handler checks admin, or that the
             // caller uploaded at least one song in the target album
             "mark_album_reviewed",

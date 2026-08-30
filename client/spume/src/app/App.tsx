@@ -77,6 +77,7 @@ import {
 } from "../video/import/remoteImport";
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
+import { initRemotePlaybackBootstrap } from "./services/remotePlayback/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
 import {
@@ -783,6 +784,13 @@ export function App() {
       mark("initAppDB done");
       await initMusicDB();
       mark("initMusicDB done");
+
+      // freqhole/1 hello route + freqhole-player/1 accept loop + local
+      // library hooks, wired once midden becomes ready (registration is
+      // idempotent and cheap, so it's fine to call before midden even
+      // exists yet - see bootstrap.ts).
+      initRemotePlaybackBootstrap();
+      mark("initRemotePlaybackBootstrap done");
 
       // hydrate the rodio opt-in cache early so the very first
       // `selectBackend()` call observes the user's preference. safe

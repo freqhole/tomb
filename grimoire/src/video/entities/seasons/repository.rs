@@ -49,7 +49,9 @@ pub async fn create_video_season(req: CreateVideoSeasonRequest) -> GrimoireRespo
         Ok(s) => s,
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("UNIQUE constraint failed: video_seasonz.series_id, video_seasonz.season_number") {
+            if err_str.contains(
+                "UNIQUE constraint failed: video_seasonz.series_id, video_seasonz.season_number",
+            ) {
                 return GrimoireResponse::failure(
                     "duplicate season",
                     vec![ErrorDetail::new(

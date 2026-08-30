@@ -1513,7 +1513,11 @@ impl MiddenNode {
             // after) - same reasoning as above, this is a single bad
             // attempt, not a reason to fail the whole accept() call.
             // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
-            info!("accept: alpn={} peer={}, awaiting first bi stream...", &alpn, &peer_node_id[..std::cmp::min(16, peer_node_id.len())]);
+            info!(
+                "accept: alpn={} peer={}, awaiting first bi stream...",
+                &alpn,
+                &peer_node_id[..std::cmp::min(16, peer_node_id.len())]
+            );
             let (send, recv) = match conn.accept_bi().await {
                 Ok(streams) => streams,
                 Err(e) => {

@@ -42,9 +42,7 @@ pub mod queries;
 pub mod sessions;
 
 // Re-export core types
-pub use models::{
-    ListeningHistoryItem, PlayAnalytics, PlayEvent, SessionSong, SessionSummary,
-};
+pub use models::{ListeningHistoryItem, PlayAnalytics, PlayEvent, SessionSong, SessionSummary};
 
 // Re-export core functions
 pub use events::{
@@ -83,8 +81,8 @@ pub use api_types::{
 
 // Re-export session types and functions
 pub use sessions::{
-    create_playback_session, delete_playback_session, get_playback_session,
-    list_playback_sessions, update_playback_session_items, update_playback_session_progress,
+    create_playback_session, delete_playback_session, get_playback_session, list_playback_sessions,
+    update_playback_session_items, update_playback_session_progress,
     update_playback_session_status, CreatePlaybackSessionRequest, DeletePlaybackSessionRequest,
     GetPlaybackSessionRequest, ListPlaybackSessionsRequest, ListPlaybackSessionsResponse,
     PlaybackSession, PlaybackSessionStatus, PlaybackSessionType, SessionItem,
