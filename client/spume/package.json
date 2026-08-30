@@ -29,6 +29,7 @@
     "@freqhole/midden": "file:../../lib/midden/pkg",
     "@freqhole/playlistz": "^0.0.6",
     "@freqhole/reliquary": "file:../../lib/reliquary/ts",
+    "qr-scanner": "^1.4.2",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
@@ -63,7 +64,6 @@
     "d3-quadtree": "^3.0.1",
     "eslint": "^9.0.0",
     "eslint-plugin-solid": "^0.14.5",
-    "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "jsdom": "^29.1.1",
     "music-metadata": "^11.12.1",

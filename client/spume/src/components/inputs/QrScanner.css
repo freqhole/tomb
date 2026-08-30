@@ -56,10 +56,11 @@
 .qr-scanner-reader {
   width: 100%;
   aspect-ratio: 1;
+  object-fit: cover;
   background: black;
 }
 
-.qr-scanner-reader #qr-shaded-region {
+.qr-scanner-reader ~ .scan-region-highlight {
   border-width: 2px !important;
   border-color: var(--color-primary, #6366f1) !important;
 }

@@ -1,7 +1,7 @@
-// QR code scanner component using html5-qrcode library
+// QR code scanner component using the qr-scanner library
 // camera-based QR code scanning for browser environments
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import QrScannerLib from "qr-scanner";
 import { debug } from "../../utils/logger";
 import "./QrScanner.css";
 
@@ -44,69 +44,51 @@ function extractPeerValue(text: string): string {
 }
 
 export function QrScanner(props: QrScannerProps) {
-  const [isScanning, setIsScanning] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  let scanner: Html5Qrcode | null = null;
-  let containerRef: HTMLDivElement | undefined;
-  const hasBarcodeDetector = typeof window !== "undefined" && "BarcodeDetector" in window;
+  let scanner: QrScannerLib | null = null;
+  let isScanning = false;
+  let videoRef: HTMLVideoElement | undefined;
 
   const startScanner = async () => {
-    if (!containerRef) return;
+    if (!videoRef) return;
+
+    const handleDecode = (result: QrScannerLib.ScanResult) => {
+      const decodedText = result.data;
+      debug("QrScanner", `scanned: ${decodedText.slice(0, 50)}...`);
+      const peerValue = extractPeerValue(decodedText);
+      // stop fully BEFORE calling back — `onResult` triggers the
+      // parent to unmount this component practically synchronously,
+      // which also fires this component's own `onCleanup` ->
+      // `stopScanner()` a second time. tearing down the scanner
+      // first means that follow-up call is a safe no-op (guarded
+      // by `isScanning`).
+      stopScanner();
+      props.onResult(peerValue);
+    };
+
+    const handleDecodeError = () => {
+      // scan error (no QR found in frame) - ignore
+    };
 
     try {
       setError(null);
-      scanner = new Html5Qrcode("qr-reader", {
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        // ios safari 17+ ships a native BarcodeDetector that's
-        // dramatically more reliable than the wasm fallback.
-        // html5-qrcode only uses it when we opt in here.
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true,
-        },
-        verbose: false,
+      scanner = new QrScannerLib(videoRef, handleDecode, {
+        preferredCamera: "environment",
+        highlightScanRegion: true,
+        highlightCodeOutline: true,
+        returnDetailedScanResult: true,
+        onDecodeError: handleDecodeError,
       });
 
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          // keep decode cadence modest when using zxing fallback
-          // instead of native BarcodeDetector.
-          fps: hasBarcodeDetector ? 12 : 8,
-          // size the scan region as a fraction of the live
-          // viewfinder rather than a fixed 250x250 box. on
-          // iphone the rear camera streams at >=1280x720, so a
-          // hard-coded 250px box only covers ~20% of the frame
-          // and most hand-held qr codes never land in it. a
-          // responsive box (~70% of the shorter side, capped at
-          // 320) consistently catches the spume invite qrs.
-          qrbox: (viewW: number, viewH: number) => {
-            const min = Math.min(viewW, viewH);
-            const size = Math.max(180, Math.min(320, Math.floor(min * 0.7)));
-            return { width: size, height: size };
-          },
-        },
-        async (decodedText: string) => {
-          debug("QrScanner", `scanned: ${decodedText.slice(0, 50)}...`);
-          const peerValue = extractPeerValue(decodedText);
-          // await the stop BEFORE calling back — `onResult` triggers the
-          // parent to unmount this component (removing the `#qr-reader`
-          // container from the DOM) practically synchronously, and also
-          // fires this component's own `onCleanup` -> `stopScanner()` a
-          // second time. racing an in-flight `scanner.stop()` against
-          // that DOM removal made html5-qrcode throw while tearing down
-          // the live camera/video element, which silently aborted this
-          // callback before `onResult` ever ran — the scan looked like
-          // it did nothing. stopping fully first means the follow-up
-          // `onCleanup` call is a safe no-op (guarded by `isScanning()`).
-          await stopScanner();
-          props.onResult(peerValue);
-        },
-        () => {
-          // scan error (no QR found in frame) - ignore
-        }
-      );
+      // the player pairing qr renders magenta modules on a black
+      // background — inverted polarity from the dark-on-light
+      // convention this library assumes by default for webcam scans
+      // ("original" mode only). "both" tries each frame both ways, so
+      // bright-on-dark codes decode too without changing their colors.
+      scanner.setInversionMode("both");
 
-      setIsScanning(true);
+      await scanner.start();
+      isScanning = true;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       // map common browser/webview errors to friendlier messages.
@@ -131,14 +113,12 @@ export function QrScanner(props: QrScannerProps) {
     }
   };
 
-  const stopScanner = async () => {
-    if (scanner && isScanning()) {
-      try {
-        await scanner.stop();
-      } catch {
-        // ignore stop errors
-      }
-      setIsScanning(false);
+  const stopScanner = () => {
+    if (scanner && isScanning) {
+      scanner.stop();
+      scanner.destroy();
+      scanner = null;
+      isScanning = false;
     }
   };
 
@@ -153,11 +133,11 @@ export function QrScanner(props: QrScannerProps) {
   });
 
   onCleanup(() => {
-    void stopScanner();
+    stopScanner();
   });
 
   const handleClose = () => {
-    void stopScanner();
+    stopScanner();
     props.onClose();
   };
 
@@ -182,7 +162,7 @@ export function QrScanner(props: QrScannerProps) {
             </div>
           }
         >
-          <div id="qr-reader" ref={containerRef} class="qr-scanner-reader" />
+          <video ref={videoRef} class="qr-scanner-reader" muted playsinline />
         </Show>
 
         <div class="qr-scanner-hint">
