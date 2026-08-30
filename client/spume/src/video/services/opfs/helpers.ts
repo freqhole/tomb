@@ -45,6 +45,147 @@ export async function writeVideoToOPFS(blob: Blob, id: string, extension: string
   }
 }
 
+// parse a `Content-Range: bytes <start>-<end>/<total>` (or `bytes */<total>`)
+// response header, returning the total size if present.
+function parseContentRangeTotal(header: string | null): number | null {
+  if (!header) return null;
+  const match = /\/(\d+)$/.exec(header);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** stream a remote video URL directly into an OPFS file, resuming a
+ *  previously interrupted download instead of restarting from byte 0.
+ *
+ *  unlike `writeVideoToOPFS`, this never buffers the whole file in memory
+ *  (each fetched chunk is written straight to disk) — the earlier
+ *  buffer-then-write approach doubled peak memory use for large videos
+ *  (once as raw chunks, again as the concatenated Blob), which could crash
+ *  the tab before a large file ever finished downloading.
+ *
+ *  resume works because the file is named deterministically (`<id>.<ext>`,
+ *  same as `writeVideoToOPFS`) and a partial file is never deleted on
+ *  failure: on retry, the existing on-disk size becomes the `Range:
+ *  bytes=<size>-` request offset. if the server doesn't honor the range
+ *  (returns 200 instead of 206), the file is truncated and restarted from 0
+ *  rather than risk corrupting it with misaligned data. requires the
+ *  remote to advertise CORS access to the `Range` request header (see
+ *  server/src/server.rs's CorsLayer). */
+export async function streamVideoToOPFSWithResume(
+  url: string,
+  id: string,
+  extension: string,
+  expectedTotalBytes: number | null,
+  onProgress?: (received: number, total: number | null) => void
+): Promise<{ opfsPath: string; size: number }> {
+  const videoDir = await ensureVideoDir();
+  const fileName = `${id}.${extension}`;
+  const opfsPath = `${VIDEO_DIR}/${fileName}`;
+  const fileHandle = await videoDir.getFileHandle(fileName, { create: true });
+
+  let existingSize = 0;
+  try {
+    existingSize = (await fileHandle.getFile()).size;
+  } catch {
+    existingSize = 0;
+  }
+
+  // already fully on disk from a previous attempt (e.g. the fetch
+  // completed but a later step like addLocalVideo() failed) - skip the
+  // network round-trip entirely.
+  if (expectedTotalBytes != null && existingSize > 0 && existingSize >= expectedTotalBytes) {
+    debug(
+      "opfs",
+      `video ${fileName} already fully present on disk (${existingSize} bytes), skipping fetch`
+    );
+    onProgress?.(existingSize, expectedTotalBytes);
+    return { opfsPath, size: existingSize };
+  }
+
+  const headers: HeadersInit = existingSize > 0 ? { Range: `bytes=${existingSize}-` } : {};
+  const response = await fetch(url, { credentials: "include", headers });
+
+  if (response.status === 416) {
+    // server says there's nothing left to fetch beyond existingSize -
+    // treat what's on disk as complete rather than fail the whole sync.
+    debug(
+      "opfs",
+      `video ${fileName}: range not satisfiable, treating ${existingSize} bytes as complete`
+    );
+    return { opfsPath, size: existingSize };
+  }
+  if (!response.ok) {
+    throw new Error(`failed to fetch video blob: ${response.status}`);
+  }
+
+  // the server may ignore the Range header (e.g. a proxy stripped it) and
+  // return the full body with 200 instead of 206 - in that case we must
+  // restart from byte 0, not append the new body onto existing data.
+  const isResumed = response.status === 206;
+  const startPosition = isResumed ? existingSize : 0;
+
+  const contentLength = response.headers.get("Content-Length");
+  const total =
+    parseContentRangeTotal(response.headers.get("Content-Range")) ??
+    expectedTotalBytes ??
+    (contentLength ? startPosition + parseInt(contentLength, 10) : null);
+
+  // a FileSystemWritableFileStream only persists to the real on-disk file
+  // when close() is called - writes before that land in a swap file only
+  // (per spec/MDN). without periodic checkpointing, a mid-download failure
+  // would discard everything back to startPosition, defeating resume
+  // entirely. flush every CHECKPOINT_BYTES by closing and reopening a fresh
+  // writable seeked to the current position.
+  const CHECKPOINT_BYTES = 8 * 1024 * 1024;
+  let writable = await fileHandle.createWritable({ keepExistingData: isResumed });
+  if (isResumed) {
+    await writable.seek(startPosition);
+  }
+
+  let received = startPosition;
+  let sinceCheckpoint = 0;
+  onProgress?.(received, total);
+
+  try {
+    if (!response.body) {
+      // no streaming support in this environment - fall back to a single write
+      const blob = await response.blob();
+      await writable.write(blob);
+      received = startPosition + blob.size;
+    } else {
+      const reader = response.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+        received += value.length;
+        sinceCheckpoint += value.length;
+        onProgress?.(received, total);
+        if (sinceCheckpoint >= CHECKPOINT_BYTES) {
+          await writable.close();
+          writable = await fileHandle.createWritable({ keepExistingData: true });
+          await writable.seek(received);
+          sinceCheckpoint = 0;
+        }
+      }
+    }
+    await writable.close();
+  } catch (error) {
+    // best-effort: persist whatever's been written since the last
+    // checkpoint so the next attempt can resume from `received` rather
+    // than from startPosition.
+    try {
+      await writable.close();
+    } catch {
+      // nothing more we can do - next attempt resumes from the last
+      // successful checkpoint instead
+    }
+    throw error;
+  }
+
+  debug("opfs", `streamed video to opfs: ${fileName} (${received} bytes, resumed=${isResumed})`);
+  return { opfsPath, size: received };
+}
+
 // write a poster/thumbnail image to opfs, returns the stored path
 export async function writeVideoPosterToOPFS(blob: Blob, id: string): Promise<string> {
   try {

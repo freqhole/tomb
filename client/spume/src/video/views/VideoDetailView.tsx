@@ -261,9 +261,7 @@ export function VideoDetailView() {
                 <ContextMenu actions={videoContextMenuActions()}>
                   <div
                     class={`w-48 aspect-video rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
-                      (video().source_type === "remote"
-                        ? video().poster_blob_id
-                        : localPosterUrl())
+                      (video().source_type === "remote" ? video().poster_blob_id : localPosterUrl())
                         ? ""
                         : "bg-[var(--color-bg-base)]"
                     }`}
@@ -468,9 +466,7 @@ export function VideoDetailView() {
                 <ContextMenu actions={videoContextMenuActions()}>
                   <div
                     class={`w-96 aspect-video rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
-                      (video().source_type === "remote"
-                        ? video().poster_blob_id
-                        : localPosterUrl())
+                      (video().source_type === "remote" ? video().poster_blob_id : localPosterUrl())
                         ? ""
                         : "bg-[var(--color-bg-base)]"
                     }`}

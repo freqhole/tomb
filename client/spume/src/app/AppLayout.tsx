@@ -725,9 +725,11 @@ export function AppLayout(props: AppLayoutProps) {
     }
   });
 
-  // update auto-download queue when queue or current song changes.
-  // video items are excluded from auto-download (song-only concern), so
-  // the index is computed against the song-only subset of the queue.
+  // update auto-download queue when queue or current song changes. the
+  // song-rolling-window index is computed against the song-only subset of
+  // the queue; updateAutoDownloadQueue separately handles videos internally
+  // (keyed off the unified current_sha256/mediaItemKey), so this effect
+  // must still fire for a video-only queue with no songs in it at all.
   createEffect(() => {
     const state = appState();
     if (!state) return;
@@ -736,11 +738,10 @@ export function AppLayout(props: AppLayoutProps) {
     const currentIndex = state.current_sha256
       ? queueSongs.findIndex((s) => s.sha256 === state.current_sha256)
       : 0;
-    const queueLength = queueSongs.length;
 
     // this effect will re-run when queue or current index changes
     // the function internally checks if auto-download is enabled
-    if (queueLength > 0) {
+    if (state.queue.length > 0) {
       void updateAutoDownloadQueue(Math.max(0, currentIndex));
     }
   });

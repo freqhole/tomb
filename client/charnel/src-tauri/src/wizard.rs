@@ -80,6 +80,7 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
         win_builder.title_bar_style(TitleBarStyle::Transparent)
     };
 
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let window = win_builder
         .build()
         .map_err(|e: tauri::Error| e.to_string())?;

@@ -557,6 +557,7 @@ pub fn run() {
                     wizard_builder.title_bar_style(TitleBarStyle::Transparent)
                 };
 
+                #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
                 let wizard = wizard_builder.build()?;
 
                 // tao's Borderless style mask (used for decorations(false))

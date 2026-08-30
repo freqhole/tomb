@@ -1,6 +1,7 @@
-// auto-download manager for background song downloads
+// auto-download manager for background song+video downloads
 // when enabled, downloads remaining queue songs (beyond rolling 30min window)
-// with a max of 3 concurrent downloads
+// and videos (beyond the current position) with a shared max of 3
+// concurrent downloads
 
 import { createSignal } from "solid-js";
 import {
@@ -8,8 +9,16 @@ import {
   getSyncQueueToLocal,
   getAutoDownloadEnabled,
 } from "../../../app/services/storage/db";
-import { songsOnly } from "../../../app/services/storage/mediaItem";
+import {
+  songsOnly,
+  videosOnly,
+  mediaItemKey,
+  type QueuedVideo,
+} from "../../../app/services/storage/mediaItem";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
+import { syncVideoToLocal, canSyncVideo } from "../../../video/services/sync/syncVideoToLocal";
+import { isVideoSyncedLocally } from "../../../video/services/syncState";
+import { videoQueryKeys } from "../../../video/queries/queryKeys";
 import { isP2PRemote } from "../storage/blobResolver";
 import {
   isSongSyncedLocally,
@@ -19,6 +28,7 @@ import {
   updateLoadingProgress,
   getActiveDownloadCount,
   isDownloadInProgress,
+  registerDownload,
   isDownloadsPaused,
   pauseDownloads,
   resumeDownloads,
@@ -35,12 +45,13 @@ import type { Song } from "../storage/types";
 // max concurrent downloads for auto-download mode
 const MAX_CONCURRENT_DOWNLOADS = 3;
 
-// pending queue (local to this manager)
+// pending queues (local to this manager)
 const [pendingQueue, setPendingQueue] = createSignal<SyncableSong[]>([]);
+const [pendingVideoQueue, setPendingVideoQueue] = createSignal<QueuedVideo[]>([]);
 
-// get count of songs pending download (in queue but not synced and not currently downloading)
+// get count of songs+videos pending download (in queue but not synced and not currently downloading)
 export function getPendingDownloadCount(): number {
-  return pendingQueue().length;
+  return pendingQueue().length + pendingVideoQueue().length;
 }
 
 // check if auto-download is actively running
@@ -77,7 +88,16 @@ async function isP2PRemoteSong(song: Song): Promise<boolean> {
   return isP2PRemote(song.remote_server_id);
 }
 
-// process the next batch of downloads
+// check if a video is P2P remote
+async function isP2PRemoteVideo(video: QueuedVideo): Promise<boolean> {
+  if (video.source_type !== "remote" || !video.remote_server_id) {
+    return false;
+  }
+  return isP2PRemote(video.remote_server_id);
+}
+
+// process the next batch of downloads (songs and videos share the same
+// concurrency budget; songs fill slots first, videos take whatever's left)
 async function processQueue(): Promise<void> {
   if (isDownloadsPaused()) return;
   if (!getAutoDownloadEnabled()) return;
@@ -85,20 +105,28 @@ async function processQueue(): Promise<void> {
 
   const currentCount = getActiveDownloadCount();
   const pending = pendingQueue();
+  const pendingVideos = pendingVideoQueue();
 
   // calculate how many we can start
-  const slotsAvailable = MAX_CONCURRENT_DOWNLOADS - currentCount;
+  let slotsAvailable = MAX_CONCURRENT_DOWNLOADS - currentCount;
   if (slotsAvailable <= 0) return;
-  if (pending.length === 0) return;
+  if (pending.length === 0 && pendingVideos.length === 0) return;
 
   // take next batch of songs
   const batch = pending.slice(0, slotsAvailable);
-  const remaining = pending.slice(slotsAvailable);
-  setPendingQueue(remaining);
+  setPendingQueue(pending.slice(batch.length));
+  slotsAvailable -= batch.length;
+
+  // fill any remaining slots with videos
+  const videoBatch = slotsAvailable > 0 ? pendingVideos.slice(0, slotsAvailable) : [];
+  setPendingVideoQueue(pendingVideos.slice(videoBatch.length));
 
   // start downloads for batch
   for (const song of batch) {
     void downloadSong(song);
+  }
+  for (const video of videoBatch) {
+    void downloadVideo(video);
   }
 }
 
@@ -156,35 +184,83 @@ async function downloadSong(song: SyncableSong): Promise<void> {
   }
 }
 
+// download a single video. syncVideoToLocal() is void/best-effort (never
+// throws, logs and returns on failure) rather than returning a result like
+// syncSongToLocal() - success is detected afterward via isVideoSyncedLocally().
+async function downloadVideo(video: QueuedVideo): Promise<void> {
+  const id = video.id;
+
+  // add to UI loading set so queue shows loading indicator (syncVideoToLocal
+  // also drives this internally via preCacheBlob/preCacheP2PBlob, but doing
+  // it here too covers the OPFS-write tail end of the sync as "loading")
+  addToLoadingSet(id);
+
+  const syncPromise = syncVideoToLocal(video);
+  registerDownload(id, syncPromise);
+
+  try {
+    debug("autoDownload", `starting video download: ${video.title} (${id})`);
+    await syncPromise;
+
+    if (isVideoSyncedLocally(id)) {
+      debug("autoDownload", `completed video: ${video.title}`);
+      void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+    } else {
+      const attempts = markDownloadFailed(id);
+      warn(
+        "autoDownload",
+        `failed video: ${video.title} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS})`
+      );
+    }
+  } catch (error) {
+    const attempts = markDownloadFailed(id);
+    warn(
+      "autoDownload",
+      `error downloading video ${video.title} (attempt ${attempts}/${MAX_RETRY_ATTEMPTS}):`,
+      error
+    );
+  } finally {
+    removeFromLoadingSet(id);
+    void processQueue();
+  }
+}
+
 /**
  * update the auto-download queue based on current player queue
  * this should be called whenever:
  * - queue changes (add/remove/reorder)
  * - auto-download mode is toggled on
- * - current song changes (to exclude already-played songs)
+ * - current song changes (to exclude already-played songs/videos)
  *
- * @param currentSongIndex - index of currently playing song
- * @param upcomingMinutes - minutes of songs already being pre-cached (rolling window)
+ * @param currentSongIndex - index of currently playing song (song-only subset)
+ * @param upcomingMinutes - minutes of songs already being pre-cached (rolling window).
+ *   videos have no equivalent time-based window (queued videos are typically
+ *   few and long, and the near-term pre-cache system already covers the
+ *   imminent-playback case) - all not-yet-synced videos from the current
+ *   queue position onward are downloaded.
  */
 export async function updateAutoDownloadQueue(
   currentSongIndex: number,
   upcomingMinutes: number = 30
 ): Promise<void> {
   if (!getAutoDownloadEnabled()) {
-    // clear pending queue if auto-download is disabled
+    // clear pending queues if auto-download is disabled
     setPendingQueue([]);
+    setPendingVideoQueue([]);
     return;
   }
 
   if (!getSyncQueueToLocal()) {
     // sync mode must be enabled
     setPendingQueue([]);
+    setPendingVideoQueue([]);
     return;
   }
 
   const state = appState();
   if (!state?.queue || state.queue.length === 0) {
     setPendingQueue([]);
+    setPendingVideoQueue([]);
     return;
   }
 
@@ -242,12 +318,37 @@ export async function updateAutoDownloadQueue(
     songsToDownload.push(song);
   }
 
+  // videos: find the current position in the *unified* queue (current_sha256
+  // doubles as the video's own id when a video is playing) and consider every
+  // not-yet-synced, syncable, P2P remote video from there onward.
+  const unifiedCurrentIndex = state.current_sha256
+    ? Math.max(
+        0,
+        state.queue.findIndex((item) => mediaItemKey(item) === state.current_sha256)
+      )
+    : 0;
+  const upcomingVideos = videosOnly(state.queue.slice(unifiedCurrentIndex));
+  const videosToDownload: QueuedVideo[] = [];
+
+  for (const video of upcomingVideos) {
+    if (isVideoSyncedLocally(video.id)) continue;
+    if (hasFailedPermanently(video.id)) continue;
+    if (isDownloadInProgress(video.id)) continue;
+    if (!canSyncVideo(video)) continue;
+
+    const isP2P = await isP2PRemoteVideo(video);
+    if (!isP2P) continue;
+
+    videosToDownload.push(video);
+  }
+
   const activeCount = getActiveDownloadCount();
   debug(
     "autoDownload",
-    `updated queue: ${songsToDownload.length} songs pending (${activeCount} active)`
+    `updated queue: ${songsToDownload.length} songs, ${videosToDownload.length} videos pending (${activeCount} active)`
   );
   setPendingQueue(songsToDownload);
+  setPendingVideoQueue(videosToDownload);
 
   // start processing if we have slots available
   void processQueue();
@@ -263,8 +364,9 @@ export async function resumeAutoDownloadsOnInit(): Promise<void> {
   const state = appState();
   if (!state?.queue || state.queue.length === 0) return;
 
-  // find current song index from sha256 (video items are excluded from
-  // the song-only subset that auto-download operates on)
+  // find current song index from sha256 (song-only subset - the video
+  // half of the queue is handled separately inside updateAutoDownloadQueue,
+  // keyed off the unified current_sha256/mediaItemKey instead)
   const currentSha256 = state.current_sha256;
   const queueSongs = songsOnly(state.queue);
   const currentIndex = currentSha256 ? queueSongs.findIndex((s) => s.sha256 === currentSha256) : 0;
@@ -317,6 +419,31 @@ export async function downloadAllNow(): Promise<void> {
 
   debug("autoDownload", `downloading all: ${songsToDownload.length} songs`);
   setPendingQueue(songsToDownload);
+
+  // videos: same unified-queue current-position lookup as updateAutoDownloadQueue,
+  // downloading every remaining unsynced, syncable, P2P remote video
+  const unifiedCurrentIndex = currentSha256
+    ? Math.max(
+        0,
+        state.queue.findIndex((item) => mediaItemKey(item) === currentSha256)
+      )
+    : 0;
+  const upcomingVideos = videosOnly(state.queue.slice(unifiedCurrentIndex));
+  const videosToDownload: QueuedVideo[] = [];
+
+  for (const video of upcomingVideos) {
+    if (isVideoSyncedLocally(video.id)) continue;
+    if (isDownloadInProgress(video.id)) continue;
+    if (!canSyncVideo(video)) continue;
+
+    const isP2P = await isP2PRemoteVideo(video);
+    if (!isP2P) continue;
+
+    videosToDownload.push(video);
+  }
+
+  debug("autoDownload", `downloading all: ${videosToDownload.length} videos`);
+  setPendingVideoQueue(videosToDownload);
 
   // make sure we're not paused
   resumeDownloads();
