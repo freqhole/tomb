@@ -20,7 +20,13 @@ export interface PairResult {
   reason?: string;
 }
 
-async function dialLine(peerAddr: string, line: string): Promise<string | null> {
+// a cold peer connection (no prior direct/relay path established yet) can
+// fail its first dial while iroh is still warming up addressing - mirrors
+// connectionProgress.ts's bounded retry for the same underlying reason on
+// http/admin remotes, so a first "pair" click doesn't need a manual retry.
+const DIAL_RETRY_DELAYS_MS = [350, 900, 1800];
+
+async function dialLineOnce(peerAddr: string, line: string): Promise<string | null> {
   if (isCharnelMode()) {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
@@ -42,6 +48,25 @@ async function dialLine(peerAddr: string, line: string): Promise<string | null> 
   }
 }
 
+async function dialLine(peerAddr: string, line: string): Promise<string | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await dialLineOnce(peerAddr, line);
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/dial] attempt ${attempt + 1} succeeded, peerAddr=${peerAddr}`, {
+        line,
+        response,
+      });
+      return response;
+    } catch (err) {
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/dial] attempt ${attempt + 1} failed, peerAddr=${peerAddr}`, err);
+      if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
 export async function pairWithPlayer(
   peerAddr: string,
   pin: string,
@@ -56,9 +81,102 @@ export async function pairWithPlayer(
   return { ok: parsed.ok === true, reason: parsed.reason };
 }
 
+// persistent control session per peer: acceptLoop.ts's server-side
+// handleConnection already keeps a trusted controller's stream open and
+// loops dispatchCommand()/write_line()/read_line() on it for as long as
+// the peer keeps sending lines - but sendPlayerCommand() used to dial a
+// brand-new open_bi() (a full iroh/QUIC connection: NAT traversal, relay
+// negotiation, handshake) for every single command, never exercising that
+// server-side design at all. reusing one stream per peer for as long as
+// it's the active target cuts every command after the first down to just
+// a write_line/read_line round trip on an already-open connection - see
+// docs/player-remote-site-plan.md phase 18 item 5's assessment.
+class PlayerControlSession {
+  private stream: BiStreamLike | null = null;
+  private dialing: Promise<BiStreamLike> | null = null;
+  // serializes send() calls so two concurrent commands never interleave
+  // their write_line/read_line pairs on the same stream.
+  private tail: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly peerAddr: string) {}
+
+  private async getStream(): Promise<BiStreamLike> {
+    if (this.stream) return this.stream;
+    if (this.dialing) return this.dialing;
+    this.dialing = (async () => {
+      const node = await getMiddenNode();
+      if (!node.open_bi) {
+        throw new Error("this transport does not support direct p2p streams");
+      }
+      const stream = await node.open_bi(this.peerAddr, PLAYER_ALPN);
+      this.stream = stream;
+      return stream;
+    })();
+    try {
+      return await this.dialing;
+    } finally {
+      this.dialing = null;
+    }
+  }
+
+  private async sendNow(line: string): Promise<string | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const stream = await this.getStream();
+        await stream.write_line(line);
+        return (await stream.read_line()) as string | null;
+      } catch (err) {
+        // the stream (or the dial itself) is broken - drop it so the next
+        // attempt redials from scratch, same backoff dialLine() already uses.
+        this.stream = null;
+        if (attempt >= DIAL_RETRY_DELAYS_MS.length) throw err;
+        await new Promise((resolve) => setTimeout(resolve, DIAL_RETRY_DELAYS_MS[attempt]));
+      }
+    }
+  }
+
+  send(line: string): Promise<string | null> {
+    const result = this.tail.then(() => this.sendNow(line));
+    // swallow rejections in the chained tail only - callers still see the
+    // real error via the returned promise - so one failed command doesn't
+    // wedge every later command queued behind it.
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+
+  close(): void {
+    this.stream?.close();
+    this.stream = null;
+  }
+}
+
+const controlSessions = new Map<string, PlayerControlSession>();
+
+/** drops (and closes) the persistent control session for a peer, if one is
+ * open - call this on navigate-away/target-change so a stale session
+ * doesn't linger past the point it's actually reused. safe to call even if
+ * no session exists yet. */
+export function closePlayerControlSession(peerAddr: string): void {
+  controlSessions.get(peerAddr)?.close();
+  controlSessions.delete(peerAddr);
+}
+
 export async function sendPlayerCommand(peerAddr: string, command: unknown): Promise<unknown> {
-  const line = await dialLine(peerAddr, JSON.stringify(command));
-  return line ? JSON.parse(line) : null;
+  const line = JSON.stringify(command);
+  // charnel/tauri's player_pairing_dial invoke has no persistent-session
+  // equivalent yet (see subscribeToPlayerStatus's doc comment) - one-shot
+  // dial there, same as before.
+  if (isCharnelMode()) {
+    const response = await dialLine(peerAddr, line);
+    return response ? JSON.parse(response) : null;
+  }
+  let session = controlSessions.get(peerAddr);
+  if (!session) {
+    session = new PlayerControlSession(peerAddr);
+    controlSessions.set(peerAddr, session);
+  }
+  const response = await session.send(line);
+  return response ? JSON.parse(response) : null;
 }
 
 /** opens a persistent subscription stream to a paired player and invokes

@@ -24,7 +24,9 @@ import {
 import { isCharnelMode } from "../services/charnel";
 // static import (not dynamic) so Rollup doesn't emit a live-binding chunk reference
 // that Safari JSC throws a TDZ error on before the chunk has evaluated
-import { MiddenNode } from "@freqhole/midden";
+import { MiddenNode, MiddenNodeOptions } from "@freqhole/midden";
+import { PLAYER_ALPN } from "@freqhole/cenotaph";
+import { initRemotePlaybackAcceptMode } from "../services/remotePlayback/acceptModeBootstrap";
 
 // re-export for call sites that still need direct access
 // note: isCharnelAvailable uses local isCharnelMode which checks both env var and window.__TAURI__
@@ -122,6 +124,14 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
     // check for persisted identity
     const existingIdentity = await getP2PIdentity();
 
+    // `create_with_options` (not the deprecated `create`/`create_from_key`)
+    // so `extra_alpns` can register PLAYER_ALPN - spume's single existing
+    // identity now also accepts freqhole-player/1 pairing/control
+    // connections (see docs/cenotaph-migration-plan.md phase 1: spume has
+    // exactly one identity, reused for this, never a second one).
+    const options = new MiddenNodeOptions();
+    options.extra_alpns = [PLAYER_ALPN];
+
     let node: MiddenNodeLike;
     if (existingIdentity) {
       // restore from persisted key
@@ -129,10 +139,11 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
         "[midden] restoring identity from IndexedDB:",
         existingIdentity.node_id.slice(0, 16) + "..."
       );
-      node = await MiddenNode.create_from_key(existingIdentity.secret_key);
+      options.secret_key = existingIdentity.secret_key;
+      node = await MiddenNode.create_with_options(options);
     } else {
       // create new identity and persist it
-      node = await MiddenNode.create();
+      node = await MiddenNode.create_with_options(options);
       const secretKey = node.secret_key();
       const nodeId = node.node_id();
       await saveP2PIdentity(secretKey, nodeId);
@@ -150,6 +161,11 @@ export async function getMiddenNode(): Promise<MiddenNodeLike> {
       node.start_blob_server();
       console.log("[midden] blob server started (accepting iroh-blobs connections)");
     }
+
+    // freqhole/1 hello route (server-info probes) + freqhole-player/1
+    // pairing/control accept loop - see acceptModeBootstrap.ts. safe to
+    // call unconditionally (isEnabled gates on the actual opt-in toggle).
+    initRemotePlaybackAcceptMode(node);
 
     return node;
   })();

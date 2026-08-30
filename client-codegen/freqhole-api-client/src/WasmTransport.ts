@@ -29,7 +29,11 @@ export interface BiStreamLike {
   // length-prefixed framing (unused here, but matches the wasm class)
   write_message?(data: Uint8Array): Promise<void>;
   read_message?(): Promise<Uint8Array | null>;
-  // raw byte primitives (read_to_end / write_raw_and_finish exist too)
+  // raw byte primitives - used by cenotaph's freqhole/1 api router and
+  // the freqhole-player/1 pairing/control handler's write_raw_and_finish
+  // response framing (see @freqhole/cenotaph's control/apiRouter.ts).
+  read_to_end(max_size: number): Promise<Uint8Array | null>;
+  write_raw_and_finish(data: Uint8Array): Promise<void>;
   close(): void;
 }
 
@@ -39,6 +43,12 @@ export interface BiStreamLike {
  */
 export interface MiddenNodeLike {
   node_id(): string;
+  // full endpoint address JSON (node_id + relay url + any direct addrs) -
+  // lets a dialer skip pkarr/DNS discovery, which otherwise races on a
+  // freshly-booted identity (the connecting peer may 404 the pkarr lookup
+  // before it's ever published). optional: not every MiddenNodeLike impl
+  // (e.g. spume's charnel/tauri stub) has a real iroh endpoint to report.
+  node_addr?(): string;
   secret_key(): Uint8Array;
   api_request(
     peer_addr: string,
@@ -112,6 +122,13 @@ export interface MiddenNodeLike {
   // open a raw bi-directional stream on an arbitrary ALPN. used for
   // job events (freqhole-events/1) and other custom protocols.
   open_bi?(peer_addr: string, alpn: string): Promise<BiStreamLike>;
+  // accept the next incoming connection on any registered ALPN (blocks
+  // until one arrives; resolves null once the endpoint is closed). used
+  // by @freqhole/cenotaph's startAcceptLoop to drive spume's own
+  // remote-playback accept mode - see docs/cenotaph-migration-plan.md
+  // phase 1. optional because charnel's CharnelTransport has no wasm
+  // accept-loop equivalent (yet).
+  accept?(): Promise<BiStreamLike | null>;
 }
 
 /**
@@ -303,7 +320,11 @@ export class WasmTransport implements Transport {
 
   async request(method: string, path: string, body?: string): Promise<TransportResponse> {
     try {
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/WasmTransport] request start ${method} ${path} -> ${this.peerAddr}`);
       const result = await this.node.api_request(this.peerAddr, method, path, body ?? null);
+      // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+      console.log(`[debug/WasmTransport] request ok ${method} ${path} status=${result.status}`);
       return {
         status: result.status,
         body: result.body,

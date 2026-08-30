@@ -108,6 +108,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // hint: if current origin is a valid remote server that's not already added
   const [originHint, setOriginHint] = createSignal<string | null>(null);
 
+  // "url" step's input box - hoisted to component scope (not local to the
+  // step's render block) so it survives state() transitions, e.g. into an
+  // error state after a failed connection test.
+  const [inputValue, setInputValue] = createSignal("");
+
   // qr scanner state (browser-only, not in tauri)
   const [showScanner, setShowScanner] = createSignal(false);
   const canScanQr = () => !isCharnelAvailable() && !!navigator.mediaDevices?.getUserMedia;
@@ -418,7 +423,6 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
               <Match when={state().step === "url"}>
                 {(() => {
                   const s = state() as Extract<AddPeerState, { step: "url" }>;
-                  const [inputValue, setInputValue] = createSignal("");
                   return (
                     <form
                       onSubmit={(e) => {
@@ -486,8 +490,15 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                       </div>
 
                       <Show when={s.error}>
-                        <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                        <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md space-y-2">
                           <p class="text-sm text-[var(--color-status-error)]">{s.error}</p>
+                          <button
+                            type="button"
+                            class="text-sm text-[var(--color-status-error)] underline hover:no-underline"
+                            onClick={() => handleTestConnection(inputValue())}
+                          >
+                            try again?
+                          </button>
                         </div>
                       </Show>
 

@@ -54,6 +54,8 @@ export const addPeerFlowDeps: AddPeerFlowDeps = {
   getServerInfo: async (target) => {
     const client = await getClientForRemote(remoteLikeFor(target));
     const result = await client.app.serverInfo();
+    // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
+    console.log("[debug/addPeer] getServerInfo target:", target, "result:", result);
     return result.success && result.data ? (result.data as PeerServerInfo) : null;
   },
 

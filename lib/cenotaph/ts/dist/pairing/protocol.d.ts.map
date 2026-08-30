@@ -1,0 +1,1 @@
+{"version":3,"file":"protocol.d.ts","sourceRoot":"","sources":["../../src/pairing/protocol.ts"],"names":[],"mappings":"AAOA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAC;AAExB,eAAO,MAAM,iBAAiB;;;;iBAI5B,CAAC;AACH,MAAM,MAAM,WAAW,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,iBAAiB,CAAC,CAAC;AAE5D,eAAO,MAAM,kBAAkB;;;;;;;iBAI7B,CAAC;AACH,MAAM,MAAM,YAAY,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,kBAAkB,CAAC,CAAC"}

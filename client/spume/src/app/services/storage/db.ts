@@ -17,6 +17,7 @@ import {
   STORE_SHARED_ITEMS,
   STORE_VIDEO_QUEUE_HISTORY,
   STORE_PAIRED_PLAYERS,
+  STORE_TRUSTED_CONTROLLERS,
   type AppState,
   type GraphPrefs,
   type P2PIdentity,
@@ -115,6 +116,18 @@ async function initAppDB(): Promise<IDBPDatabase> {
           keyPath: "node_id",
         });
         pairedPlayersStore.createIndex("by_paired_at", "paired_at");
+      }
+
+      // create trusted_controllers store (v11) — mirror-image of
+      // paired_players above: controllers paired IN to this instance,
+      // rather than player devices this instance dials OUT to. backs
+      // cenotaph's injectable TrustStore (see
+      // app/services/remotePlayback/trustStoreAdapter.ts).
+      if (!db.objectStoreNames.contains(STORE_TRUSTED_CONTROLLERS)) {
+        const trustedControllersStore = db.createObjectStore(STORE_TRUSTED_CONTROLLERS, {
+          keyPath: "node_id",
+        });
+        trustedControllersStore.createIndex("by_paired_at", "paired_at");
       }
     },
   });

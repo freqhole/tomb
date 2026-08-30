@@ -275,17 +275,20 @@ android-key-info:
 	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore"
 	keytool -list -v -keystore "$(HOME)/Documents/freqhole-cert/android/freqhole-release-key.keystore" 2>/dev/null | grep -i 'keystore type'
 
-# build lib/haruspex/ts and lib/reliquary/ts (@freqhole/haruspex,
-# @freqhole/reliquary). neither ships its dist/ in git, so spume (which
-# depends on both via `file:` links) can't resolve their subpath exports
-# until this has run at least once in a fresh checkout/ci runner.
+# build lib/haruspex/ts, lib/reliquary/ts and lib/cenotaph/ts
+# (@freqhole/haruspex, @freqhole/reliquary, @freqhole/cenotaph). none ships
+# its dist/ in git, so spume (which depends on all three via `file:` links)
+# can't resolve their subpath exports until this has run at least once in a
+# fresh checkout/ci runner.
 .PHONY: build-libs
 build-libs:
-	@echo "building haruspex + reliquary ts libs..."
+	@echo "building haruspex + reliquary + cenotaph ts libs..."
 	@if [ ! -d lib/haruspex/ts/node_modules ]; then (cd lib/haruspex/ts && npm ci); fi
 	cd lib/haruspex/ts && npm run build
 	@if [ ! -d lib/reliquary/ts/node_modules ]; then (cd lib/reliquary/ts && npm ci); fi
 	cd lib/reliquary/ts && npm run build
+	@if [ ! -d lib/cenotaph/ts/node_modules ]; then (cd lib/cenotaph/ts && npm ci); fi
+	cd lib/cenotaph/ts && npm run build
 
 # build the spume web client into client/spume/dist. grimoire embeds that dir
 # via include_dir! at compile time, so it MUST exist before any cargo build of

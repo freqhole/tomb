@@ -6,6 +6,7 @@
 // that might not be reachable anymore).
 
 import { createSignal } from "solid-js";
+import { closePlayerControlSession } from "./playerPairingClient";
 
 export type ActiveTarget =
   { kind: "local" } | { kind: "player"; node_id: string; display_name: string };
@@ -16,10 +17,18 @@ const [target, setTargetSignal] = createSignal<ActiveTarget>(LOCAL_TARGET);
 export const activeTarget = target;
 
 export function setActiveTargetToLocal(): void {
+  const prev = target();
+  if (prev.kind === "player") closePlayerControlSession(prev.node_id);
   setTargetSignal(LOCAL_TARGET);
 }
 
 export function setActiveTargetToPlayer(player: { node_id: string; display_name: string }): void {
+  const prev = target();
+  // switching directly from one player to another - don't leave the old
+  // one's persistent stream open past the point it'll ever be reused.
+  if (prev.kind === "player" && prev.node_id !== player.node_id) {
+    closePlayerControlSession(prev.node_id);
+  }
   setTargetSignal({ kind: "player", node_id: player.node_id, display_name: player.display_name });
 }
 
