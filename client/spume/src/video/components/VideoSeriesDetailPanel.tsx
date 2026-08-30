@@ -499,11 +499,118 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
             >
               {(data) => (
                 <>
-                  {/* header: poster + title + description */}
-                  <div class="flex gap-4 wide:gap-6 p-4 wide:p-6">
+                  {/* MOBILE: poster on top, info centered below (mirrors
+                      ArtistDetailPanel's mobile layout) */}
+                  <div class="wide:hidden flex flex-col items-center gap-3 p-4">
                     <ContextMenu actions={seriesContextMenuActions()}>
                       <div
-                        class={`w-48 wide:w-96 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
+                        class={`w-48 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
+                          data().series.poster_blob_id ? "" : "bg-[var(--color-bg-elevated)]"
+                        }`}
+                        title="view series images"
+                        onClick={handleSeriesImageClick}
+                      >
+                        <MediaImage
+                          blobId={data().series.poster_blob_id}
+                          remoteBlobId={data().series.poster_blob_id}
+                          remoteServerId={data().series.remote_server_id}
+                          alt={data().series.title}
+                          showFallback={true}
+                          thumbnailSize={200}
+                          domainType="video_series"
+                          objectFit="contain"
+                          class="w-full h-full"
+                        />
+                      </div>
+                    </ContextMenu>
+                    <div class="flex flex-col items-center text-center w-full min-w-0">
+                      <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                        {data().series.title}
+                      </h1>
+                      <Show when={data().series.description}>
+                        <p class="mt-2 text-sm text-[var(--color-text-secondary)] text-left max-w-prose">
+                          {data().series.description}
+                        </p>
+                      </Show>
+
+                      <div class="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
+                        <Show when={seasons().length > 0}>
+                          <span>
+                            {seasons().length} {seasons().length === 1 ? "season" : "seasons"}
+                          </span>
+                          <span>•</span>
+                        </Show>
+                        <span>
+                          {allVideos().length} {allVideos().length === 1 ? "episode" : "episodes"}
+                        </span>
+                        <Show when={totalDurationSeconds() > 0}>
+                          <span>•</span>
+                          <span>{formatLongDuration(totalDurationSeconds())}</span>
+                        </Show>
+                      </div>
+
+                      <TaxonChips
+                        taxons={aggregateTaxonsQuery.data}
+                        class="mt-2 justify-center"
+                        excludeKinds={["genre", "mood", "style", "era", "label"]}
+                      />
+
+                      <TagChips tags={aggregateTagsQuery.data} class="mt-2 justify-center" />
+
+                      <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          loading={seriesActionPending() === "play"}
+                          disabled={seriesActionPending() !== null || allVideos().length === 0}
+                          onClick={handlePlayAll}
+                        >
+                          play
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={seriesActionPending() === "queue"}
+                          disabled={seriesActionPending() !== null || allVideos().length === 0}
+                          onClick={handleAddAllToQueue}
+                          title="add all episodes to queue"
+                          aria-label="add all episodes to queue"
+                        >
+                          <Icon name={IconNames.queue} />
+                        </Button>
+                        <Show when={canUpdateVideo()}>
+                          <button
+                            onClick={() =>
+                              showEditVideoSeries({
+                                seriesId: data().series.id,
+                                onDeleted: props.onDeleted,
+                              })
+                            }
+                            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                            title="edit series info"
+                            aria-label="edit series info"
+                          >
+                            <Icon name={IconNames.edit} />
+                          </button>
+                        </Show>
+                        <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                        <ShareButton
+                          target={{
+                            kind: "video_series",
+                            id: data().series.id,
+                            displayTitle: data().series.title,
+                          }}
+                          source={currentRemoteFull}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* DESKTOP: poster + title + description, side by side */}
+                  <div class="hidden wide:flex gap-6 p-6">
+                    <ContextMenu actions={seriesContextMenuActions()}>
+                      <div
+                        class={`w-96 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
                           data().series.poster_blob_id ? "" : "bg-[var(--color-bg-elevated)]"
                         }`}
                         title="view series images"
@@ -523,11 +630,11 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                       </div>
                     </ContextMenu>
                     <div class="flex flex-col min-w-0 justify-center">
-                      <h1 class="text-2xl wide:text-4xl font-bold text-[var(--color-text-primary)] truncate">
+                      <h1 class="text-4xl font-bold text-[var(--color-text-primary)] truncate">
                         {data().series.title}
                       </h1>
                       <Show when={data().series.description}>
-                        <p class="mt-2 text-sm text-[var(--color-text-secondary)] wide:max-w-2xl">
+                        <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-2xl">
                           {data().series.description}
                         </p>
                       </Show>
@@ -563,8 +670,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           disabled={seriesActionPending() !== null || allVideos().length === 0}
                           onClick={handlePlayAll}
                         >
-                          <span class="hidden wide:inline">play all</span>
-                          <span class="wide:hidden">play</span>
+                          play all
                         </Button>
                         <Button
                           variant="ghost"
@@ -574,10 +680,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           title="add all episodes to queue"
                           aria-label="add all episodes to queue"
                         >
-                          <span class="hidden wide:inline">+queue</span>
-                          <span class="wide:hidden inline-flex items-center">
-                            <Icon name={IconNames.queue} />
-                          </span>
+                          +queue
                         </Button>
                         <Show when={canUpdateVideo()}>
                           <button

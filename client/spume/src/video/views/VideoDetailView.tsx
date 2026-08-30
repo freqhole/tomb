@@ -254,135 +254,258 @@ export function VideoDetailView() {
       <div class="flex flex-col h-full">
         <Show when={videoQuery.data} fallback={<LoadingState class="flex-1" />}>
           {(video) => (
-            <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
-              {/* video info */}
-              {/* extra top clearance below the wide-breakpoint floating nav pill (which doesn't reserve layout space) */}
-              <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
-                <h1 class="text-2xl wide:text-5xl font-bold text-[var(--color-text-primary)]">
-                  {video().title}
-                </h1>
-
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs wide:text-sm text-[var(--color-text-secondary)]">
-                  <Show when={releaseYear()}>{(year) => <span>{year()}</span>}</Show>
-                  <Show when={video().episode_number != null}>
-                    <span>episode {video().episode_number}</span>
-                  </Show>
-                  <Show when={video().duration_seconds != null}>
-                    <span>{formatDuration(video().duration_seconds)}</span>
-                  </Show>
-                </div>
-
-                <TaxonChips
-                  taxons={taxonsQuery.data}
-                  class="mt-2"
-                  excludeKinds={["genre", "mood", "style", "era", "label"]}
-                />
-
-                <TagChips tags={tagsQuery.data} class="mt-2" />
-
-                <Show when={video().description}>
-                  <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">
-                    {video().description}
-                  </p>
-                </Show>
-
-                <div class="mt-3 flex items-center gap-2">
-                  <Button
-                    variant="primary"
-                    loading={playPending()}
-                    onClick={() => void handlePlay()}
+            <>
+              {/* MOBILE: poster on top, info centered below (mirrors
+                  ArtistDetailPanel's mobile layout) */}
+              <div class="wide:hidden flex flex-col items-center gap-3 p-4">
+                <ContextMenu actions={videoContextMenuActions()}>
+                  <div
+                    class={`w-48 aspect-video rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
+                      (video().source_type === "remote"
+                        ? video().poster_blob_id
+                        : localPosterUrl())
+                        ? ""
+                        : "bg-[var(--color-bg-base)]"
+                    }`}
+                    title="view video images"
+                    onClick={handleVideoImageClick}
                   >
-                    <span class="hidden wide:inline">play video</span>
-                    <span class="wide:hidden">play</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    loading={queuePending()}
-                    onClick={() => void handleAddToQueue()}
-                    title="add video to queue"
-                    aria-label="add video to queue"
-                  >
-                    <span class="hidden wide:inline">+queue</span>
-                    <span class="wide:hidden inline-flex items-center">
-                      <Icon name={IconNames.queue} />
-                    </span>
-                  </Button>
-                  <Show when={video().series_id}>
+                    <Show
+                      when={video().source_type === "remote"}
+                      fallback={
+                        <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
+                          {(url) => (
+                            <img
+                              src={url()}
+                              alt={video().title}
+                              class="w-full h-full object-contain"
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      <MediaImage
+                        remoteBlobId={video().poster_blob_id}
+                        remoteServerId={video().remote_server_id}
+                        alt={video().title}
+                        showFallback={true}
+                        thumbnailSize={200}
+                        domainType="video"
+                        objectFit="contain"
+                        class="w-full h-full"
+                      />
+                    </Show>
+                  </div>
+                </ContextMenu>
+
+                <div class="flex flex-col items-center text-center w-full min-w-0">
+                  <h1 class="text-2xl font-bold text-[var(--color-text-primary)]">
+                    {video().title}
+                  </h1>
+
+                  <div class="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-[var(--color-text-secondary)]">
+                    <Show when={releaseYear()}>{(year) => <span>{year()}</span>}</Show>
+                    <Show when={video().episode_number != null}>
+                      <span>episode {video().episode_number}</span>
+                    </Show>
+                    <Show when={video().duration_seconds != null}>
+                      <span>{formatDuration(video().duration_seconds)}</span>
+                    </Show>
+                  </div>
+
+                  <TaxonChips
+                    taxons={taxonsQuery.data}
+                    class="mt-2 justify-center"
+                    excludeKinds={["genre", "mood", "style", "era", "label"]}
+                  />
+
+                  <TagChips tags={tagsQuery.data} class="mt-2 justify-center" />
+
+                  <Show when={video().description}>
+                    <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">
+                      {video().description}
+                    </p>
+                  </Show>
+
+                  <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={playPending()}
+                      onClick={() => void handlePlay()}
+                    >
+                      play
+                    </Button>
                     <Button
                       variant="ghost"
-                      onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
-                      title="view series"
-                      aria-label="view series"
+                      size="sm"
+                      loading={queuePending()}
+                      onClick={() => void handleAddToQueue()}
+                      title="add video to queue"
+                      aria-label="add video to queue"
                     >
-                      <span class="hidden wide:inline">view series</span>
-                      <span class="wide:hidden inline-flex items-center">
-                        <Icon name={IconNames.video} />
-                      </span>
+                      <Icon name={IconNames.queue} />
                     </Button>
-                  </Show>
-                  <Show when={canUpdateVideo()}>
-                    <button
-                      onClick={() =>
-                        showEditVideo({
-                          videoId: video().id,
-                          onDeleted: () => navigate(buildRoute("/video")),
-                        })
-                      }
-                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                      title="edit video info"
-                      aria-label="edit video info"
-                    >
-                      <Icon name={IconNames.edit} />
-                    </button>
-                  </Show>
-                  <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
-                  <ShareButton
-                    target={{ kind: "video", id: video().id, displayTitle: video().title }}
-                    source={currentRemoteFull}
-                  />
-                  <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
+                    <Show when={video().series_id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
+                        title="view series"
+                        aria-label="view series"
+                      >
+                        <Icon name={IconNames.video} />
+                      </Button>
+                    </Show>
+                    <Show when={canUpdateVideo()}>
+                      <button
+                        onClick={() =>
+                          showEditVideo({
+                            videoId: video().id,
+                            onDeleted: () => navigate(buildRoute("/video")),
+                          })
+                        }
+                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                        title="edit video info"
+                        aria-label="edit video info"
+                      >
+                        <Icon name={IconNames.edit} />
+                      </button>
+                    </Show>
+                    <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                    <ShareButton
+                      target={{ kind: "video", id: video().id, displayTitle: video().title }}
+                      source={currentRemoteFull}
+                    />
+                    <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
+                  </div>
                 </div>
               </div>
 
-              {/* poster */}
-              <ContextMenu actions={videoContextMenuActions()}>
-                <div
-                  class={`w-48 wide:w-96 aspect-video mx-auto wide:mx-0 rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
-                    (video().source_type === "remote" ? video().poster_blob_id : localPosterUrl())
-                      ? ""
-                      : "bg-[var(--color-bg-base)]"
-                  }`}
-                  title="view video images"
-                  onClick={handleVideoImageClick}
-                >
-                  <Show
-                    when={video().source_type === "remote"}
-                    fallback={
-                      <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
-                        {(url) => (
-                          <img
-                            src={url()}
-                            alt={video().title}
-                            class="w-full h-full object-contain"
-                          />
-                        )}
-                      </Show>
-                    }
-                  >
-                    <MediaImage
-                      remoteBlobId={video().poster_blob_id}
-                      remoteServerId={video().remote_server_id}
-                      alt={video().title}
-                      showFallback={true}
-                      thumbnailSize={200}
-                      domainType="video"
-                      objectFit="contain"
-                      class="w-full h-full"
-                    />
+              {/* DESKTOP: info left, poster right */}
+              <div class="hidden wide:flex justify-between gap-6 p-6">
+                {/* extra top clearance below the wide-breakpoint floating nav pill (which doesn't reserve layout space) */}
+                <div class="flex flex-col justify-center min-w-0 mt-20 gap-2 text-left">
+                  <h1 class="text-5xl font-bold text-[var(--color-text-primary)]">
+                    {video().title}
+                  </h1>
+
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--color-text-secondary)]">
+                    <Show when={releaseYear()}>{(year) => <span>{year()}</span>}</Show>
+                    <Show when={video().episode_number != null}>
+                      <span>episode {video().episode_number}</span>
+                    </Show>
+                    <Show when={video().duration_seconds != null}>
+                      <span>{formatDuration(video().duration_seconds)}</span>
+                    </Show>
+                  </div>
+
+                  <TaxonChips
+                    taxons={taxonsQuery.data}
+                    class="mt-2"
+                    excludeKinds={["genre", "mood", "style", "era", "label"]}
+                  />
+
+                  <TagChips tags={tagsQuery.data} class="mt-2" />
+
+                  <Show when={video().description}>
+                    <p class="mt-2 text-sm text-[var(--color-text-secondary)] max-w-prose">
+                      {video().description}
+                    </p>
                   </Show>
+
+                  <div class="mt-3 flex items-center gap-2">
+                    <Button
+                      variant="primary"
+                      loading={playPending()}
+                      onClick={() => void handlePlay()}
+                    >
+                      play video
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      loading={queuePending()}
+                      onClick={() => void handleAddToQueue()}
+                      title="add video to queue"
+                      aria-label="add video to queue"
+                    >
+                      +queue
+                    </Button>
+                    <Show when={video().series_id}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
+                        title="view series"
+                        aria-label="view series"
+                      >
+                        view series
+                      </Button>
+                    </Show>
+                    <Show when={canUpdateVideo()}>
+                      <button
+                        onClick={() =>
+                          showEditVideo({
+                            videoId: video().id,
+                            onDeleted: () => navigate(buildRoute("/video")),
+                          })
+                        }
+                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+                        title="edit video info"
+                        aria-label="edit video info"
+                      >
+                        <Icon name={IconNames.edit} />
+                      </button>
+                    </Show>
+                    <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                    <ShareButton
+                      target={{ kind: "video", id: video().id, displayTitle: video().title }}
+                      source={currentRemoteFull}
+                    />
+                    <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
+                  </div>
                 </div>
-              </ContextMenu>
-            </div>
+
+                <ContextMenu actions={videoContextMenuActions()}>
+                  <div
+                    class={`w-96 aspect-video rounded-lg overflow-hidden flex-shrink-0 cursor-pointer ${
+                      (video().source_type === "remote"
+                        ? video().poster_blob_id
+                        : localPosterUrl())
+                        ? ""
+                        : "bg-[var(--color-bg-base)]"
+                    }`}
+                    title="view video images"
+                    onClick={handleVideoImageClick}
+                  >
+                    <Show
+                      when={video().source_type === "remote"}
+                      fallback={
+                        <Show when={localPosterUrl()} fallback={<div class="w-full h-full" />}>
+                          {(url) => (
+                            <img
+                              src={url()}
+                              alt={video().title}
+                              class="w-full h-full object-contain"
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      <MediaImage
+                        remoteBlobId={video().poster_blob_id}
+                        remoteServerId={video().remote_server_id}
+                        alt={video().title}
+                        showFallback={true}
+                        thumbnailSize={200}
+                        domainType="video"
+                        objectFit="contain"
+                        class="w-full h-full"
+                      />
+                    </Show>
+                  </div>
+                </ContextMenu>
+              </div>
+            </>
           )}
         </Show>
       </div>
