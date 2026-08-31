@@ -52,7 +52,7 @@ import {
   type MediaItem,
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
-import { canGoNext, markPlaybackEnded } from "../queue/queueState";
+import { canGoNext, markPlaybackEnded, resetPlaybackEnded } from "../queue/queueState";
 import { stopServerSession } from "../queue/serverSession";
 import { stopRadioForMusic } from "../../../app/services/playbackCoordinator";
 import { getDataSource } from "../../data";
@@ -412,6 +412,16 @@ export async function playSong(
   // auto-play (the gate was just cleared).
   const autoPlay = userInitiated || !userExplicitlyPaused;
 
+  // clear the stale "queue fully finished" flag the moment we actually
+  // attempt to play something again, so a later addToQueue() doesn't
+  // mistake "ended once, earlier this session" for "idle right now" and
+  // wrongly force-starts playback over an already-playing song. this is
+  // the one place every play path (queue advance, direct playSong calls
+  // from radio/search/etc.) funnels through - previously only
+  // htmlAudio.ts reset this, so rodio (desktop) left it stuck forever
+  // after the first full queue completion.
+  resetPlaybackEnded();
+
   try {
     const backend = ensureBackendForKind("song");
     await backend.loadAndPlay(songToMediaItem(song), { ...options, autoPlay });
@@ -467,6 +477,10 @@ export async function playVideo(
   }
 
   const autoPlay = userInitiated || !userExplicitlyPaused;
+
+  // see playSong's identical reset - keeps hasPlaybackEnded() accurate
+  // for video playback too.
+  resetPlaybackEnded();
 
   try {
     const backend = ensureBackendForKind("video");

@@ -532,7 +532,7 @@ export async function addToQueue(
     if (choice === "clear-all") {
       // clear queue and add new items via playQueue (will handle empty queue path)
       await setQueue(finalItems);
-      if (startPlaying || !currentId) {
+      if (startPlaying || !currentId || hasPlaybackEnded()) {
         await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
@@ -554,7 +554,7 @@ export async function addToQueue(
       // can't remove enough items without affecting currently playing
       // fall back to clear-all behavior
       await setQueue(finalItems);
-      if (startPlaying || !currentId) {
+      if (startPlaying || !currentId || hasPlaybackEnded()) {
         await playMediaItem(finalItems[0], { userInitiated: true });
       }
       if (options?.source) {
