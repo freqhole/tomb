@@ -75,9 +75,21 @@ export function CenotaphPlayerApp() {
   const [middenNode, setMiddenNode] = createSignal<MediaPlaybackNode | null>(null);
   // no trusted controllers yet => the pin currently shown is this
   // player's admin-bootstrap invite (see docs/player-peer-trust-bridge-plan.md).
-  const [controllers] = createResource(spumeTrustStore.listTrustedControllers);
+  const [controllers, { refetch: refetchControllers }] = createResource(
+    spumeTrustStore.listTrustedControllers
+  );
   const isAdminBootstrapPin = () =>
     (controllers()?.length ?? 0) === 0 || currentSession()?.admin_grant_pending === true;
+
+  // playerConnectionHandler.ts pushes a fresh session into currentSession()
+  // whenever a peer pairs (including the admin-bootstrap redemption, which
+  // also rotates the pin) - refetch the trusted-controllers list on the
+  // same trigger so isAdminBootstrapPin() above isn't left reading a stale,
+  // pre-pairing controller count.
+  createEffect(() => {
+    currentSession();
+    void refetchControllers();
+  });
 
   onMount(() => {
     document.body.appendChild(mediaElement);
@@ -155,7 +167,15 @@ export function CenotaphPlayerApp() {
     })();
   });
 
-  const showPairingScreen = () => engineState() === "idle" && nowPlaying() === null;
+  // the qr+pin pairing screen is the only ui a brand-new (not-yet-trusted)
+  // device has to discover this player at all - it must reappear once a
+  // session's queue empties back out, not just before the very first
+  // session ever starts. stop() (playbackEngine.ts) leaves engineState()
+  // at "stopped" (not "idle") once the queue drains, so checking only for
+  // "idle" here left the pairing screen permanently hidden after the
+  // first-ever session ended.
+  const showPairingScreen = () =>
+    (engineState() === "idle" || engineState() === "stopped") && nowPlaying() === null;
 
   return (
     <div class="flex h-screen flex-col items-center justify-center gap-6 overflow-y-auto bg-black p-6 text-center text-white">

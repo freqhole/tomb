@@ -108,6 +108,13 @@ export async function selectPlayerPlaybackTarget(player: {
       toast.error(e instanceof Error ? e.message : "failed to reach player", {
         title: "remote-player-connection-error",
       });
+      // fetchRemoteStatus() throwing here means the player was
+      // unreachable from the very first dial - remoteStatusKnown() will
+      // then never become true, so the "connecting" comet ring (see
+      // QueuePlayerTargetRow's isConnecting()) would otherwise spin
+      // forever and the picker would stay stuck on a dead target. fall
+      // back to local so the ui reflects reality instead.
+      setActiveTargetToLocal();
     }
     return;
   }
@@ -148,5 +155,11 @@ export async function selectPlayerPlaybackTarget(player: {
     toast.error(e instanceof Error ? e.message : "failed to send queue to player", {
       title: "remote-player-connection-error",
     });
+    // same reasoning as the empty-handoff branch above - a failure here
+    // (most commonly fetchRemoteStatus() itself throwing, i.e. the player
+    // was never reachable) would otherwise leave activeTarget stuck on a
+    // dead player forever, with the "connecting" ring never clearing since
+    // remoteStatusKnown() never becomes true.
+    setActiveTargetToLocal();
   }
 }

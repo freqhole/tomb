@@ -12,6 +12,7 @@
 // host app never has to juggle two separate codes.
 
 import { generatePin } from "./pin";
+import type { PeerRole } from "./trustStore";
 import { openDB, type IDBPDatabase } from "idb";
 
 /** "everyone": any currently-trusted peer may send commands, no pin
@@ -84,8 +85,19 @@ export async function touchSession(
   return touched;
 }
 
-export function isPeerAllowedInSession(session: PlayerSession, nodeId: string): boolean {
-  return session.mode === "everyone" || session.allowed_node_ids.includes(nodeId);
+/** `role` is the peer's role in the base trust store (trustStore.ts), not
+ * session membership itself - an `"admin"` peer always passes, regardless
+ * of session mode/allowlist, since an admin shouldn't need an explicit
+ * invite into a gathering on a player they already administer. omit it
+ * (or pass a non-admin role) to check plain session membership only. */
+export function isPeerAllowedInSession(
+  session: PlayerSession,
+  nodeId: string,
+  role?: PeerRole,
+): boolean {
+  return (
+    role === "admin" || session.mode === "everyone" || session.allowed_node_ids.includes(nodeId)
+  );
 }
 
 /** records that `nodeId` redeemed the session pin (or was hand-picked in

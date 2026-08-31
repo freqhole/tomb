@@ -8,7 +8,12 @@
 import { isRateLimited, recordPairingFailure, clearPairingFailures } from "./rateLimiter";
 import type { TrustStore, PeerRole } from "./trustStore";
 import { PairRequestSchema, type PairResponse } from "./protocol";
-import { joinSession, type PlayerSession, type PlayerSessionStore } from "./playerSession";
+import {
+  joinSession,
+  regenerateSessionPin,
+  type PlayerSession,
+  type PlayerSessionStore,
+} from "./playerSession";
 
 export async function handlePairRequest(
   trustStore: TrustStore,
@@ -40,9 +45,18 @@ export async function handlePairRequest(
   // lowest-privilege role, same "safe default" philosophy as grimoire's
   // own route auth (see apiRouter.ts).
   const existing = await trustStore.listTrustedControllers();
-  const role: PeerRole = existing.length === 0 || session.admin_grant_pending ? "admin" : "viewer";
+  const grantsAdmin = existing.length === 0 || session.admin_grant_pending;
+  const role: PeerRole = grantsAdmin ? "admin" : "viewer";
   await trustStore.trustController(peerNodeId, display_name, role);
-  await joinSession(sessionStore, session, peerNodeId);
+  const joined = await joinSession(sessionStore, session, peerNodeId);
+
+  // the admin-bootstrap pin is meant as a one-time registration code -
+  // once it's actually redeemed for admin, mint a fresh, non-admin pin so
+  // regular users have a distinct code to join with (the old one would
+  // otherwise keep working too, just downgraded to "viewer").
+  if (grantsAdmin) {
+    await regenerateSessionPin(sessionStore, joined);
+  }
 
   return { type: "pair_response", ok: true };
 }

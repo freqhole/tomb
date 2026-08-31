@@ -5,7 +5,7 @@
 // `settings/SettingsPanel.tsx` pixel-for-pixel, adapted to spume's own
 // trust store and library-name concept instead of cenotaph's defaults.
 
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import {
   connectedControllers,
   currentPin,
@@ -43,6 +43,15 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
   );
   const [usage] = createResource(getStorageUsage);
   const [copied, setCopied] = createSignal(false);
+
+  // playerConnectionHandler.ts pushes a fresh session on every pairing
+  // event (including admin-bootstrap redemptions, which also rotate the
+  // pin) - refetch trusted controllers on the same trigger so this list
+  // doesn't sit stale while the panel is left open.
+  createEffect(() => {
+    currentSession();
+    void refetchControllers();
+  });
 
   const saveName = async () => {
     await setLocalLibraryName(nameInput());
@@ -285,7 +294,9 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
                     </span>
                   </span>
                   <span class="flex items-center gap-2">
-                    <Show when={currentSession()?.mode !== "everyone"}>
+                    <Show
+                      when={currentSession()?.mode !== "everyone" && controller.role !== "admin"}
+                    >
                       <button
                         type="button"
                         class="text-neutral-400"
@@ -302,6 +313,13 @@ export function PlayerSettingsPanel(props: { onClose: () => void; nodeId?: strin
                           ? "in session"
                           : "not in session"}
                       </button>
+                    </Show>
+                    <Show
+                      when={currentSession()?.mode !== "everyone" && controller.role === "admin"}
+                    >
+                      <span class="text-neutral-500" data-testid="admin-always-in-session-badge">
+                        admin (always in session)
+                      </span>
                     </Show>
                     <button
                       type="button"

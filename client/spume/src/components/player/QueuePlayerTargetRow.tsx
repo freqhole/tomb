@@ -8,7 +8,7 @@
 // never clips inside the sidebar's scroll container) - no inline-pills/
 // modal split by player count, since that added an extra component +
 // counting threshold for no real benefit.
-import { createResource, createSignal, Show } from "solid-js";
+import { createResource, Show } from "solid-js";
 import { pairedPlayersVersion, listPairedPlayers } from "../../app/services/players/pairedPlayers";
 import { activeTarget } from "../../app/services/players/activeTarget";
 import {
@@ -19,10 +19,7 @@ import {
   remoteStatusKnown,
   remoteCommandPending,
 } from "../../app/services/players/remotePlaybackControl";
-import {
-  queryPlayerPresence,
-  type PlayerPresence,
-} from "../../app/services/players/playerPairingClient";
+import { playerPresence, wakeAllPlayers } from "../../app/services/players/playerPresenceStore";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
 import { CometBorderRing } from "../feedback";
@@ -30,22 +27,11 @@ import { CometBorderRing } from "../feedback";
 export function QueuePlayerTargetRow() {
   const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
 
-  // step 6 (docs/player-peer-trust-bridge-plan.md): on-demand presence per
-  // paired player, queried fresh each time the flyout opens (via
-  // ClickDropdownMenu's onOpen) rather than kept continuously live -
-  // there's no shutdown()/close() binding yet for a background poll to
-  // reliably tear down, so "query when the picker is actually opened" is
-  // the simplest correct behavior. keyed by node_id; undefined means
-  // "not queried yet this time" (shown as neither online nor offline).
-  const [presence, setPresence] = createSignal<Record<string, PlayerPresence>>({});
-
-  const refreshPresence = () => {
-    for (const player of pairedPlayers() ?? []) {
-      void queryPlayerPresence(player.node_id).then((state) => {
-        setPresence((prev) => ({ ...prev, [player.node_id]: state }));
-      });
-    }
-  };
+  // shared presence map (playerPresenceStore.ts) - seeded by a
+  // non-blocking sweep at app boot, refreshed again here each time the
+  // flyout opens. keyed by node_id; undefined means "not probed yet this
+  // session" (shown as neither online nor offline).
+  const presence = playerPresence;
 
   const isActivePlayer = (nodeId: string) => {
     const t = activeTarget();
@@ -75,9 +61,13 @@ export function QueuePlayerTargetRow() {
     },
     ...(pairedPlayers() ?? []).map((player): MenuAction => {
       const state = presence()[player.node_id];
-      const label = state === "stopped" ? `${player.username} (offline)` : player.username;
       return {
-        label,
+        label: player.username,
+        // presence is a one-shot probe from when the flyout last opened,
+        // not a live/continuous check - stale info is possible, so this
+        // is purely informational (an "offline" badge) and never disables
+        // the click, since the player might actually be reachable again.
+        badge: state === "stopped" ? "offline" : undefined,
         icon: isActivePlayer(player.node_id) ? "check" : "remotePlayer",
         onClick: () => void selectPlayerPlaybackTarget(player),
       };
@@ -100,7 +90,7 @@ export function QueuePlayerTargetRow() {
               </button>
             }
             actions={actions()}
-            onOpen={refreshPresence}
+            onOpen={wakeAllPlayers}
           />
         </CometBorderRing>
       </div>

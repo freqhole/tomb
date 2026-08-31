@@ -126,6 +126,7 @@ import {
   onSwitchToLocal,
 } from "./services/remotes/remoteManager";
 import { seedOnlineMap, wakeAllRemotes } from "./services/remotes/remoteHealth";
+import { wakeAllPlayers } from "./services/players/playerPresenceStore";
 import type { ImageMetadata, Song } from "../music/services/storage/types";
 import {
   mediaItemKey,
@@ -594,6 +595,12 @@ export function AppLayout(props: AppLayoutProps) {
       // remoteHealth so it's safe to call this freely.
       void seedOnlineMap();
       wakeAllRemotes();
+
+      // same idea for paired players (playerPresenceStore.ts) - a
+      // fire-and-forget sweep, never awaited, so this never delays
+      // initial load/render. QueuePlayerTargetRow's flyout re-triggers
+      // this itself on open for a fresher read.
+      wakeAllPlayers();
 
       // listen for remote status changes (offline/online) and refresh remotes list
       unsubscribeStatusChange = onRemoteStatusChange(async (_remoteId, _isOffline) => {

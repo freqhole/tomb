@@ -19,6 +19,7 @@ import { PresenceQuerySchema, SubscribeRequestSchema } from "./schema";
 import { registerSubscriber, unregisterSubscriber } from "./statusSubscribers";
 import { markControllerConnected, markControllerDisconnected } from "./connectedControllers";
 import type { PlaybackBackend } from "./playbackBackend";
+import { setSessionSignal } from "../pairing/pinStore";
 
 export interface PlayerConnectionHandlerOptions<TNode = unknown> {
   backend: PlaybackBackend<TNode>;
@@ -83,6 +84,13 @@ export function createPlayerConnectionHandler<TNode = unknown>(
         // TEMP DEBUG - remove once the first-pair-attempt-fails bug is found
         console.log("[debug/playerConn] pair response:", response);
         await stream.write_line(JSON.stringify(response));
+
+        // handlePairRequest may have rotated the pin/cleared the admin
+        // grant/added the peer to allowed_node_ids - push the latest
+        // persisted session into the reactive signal so any host UI
+        // (pairing screen, settings panel) updates without a manual refresh.
+        const updatedSession = await sessionStore.loadSession();
+        if (updatedSession) setSessionSignal(updatedSession);
 
         // wait for the peer's clean close (EOF) before tearing down our own
         // side - closing immediately after write_line can race the QUIC
@@ -151,7 +159,10 @@ export function createPlayerConnectionHandler<TNode = unknown>(
         try {
           let line: string | null = firstLine;
           while (line !== null) {
-            if (!isGetStatusCommand(line) && !isPeerAllowedInSession(session, peerNodeId)) {
+            if (
+              !isGetStatusCommand(line) &&
+              !isPeerAllowedInSession(session, peerNodeId, controller?.role)
+            ) {
               await stream.write_line(
                 JSON.stringify({ type: "command_ack", ok: false, reason: "not_in_session" }),
               );
