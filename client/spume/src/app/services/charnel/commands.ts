@@ -71,6 +71,49 @@ export async function openSetupWizard(route: string = "/"): Promise<void> {
 }
 
 /**
+ * is this install running under flatpak? gates the doc-portal storage
+ * health check (see checkAndShowStorageHealthToast in toastNotices.tsx) -
+ * the underlying failure mode (stale document-portal write grants) can't
+ * occur outside a flatpak sandbox.
+ */
+export async function isFlatpak(): Promise<boolean> {
+  try {
+    const invoke = await getInvoke();
+    return Boolean(await invoke("is_flatpak"));
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * real read+write probe for a directory (creates+deletes a throwaway
+ * marker file) - distinct from just checking the path exists, since a
+ * stale flatpak doc-portal grant (or a read-only host path) can still
+ * resolve/exist while no longer being writable.
+ */
+export async function checkDirWritable(path: string): Promise<boolean> {
+  try {
+    const invoke = await getInvoke();
+    return Boolean(await invoke("check_dir_writable", { path }));
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * the configured fetch-music output directory, if set.
+ */
+export async function getFetchMusicDir(): Promise<string | null> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke("get_fetch_music_dir");
+    return typeof result === "string" ? result : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * set the main window title.
  *
  * @param title - the window title to set

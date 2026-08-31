@@ -77,6 +77,9 @@ export default function SetupView() {
   const [scanning, setScanning] = createSignal(false);
   // advanced config toggle
   const [showAdvanced, setShowAdvanced] = createSignal(false);
+  // running under flatpak - only browsed (portal-brokered) folders are
+  // writable there, so typed paths get disabled for data-dir/fetch-music-dir
+  const [isFlatpak, setIsFlatpak] = createSignal(false);
   // dependency check state
   const [depCheck, setDepCheck] = createSignal<DependencyCheckResult | null>(null);
   const [depCheckLoading, setDepCheckLoading] = createSignal(true);
@@ -104,6 +107,8 @@ export default function SetupView() {
       setDepCheck(deps);
       setFetchMusicEnabled(true);
       setDepCheckLoading(false);
+
+      setIsFlatpak(await invoke<boolean>("is_flatpak").catch(() => false));
 
       // get default data directory (system app data dir)
       const dir = await invoke<string | null>("get_default_data_dir");
@@ -584,12 +589,17 @@ export default function SetupView() {
                 value={fetchMusicDir()}
                 onInput={(e) => setFetchMusicDir(e.currentTarget.value)}
                 placeholder="/path/to/music"
+                readOnly={isFlatpak()}
               />
               <button type="button" class="browse-btn" onClick={browseFetchMusicDir}>
                 browse
               </button>
             </div>
-            <p class="hint">where fetched music filez are stored.</p>
+            <p class="hint">
+              {isFlatpak()
+                ? "under flatpak, only folders chosen via 'browse' are writable - use the button above."
+                : "where fetched music filez are stored."}
+            </p>
           </div>
 
           {/* federation options */}
@@ -716,13 +726,16 @@ export default function SetupView() {
                     value={dataDir()}
                     onInput={(e) => setDataDir(e.currentTarget.value)}
                     placeholder="/path/to/freqhole/data"
+                    readOnly={isFlatpak()}
                   />
                   <button type="button" class="browse-btn" onClick={browseDir}>
                     browse
                   </button>
                 </div>
                 <p class="hint">
-                  where database, cache, config, and miscellaneous filez are stored.
+                  {isFlatpak()
+                    ? "under flatpak, only folders chosen via 'browse' are writable - use the button above."
+                    : "where database, cache, config, and miscellaneous filez are stored."}
                 </p>
               </div>
             </div>

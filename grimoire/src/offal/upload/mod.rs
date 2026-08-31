@@ -1787,7 +1787,7 @@ pub enum PullAudioBlobError {
     /// declared size exceeds federation.max_upload_size_mb
     FileTooLarge { declared: u64, max: u64 },
     /// failed to mkdir -p the output directory
-    CreateDirFailed(String),
+    CreateDirFailed { path: String, message: String },
     /// iroh-blobs fetch failed
     FetchFailed(String),
     /// source peer refused because we aren't a registered federation peer.
@@ -1833,14 +1833,25 @@ impl PullAudioBlobError {
                     ),
                 )],
             ),
-            PullAudioBlobError::CreateDirFailed(msg) => GrimoireResponse::failure(
-                "failed to create directory",
-                vec![ErrorDetail::new(
-                    "internal_error",
+            PullAudioBlobError::CreateDirFailed { path, message } => {
+                // a doc-portal path (flatpak) failing here usually means the portal
+                // grant went stale (revoked, file moved/deleted, reinstall) rather
+                // than a generic IO error - flag it distinctly so the UI can offer
+                // a "reselect folder" recovery instead of a raw error message.
+                let error_type = if crate::paths::is_doc_portal_path(&path) {
+                    "stale_doc_portal_path"
+                } else {
+                    "internal_error"
+                };
+                GrimoireResponse::failure(
                     "failed to create directory",
-                    &msg,
-                )],
-            ),
+                    vec![ErrorDetail::new(
+                        error_type,
+                        "failed to create directory",
+                        format!("{} (path: {})", message, path),
+                    )],
+                )
+            }
             PullAudioBlobError::FetchFailed(msg) => GrimoireResponse::failure(
                 "failed to fetch blob from peer",
                 vec![ErrorDetail::new(
@@ -2007,7 +2018,10 @@ pub async fn pull_audio_blob_to_local_storage(
     // ensure directory exists
     if let Some(parent) = temp_path.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            return Err(PullAudioBlobError::CreateDirFailed(e.to_string()));
+            return Err(PullAudioBlobError::CreateDirFailed {
+                path: parent.to_string_lossy().into_owned(),
+                message: e.to_string(),
+            });
         }
     }
 
@@ -2129,6 +2143,10 @@ pub async fn pull_audio_blob_to_local_storage(
         let _ = tokio::fs::remove_file(&temp_path).await;
         return Err(PullAudioBlobError::WrongMediaType(domain));
     }
+
+    // re-derive the extension from the verified mime type rather than trusting the
+    // pre-download filename guess (which may be a caller-supplied placeholder, e.g. ".bin")
+    let ext = detect_extension(&mime_type, filename);
 
     let size = file_size as i64;
 

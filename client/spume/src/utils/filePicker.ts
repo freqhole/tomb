@@ -215,13 +215,15 @@ async function loadFs(): Promise<{ readFile: TauriFsReadFileFn }> {
  * canonicalize a path returned by the native file/directory dialog via
  * charnel's `resolve_path` command.
  *
- * on Linux Flatpak, the dialog hands back ephemeral document-portal paths
- * like `/run/user/1000/doc/666aaa99/song.mp3` instead of the real
- * filesystem path — those work for an immediate `readFile()` in the same
- * process, but break once handed off elsewhere (P2P remote upload,
- * iroh-blobs FsStore, another process after restart). falls back to the
- * original path if resolution isn't available (non-tauri/non-desktop) or
- * fails, mirroring `resolve_path`'s own fallback behavior server-side.
+ * on Linux Flatpak, the dialog hands back document-portal paths like
+ * `/run/user/1000/doc/666aaa99/song.mp3` instead of the real filesystem
+ * path - `resolve_path` deliberately leaves those unchanged (see
+ * grimoire::paths and docs/flatpak-filesystem-access-plan.md), since
+ * they're the only form of that path the sandbox can actually write
+ * through; the real host path is typically read-only. for non-portal
+ * paths (macOS, plain linux), this still canonicalizes symlinks/relative
+ * bits as before. falls back to the original path if resolution isn't
+ * available (non-tauri/non-desktop) or fails.
  */
 async function resolveTauriPath(path: string): Promise<string> {
   try {

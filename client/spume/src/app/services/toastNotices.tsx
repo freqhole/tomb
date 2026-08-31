@@ -8,7 +8,14 @@ import { Toast as KobalteToast, toaster } from "@kobalte/core/toast";
 import { appState, updateAppState } from "./storage/db";
 import { VERSION } from "../../version";
 import { isCharnelMode } from "./charnel/mode";
-import { checkConfigNeedsUpgrade, openSetupWizard } from "./charnel/commands";
+import {
+  checkConfigNeedsUpgrade,
+  openSetupWizard,
+  isFlatpak,
+  checkDirWritable,
+  getFetchMusicDir,
+} from "./charnel/commands";
+import { listMountedExternalStorageDevices } from "./charnel/externalStorage";
 import { solidColors } from "../../design-system/colors";
 import { Icon } from "../../components/icons/registry";
 import { getRemoteById, getAllRemotes } from "./remotes/remoteManager";
@@ -86,6 +93,7 @@ export async function dismissNotice(noticeId: string): Promise<void> {
 export const NOTICE_CONFIG_UPGRADE = "config-upgrade";
 export const NOTICE_KNOCK_REQUESTS = "knock-requests";
 export const NOTICE_KNOCK_CREATED = "knock-created";
+export const NOTICE_STORAGE_HEALTH = "storage-health";
 
 // ============================================================================
 // knock created toast (shows username + message with federation button)
@@ -239,6 +247,106 @@ export async function checkAndShowConfigUpgradeToast(): Promise<void> {
     ));
   } catch (error) {
     console.error("[toastNotices] failed to check config upgrade:", error);
+  }
+}
+
+// ============================================================================
+// storage health toast (stale flatpak doc-portal write grants)
+// ============================================================================
+
+/**
+ * check every boot (flatpak only) whether the configured fetch-music
+ * directory and any mounted external-storage devices are still actually
+ * writable, and show a toast prompting the user to reselect them if not.
+ *
+ * unlike the config-upgrade notice, this is deliberately NOT dismissed
+ * "for this version" - a doc-portal grant can go stale at any time
+ * (permission revoked, portal backend restart), not just across an
+ * upgrade, so it's re-checked and re-shown every launch regardless of
+ * whether a past instance of it was dismissed. `isNoticeShowing` still
+ * guards against showing it twice in the same session.
+ */
+export async function checkAndShowStorageHealthToast(): Promise<void> {
+  if (!isCharnelMode()) return;
+  if (isNoticeShowing(NOTICE_STORAGE_HEALTH)) return;
+
+  try {
+    if (!(await isFlatpak())) return;
+
+    const brokenPaths: string[] = [];
+
+    const fetchMusicDir = await getFetchMusicDir();
+    if (fetchMusicDir && !(await checkDirWritable(fetchMusicDir))) {
+      brokenPaths.push("fetched music folder");
+    }
+
+    const devices = await listMountedExternalStorageDevices();
+    for (const device of devices) {
+      if (!device.path_writable) {
+        brokenPaths.push(device.volume_name || device.path);
+      }
+    }
+
+    if (brokenPaths.length === 0) return;
+
+    markNoticeShowing(NOTICE_STORAGE_HEALTH);
+
+    toaster.show((props) => (
+      <KobalteToast toastId={props.toastId} persistent={true} class="toast pointer-events-auto">
+        <div
+          class="flex items-start gap-3 p-4 rounded-lg shadow-lg border min-w-[320px] max-w-[420px]"
+          style={{
+            "background-color": solidColors.warning.bg,
+            "border-color": solidColors.warning.border,
+            color: solidColors.warning.text,
+          }}
+        >
+          {/* icon */}
+          <div class="flex-shrink-0 pt-0.5">
+            <Icon name="alertTriangle" size={20} color={solidColors.warning.text} />
+          </div>
+
+          {/* content */}
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-sm mb-1">storage folder access needed</div>
+            <div class="text-sm mb-3">
+              can't write to: {brokenPaths.join(", ")}. reselect the folder in settings.
+            </div>
+            <div class="flex gap-2">
+              <button
+                class="px-3 py-1 text-xs font-medium rounded bg-[var(--color-bg-secondary)] text-white hover:bg-[var(--color-bg-tertiary)] cursor-pointer"
+                onClick={async () => {
+                  toaster.dismiss(props.toastId);
+                  markNoticeHidden(NOTICE_STORAGE_HEALTH);
+                  await openSetupWizard("/settings");
+                }}
+              >
+                open settings
+              </button>
+              <button
+                class="px-3 py-1 text-xs font-medium rounded hover:bg-black/20 cursor-pointer opacity-70"
+                onClick={() => {
+                  toaster.dismiss(props.toastId);
+                  markNoticeHidden(NOTICE_STORAGE_HEALTH);
+                }}
+              >
+                dismiss
+              </button>
+            </div>
+          </div>
+
+          {/* close button */}
+          <KobalteToast.CloseButton
+            class="flex-shrink-0 hover:opacity-70 transition-opacity p-1 -mt-1 -mr-1 cursor-pointer"
+            onClick={() => markNoticeHidden(NOTICE_STORAGE_HEALTH)}
+          >
+            <Icon name="close" size={16} color={solidColors.warning.text} />
+          </KobalteToast.CloseButton>
+        </div>
+      </KobalteToast>
+    ));
+  } catch (error) {
+    console.error("[toastNotices] failed to check storage health:", error);
   }
 }
 
@@ -408,8 +516,7 @@ async function countPendingForRemote(remote: {
 
     const client = await adminClientFor(r);
     const rows = (await client.dispatchOrThrow("knocks_list", undefined)) as
-      | KnockRowLite[]
-      | undefined;
+      KnockRowLite[] | undefined;
     if (!Array.isArray(rows)) return 0;
     return rows.filter((k) => k.status === "pending").length;
   } catch (e) {

@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../util/resolvePath";
 import ConfigView from "./ConfigView";
 import ExternalStorageSettingsSection from "./settings/ExternalStorageSettings";
+import StorageSettingsSection from "./settings/StorageSettings";
 import { useAdminTransport } from "../admin/context";
 
 interface ServerConfig {
@@ -582,6 +583,8 @@ export default function SettingsView() {
                 </div>
               </div>
             </div>
+
+            <StorageSettingsSection />
 
             <ExternalStorageSettingsSection />
 

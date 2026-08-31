@@ -338,11 +338,12 @@ async fn check_has_root_user() -> Result<bool, String> {
 }
 
 /// resolve a file path to its canonical form (resolves symlinks, etc.)
+/// delegates to `canonicalize_or_original` so flatpak document-portal paths are
+/// left untouched instead of being resolved to their (typically read-only) real
+/// host path - see grimoire::paths and docs/flatpak-filesystem-access-plan.md.
 #[tauri::command]
 pub fn resolve_path(path: String) -> Result<String, String> {
-    std::fs::canonicalize(&path)
-        .map(|p| p.to_string_lossy().to_string())
-        .map_err(|e| format!("failed to resolve path '{}': {}", path, e))
+    Ok(canonicalize_or_original(&path))
 }
 
 /// get the default app data directory path
@@ -417,6 +418,78 @@ pub fn get_data_dir(app_handle: tauri::AppHandle) -> Option<String> {
         .app_data_dir()
         .ok()
         .map(|p| p.display().to_string())
+}
+
+/// true if this process is running inside a flatpak sandbox. flatpak sets
+/// `FLATPAK_ID` in the environment of every app it launches - see
+/// docs/flatpak-filesystem-access-plan.md for why this matters (only
+/// portal-brokered folders are writable, typed real paths are not).
+#[tauri::command]
+pub fn is_flatpak() -> bool {
+    std::env::var("FLATPAK_ID").is_ok()
+}
+
+/// probe whether `path` (a directory) is actually writable, by creating and
+/// removing a throwaway marker file inside it. used to detect a stale/broken
+/// flatpak document-portal grant (revoked permission, deleted folder, etc.)
+/// instead of only finding out deep inside a background sync job.
+#[tauri::command]
+pub fn check_dir_writable(path: String) -> bool {
+    let dir = Path::new(&path);
+    if !dir.is_dir() {
+        return false;
+    }
+    let probe = dir.join(format!(".freqhole-write-probe-{}", std::process::id()));
+    match std::fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// get the fetched-music storage directory from loaded config (falls back to
+/// `<data_dir>/fetch`, mirroring grimoire's own default resolution).
+#[tauri::command]
+pub fn get_fetch_music_dir(app_handle: tauri::AppHandle) -> Option<String> {
+    let config_path = get_server_config_path_resolved(&app_handle)?;
+    ensure_config_initialized(&config_path).ok()?;
+    let config = grimoire::config::get_config();
+    let output_dir = config
+        .server
+        .as_ref()
+        .and_then(|s| s.fetch_music.as_ref())
+        .and_then(|f| f.output_dir.clone());
+    Some(output_dir.unwrap_or_else(|| config.data_dir.join("fetch").display().to_string()))
+}
+
+/// update the fetched-music storage directory (`server.fetch_music.output_dir`)
+/// and reload the in-memory config immediately - no restart required. `path`
+/// is resolved via `canonicalize_or_original` first (a no-op for flatpak
+/// document-portal paths, see grimoire::paths).
+#[tauri::command]
+pub fn update_fetch_music_dir(
+    app_handle: tauri::AppHandle,
+    path: String,
+) -> Result<String, String> {
+    let config_path = get_server_config_path_resolved(&app_handle)
+        .ok_or_else(|| "config file not found - run setup first".to_string())?;
+    let resolved = canonicalize_or_original(&path);
+
+    std::fs::create_dir_all(&resolved)
+        .map_err(|e| format!("failed to create '{}': {}", resolved, e))?;
+    if !check_dir_writable(resolved.clone()) {
+        return Err(format!("'{}' is not writable", resolved));
+    }
+
+    grimoire::set_config_values(
+        &config_path,
+        &[("server.fetch_music.output_dir", resolved.clone().into())],
+    )
+    .map_err(|e| format!("failed to update config: {}", e))?;
+
+    Ok(resolved)
 }
 
 /// freqhole config info for the bridge (exposed to frontend via CustomEvent)

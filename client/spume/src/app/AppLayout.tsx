@@ -184,7 +184,10 @@ import {
   getAuthInfo,
   refreshOne as refreshRemoteAuthStatus,
 } from "./services/remotes/authStatusStore";
-import { checkAndShowConfigUpgradeToast } from "./services/toastNotices";
+import {
+  checkAndShowConfigUpgradeToast,
+  checkAndShowStorageHealthToast,
+} from "./services/toastNotices";
 import { debug } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
@@ -573,6 +576,11 @@ export function AppLayout(props: AppLayoutProps) {
 
       // check if config needs upgrade (tauri mode only, shows persistent toast if needed)
       checkAndShowConfigUpgradeToast();
+
+      // check if fetch-music-dir / external-storage paths are still
+      // writable (flatpak doc-portal grants can go stale) - shows a
+      // toast prompting reselect if not.
+      void checkAndShowStorageHealthToast();
 
       try {
         const allRemotes = await getAllRemotes();

@@ -16,6 +16,7 @@ interface ExternalStorageDevice {
   volume_uuid: string | null;
   subpath: string | null;
   last_synced_at: number | null;
+  path_writable: boolean;
 }
 
 interface ExternalStorageSettings {
@@ -454,6 +455,25 @@ export default function ExternalStorageSettingsSection() {
                   {device().path}
                 </span>
               </div>
+
+              <Show when={!device().path_writable}>
+                <div
+                  style={{
+                    "font-size": "0.8125rem",
+                    color: "var(--color-error-500, #ff4d6d)",
+                  }}
+                >
+                  this device isn't writable right now - the folder access may have gone stale
+                  (permission revoked, moved, or unmounted). choose it again below.
+                </div>
+                <button
+                  class="button"
+                  onClick={handlePickExternalStorageDevice}
+                  disabled={externalStorageBusy()}
+                >
+                  {externalStorageBusy() ? "working..." : "reselect device"}
+                </button>
+              </Show>
 
               <div class="form-group">
                 <label

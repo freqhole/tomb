@@ -276,8 +276,8 @@ max_concurrency = 0
 # guests, or low-power boards. each doubling roughly doubles output
 # latency but adds proportional headroom against scheduler jitter.
 # default when unset: 2048 (~43ms @ 48k). try 4096 (~85ms) or
-# 8192 (~170ms) if 2048 still glitches.
-linux_buffer_frames = 4096
+# 8192 (~170ms), 16384 (~340ms), 32768 (~680ms), even 65536 (~1.360s) if still getting glitchz.
+linux_buffer_frames = 8192
 
 # ============================================================================
 # OPTIONAL: new-version update checks

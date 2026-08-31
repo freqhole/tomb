@@ -42,15 +42,22 @@ pub struct DeviceWithStats {
     pub device: ExternalStorageDevice,
     /// unix ms timestamp of the last completed sync to this device, if any.
     pub last_synced_at: Option<i64>,
+    /// real write-access probe (not just "does the path exist") - catches
+    /// a stale flatpak document-portal grant (permission revoked) that
+    /// still resolves as a readable/existing path but can no longer be
+    /// written through. see docs/flatpak-filesystem-access-plan.md phase C4.
+    pub path_writable: bool,
 }
 
 async fn with_stats(device: ExternalStorageDevice) -> DeviceWithStats {
     let last_synced_at = grimoire::external_storage::get_device_last_synced_at(&device.id)
         .await
         .unwrap_or(None);
+    let path_writable = crate::commands::check_dir_writable(device.path.clone());
     DeviceWithStats {
         device,
         last_synced_at,
+        path_writable,
     }
 }
 

@@ -184,7 +184,10 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
       blake3: song.blake3,
       sha256: song.sha256,
       size: null,
-      filename: `${song.title || song.sha256}.bin`,
+      // no real extension known yet (bytes haven't been fetched) - leave it off so
+      // grimoire's detect_extension() falls through to real mime sniffing after download
+      // instead of mistaking a placeholder for a genuine extension
+      filename: song.title || song.sha256,
       source_node_id: sourceNodeId,
       source_remote_id: remote.remote_id,
       remote_name: remote.name,
@@ -211,6 +214,7 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
     })) as {
       success: boolean;
       message: string;
+      errors?: Array<{ error_type: string; title: string; detail: string }>;
       data?: {
         song_id: string;
         media_blob_id: string;
@@ -225,6 +229,16 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
 
     if (!response.success) {
       errorLog("sync", `sync_song_by_blake3 failed for "${song.title}":`, response.message);
+      // a stale flatpak document-portal grant surfaces here as a distinct
+      // error_type (see grimoire's PullAudioBlobError::CreateDirFailed) -
+      // give a more actionable message than the raw IO error
+      if (response.errors?.some((e) => e.error_type === "stale_doc_portal_path")) {
+        return {
+          success: false,
+          error:
+            "fetched music folder is no longer accessible - reselect it in settings > fetched music storage.",
+        };
+      }
       return { success: false, error: response.message };
     }
 
