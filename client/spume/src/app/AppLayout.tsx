@@ -227,14 +227,26 @@ export function AppLayout(props: AppLayoutProps) {
 
   // mini video player's "closed" state - the x button pauses + hides the
   // panel without touching the queue (see VideoMiniPlayer's onClose).
-  // reset whenever the current video changes so a new video always shows
-  // the panel, and re-opened as soon as playback resumes (e.g. the player
-  // bar's play button) so the user isn't stuck with a paused, invisible video.
-  const [videoMiniPlayerDismissed, setVideoMiniPlayerDismissed] = createSignal(false);
+  // starts dismissed so a video restored from persisted state on app
+  // boot (paused, not yet actually playing) never auto-shows the panel
+  // - only a real switch to a different video *during* the session, or
+  // actual playback starting, un-dismisses it (see the two effects below).
+  const [videoMiniPlayerDismissed, setVideoMiniPlayerDismissed] = createSignal(true);
+  // only fires for an actual video-to-video switch (prevId defined and
+  // different) - going from no-id to an id (boot restore, or a user
+  // picking their first video of the session) is intentionally ignored
+  // here; the latter case still un-dismisses via the isPlaying effect
+  // below once real playback starts. this can't use `on`'s `{ defer }`
+  // option instead: currentVideoData is populated by a separate, later
+  // effect (watching appState()), so by the time it lands this effect
+  // is already on its second run (first run saw `undefined`, before
+  // that other effect ran) - defer only special-cases the very first run.
   createEffect(
     on(
       () => currentVideoData()?.id,
-      () => setVideoMiniPlayerDismissed(false)
+      (id, prevId) => {
+        if (prevId !== undefined && id !== prevId) setVideoMiniPlayerDismissed(false);
+      }
     )
   );
   // scoped to `isPlaying` alone (via `on`) so this only reacts to real
