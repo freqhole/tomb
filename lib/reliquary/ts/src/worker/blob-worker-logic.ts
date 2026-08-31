@@ -14,7 +14,7 @@
 // rest of this file.
 
 import { sha256Hex } from "../utils/hash.js";
-import { loadMiddenBlake3 } from "./midden-blake3.js";
+import { loadMiddenBlake3, type Blake3HasherLike } from "./midden-blake3.js";
 import { log } from "../utils/log.js";
 
 const TAG = "blob.worker.logic";
@@ -449,6 +449,60 @@ export async function uploadAbort(id: number): Promise<void> {
   session.hasher.free();
   const dir = await getOpfsDir(false);
   await dir?.removeEntry(session.tmpName).catch(() => {});
+}
+
+// ---- streaming hash-only sessions -----------------------------------------
+// same incremental Blake3Hasher as the upload sessions above, but with no
+// OPFS write side at all - for callers that already have their own on-disk
+// storage path (e.g. spume's video import, which writes to its own OPFS
+// directory) and just need a blake3 without materializing the whole file
+// in memory, and without a second on-disk copy under this package's own
+// content-addressed OPFS_DIR.
+
+const hashSessions = new Map<number, Blake3HasherLike>();
+let nextHashSessionId = 1;
+
+/**
+ * begin a streaming hash-only session. throws when the environment can't
+ * support it (no midden module with a Blake3Hasher bundled) - callers
+ * fall back to the one-shot `hashBlake3`.
+ */
+export async function hashBegin(): Promise<number> {
+  const midden = await loadMiddenBlake3();
+  const Blake3HasherCtor = midden?.Blake3Hasher;
+  if (typeof Blake3HasherCtor !== "function") {
+    throw new Error("streaming hash unavailable: midden Blake3Hasher missing");
+  }
+  const id = nextHashSessionId++;
+  hashSessions.set(id, new Blake3HasherCtor());
+  return id;
+}
+
+/** feed the next chunk (transferred buffer) into a hash session. */
+export async function hashPush(id: number, buffer: ArrayBuffer): Promise<void> {
+  const hasher = hashSessions.get(id);
+  if (!hasher) throw new Error(`unknown hash session ${id}`);
+  hasher.update(new Uint8Array(buffer));
+}
+
+/** finish a session, returning the final blake3 hash. */
+export async function hashFinish(id: number): Promise<string> {
+  const hasher = hashSessions.get(id);
+  if (!hasher) throw new Error(`unknown hash session ${id}`);
+  hashSessions.delete(id);
+  try {
+    return hasher.finalize();
+  } finally {
+    hasher.free();
+  }
+}
+
+/** abort a session, freeing the hasher without finalizing. */
+export async function hashAbort(id: number): Promise<void> {
+  const hasher = hashSessions.get(id);
+  if (!hasher) return;
+  hashSessions.delete(id);
+  hasher.free();
 }
 
 /**

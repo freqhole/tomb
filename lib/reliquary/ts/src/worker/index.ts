@@ -7,6 +7,7 @@ export {
   getBlobWorker,
   shutdownBlobWorker,
   hashBlake3,
+  hashBlake3Streaming,
   hashSha256,
   base64Encode,
   base64Decode,

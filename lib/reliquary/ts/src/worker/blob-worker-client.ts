@@ -291,6 +291,58 @@ export async function streamFileToOpfs(
   }
 }
 
+/**
+ * hash a File with blake3, streaming it in chunks so the whole payload is
+ * never materialized in memory at once - unlike `hashBlake3`, which needs
+ * a full `Uint8Array` up front (typically built via `file.arrayBuffer()`,
+ * a real crash risk for multi-gigabyte files). unlike `streamFileToOpfs`,
+ * this has no OPFS write side at all: use it when the caller already has
+ * its own on-disk storage path and just needs the hash.
+ *
+ * `onProgress` reports bytes hashed / file size (0..1) per chunk.
+ * `signal` cancels between chunks: the worker session is freed and a
+ * DOMException AbortError is thrown.
+ *
+ * falls back to the one-shot `hashBlake3` (whole-file read) when no
+ * worker is available (e.g. SSR / certain test runners).
+ */
+export async function hashBlake3Streaming(
+  file: File,
+  options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal }
+): Promise<string> {
+  const worker = await getBlobWorker();
+  if (!worker) return fallbackHashBlake3(new Uint8Array(await file.arrayBuffer()));
+
+  const sessionId = await worker.hashBegin();
+  const reader = file.stream().getReader();
+  let bytesHashed = 0;
+  try {
+    for (;;) {
+      if (options?.signal?.aborted) {
+        throw new DOMException("hash cancelled", "AbortError");
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      const exact =
+        value.byteOffset === 0 && value.byteLength === value.buffer.byteLength
+          ? value.buffer
+          : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+      const chunkLen = value.byteLength;
+      await worker.hashPush(sessionId, Comlink.transfer(exact, [exact]));
+      bytesHashed += chunkLen;
+      if (options?.onProgress && file.size > 0) {
+        options.onProgress(Math.min(1, bytesHashed / file.size));
+      }
+    }
+    return await worker.hashFinish(sessionId);
+  } catch (err) {
+    await worker.hashAbort(sessionId).catch(() => {});
+    throw err;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ---- thumbnail / image resize -------------------------------------------
 
 export interface ResizeImageOptions {

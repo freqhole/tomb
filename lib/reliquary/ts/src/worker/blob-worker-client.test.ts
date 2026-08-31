@@ -6,6 +6,7 @@ import {
   generateThumbnailDataUrl,
   getBlobWorker,
   hashBlake3,
+  hashBlake3Streaming,
   hashSha256,
   processBlobBytes,
   resizeImageToWebpDataUrl,
@@ -151,6 +152,15 @@ describe("streamFileToOpfs", () => {
   it("throws when no worker is available", async () => {
     const file = new File(["hello"], "hello.txt", { type: "text/plain" });
     await expect(streamFileToOpfs(file)).rejects.toThrow(/no blob worker/);
+  });
+});
+
+describe("hashBlake3Streaming", () => {
+  it("falls back to the one-shot hashBlake3 path when no worker is available", async () => {
+    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+    // no worker, no midden module in this test env - degrades to "",
+    // same as the one-shot hashBlake3 fallback.
+    expect(await hashBlake3Streaming(file)).toBe("");
   });
 });
 

@@ -11,7 +11,7 @@ import {
 } from "../services/opfs/helpers";
 import { addLocalVideo } from "../services/storage/db/videos";
 import { isCharnelMode } from "../../app/services/charnel";
-import { hashBlake3 } from "@freqhole/reliquary/worker";
+import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
 import type { LocalImportProgress } from "../../music/import";
 
@@ -186,12 +186,16 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
 
       // only local uploads need to hash here - videos synced in from a
       // remote already carry a blake3 from that remote's media_blobz
-      // record (see syncVideoToLocal.ts). non-fatal if this fails (e.g.
-      // huge file, low memory): the video still imports, just without
-      // blake3 identity, same as any pre-migration local video.
+      // record (see syncVideoToLocal.ts). hashed via a streaming worker
+      // session (hashBlake3Streaming) rather than a one-shot
+      // `file.arrayBuffer()` read, since the latter materializes the
+      // entire file in memory and crashes the tab on large (multi-gb)
+      // videos. non-fatal if this fails (e.g. low memory): the video
+      // still imports, just without blake3 identity, same as any
+      // pre-migration local video.
       let blake3: string | null = null;
       try {
-        blake3 = await hashBlake3(new Uint8Array(await file.arrayBuffer()));
+        blake3 = await hashBlake3Streaming(file);
       } catch (err) {
         warn("video/localImport", `failed to hash ${file.name}, importing without blake3:`, err);
       }

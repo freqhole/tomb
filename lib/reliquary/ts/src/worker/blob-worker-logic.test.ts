@@ -4,7 +4,11 @@ import {
   base64Decode,
   base64Encode,
   generateThumbnailDataUrl,
+  hashAbort,
+  hashBegin,
   hashBlake3,
+  hashFinish,
+  hashPush,
   hashSha256,
   opfsStoreSelftest,
   opfsStoreSelftestPersistence,
@@ -190,6 +194,24 @@ describe("uploadBegin", () => {
   it("throws a clear error when no midden Blake3Hasher is bundled", async () => {
     installFakeOpfs();
     await expect(uploadBegin()).rejects.toThrow(/Blake3Hasher/);
+  });
+});
+
+describe("hashBegin / hashPush / hashFinish / hashAbort", () => {
+  it("hashBegin throws a clear error when no midden Blake3Hasher is bundled", async () => {
+    await expect(hashBegin()).rejects.toThrow(/Blake3Hasher/);
+  });
+
+  it("hashPush throws for an unknown session id", async () => {
+    await expect(hashPush(999, new ArrayBuffer(4))).rejects.toThrow(/unknown hash session/);
+  });
+
+  it("hashFinish throws for an unknown session id", async () => {
+    await expect(hashFinish(999)).rejects.toThrow(/unknown hash session/);
+  });
+
+  it("hashAbort is a no-op for an unknown session id", async () => {
+    await expect(hashAbort(999)).resolves.toBeUndefined();
   });
 });
 
