@@ -18,7 +18,11 @@ export {
   generateThumbnailDataUrl,
 } from "./blob-worker-client.js";
 
-export type { MiddenWorkerApi, MiddenWorkerIdentity, StreamInfo } from "./midden-worker-contract.js";
+export type {
+  MiddenWorkerApi,
+  MiddenWorkerIdentity,
+  StreamInfo,
+} from "./midden-worker-contract.js";
 export {
   MIDDEN_WORKER_READY_MESSAGE,
   MIDDEN_WORKER_READY_TIMEOUT_MS,

@@ -27,7 +27,10 @@ import { resetMiddenBlake3Cache } from "./midden-blake3.js";
 class FakeWritable {
   constructor(private readonly file: FakeFileHandle) {}
   async write(data: ArrayBuffer | ArrayBufferView): Promise<void> {
-    this.file.bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer as ArrayBuffer);
+    this.file.bytes =
+      data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : new Uint8Array(data.buffer as ArrayBuffer);
   }
   async close(): Promise<void> {}
 }
@@ -74,7 +77,7 @@ function installFakeOpfs(): FakeDirHandle {
 class FakeImageBitmap {
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {}
   close = vi.fn();
 }
@@ -89,7 +92,7 @@ class FakeOffscreenCanvas {
   context = new FakeOffscreenCanvasContext();
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {
     lastFakeCanvas = this;
   }
@@ -104,7 +107,7 @@ class FakeOffscreenCanvas {
 function installCanvasFakes(size = { width: 100, height: 100 }): void {
   vi.stubGlobal(
     "createImageBitmap",
-    vi.fn(async () => new FakeImageBitmap(size.width, size.height))
+    vi.fn(async () => new FakeImageBitmap(size.width, size.height)),
   );
   vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas as unknown as typeof OffscreenCanvas);
 }
@@ -258,7 +261,7 @@ describe("resizeImageToWebpDataUrl", () => {
       0,
       75,
       200,
-      50
+      50,
     );
   });
 });

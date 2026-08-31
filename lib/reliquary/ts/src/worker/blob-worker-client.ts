@@ -126,7 +126,10 @@ async function fallbackHashBlake3(data: Uint8Array): Promise<string> {
   try {
     const midden = await loadMiddenBlake3();
     if (!midden || typeof midden.hash_blake3 !== "function") {
-      log.warn(TAG, "no midden module with hash_blake3 available, blake3 hashing degraded to empty string");
+      log.warn(
+        TAG,
+        "no midden module with hash_blake3 available, blake3 hashing degraded to empty string",
+      );
       return "";
     }
     return midden.hash_blake3(data);
@@ -192,7 +195,7 @@ export async function base64Encode(buffer: ArrayBuffer): Promise<string> {
 export async function processBlobBytes(
   buffer: ArrayBuffer,
   filename: string,
-  mime: string
+  mime: string,
 ): Promise<{
   blob_id: string;
   sha256: string;
@@ -206,7 +209,10 @@ export async function processBlobBytes(
     return worker.processBlobBytes(Comlink.transfer(buffer, [buffer]), filename, mime);
   }
   // main-thread fallback path - rare, mostly for tests.
-  const [sha256, blake3] = await Promise.all([sha256Hex(buffer), fallbackHashBlake3(new Uint8Array(buffer))]);
+  const [sha256, blake3] = await Promise.all([
+    sha256Hex(buffer),
+    fallbackHashBlake3(new Uint8Array(buffer)),
+  ]);
   return {
     blob_id: blake3,
     sha256,
@@ -254,7 +260,7 @@ export async function writeBlobToOpfs(blobId: string, buffer: ArrayBuffer): Prom
  */
 export async function streamFileToOpfs(
   file: File,
-  options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal }
+  options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal },
 ): Promise<{ blake3: string; size: number }> {
   const worker = await getBlobWorker();
   if (!worker) throw new Error("streaming upload unavailable: no blob worker");
@@ -308,7 +314,7 @@ export async function streamFileToOpfs(
  */
 export async function hashBlake3Streaming(
   file: File,
-  options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal }
+  options?: { onProgress?: (fraction: number) => void; signal?: AbortSignal },
 ): Promise<string> {
   const worker = await getBlobWorker();
   if (!worker) return fallbackHashBlake3(new Uint8Array(await file.arrayBuffer()));
@@ -367,7 +373,7 @@ export interface ResizeImageOptions {
  */
 export async function resizeImageToWebpDataUrl(
   blob: Blob,
-  options?: ResizeImageOptions
+  options?: ResizeImageOptions,
 ): Promise<string | null> {
   const worker = await getBlobWorker();
   if (worker) return worker.resizeImageToWebpDataUrl(blob, options);
@@ -406,7 +412,7 @@ export async function base64Decode(b64: string): Promise<Uint8Array> {
 
 async function mainThreadResizeImage(
   blob: Blob,
-  options?: ResizeImageOptions
+  options?: ResizeImageOptions,
 ): Promise<string | null> {
   if (typeof OffscreenCanvas === "undefined" || typeof createImageBitmap !== "function") {
     return null;

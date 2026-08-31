@@ -38,7 +38,10 @@ export async function hashBlake3(data: Uint8Array): Promise<string> {
   try {
     const midden = await loadMiddenBlake3();
     if (!midden || typeof midden.hash_blake3 !== "function") {
-      log.warn(TAG, "no midden module with hash_blake3 available, blake3 hashing degraded to empty string");
+      log.warn(
+        TAG,
+        "no midden module with hash_blake3 available, blake3 hashing degraded to empty string",
+      );
       return "";
     }
     return midden.hash_blake3(data);
@@ -188,7 +191,7 @@ export interface ProcessedBlob {
 export async function processBlobBytes(
   data: ArrayBuffer,
   filename: string,
-  mime: string
+  mime: string,
 ): Promise<ProcessedBlob> {
   // run sha256 and blake3 concurrently. SubtleCrypto.digest does its own
   // copy of the bytes, so we can't transfer-and-reuse - do them in parallel
@@ -235,7 +238,7 @@ export interface ResizeImageOptions {
  */
 export async function resizeImageToWebpDataUrl(
   blob: Blob,
-  options?: ResizeImageOptions
+  options?: ResizeImageOptions,
 ): Promise<string | null> {
   const maxWidth = options?.maxWidth ?? 200;
   const maxHeight = options?.maxHeight ?? 200;

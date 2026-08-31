@@ -33,7 +33,7 @@ class FakeWorker extends EventTarget {
 class FakeImageBitmap {
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {}
   close = vi.fn();
 }
@@ -48,7 +48,7 @@ class FakeOffscreenCanvas {
   context = new FakeOffscreenCanvasContext();
   constructor(
     public width: number,
-    public height: number
+    public height: number,
   ) {
     lastFakeCanvas = this;
   }
@@ -63,7 +63,7 @@ class FakeOffscreenCanvas {
 function installCanvasFakes(size = { width: 100, height: 100 }): void {
   vi.stubGlobal(
     "createImageBitmap",
-    vi.fn(async () => new FakeImageBitmap(size.width, size.height))
+    vi.fn(async () => new FakeImageBitmap(size.width, size.height)),
   );
   vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas as unknown as typeof OffscreenCanvas);
 }
@@ -197,7 +197,7 @@ describe("resizeImageToWebpDataUrl", () => {
       0,
       75,
       200,
-      50
+      50,
     );
   });
 });
