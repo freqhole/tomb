@@ -25,6 +25,7 @@ import {
 } from "../../app/services/players/playerPairingClient";
 import { Icon } from "../icons/registry";
 import { ClickDropdownMenu, type MenuAction } from "../overlays/ContextMenu";
+import { CometBorderRing } from "../feedback";
 
 export function QueuePlayerTargetRow() {
   const [pairedPlayers] = createResource(pairedPlayersVersion, listPairedPlayers);
@@ -86,20 +87,7 @@ export function QueuePlayerTargetRow() {
   return (
     <Show when={(pairedPlayers()?.length ?? 0) > 0}>
       <div class="flex justify-end px-3 py-2">
-        <div class="relative rounded-full">
-          <Show when={showSyncRing()}>
-            <div
-              class="absolute inset-[-3px] rounded-full pointer-events-none"
-              style={{
-                background:
-                  "conic-gradient(from 0deg, transparent 0%, #ec489920 6%, #ec489940 12%, #ec489980 20%, #ec4899cc 28%, #ec4899 38%, #c026d3 55%, #a855f7 70%, #a855f7 86%, transparent 88%)",
-                mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
-                "-webkit-mask":
-                  "radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 2px))",
-                animation: "spin 1.5s linear infinite",
-              }}
-            />
-          </Show>
+        <CometBorderRing active={showSyncRing()}>
           <ClickDropdownMenu
             trigger={
               <button
@@ -114,7 +102,7 @@ export function QueuePlayerTargetRow() {
             actions={actions()}
             onOpen={refreshPresence}
           />
-        </div>
+        </CometBorderRing>
       </div>
     </Show>
   );

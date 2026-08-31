@@ -556,6 +556,18 @@ select option {
   }
 }
 
+/* comet-trail ring for a non-circular (e.g. pill-shaped) button border -
+ * see QueuePlayerTargetRow.tsx. rotating a conic-gradient (as the other
+ * comet rings do) only moves at constant *angular* speed, which looks
+ * uneven on an elongated shape; this instead animates stroke-dashoffset
+ * on an SVG rect with pathLength="100", which travels at constant speed
+ * along the actual perimeter length no matter the aspect ratio. */
+@keyframes comet-dash {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
 /* kobalte's popper positioner uses position: absolute with no z-index by
  * default, which puts it below any positioned ancestor with a positive
  * z-index (e.g. the playlist panel's relative z-10 div). give it a high
