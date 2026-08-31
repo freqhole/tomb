@@ -40,6 +40,11 @@ import { ViewSelector, type ViewOption } from "./ViewSelector";
 // library row from real remote records (which have uuid-shaped ids).
 const LOCAL_LIBRARY_RENAME_ID = "__local_library__";
 
+// how long after the main menu flyout opens (via hover or click) a
+// trigger click is treated as "incidental" and swallowed instead of
+// closing it - see the pointerdown listener in TopNav's onMount for why.
+const MAIN_MENU_CLICK_CLOSE_GRACE_MS = 400;
+
 export interface NavMenuItem {
   /** menu item label */
   label: string;
@@ -376,6 +381,7 @@ export function TopNav(props: TopNavProps) {
   // actual rendered height into `--nav-height` (see onMount below).
   let navEl: HTMLElement | undefined;
   let menuTriggerEl: HTMLButtonElement | undefined;
+  let mainMenuOpenedAt = 0;
 
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
@@ -698,7 +704,9 @@ export function TopNav(props: TopNavProps) {
     // this lets us suppress secondary rows while the mobile menu is open,
     // which avoids cross-stack rendering oddities on some mobile browsers.
     const syncMainMenuState = () => {
-      setIsMainMenuOpen(menuTriggerEl?.getAttribute("aria-expanded") === "true");
+      const nowOpen = menuTriggerEl?.getAttribute("aria-expanded") === "true";
+      if (nowOpen && !isMainMenuOpen()) mainMenuOpenedAt = Date.now();
+      setIsMainMenuOpen(nowOpen);
     };
     syncMainMenuState();
     const mo =
@@ -715,6 +723,25 @@ export function TopNav(props: TopNavProps) {
     onCleanup(() => {
       mo?.disconnect();
       document.removeEventListener("click", syncMainMenuState, true);
+    });
+
+    // Kobalte's trigger toggles the flyout closed on pointerdown whenever
+    // it's already open, whether that open came from hover or a prior
+    // click - annoying when the flyout just opened from a hover-intent
+    // delay and the user's click was incidental. swallow the trigger's
+    // pointerdown (before Kobalte's own listener sees it) only within a
+    // short grace window after opening; a click after that window still
+    // closes it normally.
+    const onTriggerPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      if (menuTriggerEl?.getAttribute("aria-expanded") !== "true") return;
+      if (Date.now() - mainMenuOpenedAt < MAIN_MENU_CLICK_CLOSE_GRACE_MS) {
+        e.stopImmediatePropagation();
+      }
+    };
+    menuTriggerEl?.addEventListener("pointerdown", onTriggerPointerDown, { capture: true });
+    onCleanup(() => {
+      menuTriggerEl?.removeEventListener("pointerdown", onTriggerPointerDown, { capture: true });
     });
 
     // publish actual nav height to `--nav-height` whenever the nav

@@ -222,6 +222,13 @@ body {
   -webkit-user-select: text;
 }
 
+/* recolor the browser's default focus ring to the accent color, without
+   adding one to anything that doesn't already show one - only sets
+   outline-color, never outline-style/width. */
+:focus {
+  outline-color: var(--color-accent-500);
+}
+
 /* prevent ios safari from zooming into inputs on focus.
    safari zooms whenever a focused input has font-size < 16px.
    setting 1rem here ensures all inputs meet the threshold without
