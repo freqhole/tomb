@@ -641,22 +641,6 @@ export default function LibraryView() {
                   import complete: {s().songs_added} songs
                   <Show when={s().albums_added > 0}> · {s().albums_added} albums</Show>
                   <Show when={s().artists_added > 0}> · {s().artists_added} artists</Show>
-                  <Show when={s().songs_added > 0 && s().session_id}>
-                    <span style="margin-left: 0.75rem">
-                      <a
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          void openUrl(
-                            `https://spume.freqhole.net/#/import-review/${s().session_id}`,
-                          );
-                        }}
-                        style="color: var(--color-accent, #a78bfa); text-decoration: underline; font-size: 0.8em;"
-                      >
-                        review imported music
-                      </a>
-                    </span>
-                  </Show>
                 </Show>
               </div>
             );
