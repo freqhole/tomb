@@ -33,7 +33,8 @@ async function ensureConvertFileSrc(): Promise<((path: string) => string) | null
  */
 export async function resolveLocalVideoUrl(
   videoId: string,
-  localPath?: string
+  localPath?: string,
+  bufferForWebview = false
 ): Promise<string | null> {
   if (isCharnelMode()) {
     if (!localPath) return null;
@@ -42,7 +43,21 @@ export async function resolveLocalVideoUrl(
       warn("localVideo", "convertFileSrc unavailable; cannot play local file under charnel");
       return null;
     }
-    return convert(localPath);
+    const assetUrl = convert(localPath);
+    if (!bufferForWebview) return assetUrl;
+
+    // WebKitGTK rejects asset:// in <video>. The non-experimental fallback
+    // deliberately pays the full-memory cost to hand it a blob: URL instead.
+    try {
+      const response = await fetch(assetUrl);
+      if (!response.ok) {
+        throw new Error(`asset fetch returned ${response.status}`);
+      }
+      return URL.createObjectURL(await response.blob());
+    } catch (err) {
+      warn("localVideo", `failed to buffer local video ${videoId}:`, err);
+      return null;
+    }
   }
 
   const local = await getLocalVideoById(videoId);

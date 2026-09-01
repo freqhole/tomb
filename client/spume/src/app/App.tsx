@@ -686,6 +686,7 @@ export function App() {
         // want spume's `selectBackend()` to pick that up without a
         // page reload.
         await initRodioPreference();
+        await initVideoWindowPreference();
         // re-read the queue size limit too in case the user edited
         // `[client] queue_size_limit` in their toml.
         await initQueueSizeLimit();

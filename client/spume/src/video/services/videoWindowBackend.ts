@@ -50,6 +50,9 @@ export class VideoWindowBackend implements PlayerBackend {
     // use here - the item has to exist as a real file.
     const path = await resolveLocalVideoPath(item.video);
     if (!path) {
+      // TEMP(video-window): distinguish a selector problem from an unavailable
+      // local path in the next Linux playback log.
+      console.info(`[video-window] load rejected: no local path for ${item.video.id}`);
       throw new BackendPlaybackError(
         this.kind,
         "no_local_path",
@@ -58,6 +61,8 @@ export class VideoWindowBackend implements PlayerBackend {
     }
 
     this.durationMs = 0;
+    // TEMP(video-window): proves the GStreamer branch received the video.
+    console.info(`[video-window] loading ${item.video.id} from ${path}`);
     this.emit({ kind: "state", state: "loading" });
     await sendVideoWindowCommand({
       kind: "load",

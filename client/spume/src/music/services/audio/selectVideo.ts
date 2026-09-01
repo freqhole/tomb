@@ -27,6 +27,11 @@ export async function initVideoWindowPreference(): Promise<void> {
     return;
   }
   windowBackendAvailable = await isVideoWindowAvailable();
+  // TEMP(video-window): visible at the default error-only logger level while
+  // validating the first Linux builds.
+  console.info(
+    `[video-window] availability=${windowBackendAvailable} experimental=${isRodioEnabled()}`
+  );
   debug("videoSelect", `video window available: ${windowBackendAvailable}`);
 }
 
@@ -46,5 +51,12 @@ export function selectVideoBackend(
   htmlVideoBackend: PlayerBackend,
   windowBackend: PlayerBackend
 ): PlayerBackend {
-  return useVideoWindow() ? windowBackend : htmlVideoBackend;
+  const selected = useVideoWindow() ? windowBackend : htmlVideoBackend;
+  // TEMP(video-window): establishes whether a Linux playback attempt took the
+  // intended branch before any media URL is resolved.
+  console.info(
+    `[video-window] select=${selected === windowBackend ? "gstreamer" : "html"} ` +
+      `availability=${windowBackendAvailable} experimental=${isRodioEnabled()}`
+  );
+  return selected;
 }

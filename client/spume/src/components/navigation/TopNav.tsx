@@ -17,6 +17,7 @@ import {
 } from "../../app/services/remotes/authStatusStore";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getPageInfo } from "../../app/services/pageInfo";
+import { startDraggingWindow, toggleMaximizeWindow } from "../../app/services/charnel/commands";
 import { isNarrowViewport } from "../../config/breakpoints";
 import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
@@ -44,6 +45,21 @@ const LOCAL_LIBRARY_RENAME_ID = "__local_library__";
 // trigger click is treated as "incidental" and swallowed instead of
 // closing it - see the pointerdown listener in TopNav's onMount for why.
 const MAIN_MENU_CLICK_CLOSE_GRACE_MS = 400;
+const CHROME_DRAG_THRESHOLD_PX = 4;
+
+function isChromePointerTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    !target.closest("button, a, input, textarea, select, [role=button]")
+  );
+}
+
+function chromelessStripActive(): boolean {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--chrome-top-inset").trim() !==
+    "0px"
+  );
+}
 
 export interface NavMenuItem {
   /** menu item label */
@@ -966,6 +982,41 @@ export function TopNav(props: TopNavProps) {
         }}
         onMouseEnter={() => setNavHovered(true)}
         onMouseLeave={() => setNavHovered(false)}
+        onMouseDown={(event) => {
+          if (
+            !isNarrow() ||
+            event.button !== 0 ||
+            !isChromePointerTarget(event.target) ||
+            !chromelessStripActive()
+          ) {
+            return;
+          }
+          event.stopPropagation();
+          const startX = event.clientX;
+          const startY = event.clientY;
+          const cleanup = () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", cleanup);
+          };
+          const onMove = (move: MouseEvent) => {
+            if (
+              Math.abs(move.clientX - startX) < CHROME_DRAG_THRESHOLD_PX &&
+              Math.abs(move.clientY - startY) < CHROME_DRAG_THRESHOLD_PX
+            ) {
+              return;
+            }
+            cleanup();
+            void startDraggingWindow();
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", cleanup);
+        }}
+        onDblClick={(event) => {
+          if (!isNarrow() || !isChromePointerTarget(event.target) || !chromelessStripActive())
+            return;
+          event.stopPropagation();
+          void toggleMaximizeWindow();
+        }}
       >
         <div
           class="flex items-center"

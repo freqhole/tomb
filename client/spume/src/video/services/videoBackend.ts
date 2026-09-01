@@ -213,6 +213,9 @@ export class VideoBackend implements PlayerBackend {
 
     let url: string;
     try {
+      // TEMP(video-window): this line must appear only when the experimental
+      // video-window branch was not selected.
+      console.info(`[video-window] html backend loading ${video.id}`);
       url = await getVideoURL(video, onProgress);
     } catch (err) {
       errorLog(

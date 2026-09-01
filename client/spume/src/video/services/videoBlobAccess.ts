@@ -20,6 +20,7 @@ import { readVideoFromOPFS } from "./opfs/helpers";
 import { resolveLocalVideoUrl } from "./localVideo";
 import { canSyncVideo, syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { getSyncQueueToLocal } from "../../app/services/storage/db";
+import { useVideoWindow } from "../../music/services/audio/selectVideo";
 import { isVideoSyncedLocally } from "./syncState";
 import { warn } from "../../utils/logger";
 
@@ -70,7 +71,7 @@ export async function getVideoURL(
   // so the common "never synced" case skips straight to the remote path
   // below instead of paying for an IDB read on every single play.
   if (isVideoSyncedLocally(video.id)) {
-    const localUrl = await resolveLocalVideoUrl(video.id);
+    const localUrl = await resolveLocalVideoUrl(video.id, undefined, !useVideoWindow());
     if (localUrl) return localUrl;
   }
 
@@ -80,7 +81,7 @@ export async function getVideoURL(
   if (getSyncQueueToLocal() && canSyncVideo(video)) {
     const result = await syncVideoToLocal(video);
     if (result.success) {
-      const localUrl = await resolveLocalVideoUrl(video.id, result.localPath);
+      const localUrl = await resolveLocalVideoUrl(video.id, result.localPath, !useVideoWindow());
       if (localUrl) return localUrl;
     }
     warn(
