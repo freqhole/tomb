@@ -20,7 +20,7 @@ export function EmptyState(props: EmptyStateProps) {
         </h1>
 
         <p class="text-[var(--color-text-secondary)] mb-2">
-          get started by adding music, connecting to a remote server, or tuning into a radio
+          get started by adding media, connecting to a remote server, or tuning into a radio
           station.
         </p>
 

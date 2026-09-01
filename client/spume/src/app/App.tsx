@@ -68,6 +68,7 @@ import {
   importVideoFiles,
 } from "../video/import/localImport";
 import { initVideoSyncState } from "../video/services/syncState";
+import { getVideoDataSource } from "../video/data";
 import {
   clearCompletedVideoJobs,
   fetchVideoUrlsOnRemote,
@@ -176,6 +177,9 @@ export function App() {
   const [autoCompletePeerAddr, setAutoCompletePeerAddr] = createSignal<string | null>(null);
   const [shareToken, setShareToken] = createSignal<string | null>(null);
   const [hasSongs, setHasSongs] = createSignal(false);
+  // videos count as media too - the welcome gate predates the video domain and
+  // used to keep showing after importing only videos.
+  const [hasVideos, setHasVideos] = createSignal(false);
   const [hasRemotes, setHasRemotes] = createSignal(false);
   const [isInitializing, setIsInitializing] = createSignal(true);
   const [showLoading, setShowLoading] = createSignal(false);
@@ -901,6 +905,14 @@ export function App() {
       setHasSongs(result.total > 0);
       mark("getSongs({limit:1}) done - initializing complete");
 
+      // same for videos - a library with only videos still counts as set up
+      try {
+        const videoResult = await getVideoDataSource().getVideos({ limit: 1 });
+        setHasVideos(videoResult.total_count > 0);
+      } catch (e) {
+        console.debug("[App] video presence check failed:", e);
+      }
+
       // check for pending knock requests across every admin remote.
       // delayed slightly so the auth-status store + p2p transports have a
       // chance to warm up; also re-runs whenever a remote transitions
@@ -1111,6 +1123,7 @@ export function App() {
 
   // callback for when any remote video job completes — invalidate video queries
   const onRemoteVideoJobComplete = () => {
+    setHasVideos(true);
     queryClient.invalidateQueries({
       predicate: (query) => {
         const key = query.queryKey[0];
@@ -1261,7 +1274,12 @@ export function App() {
       >
         <Show
           when={
-            hasSongs() || hasRemotes() || isSettingsRoute() || isRadioRoute() || isSharedRoute()
+            hasSongs() ||
+            hasVideos() ||
+            hasRemotes() ||
+            isSettingsRoute() ||
+            isRadioRoute() ||
+            isSharedRoute()
           }
           fallback={
             <div class="h-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
