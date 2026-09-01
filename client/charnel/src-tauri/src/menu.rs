@@ -142,7 +142,7 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     if crate::app_config::FreqholeAppConfig::load(app)
         .map(|c| c.chromeless_title_bar)
-        .unwrap_or_else(|_| crate::app_config::default_chromeless_title_bar())
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar)
     {
         tracing::info!("chromeless title bar on linux - skipping in-window menubar");
         return Ok(());

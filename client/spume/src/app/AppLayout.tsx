@@ -75,6 +75,7 @@ import {
   currentTime,
   duration,
   getVideoElement,
+  isVideoWindowActive,
   isLoading,
   isPlaying,
   pause,
@@ -1865,6 +1866,9 @@ export function AppLayout(props: AppLayoutProps) {
                   !videoMiniPlayerDismissed() &&
                   !isRadio() &&
                   currentVideoData() &&
+                  // on linux the picture is in its own gstreamer window, so
+                  // there is no element here to mirror
+                  !isVideoWindowActive() &&
                   getVideoElement()
                 }
               >
@@ -1913,7 +1917,11 @@ export function AppLayout(props: AppLayoutProps) {
                 onExternalStorageIconClick={() => navigate("/storage-overview")}
                 activeTargetIsRemote={isRemoteTargetActive()}
                 isVideoActive={!isRadio() && !!currentVideoData()}
-                videoElement={!isRadio() && currentVideoData() ? getVideoElement() : null}
+                videoElement={
+                  !isRadio() && currentVideoData() && !isVideoWindowActive()
+                    ? getVideoElement()
+                    : null
+                }
                 video={!isRadio() ? barVideo() : null}
                 isVideoFavorite={isCurrentVideoFavorite()}
                 onVideoFavoriteToggle={handleVideoFavoriteToggle}

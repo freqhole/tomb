@@ -6,7 +6,9 @@
 
 import { readVideoFromOPFS } from "./opfs/helpers";
 import { getLocalVideoById } from "./storage/db/videos";
+import { syncVideoToLocal } from "./sync/syncVideoToLocal";
 import { isCharnelMode } from "../../app/services/charnel";
+import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { warn } from "../../utils/logger";
 
 let convertFileSrc: ((path: string) => string) | null = null;
@@ -53,4 +55,31 @@ export async function resolveLocalVideoUrl(
     warn("localVideo", `opfs read failed for video ${videoId}:`, err);
     return null;
   }
+}
+
+/**
+ * absolute filesystem path of a video's local copy, or null.
+ *
+ * distinct from `resolveLocalVideoUrl`: gstreamer opens a real file, so an
+ * `asset://` url or an OPFS object url is no use to it. only charnel has a
+ * filesystem library, so this is null in the browser by definition.
+ */
+export async function resolveLocalVideoPath(video: QueuedVideo): Promise<string | null> {
+  if (!isCharnelMode()) return null;
+
+  if (video.source_type === "local" && video.opfs_path) {
+    // a charnel-imported video records its fs path in opfs_path
+    return video.opfs_path;
+  }
+
+  // remote item: ask the local grimoire for the synced copy's path. the sync
+  // short-circuits to a db lookup when the video is already local.
+  if (video.source_type === "remote") {
+    const result = await syncVideoToLocal(video);
+    if (result.success && result.localPath) return result.localPath;
+    return null;
+  }
+
+  const local = await getLocalVideoById(video.id);
+  return local?.opfs_path ?? null;
 }

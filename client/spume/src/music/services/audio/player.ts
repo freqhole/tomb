@@ -31,6 +31,8 @@
 import { HtmlAudioBackend } from "./backends/htmlAudio";
 import { BackendPlaybackError, type PlayerBackend } from "./backend";
 import { VideoBackend } from "../../../video/services/videoBackend";
+import { VideoWindowBackend } from "../../../video/services/videoWindowBackend";
+import { selectVideoBackend } from "./selectVideo";
 import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
@@ -175,16 +177,28 @@ let activeBackend: PlayerBackend = selectBackend(htmlBackend);
 // while the current queue item is a video — see `ensureBackendForKind`.
 const videoBackend = new VideoBackend();
 
+// linux-only alternative that plays in charnel's separate gstreamer window.
+// constructed unconditionally (it opens no window until told to load) so the
+// selector can swap without async setup.
+const videoWindowBackend = new VideoWindowBackend();
+
 /** exposes the video backend's owned `<video>` element for `PlayerBar`'s
  * video-aware rendering (mini video + fullscreen toggle). */
 export function getVideoElement(): HTMLVideoElement {
   return videoBackend.element();
 }
 
-/** true while the video backend is the active backend (i.e. a video is
+/** true while video is playing in the separate window rather than the inline
+ * `<video>` element - PlayerBar uses this to skip its mini-video rendering,
+ * since there is no element to show. */
+export function isVideoWindowActive(): boolean {
+  return activeBackend === videoWindowBackend;
+}
+
+/** true while a video backend is the active backend (i.e. a video is
  * the current queue item). */
 export function isVideoBackendActive(): boolean {
-  return activeBackend === videoBackend;
+  return activeBackend === videoBackend || activeBackend === videoWindowBackend;
 }
 
 // playerStateSync is the single owner of the playback signals
@@ -362,9 +376,10 @@ registerStopMusic(() => {
  */
 function ensureBackendForKind(kind: "song" | "video"): PlayerBackend {
   if (kind === "video") {
-    if (activeBackend.kind !== "video") {
+    const wanted = selectVideoBackend(videoBackend, videoWindowBackend);
+    if (activeBackend !== wanted) {
       void activeBackend.send({ kind: "stop" });
-      activeBackend = videoBackend;
+      activeBackend = wanted;
       bindActiveBackend(activeBackend);
       bindAutoAdvance(activeBackend);
     }

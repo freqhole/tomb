@@ -78,6 +78,7 @@ import {
 } from "../video/import/remoteImport";
 import { togglePlayback } from "../music/services/audio/player";
 import { initRodioPreference } from "../music/services/audio/select";
+import { initVideoWindowPreference } from "../music/services/audio/selectVideo";
 import { initRemotePlaybackBootstrap } from "./services/remotePlayback/bootstrap";
 import { swapPlayerBackend } from "../music/services/audio/player";
 import { initQueueSizeLimit } from "../music/services/queue/queueLimit";
@@ -801,6 +802,10 @@ export function App() {
       // outside tauri (falls back to localStorage / defaults to false).
       await initRodioPreference();
       mark("initRodioPreference done");
+      // resolve whether video can play in charnel's separate window (linux).
+      // paired with the rodio opt-in, which also gates the video window.
+      await initVideoWindowPreference();
+      mark("initVideoWindowPreference done");
       // hydrate the configurable queue size limit from `[client]`
       // in `freqhole-config.toml`. safe outside tauri (no-op).
       await initQueueSizeLimit();

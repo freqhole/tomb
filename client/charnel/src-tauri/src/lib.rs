@@ -56,6 +56,7 @@ mod server_controls;
 mod spume_bridge;
 #[cfg(desktop)]
 mod tray;
+mod video_window;
 mod wizard;
 
 use std::path::PathBuf;
@@ -871,6 +872,9 @@ pub fn run() {
             commands::api_call,
             wizard::open_setup_wizard,
             wizard::close_setup_wizard,
+            // separate video window (linux; stubbed elsewhere)
+            video_window::video_window_available,
+            video_window::video_window_command,
             // P2P native transport commands
             p2p_commands::p2p_is_available,
             p2p_commands::p2p_get_node_id,
