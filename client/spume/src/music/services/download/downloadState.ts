@@ -15,6 +15,7 @@
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { debug, warn } from "../../../utils/logger";
+import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { initMusicDB } from "../storage/db";
 
 // ===== synced songs tracking =====
@@ -135,8 +136,7 @@ export function setEphemeralOnDiskBlake3s(blake3s: Iterable<string>): void {
 // NOTE: currently a no-op - synced status is derived from song source_type in IDB
 async function persistSyncedToIDB(_sha256: string, _synced: boolean): Promise<void> {
   // check if we're in charnel/tauri mode - no IDB persistence needed
-  const isCharnel = typeof window !== "undefined" && "__TAURI__" in window;
-  if (isCharnel) return;
+  if (isCharnelMode()) return;
 
   // in browser mode, synced status is derived from whether the song exists
   // in IDB with source_type: "synced" - no separate persistence needed
@@ -199,12 +199,7 @@ export function addToLoadingSet(id: string): void {
     const timer = setTimeout(() => {
       pendingRevealTimers.delete(id);
       if (loadingIds().has(id)) {
-        setVisibleLoadingIds((prev) => {
-          if (prev.has(id)) return prev;
-          const next = new Set(prev);
-          next.add(id);
-          return next;
-        });
+        revealLoadingId(id);
       }
     }, LOADING_INDICATOR_DEBOUNCE_MS);
     pendingRevealTimers.set(id, timer);
@@ -224,9 +219,31 @@ export function updateLoadingProgress(id: string, progress: number | null): void
   } else {
     debug("downloadState", `progress ${id}: ${progress === null ? "indeterminate" : progress}`);
   }
+  // real bytes moving means this is a genuine transfer, not the instant
+  // cache hit the reveal debounce exists to hide - show it now. without
+  // this only the *current* item ever shows progress, since it's added to
+  // the ui set through a separate, undebounced path (see AppLayout).
+  if (typeof progress === "number" && loadingIds().has(id)) {
+    revealLoadingId(id);
+  }
   setLoadingProgress((prev) => {
     const next = new Map(prev);
     next.set(id, progress);
+    return next;
+  });
+}
+
+/** move an id into the ui-visible loading set immediately. */
+function revealLoadingId(id: string): void {
+  const timer = pendingRevealTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    pendingRevealTimers.delete(id);
+  }
+  setVisibleLoadingIds((prev) => {
+    if (prev.has(id)) return prev;
+    const next = new Set(prev);
+    next.add(id);
     return next;
   });
 }
@@ -409,7 +426,7 @@ async function initFromIDB(): Promise<void> {
 
 /** initialize download state (call on app startup) */
 export async function initDownloadState(): Promise<void> {
-  const isCharnel = typeof window !== "undefined" && "__TAURI__" in window;
+  const isCharnel = isCharnelMode();
 
   if (isCharnel) {
     await initFromGrimoire();

@@ -18,6 +18,7 @@ export {
   POLL_INTERVAL_FALLBACK_MS,
 } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
+export { isTauriRuntime } from "./tauriRuntime.js";
 export {
   CharnelTransport,
   createCharnelTransport,

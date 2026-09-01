@@ -13,6 +13,7 @@ import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
+import { evictCachedBlob } from "../cache/blobCache";
 import { getOrCreateAlbum, getOrCreateArtist, initMusicDB } from "../storage/db";
 import { updateAlbum } from "../storage/db/albums";
 import { getOrCreateGenre } from "../storage/db/genres";
@@ -643,6 +644,13 @@ export async function syncSongToLocal(
 
       // mark as synced in reactive store for UI updates
       markSongSynced(sha256);
+
+      // the library copy is now authoritative - drop any api-cache copy left
+      // over from streaming this song before the sync finished, so a synced
+      // song is never stored twice (see the sync-to-local storage rule).
+      if (song.remote_server_id && song.media_blob_id) {
+        void evictCachedBlob(song.remote_server_id, song.media_blob_id);
+      }
 
       debug("syncSongToLocal", `synced song ${song.title} to local storage`);
       return { success: true, localSongId: sha256 };

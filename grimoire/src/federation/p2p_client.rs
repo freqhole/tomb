@@ -335,8 +335,17 @@ pub async fn line_request(
 ///
 /// blake3_hash: the blake3 hash of the blob (64 hex chars)
 pub async fn fetch_blob_verified(peer_addr: &str, blake3_hash: &str) -> GrimoireResult<Vec<u8>> {
+    fetch_blob_verified_with_progress(peer_addr, blake3_hash, None).await
+}
+
+/// `fetch_blob_verified` with an optional cumulative-bytes progress callback.
+pub async fn fetch_blob_verified_with_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<Vec<u8>> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash).await?;
+        download_blob_to_store(peer_addr, blake3_hash, on_progress).await?;
 
     // read the blob from store
     let bytes = store
@@ -368,7 +377,7 @@ pub async fn fetch_blob_verified_to_file(
     target: &std::path::Path,
 ) -> GrimoireResult<u64> {
     let (store, hash, hash_short, node_id_short) =
-        download_blob_to_store(peer_addr, blake3_hash).await?;
+        download_blob_to_store(peer_addr, blake3_hash, None).await?;
 
     // export from store directly to target file (no memory buffering)
     store
@@ -397,6 +406,11 @@ pub async fn fetch_blob_verified_to_file(
     Ok(metadata.len())
 }
 
+/// callback invoked with the cumulative downloaded byte count during a
+/// verified blob download. lives here because iroh-blobs' progress stream is
+/// the only place those counts exist.
+pub type BlobProgressFn = dyn Fn(u64) + Send + Sync;
+
 /// download a blob into the local iroh-blobs store via verified streaming.
 ///
 /// shared implementation used by both `fetch_blob_verified` (reads into memory)
@@ -404,6 +418,7 @@ pub async fn fetch_blob_verified_to_file(
 async fn download_blob_to_store(
     peer_addr: &str,
     blake3_hash: &str,
+    on_progress: Option<&BlobProgressFn>,
 ) -> GrimoireResult<(iroh_blobs::api::Store, Hash, String, String)> {
     let addr = parse_peer_address(peer_addr)?;
     let node_id_short = addr.id.to_string()[..16].to_string();
@@ -504,6 +519,11 @@ async fn download_blob_to_store(
             }
             DownloadProgressItem::PartComplete { .. } => {
                 debug!("iroh-blobs: part complete for {}", hash_short);
+            }
+            DownloadProgressItem::Progress(bytes) => {
+                if let Some(cb) = on_progress {
+                    cb(bytes);
+                }
             }
             other => {
                 debug!("iroh-blobs: {:?} for {}", other, hash_short);
@@ -679,6 +699,15 @@ pub async fn fetch_blob_verified_with_ensure(
     peer_addr: &str,
     blake3_hash: &str,
 ) -> GrimoireResult<Vec<u8>> {
+    fetch_blob_verified_with_ensure_progress(peer_addr, blake3_hash, None).await
+}
+
+/// `fetch_blob_verified_with_ensure` with an optional progress callback.
+pub async fn fetch_blob_verified_with_ensure_progress(
+    peer_addr: &str,
+    blake3_hash: &str,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<Vec<u8>> {
     info!(
         "fetch_blob_verified_with_ensure: starting for {} from {}",
         &blake3_hash[..16.min(blake3_hash.len())],
@@ -686,7 +715,7 @@ pub async fn fetch_blob_verified_with_ensure(
     );
 
     // first attempt - might fail if blob not in FsStore
-    match fetch_blob_verified(peer_addr, blake3_hash).await {
+    match fetch_blob_verified_with_progress(peer_addr, blake3_hash, on_progress).await {
         Ok(data) => return Ok(data),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
@@ -731,7 +760,7 @@ pub async fn fetch_blob_verified_with_ensure(
         &blake3_hash[..16.min(blake3_hash.len())],
     );
 
-    fetch_blob_verified(peer_addr, blake3_hash).await
+    fetch_blob_verified_with_progress(peer_addr, blake3_hash, on_progress).await
 }
 
 /// fetch a blob to a file using verified streaming with on-demand loading.
@@ -835,6 +864,15 @@ pub async fn fetch_blob_verified_by_id(
     peer_addr: &str,
     blob_id: &str,
 ) -> GrimoireResult<(Vec<u8>, String)> {
+    fetch_blob_verified_by_id_progress(peer_addr, blob_id, None).await
+}
+
+/// `fetch_blob_verified_by_id` with an optional progress callback.
+pub async fn fetch_blob_verified_by_id_progress(
+    peer_addr: &str,
+    blob_id: &str,
+    on_progress: Option<&BlobProgressFn>,
+) -> GrimoireResult<(Vec<u8>, String)> {
     let blob_id_short = &blob_id[..16.min(blob_id.len())];
 
     // compute blake3 on demand. `compute_blake3()` collapses every peer-side
@@ -850,7 +888,7 @@ pub async fn fetch_blob_verified_by_id(
     })?;
 
     // now use verified streaming
-    let data = fetch_blob_verified_with_ensure(peer_addr, &blake3).await?;
+    let data = fetch_blob_verified_with_ensure_progress(peer_addr, &blake3, on_progress).await?;
 
     Ok((data, blake3))
 }

@@ -85,7 +85,10 @@ export function TitleBarStrip() {
   return (
     <Show when={enabled()}>
       <div
-        data-tauri-drag-region="deep"
+        // deliberately NO `data-tauri-drag-region`: tauri's own document-level
+        // listener runs in the capture phase, so on linux it toggled maximize
+        // from mousedown while our dblclick toggled it back. drag and
+        // double-click are both handled here, identically on every platform.
         style={{
           position: "fixed",
           top: "0",
@@ -94,6 +97,8 @@ export function TitleBarStrip() {
           "z-index": 20,
           "user-select": "none",
           height: `${STRIP_HEIGHT_PX}px`,
+          background: hovered() ? "rgba(255, 255, 255, 0.05)" : "transparent",
+          transition: "background-color 0.15s",
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}

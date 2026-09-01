@@ -24,6 +24,7 @@
  */
 
 import { debug } from "./logger";
+import { isCharnelMode } from "../app/services/charnel/mode";
 
 export type FileKind = "audio" | "image" | "video" | "media";
 
@@ -182,8 +183,7 @@ function nameFromPathOrUri(s: string): string {
 // true when running inside a tauri runtime (desktop or mobile).
 function isTauri(): boolean {
   if (typeof window === "undefined") return false;
-  // @ts-expect-error __TAURI_INTERNALS__ injected by tauri
-  return typeof window.__TAURI_INTERNALS__?.invoke === "function";
+  return isCharnelMode();
 }
 
 function isAndroid(): boolean {

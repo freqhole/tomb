@@ -84,6 +84,15 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
         }
       }
     },
+    // a dead connection stays cached forever otherwise, so every later
+    // transaction throws "the database connection is closing" until reload
+    terminated() {
+      dbInstance = null;
+    },
+    blocking() {
+      dbInstance?.close();
+      dbInstance = null;
+    },
   });
 
   return dbInstance;

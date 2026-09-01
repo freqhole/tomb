@@ -91,15 +91,13 @@ export function TitleBarStrip() {
   return (
     <Show when={enabled()}>
       <div
-        data-tauri-drag-region="deep"
-        // z-[100] normally - other things that need to win over the strip
-        // use z-[110]+ (see QueueSidebar.tsx etc). the video mini-player
-        // is a fullscreen, long-lived overlay above all of that (z-[1500]),
-        // so it needs the strip bumped above IT specifically, rather than
-        // permanently reordering the strip against everything else.
-        class={`fixed top-0 left-0 right-0 select-none ${
+        // deliberately NO `data-tauri-drag-region`: tauri's own document-level
+        // listener runs in the capture phase, so on linux it toggled maximize
+        // from mousedown while our dblclick toggled it back. drag and
+        // double-click are both handled here, identically on every platform.
+        class={`fixed top-0 left-0 right-0 select-none transition-colors ${
           videoMiniPlayerExpanded() ? "z-[1600]" : "z-[100]"
-        }`}
+        } ${hovered() ? "bg-white/5" : ""}`}
         style={{ height: `${STRIP_HEIGHT_PX}px` }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}

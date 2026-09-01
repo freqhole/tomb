@@ -131,6 +131,18 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         &[&app_submenu, &edit_submenu, &window_submenu, &view_submenu],
     )?;
 
+    // on linux the app menu renders as a gtk menubar *inside* the window,
+    // which defeats the point of a chromeless title bar (macOS puts it in
+    // the system bar, so it's unaffected).
+    #[cfg(target_os = "linux")]
+    if crate::app_config::FreqholeAppConfig::load(app)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(|_| crate::app_config::default_chromeless_title_bar())
+    {
+        tracing::info!("chromeless title bar on linux - skipping in-window menubar");
+        return Ok(());
+    }
+
     // set as app menu
     app.set_menu(menu)?;
 

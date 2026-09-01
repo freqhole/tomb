@@ -49,6 +49,15 @@ export interface QueueSongRowProps {
 export function QueueSongRow(props: QueueSongRowProps) {
   const [isRowHovered, setIsRowHovered] = createSignal(false);
 
+  // accessors, not values: these must stay callable so the style attribute
+  // that reads them re-runs as download progress ticks in.
+  const loadingProgress = () => {
+    const sha256 = props.song.sha256;
+    return sha256 ? getLoadingProgress(sha256) : undefined;
+  };
+  const hasLoadingProgress = () => typeof loadingProgress() === "number";
+  const loadingPercent = () => Math.min((loadingProgress() as number) * 100, 100);
+
   // get waveform URL - check local blob first, then P2P/remote
   const waveformUrl = () => {
     const waveformImg = getWaveformImage(props.song.images);
@@ -288,31 +297,29 @@ export function QueueSongRow(props: QueueSongRowProps) {
           >
             {formatDuration(props.song.duration_seconds)}
           </span>
-          {/* loading underline - shows progress or bouncing bar */}
+          {/* loading underline - shows progress or bouncing bar.
+              the width MUST be read inside the `style` object: solid compiles a
+              dynamic style attribute into an effect, whereas computing it in a
+              wrapper that returns jsx bakes in a static string that never
+              updates (Show only re-runs its children when `when` toggles). */}
           <Show when={props.loadingIds?.has(props.song.sha256 ?? "")}>
-            {(() => {
-              const sha256 = props.song.sha256;
-              const progress = sha256 ? getLoadingProgress(sha256) : undefined;
-              const hasProgress = typeof progress === "number" && progress >= 0;
-
-              return (
-                <div
-                  class="w-full h-0.5 overflow-hidden rounded-full"
-                  style={{ "margin-top": "-2px", background: "rgba(168, 85, 247, 0.2)" }}
-                >
-                  <div
-                    style={{
-                      width: hasProgress ? `${Math.min(progress * 100, 100)}%` : "100%",
-                      height: "100%",
-                      background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
-                      animation: hasProgress ? undefined : "bounce-bar 2s ease-in-out infinite",
-                      "border-radius": "9999px",
-                      transition: hasProgress ? "width 150ms ease-out" : undefined,
-                    }}
-                  />
-                </div>
-              );
-            })()}
+            <div
+              class="w-full h-0.5 overflow-hidden rounded-full"
+              style={{ "margin-top": "-2px", background: "rgba(168, 85, 247, 0.2)" }}
+            >
+              <div
+                style={{
+                  width: hasLoadingProgress() ? `${loadingPercent()}%` : "100%",
+                  height: "100%",
+                  background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                  animation: hasLoadingProgress()
+                    ? undefined
+                    : "bounce-bar 2s ease-in-out infinite",
+                  "border-radius": "9999px",
+                  transition: hasLoadingProgress() ? "width 150ms ease-out" : undefined,
+                }}
+              />
+            </div>
           </Show>
         </div>
       </div>

@@ -92,6 +92,23 @@ pub struct P2pBlobResponse {
     pub size: u64,
 }
 
+/// incremental download progress, streamed to the frontend over a tauri
+/// channel while a verified blob download runs.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlobDownloadProgress {
+    pub bytes_downloaded: u64,
+}
+
+/// adapt a tauri channel into the plain callback grimoire's downloader takes.
+/// send failures are ignored - a closed channel (frontend navigated away) must
+/// never abort an in-flight download.
+fn progress_forwarder(
+    channel: tauri::ipc::Channel<BlobDownloadProgress>,
+) -> Box<grimoire::federation::p2p_client::BlobProgressFn> {
+    Box::new(move |bytes_downloaded| {
+        let _ = channel.send(BlobDownloadProgress { bytes_downloaded });
+    })
+}
 /// blob response with base64 data and computed blake3 hash
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2pBlobWithBlake3Response {
@@ -262,23 +279,29 @@ pub async fn p2p_fetch_blob_verified(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blake3_hash: String,
+    on_progress: tauri::ipc::Channel<BlobDownloadProgress>,
 ) -> Result<P2pBlobResponse, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
     tracing::info!(peer = %peer_addr, blake3 = %blake3_hash, "fetching verified blob");
 
+    let progress_cb = progress_forwarder(on_progress);
+
     // use fetch_blob_verified_with_ensure which handles on-demand loading
-    let data =
-        grimoire::federation::p2p_client::fetch_blob_verified_with_ensure(&peer_addr, &blake3_hash)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
-                if is_connection_error(&e) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let data = grimoire::federation::p2p_client::fetch_blob_verified_with_ensure_progress(
+        &peer_addr,
+        &blake3_hash,
+        Some(progress_cb.as_ref()),
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        tracing::warn!(peer = %peer_addr, blake3 = %blake3_hash, error = %error_msg, "fetch verified blob failed");
+        if is_connection_error(&e) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobResponse {
         data: STANDARD.encode(&data),
@@ -297,22 +320,28 @@ pub async fn p2p_fetch_blob_verified_by_id(
     app_handle: tauri::AppHandle,
     peer_addr: String,
     blob_id: String,
+    on_progress: tauri::ipc::Channel<BlobDownloadProgress>,
 ) -> Result<P2pBlobWithBlake3Response, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
 
     tracing::debug!(peer = %peer_addr, blob_id = %blob_id, "fetching verified blob by id");
 
-    let (data, blake3) =
-        grimoire::federation::p2p_client::fetch_blob_verified_by_id(&peer_addr, &blob_id)
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
-                if is_connection_error(&e) {
-                    let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
-                }
-                error_msg
-            })?;
+    let progress_cb = progress_forwarder(on_progress);
+
+    let (data, blake3) = grimoire::federation::p2p_client::fetch_blob_verified_by_id_progress(
+        &peer_addr,
+        &blob_id,
+        Some(progress_cb.as_ref()),
+    )
+    .await
+    .map_err(|e| {
+        let error_msg = e.to_string();
+        tracing::warn!(peer = %peer_addr, blob_id = %blob_id, error = %error_msg, "fetch verified blob by id failed");
+        if is_connection_error(&e) {
+            let _ = notify_peer_offline(&app_handle, &peer_addr, &error_msg);
+        }
+        error_msg
+    })?;
 
     Ok(P2pBlobWithBlake3Response {
         data: STANDARD.encode(&data),

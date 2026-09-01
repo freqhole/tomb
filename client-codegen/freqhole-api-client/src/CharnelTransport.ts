@@ -5,6 +5,7 @@
 
 import type { BlobData, Transport, TransportResponse } from "./transport.js";
 import type { BlobProgressCallback } from "./WasmTransport.js";
+import { isTauriRuntime } from "./tauriRuntime.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
 
@@ -157,7 +158,7 @@ async function ensureInvoke(): Promise<InvokeFn> {
  * check if tauri is available
  */
 export function isCharnelAvailable(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return isTauriRuntime();
 }
 
 // default cache name if none provided
@@ -563,12 +564,6 @@ export class CharnelTransport implements Transport {
     totalBytes?: number,
     mimeType?: string,
   ): Promise<BlobData> {
-    if (!blake3) {
-      const result = await this.fetchBlob(blobId);
-      onProgress(result.data.byteLength, result.data.byteLength);
-      return result;
-    }
-
     const inv = await ensureInvoke();
     const tauri = await import("@tauri-apps/api/core");
     const channel = new tauri.Channel<{ bytes_downloaded: number }>();
@@ -579,12 +574,22 @@ export class CharnelTransport implements Transport {
       onProgress(received, totalBytes ?? 0);
     };
 
+    // most library blobs have no blake3 on the client (only synced/uploaded
+    // ones do). the by-id route makes the peer compute it and then streams
+    // the same verified download, so it reports real progress too - without
+    // this branch a blake3-less blob only ever reported a single 100% tick
+    // at the end, which reads as "no progress bar at all".
+    const command = blake3 ? "p2p_fetch_blob_verified" : "p2p_fetch_blob_verified_by_id";
+    const args = blake3
+      ? { peerAddr: this.peerAddr, blake3Hash: blake3, onProgress: channel }
+      : { peerAddr: this.peerAddr, blobId, onProgress: channel };
+
     try {
-      const result = (await inv("p2p_fetch_blob_verified", {
-        peerAddr: this.peerAddr,
-        blake3Hash: blake3,
-        onProgress: channel,
-      })) as { data: string; content_type: string | null; size: number };
+      const result = (await inv(command, args)) as {
+        data: string;
+        content_type: string | null;
+        size: number;
+      };
 
       const bytes = base64ToBytes(result.data);
       onProgress(bytes.byteLength, totalBytes || bytes.byteLength);

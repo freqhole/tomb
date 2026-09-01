@@ -50,6 +50,12 @@ export interface VideoQueueRowProps {
 
 export function VideoQueueRow(props: VideoQueueRowProps) {
   const [isRowHovered, setIsRowHovered] = createSignal(false);
+
+  // accessors, not values: these must stay callable so the style attribute
+  // that reads them re-runs as download progress ticks in.
+  const loadingProgress = () => getLoadingProgress(props.video.id);
+  const hasLoadingProgress = () => typeof loadingProgress() === "number";
+  const loadingPercent = () => Math.min((loadingProgress() as number) * 100, 100);
   const localPosterUrl = useLocalVideoPosterUrl(() =>
     props.video.source_type === "local" ? props.video.poster_opfs_path : null
   );
@@ -308,30 +314,29 @@ export function VideoQueueRow(props: VideoQueueRowProps) {
           >
             {formatDuration(props.video.duration_seconds ?? undefined)}
           </span>
-          {/* loading underline - shows progress or bouncing bar */}
+          {/* loading underline - shows progress or bouncing bar.
+              the width MUST be read inside the `style` object: solid compiles a
+              dynamic style attribute into an effect, whereas computing it in a
+              wrapper that returns jsx bakes in a static string that never
+              updates (Show only re-runs its children when `when` toggles). */}
           <Show when={props.loadingIds?.has(props.video.id)}>
-            {(() => {
-              const progress = getLoadingProgress(props.video.id);
-              const hasProgress = typeof progress === "number" && progress >= 0;
-
-              return (
-                <div
-                  class="w-full h-0.5 overflow-hidden rounded-full"
-                  style={{ "margin-top": "-2px", background: "rgba(168, 85, 247, 0.2)" }}
-                >
-                  <div
-                    style={{
-                      width: hasProgress ? `${Math.min(progress * 100, 100)}%` : "100%",
-                      height: "100%",
-                      background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
-                      animation: hasProgress ? undefined : "bounce-bar 2s ease-in-out infinite",
-                      "border-radius": "9999px",
-                      transition: hasProgress ? "width 150ms ease-out" : undefined,
-                    }}
-                  />
-                </div>
-              );
-            })()}
+            <div
+              class="w-full h-0.5 overflow-hidden rounded-full"
+              style={{ "margin-top": "-2px", background: "rgba(168, 85, 247, 0.2)" }}
+            >
+              <div
+                style={{
+                  width: hasLoadingProgress() ? `${loadingPercent()}%` : "100%",
+                  height: "100%",
+                  background: "linear-gradient(90deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)",
+                  animation: hasLoadingProgress()
+                    ? undefined
+                    : "bounce-bar 2s ease-in-out infinite",
+                  "border-radius": "9999px",
+                  transition: hasLoadingProgress() ? "width 150ms ease-out" : undefined,
+                }}
+              />
+            </div>
           </Show>
         </div>
       </div>

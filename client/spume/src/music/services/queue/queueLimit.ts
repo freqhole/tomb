@@ -3,6 +3,7 @@
 
 import { createSignal } from "solid-js";
 import type { MediaItem } from "../../../app/services/storage/mediaItem";
+import { isCharnelMode } from "../../../app/services/charnel/mode";
 
 // default queue size limit. used as the fallback when no override
 // has been loaded (browser mode, or before `initQueueSizeLimit()`
@@ -23,7 +24,7 @@ export function getQueueSizeLimit(): number {
 /** hydrate the queue size limit from the host's `[client]` config.
  *  safe to call outside tauri (no-op, leaves the default). idempotent. */
 export async function initQueueSizeLimit(): Promise<number> {
-  if (typeof window !== "undefined" && "__TAURI__" in window) {
+  if (isCharnelMode()) {
     try {
       // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
       const { invoke } = await import("@tauri-apps/api/core");

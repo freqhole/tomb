@@ -398,6 +398,15 @@ export async function initMusicDB(): Promise<IDBPDatabase> {
         }
       }
     },
+    // a dead connection stays cached forever otherwise, so every later
+    // transaction throws "the database connection is closing" until reload
+    terminated() {
+      dbInstance = null;
+    },
+    blocking() {
+      dbInstance?.close();
+      dbInstance = null;
+    },
   });
 
   debug("music database initialized");
