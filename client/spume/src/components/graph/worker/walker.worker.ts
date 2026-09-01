@@ -29,8 +29,15 @@ import {
   state,
 } from "./walkerState";
 import { crossKey, leaderOf, remoteOfId, slug } from "./walkerHelpers";
-import { buildSim } from "./walkerSim";
+import { buildSim, setBuildReason } from "./walkerSim";
 import type { MainToWorker } from "./messages";
+
+/** true when `next` contains exactly the ids already in `current`. */
+function sameIdSet(current: Set<string>, next: string[]): boolean {
+  if (current.size !== next.length) return false;
+  for (const id of next) if (!current.has(id)) return false;
+  return true;
+}
 
 // ---- remap breadcrumb entries to their cluster leaders --------------------
 //
@@ -316,10 +323,14 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
     }
 
     case "resize": {
+      if (state.width === msg.width && state.height === msg.height) break;
       state.width = msg.width;
       state.height = msg.height;
       // recompute targets around new center and restart
-      if (state.sim) buildSim();
+      if (state.sim) {
+        setBuildReason("resize");
+        buildSim("nudge");
+      }
       break;
     }
 
@@ -409,8 +420,12 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       // current breadcrumb tip from leader to follower). if a follower id
       // sits in the breadcrumb, pivot() returns it, getVisible() and
       // computeTargets() misplace the pivot node and miss the album ring.
+      // lazy loading streams batches in continuously, and existing nodes keep
+      // their positions across a rebuild - a full reheat here would fling the
+      // settled layout apart every time a batch lands.
       state.breadcrumb = remapBreadcrumbToLeaders(state.breadcrumb);
-      buildSim();
+      setBuildReason("merge");
+      buildSim("nudge");
       break;
     }
 
@@ -436,19 +451,27 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       // re-elect leaders after removal — a cluster may shrink to one
       // member, which dissolves the cluster entirely.
       state.breadcrumb = remapBreadcrumbToLeaders(state.breadcrumb);
-      buildSim();
+      setBuildReason("remove");
+      buildSim("nudge");
       break;
     }
 
     case "setHidden": {
+      // hosts re-push this from an effect that also depends on the worker's own
+      // visibleIds stream, so an unchanged set arrives constantly. rebuilding
+      // on those would reheat the sim forever and it would never settle.
+      if (sameIdSet(state.hidden, msg.nodeIds)) break;
       state.hidden = new Set(msg.nodeIds);
-      buildSim();
+      setBuildReason("setHidden");
+      buildSim("nudge");
       break;
     }
 
     case "setPinned": {
+      if (sameIdSet(state.pinned, msg.nodeIds)) break;
       state.pinned = new Set(msg.nodeIds);
-      buildSim();
+      setBuildReason("setPinned");
+      buildSim("nudge");
       break;
     }
 
@@ -484,10 +507,20 @@ ctx.onmessage = (evt: MessageEvent<MainToWorker>) => {
       break;
     }
 
+    case "setDebugSim": {
+      state.debugSim = msg.enabled;
+      break;
+    }
+
     case "setTuning": {
-      state.tuning = { ...state.tuning, ...msg.tuning };
-      if (state.sim) {
-        buildSim();
+      const next = { ...state.tuning, ...msg.tuning };
+      const changed = (Object.keys(next) as Array<keyof typeof next>).some(
+        (k) => next[k] !== state.tuning[k]
+      );
+      state.tuning = next;
+      if (changed && state.sim) {
+        setBuildReason("setTuning");
+        buildSim("nudge");
       }
       break;
     }

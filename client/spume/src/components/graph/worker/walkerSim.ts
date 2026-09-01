@@ -1,11 +1,4 @@
-import {
-  forceSimulation,
-  forceLink,
-  forceCollide,
-  forceX,
-  forceY,
-  forceManyBody,
-} from "d3-force";
+import { forceSimulation, forceLink, forceCollide, forceX, forceY, forceManyBody } from "d3-force";
 import {
   clusterRemotes,
   crossRemoteEdges,
@@ -15,20 +8,40 @@ import {
   type SimLink,
   type SimNode,
 } from "./walkerState";
-import {
-  crossKey,
-  leaderOf,
-  nodeRadius,
-  pivot,
-  remoteHubId,
-  remoteOfId,
-} from "./walkerHelpers";
+import { crossKey, leaderOf, nodeRadius, pivot, remoteHubId, remoteOfId } from "./walkerHelpers";
 import { computeTargets, getVisible } from "./walkerLayout";
 import type { TopologyEdge, VisibleNode } from "./messages";
 
 // ---- rebuild sim from current walk state -----------------------------------
 
-export function buildSim() {
+// every buildSim() constructs a fresh forceSimulation, which starts at alpha 1
+// — a full reheat that visibly throws every node across the canvas. that's
+// right when the graph's *shape* changed (repivot, merge, back), but wrong for
+// incremental changes (hide set, pin set, tuning, resize) where the layout is
+// already close and should only be nudged.
+export type Reheat = "full" | "nudge";
+
+const REHEAT_ALPHA: Record<Reheat, number> = { full: 1, nudge: 0.25 };
+
+/** set by the worker before each buildSim so the rebuild log says why. */
+export let lastBuildReason = "init";
+export function setBuildReason(reason: string) {
+  lastBuildReason = reason;
+}
+
+let buildCount = 0;
+
+export function buildSim(reheat: Reheat = "full") {
+  buildCount++;
+  if (state.debugSim) {
+    const prevAlpha = state.sim?.alpha() ?? 0;
+    post({
+      type: "log",
+      message:
+        `[sim] rebuild #${buildCount} reason=${lastBuildReason} reheat=${reheat} ` +
+        `prevAlpha=${prevAlpha.toFixed(3)}`,
+    });
+  }
   if (state.sim) state.sim.stop();
 
   const visible = getVisible();
@@ -66,9 +79,7 @@ export function buildSim() {
     }
   }
   const pivotAlbumCount = pivotAlbumChildren.size;
-  const pivotBoost = pivotIsArtist
-    ? Math.min(Math.max(pivotAlbumCount, 1) / 10, 1.5)
-    : 0;
+  const pivotBoost = pivotIsArtist ? Math.min(Math.max(pivotAlbumCount, 1) / 10, 1.5) : 0;
   const pivotActive = pivotIsArtist;
   // strategy A — breadcrumb may contain member ids; collapse to leader ids so
   // the visible leader still reads as "on breadcrumb path" (drives stroke +
@@ -138,7 +149,12 @@ export function buildSim() {
     const key = crossKey(src, tgt);
     if (emittedEdgeKeys.has(key)) continue;
     const isBC = breadcrumbSet.has(src) && breadcrumbSet.has(tgt);
-    simLinks.push({ source: src, target: tgt, isBreadcrumb: isBC, isRelatedArtist: e.isRelatedArtist });
+    simLinks.push({
+      source: src,
+      target: tgt,
+      isBreadcrumb: isBC,
+      isRelatedArtist: e.isRelatedArtist,
+    });
     visibleEdges.push({
       sourceIdx: si,
       targetIdx: ti,
@@ -242,9 +258,7 @@ export function buildSim() {
   // tick. nodeMap holds walk-graph nodes; we need the SimNode whose x/y
   // updates every tick. pivotAlbumChildren was computed up-front (cluster-
   // aware) so the cordon can exempt the inner album ring.
-  const pivotSimNode = pivotActive
-    ? simNodes[idToIdx.get(pivLeader) ?? -1]
-    : undefined;
+  const pivotSimNode = pivotActive ? simNodes[idToIdx.get(pivLeader) ?? -1] : undefined;
   // max album radius among pivot's children — sets how wide the
   // protected inner ring must be before everything else gets evicted.
   let pivotMaxAlbumR = 0;
@@ -260,9 +274,10 @@ export function buildSim() {
   // that scales with album count. for a 30-album artist this clears
   // ~600px around the pivot, evicting hub nodes and ghost satellites
   // to the periphery.
-  const cordonR = pivotActive && pivotSimNode
-    ? pivotSimNode.radius + pivotMaxAlbumR * 2.6 + 220 + pivotBoost * 180
-    : 0;
+  const cordonR =
+    pivotActive && pivotSimNode
+      ? pivotSimNode.radius + pivotMaxAlbumR * 2.6 + 220 + pivotBoost * 180
+      : 0;
 
   // custom cordon force: every tick, push non-album-of-pivot nodes
   // outward if they're inside the cordon. uses an alpha-scaled
@@ -341,9 +356,8 @@ export function buildSim() {
           // halo against which the pivot's repulsion field can clear
           // outer space).
           if (s.role === "artist" && t.role === "album") {
-            const tight = s.id === pivLeader && pivotActive
-              ? Math.max(1.05, 1.3 - pivotBoost * 0.15)
-              : 1.3;
+            const tight =
+              s.id === pivLeader && pivotActive ? Math.max(1.05, 1.3 - pivotBoost * 0.15) : 1.3;
             return (s.radius + t.radius) * tight * tun.albumArtistDistance;
           }
           // every other edge touching the pivot artist (related-artist,
@@ -352,7 +366,7 @@ export function buildSim() {
           const base = d.isRelatedArtist
             ? (s.radius + t.radius) * 1.6 * tun.relatedArtistDistance
             : s.role === "value"
-              ? (s.radius + t.radius) * 4.7  // value→x fan-out
+              ? (s.radius + t.radius) * 4.7 // value→x fan-out
               : (s.radius + t.radius) * 2.6 * tun.artistHubDistance;
           // fat hubs / fat artists pull closer: shrink the edge by an
           // inverse-sqrt of the child-count of either endpoint that
@@ -360,15 +374,12 @@ export function buildSim() {
           // 25 -> ~0.44x. applies to value/group/artist endpoints on
           // any non-related-artist hub edge.
           const populated = (n: SimNode) =>
-            n.role === "artist" || n.role === "value" || n.role === "group"
-              ? n.childCount
-              : 0;
+            n.role === "artist" || n.role === "value" || n.role === "group" ? n.childCount : 0;
           const sCount = populated(s);
           const tCount = populated(t);
           const shrinkCount = Math.max(sCount, tCount);
-          const shrink = !d.isRelatedArtist && shrinkCount > 0
-            ? 1 / (1 + Math.sqrt(shrinkCount) * 0.25)
-            : 1;
+          const shrink =
+            !d.isRelatedArtist && shrinkCount > 0 ? 1 / (1 + Math.sqrt(shrinkCount) * 0.25) : 1;
           if (pivotActive && (s.id === pivLeader || t.id === pivLeader)) {
             return base * shrink * (1 + pivotBoost * 1.2);
           }
@@ -381,9 +392,8 @@ export function buildSim() {
           // album edges: lock tight (near-max) so the catalog ring
           // shrugs off every other attractor pulling at the albums.
           if (s.role === "artist" && t.role === "album") {
-            const base = s.id === pivLeader && pivotActive
-              ? Math.min(1, 0.95 + pivotBoost * 0.05)
-              : 0.95;
+            const base =
+              s.id === pivLeader && pivotActive ? Math.min(1, 0.95 + pivotBoost * 0.05) : 0.95;
             return base * tun.albumArtistStrength;
           }
           // every other edge touching the pivot artist gets RELAXED
@@ -398,7 +408,7 @@ export function buildSim() {
             return base / (1 + pivotBoost * 2);
           }
           return base;
-        }),
+        })
     )
     .force(
       "collide",
@@ -422,7 +432,7 @@ export function buildSim() {
           return d.radius * 1.9;
         })
         .strength(1.0)
-        .iterations(4),
+        .iterations(4)
     )
     .force(
       "x",
@@ -433,7 +443,7 @@ export function buildSim() {
           return Math.max(0.05, 0.18 - pivotBoost * 0.09) * g;
         }
         return 0.18 * g;
-      }),
+      })
     )
     .force(
       "y",
@@ -444,7 +454,7 @@ export function buildSim() {
           return Math.max(0.05, 0.18 - pivotBoost * 0.09) * g;
         }
         return 0.18 * g;
-      }),
+      })
     )
     .force(
       "charge",
@@ -467,13 +477,15 @@ export function buildSim() {
           if (d.role === "album") return -20 * tun.albumCharge;
           return -55;
         })
-        .distanceMax(1400),
+        .distanceMax(1400)
     )
     .force("cordon", cordonForce)
     .force("cohesion", cohesionForce)
     .alphaDecay(0.015)
     .velocityDecay(0.42)
     .on("tick", onTick);
+
+  state.sim.alpha(REHEAT_ALPHA[reheat]);
 
   if (state.paused) state.sim.stop();
 }
