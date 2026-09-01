@@ -63,9 +63,9 @@ export default function SettingsView() {
   const [rodioBusy, setRodioBusy] = createSignal(false);
   const [rodioError, setRodioError] = createSignal("");
 
-  // chromeless (in-webview) title bar opt-out. macOS only - hidden
-  // entirely elsewhere (see `is_macos_platform`).
-  const [isMacos, setIsMacos] = createSignal(false);
+  // chromeless (in-webview) title bar opt-out. macOS + linux only -
+  // hidden entirely elsewhere (see `supports_chromeless_title_bar`).
+  const [chromelessSupported, setChromelessSupported] = createSignal(false);
   const [chromelessTitleBar, setChromelessTitleBar] = createSignal(true);
   const [chromelessBusy, setChromelessBusy] = createSignal(false);
   const [chromelessError, setChromelessError] = createSignal("");
@@ -92,6 +92,10 @@ export default function SettingsView() {
         setImageMessage("");
         setInfoMessage("");
         loadServerConfig();
+        // app-local settings (rodio, chromeless title bar) are skipped while
+        // scoped remote - reload them when scope returns to local, or their
+        // toggles stay hidden/stale for the rest of the session.
+        loadSyncSettings();
       },
       { defer: true },
     ),
@@ -113,7 +117,7 @@ export default function SettingsView() {
       console.error("failed to load rodio playback setting:", e);
     }
     try {
-      setIsMacos(await invoke<boolean>("is_macos_platform"));
+      setChromelessSupported(await invoke<boolean>("supports_chromeless_title_bar"));
       setChromelessTitleBar(await invoke<boolean>("get_chromeless_title_bar"));
     } catch (e) {
       console.error("failed to load chromeless title bar setting:", e);
@@ -662,7 +666,7 @@ export default function SettingsView() {
                 </div>
               </div>
 
-              <Show when={isMacos()}>
+              <Show when={chromelessSupported()}>
                 <div
                   style={{
                     display: "flex",

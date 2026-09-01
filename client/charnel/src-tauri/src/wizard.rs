@@ -79,6 +79,18 @@ pub fn open_setup_wizard_at_route(app: AppHandle<Wry>, route: &str) -> Result<()
     } else {
         win_builder.title_bar_style(TitleBarStyle::Transparent)
     };
+    // linux has no TitleBarStyle equivalent - leave native decorations
+    // alone when the toggle is off.
+    #[cfg(target_os = "linux")]
+    let chromeless = FreqholeAppConfig::load(&app)
+        .map(|c| c.chromeless_title_bar)
+        .unwrap_or_else(crate::app_config::default_chromeless_title_bar);
+    #[cfg(target_os = "linux")]
+    let win_builder = if chromeless {
+        win_builder.decorations(false)
+    } else {
+        win_builder
+    };
 
     #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     let window = win_builder
@@ -327,6 +339,16 @@ pub async fn close_setup_wizard(
             win_builder.decorations(false)
         } else {
             win_builder.title_bar_style(TitleBarStyle::Transparent)
+        };
+        // linux has no TitleBarStyle equivalent - leave native decorations
+        // alone when the toggle is off.
+        #[cfg(target_os = "linux")]
+        let app_config = FreqholeAppConfig::load(&app).unwrap_or_default();
+        #[cfg(target_os = "linux")]
+        let win_builder = if app_config.chromeless_title_bar {
+            win_builder.decorations(false)
+        } else {
+            win_builder
         };
 
         let window = win_builder

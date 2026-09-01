@@ -370,6 +370,27 @@ pub fn get_app_version() -> String {
     crate::app_config::get_binary_version().to_string()
 }
 
+/// build provenance of the running binary: semver + the git short sha baked in
+/// at compile time by `build.rs`. paired with the frontend's own build-time sha
+/// so a stale ui bundle (or stale binary) is visible in the ui.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BuildInfo {
+    pub version: String,
+    pub git_sha: String,
+    pub target_os: String,
+    pub debug: bool,
+}
+
+#[tauri::command]
+pub fn get_build_info() -> BuildInfo {
+    BuildInfo {
+        version: crate::app_config::get_binary_version().to_string(),
+        git_sha: env!("FREQHOLE_GIT_SHA").to_string(),
+        target_os: std::env::consts::OS.to_string(),
+        debug: cfg!(debug_assertions),
+    }
+}
+
 /// drain any deep-link urls (`freqhole://...`) received before the frontend's
 /// event listener was ready. spume calls this on startup to handle cold-start
 /// share links. urls received after this call arrive via the
@@ -1876,13 +1897,13 @@ pub fn get_rodio_playback(app_handle: tauri::AppHandle) -> bool {
 /// their own drag-strip + traffic-light buttons, mirroring whatever the
 /// rust side actually did when it built the window (see lib.rs/wizard.rs).
 ///
-/// always false off macOS - `decorations(false)` is only ever applied
-/// `#[cfg(target_os = "macos")]`, so other platforms keep their native
-/// title bar regardless of the config value, and must not also draw a
-/// custom one on top of it.
+/// always false off macOS/linux - `decorations(false)` is only ever applied
+/// `#[cfg(any(target_os = "macos", target_os = "linux"))]`, so other
+/// platforms (windows, mobile) keep their native title bar regardless of
+/// the config value, and must not also draw a custom one on top of it.
 #[tauri::command]
 pub fn get_chromeless_title_bar(app_handle: tauri::AppHandle) -> bool {
-    if !cfg!(target_os = "macos") {
+    if !cfg!(any(target_os = "macos", target_os = "linux")) {
         return false;
     }
     FreqholeAppConfig::load(&app_handle)
@@ -1905,12 +1926,12 @@ pub fn set_rodio_playback(app_handle: tauri::AppHandle, enabled: bool) -> Result
     Ok(())
 }
 
-/// whether this build is running on macOS - used by the settings ui to
-/// hide the chromeless title bar toggle entirely on platforms where it has
-/// no effect (see `get_chromeless_title_bar`'s own macOS gate).
+/// whether this build's platform actually supports the chromeless title
+/// bar - used by the settings ui to hide the toggle entirely on platforms
+/// where it has no effect (see `get_chromeless_title_bar`'s matching gate).
 #[tauri::command]
-pub fn is_macos_platform() -> bool {
-    cfg!(target_os = "macos")
+pub fn supports_chromeless_title_bar() -> bool {
+    cfg!(any(target_os = "macos", target_os = "linux"))
 }
 
 /// set the chromeless_title_bar setting. the native window is only ever

@@ -131,10 +131,10 @@ export async function setWindowTitle(title: string): Promise<void> {
 
 /**
  * check whether this window should render its own drag-strip + traffic-light
- * buttons instead of relying on the native macOS title bar.
+ * buttons instead of relying on the native title bar.
  *
  * mirrors whatever the rust side actually did when it built the window (see
- * lib.rs/wizard.rs) - macOS only, defaults to true. non-macOS platforms
+ * lib.rs/wizard.rs) - macOS + linux only, defaults to true. other platforms
  * always keep their native decorations regardless of this setting, so
  * callers must gate rendering on this AND running under tauri desktop.
  */

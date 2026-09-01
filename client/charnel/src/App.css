@@ -909,6 +909,13 @@ button.small {
   color: #52525b;
 }
 
+.build-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  color: #3f3f46;
+  word-break: break-all;
+}
+
 /* generic list items (users/invites) */
 .list-item {
   display: flex;

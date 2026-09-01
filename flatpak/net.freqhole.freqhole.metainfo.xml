@@ -30,10 +30,13 @@
   </description>
 
   <launchable type="desktop-id">net.freqhole.freqhole.desktop</launchable>
+  <!-- deb/rpm ship the same metainfo but keep tauri's plain desktop-file name -->
+  <launchable type="desktop-id">freqhole.desktop</launchable>
 
   <url type="homepage">https://freqhole.net</url>
   <url type="bugtracker">https://github.com/freqhole/tomb/issues</url>
   <url type="vcs-browser">https://github.com/freqhole/tomb</url>
+  <url type="help">https://freqhole.net</url>
 
   <content_rating type="oars-1.1" />
 
@@ -42,15 +45,32 @@
     <color type="primary" scheme_preference="dark">#c026d3</color>
   </branding>
 
+  <!-- served from freqhole.net/public/screenshots/ - the URLs must resolve
+       publicly or software centers show nothing. see that folder's README -->
   <screenshots>
     <screenshot type="default">
-      <caption>library view</caption>
-      <image>https://freqhole.net/screenshots/library.png</image>
+      <caption>browse your library by artist</caption>
+      <image>https://freqhole.net/screenshots/artists.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>explore the library as a force-directed graph of tags and relations</caption>
+      <image>https://freqhole.net/screenshots/explore.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>listen along to shared radio stationz</caption>
+      <image>https://freqhole.net/screenshots/radio.png</image>
     </screenshot>
   </screenshots>
 
   <releases>
-    <release version="0.1.12" date="2026-03-24">
+    <!-- add a new entry per tagged release; software centers show these as
+         release notes next to the version number -->
+    <release version="0.2.15" date="2026-08-22" type="stable">
+      <description>
+        <p>removable media sync: pick music with radio filters and write it to external storage, optionally re-encoded.</p>
+      </description>
+    </release>
+    <release version="0.1.12" date="2026-03-24" type="stable">
       <description>
         <p>P2P federation support and documentation site launch.</p>
       </description>
@@ -72,6 +92,11 @@
     <keyword>streaming</keyword>
     <keyword>p2p</keyword>
     <keyword>self-hosted</keyword>
+    <keyword>player</keyword>
+    <keyword>collection</keyword>
+    <keyword>podcast</keyword>
+    <keyword>video</keyword>
+    <keyword>freqhole</keyword>
   </keywords>
 
   <provides>
@@ -85,5 +110,6 @@
   <supports>
     <control>pointing</control>
     <control>keyboard</control>
+    <control>touch</control>
   </supports>
 </component>

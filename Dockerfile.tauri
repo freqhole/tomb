@@ -60,6 +60,6 @@ RUN cd client/charnel && npm ci
 RUN FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} cd client/spume && npm run build
 
 # build tauri app - deb + rpm
-RUN cd client/charnel && SQLX_OFFLINE="true" npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
+RUN cd client/charnel && SQLX_OFFLINE="true" FREQHOLE_GIT_SHA=${FREQHOLE_GIT_SHA} npm run tauri build -- --target ${TARGET_ARCH} --bundles deb,rpm
 
 # outputs in /app/target/${TARGET_ARCH}/release/bundle/deb/*.deb and rpm/*.rpm

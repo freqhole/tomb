@@ -14,6 +14,7 @@
     ]
   },
   "permissions": [
+    "allow-app-commands",
     "core:default",
     "core:window:allow-show",
     "core:window:allow-hide",

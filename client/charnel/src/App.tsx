@@ -1,7 +1,7 @@
 import { createSignal, onMount, Show, ParentProps, createContext, useContext } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
-import { VERSION } from "./version";
+import { VERSION, UI_GIT_SHA } from "./version";
 import { AdminTransportProvider } from "./admin/context";
 import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
 import { TitleBarStrip } from "./components/TitleBarStrip";
@@ -18,6 +18,13 @@ interface SetupStatus {
   has_root_user: boolean;
   config_path: string | null;
   data_dir: string | null;
+}
+
+interface BuildInfo {
+  version: string;
+  git_sha: string;
+  target_os: string;
+  debug: boolean;
 }
 
 // context to share setup state across components
@@ -38,6 +45,7 @@ function App(props: ParentProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [p2pStatus, setP2pStatus] = createSignal<P2pStatus | null>(null);
+  const [buildInfo, setBuildInfo] = createSignal<BuildInfo | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
 
@@ -95,6 +103,17 @@ function App(props: ParentProps) {
     // poll P2P status
     updateP2pStatus();
     setInterval(updateP2pStatus, 3000);
+  });
+
+  // rust binary's baked-in git sha; compared against the ui bundle's own sha
+  // so a stale dist/ (or stale binary) is visible instead of looking like a
+  // missing feature.
+  onMount(async () => {
+    try {
+      setBuildInfo(await invoke<BuildInfo>("get_build_info"));
+    } catch (e) {
+      console.error("failed to get build info:", e);
+    }
   });
 
   async function updateP2pStatus() {
@@ -202,6 +221,24 @@ function App(props: ParentProps) {
                   </Show>
 
                   <p class="version">version {VERSION}</p>
+                  <p
+                    class="version build-sha"
+                    title={`ui bundle: ${UI_GIT_SHA}\napp binary: ${
+                      buildInfo()?.git_sha ?? "?"
+                    }${buildInfo() ? ` (${buildInfo()!.target_os}, ${buildInfo()!.debug ? "debug" : "release"})` : ""}`}
+                  >
+                    ui {UI_GIT_SHA}
+                    <Show when={buildInfo()}>
+                      {" · "}
+                      <span
+                        style={{
+                          color: buildInfo()!.git_sha === UI_GIT_SHA ? undefined : "#ff9f1c",
+                        }}
+                      >
+                        app {buildInfo()!.git_sha}
+                      </span>
+                    </Show>
+                  </p>
                 </div>
               </nav>
 

@@ -17,16 +17,18 @@ import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
 const STRIP_HEIGHT_PX = 38;
 // width of the pl-[10px] + 3 buttons (12px) + 2 gaps (8px) traffic-light cluster below.
 const TRAFFIC_LIGHTS_WIDTH_PX = 68;
+/** pointer movement (px) before a press on the strip becomes a window drag. */
+const DRAG_THRESHOLD_PX = 4;
 
 /**
- * chromeless macOS title-bar strip: a transparent, full-width
+ * chromeless title-bar strip (macOS + linux): a transparent, full-width
  * `data-tauri-drag-region` band at the top of the window with custom
  * traffic-light (close/minimize/maximize) buttons, replacing the native
  * title bar.
  *
  * self-contained: checks `getChromelessTitleBar()` on mount and renders
  * nothing (a no-op) unless this window is actually running chromeless
- * (macOS + tauri + `chromeless_title_bar` config enabled - see
+ * (macOS/linux + tauri + `chromeless_title_bar` config enabled - see
  * charnel-config.toml / lib.rs / wizard.rs). safe to drop into any
  * top-level layout (spume's App.tsx, charnel's wizard App.tsx) unconditionally.
  *
@@ -102,15 +104,46 @@ export function TitleBarStrip() {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onMouseDown={(e) => {
-          // explicit fallback: don't rely solely on tauri's passive
-          // data-tauri-drag-region mousedown listener - call startDragging
-          // directly (skipping real buttons) so failures are visible in
-          // the console instead of silently doing nothing.
+          // deliberately do NOT start dragging on mousedown. on macOS
+          // startDragging() -> performWindowDragWithEvent: enters an AppKit
+          // modal drag loop that swallows the matching mouseup, so the
+          // webview never counts a second click: e.detail stays 1 and no
+          // dblclick event is ever generated. waiting for real pointer
+          // movement keeps a stationary click a normal click, which is what
+          // lets double-click-to-maximize fire at all.
+          //
+          // stopPropagation keeps tauri's own document-level drag.js
+          // listener (which drags immediately on mousedown) from
+          // reintroducing the same problem - drag and double-click are both
+          // handled here instead.
           if (e.button !== 0 || (e.target as HTMLElement).closest("button")) {
             return;
           }
           e.stopPropagation();
-          void startDraggingWindow();
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const cleanup = () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", cleanup);
+          };
+          const onMove = (move: MouseEvent) => {
+            if (
+              Math.abs(move.clientX - startX) < DRAG_THRESHOLD_PX &&
+              Math.abs(move.clientY - startY) < DRAG_THRESHOLD_PX
+            ) {
+              return;
+            }
+            cleanup();
+            void startDraggingWindow();
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", cleanup);
+        }}
+        onDblClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) {
+            return;
+          }
+          void toggleMaximizeWindow();
         }}
       >
         <div class="flex items-center h-full pl-[10px]">

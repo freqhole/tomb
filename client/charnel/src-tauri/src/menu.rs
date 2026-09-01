@@ -274,12 +274,22 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
                 #[cfg(not(debug_assertions))]
                 let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
 
+                let build_script = format!(
+                    "window.__FREQHOLE_BUILD__ = {{ version: {version}, gitSha: {sha}, debug: {debug} }};",
+                    version = serde_json::to_string(crate::app_config::get_binary_version())
+                        .unwrap_or_else(|_| "\"?\"".into()),
+                    sha = serde_json::to_string(env!("FREQHOLE_GIT_SHA"))
+                        .unwrap_or_else(|_| "\"?\"".into()),
+                    debug = cfg!(debug_assertions),
+                );
+
                 let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
                     .title("about freqhole")
                     .inner_size(280.0, 320.0)
                     .resizable(false)
                     .center()
                     .theme(Some(tauri::Theme::Dark))
+                    .initialization_script(&build_script)
                     .build();
             }
         }

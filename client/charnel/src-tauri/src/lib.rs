@@ -556,6 +556,14 @@ pub fn run() {
                 } else {
                     wizard_builder.title_bar_style(TitleBarStyle::Transparent)
                 };
+                // linux has no TitleBarStyle equivalent - leave native
+                // decorations alone when the toggle is off.
+                #[cfg(target_os = "linux")]
+                let wizard_builder = if app_config.chromeless_title_bar {
+                    wizard_builder.decorations(false)
+                } else {
+                    wizard_builder
+                };
 
                 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
                 let wizard = wizard_builder.build()?;
@@ -714,6 +722,14 @@ pub fn run() {
                 } else {
                     win_builder.title_bar_style(TitleBarStyle::Transparent)
                 };
+                // linux has no TitleBarStyle equivalent - leave native
+                // decorations alone when the toggle is off.
+                #[cfg(target_os = "linux")]
+                let win_builder = if app_config.chromeless_title_bar {
+                    win_builder.decorations(false)
+                } else {
+                    win_builder
+                };
 
                 let window = win_builder.build()?;
                 tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: main window built (native window visible from here)");
@@ -809,6 +825,7 @@ pub fn run() {
             commands::resolve_path,
             commands::get_os_username,
             commands::get_app_version,
+            commands::get_build_info,
             commands::take_pending_deep_links,
             commands::get_config_path,
             commands::get_data_dir,
@@ -838,7 +855,7 @@ pub fn run() {
             commands::set_sync_queue_to_local,
             commands::get_chromeless_title_bar,
             commands::set_chromeless_title_bar,
-            commands::is_macos_platform,
+            commands::supports_chromeless_title_bar,
             commands::get_rodio_playback,
             commands::set_rodio_playback,
             external_storage::commands::external_storage_command,
