@@ -13,9 +13,9 @@ import { extractNodeIdStrict } from "../../../app/services/remotes/peerAddr";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { writeAudioToOPFS } from "../opfs/helpers";
-import { evictCachedBlob } from "../cache/blobCache";
 import { getOrCreateAlbum, getOrCreateArtist, initMusicDB } from "../storage/db";
 import { updateAlbum } from "../storage/db/albums";
+import { updateArtist } from "../storage/db/artists";
 import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
 import { addAlbumTag, getAlbumTags } from "../storage/db/albumTags";
@@ -24,12 +24,14 @@ import { storeBlob } from "../storage/blobs";
 import {
   markSongSynced,
   canStartDownload,
-  isDownloadInProgress,
+  getInProgressDownload,
   registerDownload,
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import { inlineImagesForSync, type InlinableImage, type InlineImageCache } from "./syncImages";
+import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
+import { imagesAreStale } from "../../../utils/images";
 
 function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[] {
   return (images ?? []).map((img) => ({
@@ -288,8 +290,10 @@ export async function downloadAndStoreImages(
         continue;
       }
 
-      // fetch via transport (handles P2P vs HTTP)
-      const blobUrl = await transport.getBlobUrl(img.remote_blob_id);
+      // fetch via transport (handles P2P vs HTTP). `cache: "skip"` — these
+      // bytes are about to be stored as a local blob, so caching them too
+      // would keep a second copy.
+      const blobUrl = await transport.getBlobUrl(img.remote_blob_id, undefined, { cache: "skip" });
       const response = await fetch(blobUrl);
 
       if (!response.ok) {
@@ -424,18 +428,7 @@ export async function syncSongToLocal(
 ): Promise<SyncResult> {
   const { sha256, media_blob_id, remote_server_id } = song;
 
-  // TEMP DEBUG - remove once sync-to-local wiring bug is found
-  console.log(`[debug/syncSongToLocal] called with:`, {
-    sha256,
-    media_blob_id,
-    remote_server_id,
-    blake3: song.blake3,
-    title: song.title,
-  });
-
   if (!sha256) {
-    // TEMP DEBUG - remove once sync-to-local wiring bug is found
-    console.log(`[debug/syncSongToLocal] bailing: song missing sha256 (title=${song.title})`);
     return { success: false, error: "song missing sha256" };
   }
 
@@ -450,9 +443,16 @@ export async function syncSongToLocal(
   // check unified download state BEFORE any async work
   // this prevents duplicate downloads when multiple triggers fire
   if (!canStartDownload(sha256)) {
-    if (isDownloadInProgress(sha256)) {
-      debug("syncSongToLocal", `skipping ${sha256.slice(0, 8)}... (download in progress)`);
-      return { success: true, localSongId: sha256, skipped: true };
+    const inFlight = getInProgressDownload(sha256);
+    if (inFlight) {
+      // await rather than returning immediately: callers now include the play
+      // path, which needs the library copy to actually exist before it can
+      // build a url from it.
+      debug("syncSongToLocal", `awaiting in-flight sync for ${sha256.slice(0, 8)}...`);
+      await inFlight;
+      if (!isCharnelMode()) {
+        return { success: true, localSongId: sha256, skipped: true };
+      }
     }
     // song is already marked as synced locally. in browser mode the caller
     // uses sha256 as the IDB key so no path lookup is needed. in charnel
@@ -521,16 +521,24 @@ export async function syncSongToLocal(
       const mimeType = blobMetadata.mime || "audio/mpeg";
       const extension = getExtensionFromMimeType(mimeType);
 
-      // fetch audio blob via transport (handles P2P vs HTTP)
+      // fetch audio blob via transport (handles P2P vs HTTP).
+      // `cache: "skip"` because these bytes are about to be written to OPFS —
+      // without it the transport also stores them in the api cache and the
+      // song ends up in two places.
       let blobUrl: string;
       if (onProgress && transport.getBlobUrlWithProgress) {
         blobUrl = await transport.getBlobUrlWithProgress(
           media_blob_id,
           onProgress,
-          song.blake3 ?? undefined
+          song.blake3 ?? undefined,
+          undefined,
+          undefined,
+          { cache: "skip" }
         );
       } else {
-        blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined);
+        blobUrl = await transport.getBlobUrl(media_blob_id, song.blake3 ?? undefined, {
+          cache: "skip",
+        });
       }
 
       // fetch the blob data
@@ -579,13 +587,26 @@ export async function syncSongToLocal(
         }
       }
 
-      // download and store images
+      // download and store images. the staleness check matters: this runs on
+      // every episode/track sync, and re-fetching unchanged album art each
+      // time is pure waste. an existing local copy is not a reason to stop
+      // syncing though - the remote may have replaced its artwork.
       const songImages = await downloadAndStoreImages(remote, song.images);
-      const albumImages = await downloadAndStoreImages(remote, song.album_images);
 
-      // update album images if we got new ones and album doesn't have any
-      if (albumImages.length > 0 && !albumRecord.images?.length) {
-        await updateAlbum(albumId, { images: albumImages });
+      const albumRemoteIds = (song.album_images ?? []).map((i) => i.remote_blob_id);
+      if (albumRemoteIds.length && imagesAreStale(albumRecord.images, albumRemoteIds)) {
+        const albumImages = await downloadAndStoreImages(remote, song.album_images);
+        if (albumImages.length > 0) {
+          await updateAlbum(albumId, { images: albumImages });
+        }
+      }
+
+      const artistRemoteIds = (song.artist_images ?? []).map((i) => i.remote_blob_id);
+      if (artistRemoteIds.length && imagesAreStale(artistRecord.images, artistRemoteIds)) {
+        const artistImages = await downloadAndStoreImages(remote, song.artist_images);
+        if (artistImages.length > 0) {
+          await updateArtist(artistId, { images: artistImages });
+        }
       }
 
       // sync album taxons (genre kind plus pass-through of others).
@@ -645,12 +666,10 @@ export async function syncSongToLocal(
       // mark as synced in reactive store for UI updates
       markSongSynced(sha256);
 
-      // the library copy is now authoritative - drop any api-cache copy left
-      // over from streaming this song before the sync finished, so a synced
-      // song is never stored twice (see the sync-to-local storage rule).
-      if (song.remote_server_id && song.media_blob_id) {
-        void evictCachedBlob(song.remote_server_id, song.media_blob_id);
-      }
+      // invalidate here rather than at a call site: the play path and the
+      // rolling window both sync, and whichever loses the race returns
+      // `skipped`, so a caller-side invalidation can be missed entirely.
+      invalidateMusicLibraryQueries();
 
       debug("syncSongToLocal", `synced song ${song.title} to local storage`);
       return { success: true, localSongId: sha256 };

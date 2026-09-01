@@ -1,6 +1,16 @@
 // local read/write helpers for video seasons
 import { getVideoDB, STORE_VIDEO_SEASONS } from "./init";
+import { singleFlight } from "../../../../utils/singleFlight";
 import type { VideoSeason } from "../../../data/types";
+import type { ImageMetadata } from "../../../../music/services/storage/types";
+
+// local-only extension of the generated VideoSeason type - mirrors
+// LocalVideoSeriesRow. the server schema has only `poster_blob_id` (a
+// remote blob id); locally we keep downloaded artwork the same way every
+// other entity does, as ImageMetadata with a local_blob_id.
+export interface LocalVideoSeasonRow extends VideoSeason {
+  images?: ImageMetadata[];
+}
 
 export async function getLocalVideoSeasons(seriesId: string): Promise<VideoSeason[]> {
   const db = await getVideoDB();
@@ -58,9 +68,11 @@ export async function getOrCreateLocalVideoSeason(input: {
   title?: string | null;
   description?: string | null;
 }): Promise<VideoSeason> {
-  const existing = await findLocalVideoSeasonByNumber(input.series_id, input.season_number);
-  if (existing) return existing;
-  return createLocalVideoSeason(input);
+  return singleFlight(`video-season:${input.series_id}:${input.season_number}`, async () => {
+    const existing = await findLocalVideoSeasonByNumber(input.series_id, input.season_number);
+    if (existing) return existing;
+    return createLocalVideoSeason(input);
+  });
 }
 
 /** hard-delete a season row from local storage - caller is responsible
@@ -79,6 +91,7 @@ export async function updateLocalVideoSeason(
     title?: string | null;
     description?: string | null;
     poster_blob_id?: string | null;
+    images?: ImageMetadata[];
   }
 ): Promise<void> {
   const db = await getVideoDB();

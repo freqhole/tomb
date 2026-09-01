@@ -1,5 +1,6 @@
 // album CRUD operations
 import { initMusicDB } from "./init";
+import { singleFlight } from "../../../../utils/singleFlight";
 import type { Album } from "../types";
 import { STORE_ALBUMS, STORE_SONGS } from "../types";
 
@@ -15,7 +16,7 @@ export async function getAlbumById(albumId: string): Promise<Album | undefined> 
 
 export async function findAlbumByArtistAndTitle(
   artistId: string | null,
-  title: string,
+  title: string
 ): Promise<Album | undefined> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_ALBUMS).store.index("by_artist_title");
@@ -26,33 +27,32 @@ export async function findAlbumByArtistAndTitle(
 export async function getOrCreateAlbum(
   title: string,
   artistId: string | null,
-  albumType: string = "album",
+  albumType: string = "album"
 ): Promise<Album> {
-  const existing = await findAlbumByArtistAndTitle(artistId, title);
-  if (existing) return existing;
+  return singleFlight(`album:${artistId ?? "none"}:${title}`, async () => {
+    const existing = await findAlbumByArtistAndTitle(artistId, title);
+    if (existing) return existing;
 
-  const album: Album = {
-    album_id: crypto.randomUUID(),
-    title,
-    artist_id: artistId,
-    album_type: albumType,
-    release_date: null,
-    release_date_precision: null,
-    label: null,
-    genre_id: null,
-    year: null,
-    created_at: Date.now(),
-    updated_at: Date.now(),
-  };
+    const album: Album = {
+      album_id: crypto.randomUUID(),
+      title,
+      artist_id: artistId,
+      album_type: albumType,
+      release_date: null,
+      release_date_precision: null,
+      label: null,
+      genre_id: null,
+      year: null,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
 
-  await createAlbum(album);
-  return album;
+    await createAlbum(album);
+    return album;
+  });
 }
 
-export async function updateAlbum(
-  albumId: string,
-  updates: Partial<Album>,
-): Promise<void> {
+export async function updateAlbum(albumId: string, updates: Partial<Album>): Promise<void> {
   const db = await initMusicDB();
   const existing = await db.get(STORE_ALBUMS, albumId);
   if (!existing) {

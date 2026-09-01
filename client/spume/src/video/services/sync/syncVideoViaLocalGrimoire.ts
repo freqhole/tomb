@@ -22,6 +22,9 @@ export interface VideoSyncResult {
   success: boolean;
   error?: string;
   videoId?: string;
+  /** absolute fs path grimoire wrote the video to, so callers can build a
+   * playable url without re-resolving it. */
+  localPath?: string;
   /** true if the destination already had this video */
   skipped?: boolean;
 }
@@ -195,6 +198,7 @@ export async function syncVideoViaLocalGrimoire(
     return {
       success: true,
       videoId: data?.video_id,
+      localPath: data?.file_path,
       skipped: data?.existing ?? false,
     };
   } catch (e) {

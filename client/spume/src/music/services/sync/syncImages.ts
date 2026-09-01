@@ -80,7 +80,9 @@ export async function inlineImagesForSync(
     let entry = cache.get(blobId);
     if (!entry) {
       try {
-        const blob = await sourceTransport.fetchBlob(blobId);
+        // the bytes are inlined into the sync payload for the destination to
+        // store, so there is no reason to also leave them in the api cache.
+        const blob = await sourceTransport.fetchBlob(blobId, undefined, { cache: "skip" });
         const bytes = new Uint8Array(blob.data.byteLength);
         bytes.set(blob.data);
         const sha256 = await sha256Hex(bytes);

@@ -1,5 +1,6 @@
 // artist CRUD operations
 import { initMusicDB } from "./init";
+import { singleFlight } from "../../../../utils/singleFlight";
 import type { Artist } from "../types";
 import { STORE_ARTISTS, STORE_SONGS } from "../types";
 
@@ -20,24 +21,23 @@ export async function findArtistByName(name: string): Promise<Artist | undefined
 }
 
 export async function getOrCreateArtist(name: string): Promise<Artist> {
-  const existing = await findArtistByName(name);
-  if (existing) return existing;
+  return singleFlight(`artist:${name}`, async () => {
+    const existing = await findArtistByName(name);
+    if (existing) return existing;
 
-  const artist: Artist = {
-    artist_id: crypto.randomUUID(),
-    name,
-    created_at: Date.now(),
-    updated_at: Date.now(),
-  };
+    const artist: Artist = {
+      artist_id: crypto.randomUUID(),
+      name,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
 
-  await createArtist(artist);
-  return artist;
+    await createArtist(artist);
+    return artist;
+  });
 }
 
-export async function updateArtist(
-  artistId: string,
-  updates: Partial<Artist>,
-): Promise<void> {
+export async function updateArtist(artistId: string, updates: Partial<Artist>): Promise<void> {
   const db = await initMusicDB();
   const existing = await db.get(STORE_ARTISTS, artistId);
   if (!existing) {

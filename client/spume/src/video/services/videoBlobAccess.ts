@@ -17,7 +17,9 @@ import { getClientForRemote } from "../../app/api/client";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { readVideoFromOPFS } from "./opfs/helpers";
-import { getLocalVideoById } from "./storage/db/videos";
+import { resolveLocalVideoUrl } from "./localVideo";
+import { canSyncVideo, syncVideoToLocal } from "./sync/syncVideoToLocal";
+import { getSyncQueueToLocal } from "../../app/services/storage/db";
 import { isVideoSyncedLocally } from "./syncState";
 import { warn } from "../../utils/logger";
 
@@ -68,11 +70,23 @@ export async function getVideoURL(
   // so the common "never synced" case skips straight to the remote path
   // below instead of paying for an IDB read on every single play.
   if (isVideoSyncedLocally(video.id)) {
-    const localCopy = await getLocalVideoById(video.id);
-    if (localCopy?.opfs_path) {
-      const file = await readVideoFromOPFS(localCopy.opfs_path);
-      return URL.createObjectURL(file);
+    const localUrl = await resolveLocalVideoUrl(video.id);
+    if (localUrl) return localUrl;
+  }
+
+  // sync-to-local on: the bytes belong in the library, not the api cache.
+  // download once, write to the library, then play from there. falls through
+  // to streaming if the sync fails so playback never hard-fails on it.
+  if (getSyncQueueToLocal() && canSyncVideo(video)) {
+    const result = await syncVideoToLocal(video);
+    if (result.success) {
+      const localUrl = await resolveLocalVideoUrl(video.id, result.localPath);
+      if (localUrl) return localUrl;
     }
+    warn(
+      "videoBlobAccess",
+      `sync-to-local failed for video ${video.id} (${result.error ?? "no local copy"}), streaming instead`
+    );
   }
 
   if (!video.media_blob_id) {

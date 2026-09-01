@@ -5,6 +5,7 @@ import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { Song } from "../../../music/services/storage/types";
 import { withQueueEntryId, type MediaItem } from "./mediaItem";
+import { notifyQueueDepartures } from "../media/queueDeparture";
 import {
   APP_DB_NAME,
   APP_DB_VERSION,
@@ -230,10 +231,11 @@ async function setCurrentSong(songId: string | null): Promise<void> {
 
 // update queue
 async function setQueue(items: MediaItem[]): Promise<void> {
-  console.info(
-    `[appState] setQueue: writing len=${items.length}`,
-    new Error("setQueue stack").stack?.split("\n").slice(2, 6).join(" | ")
-  );
+  // every queue mutation funnels through here, so diffing old against new is
+  // the only exhaustive way to catch items leaving - callers replacing the
+  // queue wholesale used to drop their bytes silently.
+  const previous = appState()?.queue ?? [];
+
   // unwrap proxy objects before storing in IndexedDB; assign a
   // queue_entry_id to items that don't have one yet (progress tracking).
   const plainItems = items.map((item) => {
@@ -257,6 +259,7 @@ async function setQueue(items: MediaItem[]): Promise<void> {
 
   await updateAppState({ queue: plainItems });
   clearInProgressTracking();
+  notifyQueueDepartures(previous, plainItems);
 }
 
 // update a specific song in the queue (for metadata changes like favorites, ratings)

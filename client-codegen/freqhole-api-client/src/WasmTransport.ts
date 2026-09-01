@@ -3,7 +3,7 @@
 // uses midden's MiddenNode to make API requests to peer nodes.
 // blobs are cached in Cache API for audio playback.
 
-import type { BlobData, Transport, TransportResponse } from "./transport.js";
+import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
 import { snapshotJobEventsViaRequest } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
 import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
@@ -485,7 +485,28 @@ export class WasmTransport implements Transport {
     return this.request("POST", path, JSON.stringify(body));
   }
 
-  async fetchBlob(blobId: string, blake3?: string): Promise<BlobData> {
+  /** write fetched bytes into the Cache API, unless the caller opted out.
+   * centralized so every fallback-chain step in `fetchBlob` shares one
+   * definition of the cache policy. */
+  private async storeInCache(
+    cache: Cache,
+    blobId: string,
+    data: Uint8Array,
+    contentType: string,
+    opts?: BlobFetchOptions,
+  ): Promise<void> {
+    if (opts?.cache === "skip") return;
+    const arrayBuffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    ) as ArrayBuffer;
+    const response = new Response(arrayBuffer, {
+      headers: { "Content-Type": contentType },
+    });
+    await cache.put(cacheKey(blobId), response);
+  }
+
+  async fetchBlob(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
     const cached = await cache.match(cacheKey(blobId));
@@ -498,7 +519,7 @@ export class WasmTransport implements Transport {
 
     // per-step failure breakdown, attached to the final thrown error so a
     // bug report/log has the full fallback-chain picture, not just the
-    // last step's message (see docs/error-handling-tasks.md track P0-E).
+    // last step's message.
     const attempts: Array<{ step: string; reason: string }> = [];
 
     // if blake3 is provided, try iroh-blobs verified download
@@ -512,15 +533,7 @@ export class WasmTransport implements Transport {
           const data = await downloadFn.call(this.node, this.peerAddr, blake3);
           const contentType = "audio/mpeg"; // iroh-blobs doesn't track content type, assume audio
 
-          // cache for future use
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
@@ -547,15 +560,7 @@ export class WasmTransport implements Transport {
           const data = base64ToBytes(parsed.data.data);
           const contentType = parsed.data.mime || "application/octet-stream";
 
-          // cache for future use with correct content type
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         }
@@ -580,15 +585,7 @@ export class WasmTransport implements Transport {
         // result[1] is the computed blake3 hash
         const contentType = "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
@@ -608,15 +605,7 @@ export class WasmTransport implements Transport {
         const data = result.data();
         const contentType = result.content_type() ?? "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
@@ -654,6 +643,7 @@ export class WasmTransport implements Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<BlobData> {
     // check Cache API first
     const cache = await caches.open(this.cacheName);
@@ -725,15 +715,7 @@ export class WasmTransport implements Transport {
           }
           chunks.length = 0; // free per-chunk refs early
 
-          // cache for future use
-          const cacheArrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(cacheArrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
@@ -756,15 +738,7 @@ export class WasmTransport implements Transport {
           // report 100% progress
           onProgress(data.length, data.length);
 
-          // cache for future use
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         } catch (e) {
@@ -789,14 +763,7 @@ export class WasmTransport implements Transport {
 
         onProgress(data.length, data.length);
 
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
@@ -826,15 +793,7 @@ export class WasmTransport implements Transport {
           // report 100% progress
           onProgress(data.length, data.length);
 
-          // cache for future use with correct content type
-          const arrayBuffer = data.buffer.slice(
-            data.byteOffset,
-            data.byteOffset + data.byteLength,
-          ) as ArrayBuffer;
-          const response = new Response(arrayBuffer, {
-            headers: { "Content-Type": contentType },
-          });
-          await cache.put(cacheKey(blobId), response);
+          await this.storeInCache(cache, blobId, data, contentType, opts);
 
           return { data, contentType };
         }
@@ -865,14 +824,7 @@ export class WasmTransport implements Transport {
 
         onProgress(data.length, data.length);
 
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
@@ -895,15 +847,7 @@ export class WasmTransport implements Transport {
         const data = result.data();
         const contentType = result.content_type() ?? "application/octet-stream";
 
-        // cache for future use
-        const arrayBuffer = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
-        const response = new Response(arrayBuffer, {
-          headers: { "Content-Type": contentType },
-        });
-        await cache.put(cacheKey(blobId), response);
+        await this.storeInCache(cache, blobId, data, contentType, opts);
 
         return { data, contentType };
       } catch (e) {
@@ -923,7 +867,7 @@ export class WasmTransport implements Transport {
     );
   }
 
-  async getBlobUrl(blobId: string, blake3?: string): Promise<string> {
+  async getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
     if (cached) {
@@ -931,7 +875,7 @@ export class WasmTransport implements Transport {
     }
 
     // fetch and create object URL (pass blake3 for verified download)
-    const { data, contentType } = await this.fetchBlob(blobId, blake3);
+    const { data, contentType } = await this.fetchBlob(blobId, blake3, opts);
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,
       data.byteOffset + data.byteLength,
@@ -958,6 +902,7 @@ export class WasmTransport implements Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<string> {
     // check in-memory cache first
     const cached = this.blobUrlCache.get(blobId);
@@ -974,6 +919,7 @@ export class WasmTransport implements Transport {
       blake3,
       totalBytes,
       mimeType,
+      opts,
     );
     const arrayBuffer = data.buffer.slice(
       data.byteOffset,

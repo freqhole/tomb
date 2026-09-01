@@ -40,20 +40,33 @@ export async function addLocalVideo(input: {
    * blake3-keyed queries (cenotaph tier-2), see LocalVideoRow's field
    * comment for who's expected to supply this. */
   blake3?: string | null;
+  /** local series/season rows, when syncing an episode in from a remote.
+   * these are *local* ids - the caller resolves the source's series/season
+   * to local rows first (grimoire matches on title + number, not source id). */
+  series_id?: string | null;
+  season_id?: string | null;
+  episode_number?: number | null;
+  content_type?: LocalVideoRow["content_type"];
+  description?: string | null;
+  /** artwork downloaded into local blobs during sync. */
+  images?: ImageMetadata[];
+  /** local blob id of the primary image - grid tiles read this directly
+   * rather than the images gallery. */
+  poster_blob_id?: string | null;
 }): Promise<LocalVideoRow> {
   const now = Date.now();
   const row: LocalVideoRow = {
     id: input.id,
-    series_id: null,
-    season_id: null,
-    episode_number: null,
-    content_type: "clip",
+    series_id: input.series_id ?? null,
+    season_id: input.season_id ?? null,
+    episode_number: input.episode_number ?? null,
+    content_type: input.content_type ?? "clip",
     title: input.title,
-    description: null,
+    description: input.description ?? null,
     // no server blob for a local/opfs-backed video; "" (not null) keeps
     // this field's type identical to QueuedVideo's required `string`.
     media_blob_id: "",
-    poster_blob_id: null,
+    poster_blob_id: input.poster_blob_id ?? null,
     duration_seconds: input.duration_seconds ?? null,
     release_date: null,
     created_at: now,
@@ -70,6 +83,7 @@ export async function addLocalVideo(input: {
     file_size: input.file_size,
     mime_type: input.mime_type,
     blake3: input.blake3 ?? null,
+    images: input.images?.length ? input.images : undefined,
   };
 
   const db = await getVideoDB();

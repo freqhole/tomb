@@ -449,7 +449,11 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
   const seasonLabel = (season: VideoSeason) => season.title || `season ${season.season_number}`;
 
   return (
-    <div class={`flex flex-col h-full ${props.class || ""}`}>
+    // @container: the layout switch below is driven by *this panel's* width,
+    // not the viewport's - opening the queue sidebar leaves the viewport wide
+    // while squeezing the panel, which used to keep the cramped two-column
+    // layout on screen.
+    <div class={`@container flex flex-col h-full ${props.class || ""}`}>
       {/* sticky header with back button for mobile - only meaningful once
           data has loaded (mirrors ArtistDetailPanel's back-button header) */}
       <Show when={props.showBackButton && detailQuery.data}>
@@ -461,7 +465,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
             sticky
             showBackButton={props.showBackButton}
             onBack={props.onBack}
-            class="px-4 py-3 wide:hidden"
+            class="px-4 py-3 @[900px]:hidden"
           />
         )}
       </Show>
@@ -499,9 +503,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
             >
               {(data) => (
                 <>
-                  {/* MOBILE: poster on top, info centered below (mirrors
+                  {/* NARROW: poster on top, info centered below (mirrors
                       ArtistDetailPanel's mobile layout) */}
-                  <div class="wide:hidden flex flex-col items-center gap-3 p-4">
+                  <div class="@[900px]:hidden flex flex-col items-center gap-3 p-4">
                     <ContextMenu actions={seriesContextMenuActions()}>
                       <div
                         class={`w-48 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
@@ -606,11 +610,13 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                     </div>
                   </div>
 
-                  {/* DESKTOP: poster + title + description, side by side */}
-                  <div class="hidden wide:flex gap-6 p-6">
+                  {/* WIDE: poster + title + description, side by side. the
+                      poster steps down between 900-1100px so the description
+                      keeps a readable column instead of being squeezed. */}
+                  <div class="hidden @[900px]:flex gap-6 p-6">
                     <ContextMenu actions={seriesContextMenuActions()}>
                       <div
-                        class={`w-96 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
+                        class={`w-72 @[1100px]:w-96 aspect-video rounded-lg flex-shrink-0 overflow-hidden cursor-pointer ${
                           data().series.poster_blob_id ? "" : "bg-[var(--color-bg-elevated)]"
                         }`}
                         title="view series images"
@@ -714,15 +720,23 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                   <div class="px-4 wide:px-6 pb-4 space-y-4">
                     <For each={seasons()}>
                       {(season) => {
-                        const isExpanded = () => expandedSeasonIds().has(season.id);
+                        // a lone season has nothing to collapse away from, so
+                        // it stays open and loses its toggle affordance.
+                        const collapsible = () => seasons().length > 1;
+                        const isExpanded = () =>
+                          !collapsible() || expandedSeasonIds().has(season.id);
                         const isPending = (action: "play" | "queue" | "shuffle") =>
                           seasonActionPending()?.seasonId === season.id &&
                           seasonActionPending()?.action === action;
                         return (
                           <div>
                             <div
-                              onClick={() => toggleSeason(season.id)}
-                              class="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-[var(--color-bg-elevated)] transition-colors text-left cursor-pointer"
+                              onClick={() => collapsible() && toggleSeason(season.id)}
+                              class={`w-full flex items-center gap-3 px-2 py-2 rounded transition-colors text-left ${
+                                collapsible()
+                                  ? "hover:bg-[var(--color-bg-elevated)] cursor-pointer"
+                                  : ""
+                              }`}
                             >
                               <Show when={season.poster_blob_id}>
                                 <div
@@ -786,10 +800,12 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                   <Icon name={IconNames.shuffle} size={14} />
                                 </button>
                               </Show>
-                              <Icon
-                                name={isExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
-                                className="text-[var(--color-text-secondary)] flex-shrink-0"
-                              />
+                              <Show when={collapsible()}>
+                                <Icon
+                                  name={isExpanded() ? IconNames.chevronUp : IconNames.chevronDown}
+                                  className="text-[var(--color-text-secondary)] flex-shrink-0"
+                                />
+                              </Show>
                             </div>
                             <Show when={isExpanded()}>
                               <Show when={season.description}>

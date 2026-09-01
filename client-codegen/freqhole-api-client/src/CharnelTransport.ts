@@ -3,7 +3,7 @@
 // uses Tauri IPC commands to make P2P requests via the server's
 // app iroh endpoint. no WASM needed.
 
-import type { BlobData, Transport, TransportResponse } from "./transport.js";
+import type { BlobData, BlobFetchOptions, Transport, TransportResponse } from "./transport.js";
 import type { BlobProgressCallback } from "./WasmTransport.js";
 import { isTauriRuntime } from "./tauriRuntime.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
@@ -609,10 +609,10 @@ export class CharnelTransport implements Transport {
   }
 
   /**
-   * get a URL for a blob - caches in Cache API
+   * get a URL for a blob - caches in Cache API unless `opts.cache === "skip"`
    * if blake3 provided, uses verified iroh-blobs download
    */
-  async getBlobUrl(blobId: string, blake3?: string): Promise<string> {
+  async getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<string> {
     // check in-memory cache first
     const cached = urlCache.get(blobId);
     if (cached) {
@@ -636,11 +636,13 @@ export class CharnelTransport implements Transport {
       type: blobData.contentType,
     });
 
-    // store in Cache API (HTTP URL key for webkitgtk compatibility)
-    const response = new Response(blob, {
-      headers: { "Content-Type": blobData.contentType },
-    });
-    await cache.put(cacheKey(blobId), response);
+    if (opts?.cache !== "skip") {
+      // store in Cache API (HTTP URL key for webkitgtk compatibility)
+      const response = new Response(blob, {
+        headers: { "Content-Type": blobData.contentType },
+      });
+      await cache.put(cacheKey(blobId), response);
+    }
 
     // create object URL
     const url = URL.createObjectURL(blob);
@@ -659,6 +661,7 @@ export class CharnelTransport implements Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<string> {
     const cached = urlCache.get(blobId);
     if (cached) {
@@ -687,10 +690,12 @@ export class CharnelTransport implements Transport {
       type: blobData.contentType,
     });
 
-    const response = new Response(blob, {
-      headers: { "Content-Type": blobData.contentType },
-    });
-    await cache.put(cacheKey(blobId), response);
+    if (opts?.cache !== "skip") {
+      const response = new Response(blob, {
+        headers: { "Content-Type": blobData.contentType },
+      });
+      await cache.put(cacheKey(blobId), response);
+    }
 
     const url = URL.createObjectURL(blob);
     urlCache.set(blobId, url);

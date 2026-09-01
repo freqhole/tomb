@@ -8,7 +8,9 @@ import {
   isSongSyncedLocally,
 } from "../download";
 import { readAudioFromOPFS } from "../opfs/helpers";
-import { getSongBySha256 } from "./db/songs";
+import { resolveLocalAudioUrl } from "./localAudio";
+import { canSyncSong, syncSongToLocal } from "../sync/syncSongToLocal";
+import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import type { Song } from "./types";
 import { debug, warn, error as errorLog } from "../../../utils/logger";
 import { resolveBlobUrl, isP2PRemote, usesBlobResolver, revokeBlobUrl } from "./blobResolver";
@@ -90,27 +92,41 @@ export async function getAudioURL(song: Song): Promise<string> {
   if (song.source_type === "remote") {
     // a queue item is a snapshot taken when it was added, so a song that has
     // since been synced into the library still says "remote" here. re-read the
-    // library first, otherwise playback re-fetches over the network (and, with
-    // sync-to-local on, stores a second copy in the api cache) even though the
-    // file is already on disk.
+    // library first, otherwise playback re-fetches over the network even though
+    // the file is already on disk.
     if (isSongSyncedLocally(song.sha256)) {
-      const localSong = await getSongBySha256(song.sha256);
-      if (localSong?.opfs_path) {
-        try {
-          debug("audioAccess", `synced locally, reading from opfs: ${localSong.opfs_path}`);
-          const file = await readAudioFromOPFS(localSong.opfs_path);
-          const url = URL.createObjectURL(file);
-          activeBlobURLs.set(song.sha256, { url, remoteId: null, blobId: null });
-          return url;
-        } catch (error) {
-          // fall through to the remote path - a missing/corrupt local file
-          // should degrade to streaming, not fail playback outright
-          warn(
-            "audioAccess",
-            `opfs read failed for synced song ${song.sha256.slice(0, 8)}, falling back to remote:`,
-            error
-          );
+      const localUrl = await resolveLocalAudioUrl(song.sha256);
+      if (localUrl) {
+        debug("audioAccess", `playing synced copy from the local library`);
+        activeBlobURLs.set(song.sha256, { url: localUrl, remoteId: null, blobId: null });
+        return localUrl;
+      }
+    }
+
+    // sync-to-local on: the bytes belong in the library, not the api cache.
+    // download once, write to the library, then play from there. falls through
+    // to streaming if the sync fails so playback never hard-fails on it.
+    if (getSyncQueueToLocal() && canSyncSong(song)) {
+      addToLoadingSet(song.sha256);
+      updateLoadingProgress(song.sha256, null);
+      try {
+        const result = await syncSongToLocal(song, (received, total) => {
+          if (total > 0) updateLoadingProgress(song.sha256, received / total);
+        });
+        if (result.success) {
+          const localUrl = await resolveLocalAudioUrl(song.sha256, result.localPath);
+          if (localUrl) {
+            debug("audioAccess", `synced "${song.title}" to the library, playing from there`);
+            activeBlobURLs.set(song.sha256, { url: localUrl, remoteId: null, blobId: null });
+            return localUrl;
+          }
         }
+        warn(
+          "audioAccess",
+          `sync-to-local failed for ${song.sha256.slice(0, 8)} (${result.error ?? "no local copy"}), streaming instead`
+        );
+      } finally {
+        removeFromLoadingSet(song.sha256);
       }
     }
 

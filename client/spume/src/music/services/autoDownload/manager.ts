@@ -195,7 +195,7 @@ async function downloadVideo(video: QueuedVideo): Promise<void> {
   // it here too covers the OPFS-write tail end of the sync as "loading")
   addToLoadingSet(id);
 
-  const syncPromise = syncVideoToLocal(video);
+  const syncPromise = syncVideoToLocal(video).then(() => undefined);
   registerDownload(id, syncPromise);
 
   try {

@@ -23,6 +23,21 @@ export interface BlobData {
 }
 
 /**
+ * cache policy for a blob fetch.
+ *
+ * transports that back their blob fetches with the Cache API write every blob
+ * they fetch by default. callers that are about to store the bytes somewhere
+ * permanent instead (the sync-to-local path writing to OPFS / the grimoire
+ * library) must pass `cache: "skip"`, or the same audio ends up stored twice.
+ *
+ * "skip" suppresses the *write* only — an existing cache entry is still read,
+ * since the bytes are already there and are blake3-verified.
+ */
+export interface BlobFetchOptions {
+  cache?: "write" | "skip";
+}
+
+/**
  * transport interface - implemented by HttpTransport, AppTransport, WasmTransport
  */
 export interface Transport {
@@ -56,17 +71,19 @@ export interface Transport {
    * fetch a blob by ID
    * @param blobId - the blob ID to fetch
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param opts - optional cache policy
    * @returns blob data with content type
    */
-  fetchBlob(blobId: string, blake3?: string): Promise<BlobData>;
+  fetchBlob(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<BlobData>;
 
   /**
    * get a URL for a blob (for <audio>/<img> src)
    * HTTP transport returns direct URL, P2P transports may need caching
    * @param blobId - the blob ID to fetch
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
+   * @param opts - optional cache policy
    */
-  getBlobUrl(blobId: string, blake3?: string): string | Promise<string>;
+  getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): string | Promise<string>;
 
   /**
    * get a URL for a blob with progress callback (optional).
@@ -80,6 +97,7 @@ export interface Transport {
    * @param mimeType - optional content type for the assembled blob (e.g.
    *   the song's media_blob.mime). midden's streaming path doesn't surface
    *   the source mime, so callers should pass it when known.
+   * @param opts - optional cache policy
    */
   getBlobUrlWithProgress?(
     blobId: string,
@@ -87,6 +105,7 @@ export interface Transport {
     blake3?: string,
     totalBytes?: number,
     mimeType?: string,
+    opts?: BlobFetchOptions,
   ): Promise<string>;
 
   /**

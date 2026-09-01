@@ -902,11 +902,6 @@ export async function preCacheNextP2PSongs(
           "blobResolver",
           `first P2P song synced: ${firstEntry.sha256.slice(0, 8)}...${result.skipped ? " (already exists)" : ""}`
         );
-        // invalidate queries so local views can show the new song
-        if (!result.skipped) {
-          void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-        }
       } else {
         // sync failed - when sync mode is enabled, we don't fall back to Cache API
         // the song won't be pre-cached but will be fetched on-demand when played

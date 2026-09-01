@@ -1,5 +1,6 @@
 // local read/write helpers for video series
 import { getVideoDB, STORE_VIDEO_SERIES } from "./init";
+import { singleFlight } from "../../../../utils/singleFlight";
 import type { PaginatedVideoSeries, VideoSeries } from "../../../data/types";
 import type { ImageMetadata } from "../../../../music/services/storage/types";
 
@@ -42,9 +43,11 @@ export async function createLocalVideoSeries(input: {
 }
 
 export async function getOrCreateLocalVideoSeries(title: string): Promise<VideoSeries> {
-  const existing = await findLocalVideoSeriesByTitle(title);
-  if (existing) return existing;
-  return createLocalVideoSeries({ title });
+  return singleFlight(`video-series:${title}`, async () => {
+    const existing = await findLocalVideoSeriesByTitle(title);
+    if (existing) return existing;
+    return createLocalVideoSeries({ title });
+  });
 }
 
 export async function updateLocalVideoSeries(

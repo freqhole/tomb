@@ -14,8 +14,8 @@ import {
   toMediaItems,
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
-import { evictCachedBlob } from "../cache/blobCache";
-import { evictP2PBlob, preCacheNextP2PSongs, cancelP2PDownload } from "../storage/blobResolver";
+import { preCacheNextP2PSongs } from "../storage/blobResolver";
+import { initQueueDeparturePurge } from "./purgeDepartedMedia";
 import { preCacheNextVideos } from "../../../video/services/videoPreCache";
 import {
   clearPendingUpNext,
@@ -101,6 +101,8 @@ function triggerImmediatePreCache(
 // re-export queue limit helper
 export { getQueueSizeLimit } from "./queueLimit";
 
+initQueueDeparturePurge();
+
 // when radio takes over, wipe the music queue so a stray `ended`/`error`
 // from the previously-loaded song can't auto-advance into another music
 // track. this only touches queue state — radio is already orchestrating
@@ -108,7 +110,6 @@ export { getQueueSizeLimit } from "./queueLimit";
 // bump the in-flight tune attempt id and abort the tune that triggered
 // us).
 registerStopMusic(async () => {
-  const state = appState();
   stopTracking(true);
   // this handler wipes the shared queue/current_sha256 below, which
   // video items ride on too (queue.ts's anti-hijack wipe predates video
@@ -120,17 +121,6 @@ registerStopMusic(async () => {
   clearPendingUpNext();
   void stopServerSession("abandoned");
   await setCurrentSong(null);
-  if (state?.queue) {
-    for (const item of state.queue) {
-      if (item.kind !== "song") continue;
-      const song = item.song;
-      if (song.source_type === "remote" && song.remote_server_id) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
-    }
-  }
   await setQueue([]);
 });
 
@@ -703,23 +693,6 @@ export async function removeFromQueue(index: number): Promise<void> {
     clearPendingUpNext();
   }
 
-  // evict from cache if remote song is no longer anywhere in the queue
-  if (removedItem?.kind === "song" && removedItem.song.source_type === "remote") {
-    const removedSong = removedItem.song;
-    const stillInQueue = newQueue.some((i) => mediaItemKey(i) === removedSong.sha256);
-    if (!stillInQueue) {
-      // evict HTTP cache (keyed by remoteId + sha256)
-      if (removedSong.remote_server_id) {
-        void evictCachedBlob(removedSong.remote_server_id, removedSong.sha256);
-      }
-      // cancel in-progress P2P download and evict P2P cache (if applicable)
-      if (removedSong.remote_server_id) {
-        cancelP2PDownload(removedSong.sha256, removedSong.remote_server_id);
-        void evictP2PBlob(removedSong.sha256, removedSong.remote_server_id);
-      }
-    }
-  }
-
   // sync history + server session with updated queue
   const newQueueSongs = songsOnly(newQueue);
   if (newQueue.length > 0) {
@@ -748,20 +721,6 @@ export async function clearSongsAbove(index: number): Promise<void> {
     const entryId = mediaItemQueueEntryId(item);
     if (entryId) {
       clearQueueItemProgress(entryId);
-    }
-  }
-
-  // evict cached remote songs that are no longer in queue
-  for (const item of removedItems) {
-    if (item.kind !== "song") continue;
-    const song = item.song;
-    if (song.source_type === "remote" && song.remote_server_id) {
-      const stillInQueue = newQueue.some((i) => mediaItemKey(i) === song.sha256);
-      if (!stillInQueue) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
     }
   }
 
@@ -799,20 +758,6 @@ export async function clearSongsBelow(index: number): Promise<void> {
     const entryId = mediaItemQueueEntryId(item);
     if (entryId) {
       clearQueueItemProgress(entryId);
-    }
-  }
-
-  // evict cached remote songs that are no longer in queue
-  for (const item of removedItems) {
-    if (item.kind !== "song") continue;
-    const song = item.song;
-    if (song.source_type === "remote" && song.remote_server_id) {
-      const stillInQueue = newQueue.some((i) => mediaItemKey(i) === song.sha256);
-      if (!stillInQueue) {
-        void evictCachedBlob(song.remote_server_id, song.sha256);
-        cancelP2PDownload(song.sha256, song.remote_server_id);
-        void evictP2PBlob(song.sha256, song.remote_server_id);
-      }
     }
   }
 
@@ -872,25 +817,6 @@ export async function clearQueue(): Promise<void> {
   // would race with setQueue([]) and resurrect the queue.
   leaveRadio();
   await clearCurrentRadioStation();
-
-  // evict cached audio for all remote songs in the queue
-  if (state?.queue) {
-    for (const item of state.queue) {
-      if (item.kind !== "song") continue;
-      const song = item.song;
-      if (song.source_type === "remote") {
-        // evict HTTP cache (keyed by remoteId + sha256)
-        if (song.remote_server_id) {
-          void evictCachedBlob(song.remote_server_id, song.sha256);
-        }
-        // cancel in-progress P2P download and evict P2P cache (if applicable)
-        if (song.remote_server_id) {
-          cancelP2PDownload(song.sha256, song.remote_server_id);
-          void evictP2PBlob(song.sha256, song.remote_server_id);
-        }
-      }
-    }
-  }
 
   await setQueue([]);
   debug("queue", "clearQueue complete");
