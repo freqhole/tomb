@@ -183,6 +183,8 @@ export interface Playlist {
   play_count?: number | null;
   // total song count (denormalized from queries)
   song_count?: number;
+  // total video count (denormalized; undefined when the source doesn't report it)
+  video_count?: number;
 }
 
 // ===== PLAYLIST_ITEMS TABLE (junction, unified across entity types) =====

@@ -413,12 +413,6 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
 
           <Show when={!playlistSongsQuery.isLoading && !playlistVideoItemsQuery.isLoading}>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)] mb-4">
-              <Show when={mergedPlaylistItems().length > 0}>
-                <span>
-                  {mergedPlaylistItems().length}{" "}
-                  {mergedPlaylistItems().length === 1 ? "item" : "items"}
-                </span>
-              </Show>
               <Show when={playlistSongs().length > 0}>
                 <span>
                   {playlistSongs().length} {playlistSongs().length === 1 ? "song" : "songs"}

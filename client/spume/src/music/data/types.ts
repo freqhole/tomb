@@ -129,6 +129,8 @@ export interface PlaylistSummary {
   images?: ImageMetadata[];
   urls?: EntityUrl[];
   song_count: number;
+  /** undefined when the source doesn't report it (older remotes). */
+  video_count?: number;
   created_at: number;
   updated_at: number;
   is_favorite?: boolean;

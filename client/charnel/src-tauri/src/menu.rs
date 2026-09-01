@@ -91,21 +91,26 @@ fn build_and_set_menu(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
     let config_item = MenuItemBuilder::with_id(MENU_CONFIG, "config").build(app)?;
-    let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
-        .accelerator("CmdOrCtrl+Shift+I")
-        .build(app)?;
 
-    let view_submenu = SubmenuBuilder::with_id(app, "view", "view")
+    let view_builder = SubmenuBuilder::with_id(app, "view", "view")
         .item(&logs_item)
         .item(&library_item)
         .item(&users_item)
         .item(&radio_item)
         .item(&federation_item)
         .item(&settings_item)
-        .item(&config_item)
-        .separator()
-        .item(&devtools_item)
-        .build()?;
+        .item(&config_item);
+
+    // no devtools entry on linux: opening webkitgtk's inspector crashes the app.
+    #[cfg(not(target_os = "linux"))]
+    let view_builder = {
+        let devtools_item = MenuItemBuilder::with_id(MENU_DEVTOOLS, "developer tools")
+            .accelerator("CmdOrCtrl+Shift+I")
+            .build(app)?;
+        view_builder.separator().item(&devtools_item)
+    };
+
+    let view_submenu = view_builder.build()?;
 
     // build Edit submenu with standard keyboard shortcuts
     let edit_submenu = SubmenuBuilder::with_id(app, "edit", "edit")
@@ -367,12 +372,16 @@ fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
             });
         }
         MENU_DEVTOOLS => {
-            // open devtools for the focused window
-            if let Some(window) = app.get_webview_window("main") {
-                window.open_devtools();
-            }
-            if let Some(wizard) = app.get_webview_window("setup-wizard") {
-                wizard.open_devtools();
+            // linux has no devtools menu entry (webkitgtk's inspector crashes),
+            // but an accelerator could still route here.
+            #[cfg(not(target_os = "linux"))]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+                if let Some(wizard) = app.get_webview_window("setup-wizard") {
+                    wizard.open_devtools();
+                }
             }
         }
         MENU_LOGS | MENU_LIBRARY | MENU_USERS | MENU_RADIO | MENU_FEDERATION | MENU_SETTINGS

@@ -73,18 +73,31 @@ import type {
 } from "../types";
 import { debug } from "../../../utils/logger";
 
-// count song-typed items in a local playlist (playlist_items is shared
+// count items in a local playlist by entity type (playlist_items is shared
 // across entity types - see STORE_PLAYLIST_ITEMS's doc comment)
-async function countPlaylistSongs(
+async function countPlaylistItems(
   db: IDBPDatabase,
   playlistId: string
-): Promise<number> {
+): Promise<{ songs: number; videos: number }> {
   const items = (await db.getAllFromIndex(
     STORE_PLAYLIST_ITEMS,
     "by_playlist_id",
     playlistId
   )) as PlaylistItem[];
-  return items.filter((item) => item.entity_type === "song").length;
+  let songs = 0;
+  let videos = 0;
+  for (const item of items) {
+    if (item.entity_type === "song") songs++;
+    else if (item.entity_type === "video") videos++;
+  }
+  return { songs, videos };
+}
+
+async function countPlaylistSongs(
+  db: IDBPDatabase,
+  playlistId: string
+): Promise<number> {
+  return (await countPlaylistItems(db, playlistId)).songs;
 }
 
 
@@ -404,7 +417,7 @@ export class LocalMusicDataSource implements MusicDataSource {
           return null;
         }
         
-        const songCount = await countPlaylistSongs(db, playlist.playlist_id);
+        const counts = await countPlaylistItems(db, playlist.playlist_id);
 
         const summary: PlaylistSummary = {
           playlist_id: playlist.playlist_id,
@@ -413,7 +426,8 @@ export class LocalMusicDataSource implements MusicDataSource {
           is_public: playlist.is_public,
           images: adaptDatabaseImages(playlist.images),
           urls: playlist.urls,
-          song_count: songCount,
+          song_count: counts.songs,
+          video_count: counts.videos,
           created_at: playlist.created_at,
           updated_at: playlist.updated_at,
           is_favorite: playlist.is_favorite ?? false,

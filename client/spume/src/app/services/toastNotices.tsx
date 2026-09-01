@@ -95,6 +95,30 @@ export const NOTICE_KNOCK_REQUESTS = "knock-requests";
 export const NOTICE_KNOCK_CREATED = "knock-created";
 export const NOTICE_STORAGE_HEALTH = "storage-health";
 
+/**
+ * open the pending-knock review surface for the current host.
+ *
+ * charnel administers its server from the wizard window, not from spume's
+ * settings - routing to spume's own settings there lands on a view that can't
+ * act on the knock.
+ */
+export function openKnockReview(): void {
+  if (isCharnelMode()) {
+    void (async () => {
+      try {
+        // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("open_setup_wizard", { route: "/users" });
+      } catch (e) {
+        console.debug("[toastNotices] failed to open wizard for knock review:", e);
+      }
+    })();
+    return;
+  }
+  // spume uses HashRouter — pushState to a non-hash path wouldn't navigate.
+  window.location.hash = "/settings/admin-knocks";
+}
+
 // ============================================================================
 // knock created toast (shows username + message with federation button)
 // ============================================================================
@@ -143,8 +167,7 @@ export function showKnockCreatedToast(username: string, message?: string): void 
               onClick={() => {
                 toaster.dismiss(props.toastId);
                 markNoticeHidden(NOTICE_KNOCK_CREATED);
-                // HashRouter — set hash to route in-app.
-                window.location.hash = "/settings/admin-knocks";
+                openKnockReview();
               }}
             >
               view request
@@ -557,9 +580,7 @@ export async function checkPendingKnocks(): Promise<void> {
     const total = counts.reduce((a, b) => a + b, 0);
 
     showKnockRequestsToast(total, () => {
-      // app uses HashRouter — set the hash so the router actually navigates.
-      // pushState to a non-hash path doesn't notify HashRouter.
-      window.location.hash = "/settings/admin-knocks";
+      openKnockReview();
       dismissKnockRequestsToast();
     });
   } catch (error) {

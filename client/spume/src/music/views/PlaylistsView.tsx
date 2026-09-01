@@ -181,10 +181,17 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // convert playlists to list items for VirtualItemList
   const playlistListItems = createMemo((): ListItem[] => {
     return playlists().map((playlist) => {
+      // only name a domain the playlist actually has, so a music-only
+      // playlist doesn't read "3 songs, 0 videos".
+      const parts: string[] = [];
+      const songs = playlist.song_count ?? 0;
+      const videos = playlist.video_count ?? 0;
+      if (songs > 0) parts.push(`${songs} ${songs === 1 ? "song" : "songs"}`);
+      if (videos > 0) parts.push(`${videos} ${videos === 1 ? "video" : "videos"}`);
       return {
         id: playlist.playlist_id,
         title: playlist.title,
-        subtitle: `${playlist.song_count} ${playlist.song_count === 1 ? "song" : "songs"}`,
+        subtitle: parts.length > 0 ? parts.join(" · ") : "empty",
         metadata: `updated ${formatRelativeTime(playlist.updated_at)}`,
         images: playlist.images,
       };
