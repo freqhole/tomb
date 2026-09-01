@@ -2,7 +2,7 @@ import { createSignal, createEffect, on, onMount, onCleanup, For, Show } from "s
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke, Channel } from "@tauri-apps/api/core";
-import { resolvePath } from "../util/resolvePath";
+import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 
 interface ScannedDir {
@@ -513,10 +513,6 @@ export default function LibraryView() {
       </div>
 
       <div class="section">
-        <p class="section-desc">
-          add folders containing music. freqhole will scan each directory and import music.
-        </p>
-
         <Show when={loading()}>
           <div class="loading">
             <div class="spinner" />
@@ -533,7 +529,13 @@ export default function LibraryView() {
               {(dir) => (
                 <div class="directory-item">
                   <div class="directory-info">
-                    <span class="directory-path">{dir.path}</span>
+                    <span class="directory-name">{directoryDisplayName(dir.path)}</span>
+                    <span class="directory-path" title={dir.path}>
+                      {dir.path}
+                      <Show when={isDocumentPortalPath(dir.path)}>
+                        <span class="directory-path-hint"> (sandbox folder access)</span>
+                      </Show>
+                    </span>
                     <span class="directory-meta">
                       {dir.file_count} files
                       <Show when={dir.tags.length > 0}>

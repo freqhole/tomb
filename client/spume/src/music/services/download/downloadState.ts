@@ -188,6 +188,7 @@ export function getAllLoadingProgress(): Map<string, number | null> {
 
 /** add an id to the loading set */
 export function addToLoadingSet(id: string): void {
+  debug("downloadState", `loading start: ${id}`);
   setLoadingIds((prev) => {
     if (prev.has(id)) return prev;
     const next = new Set(prev);
@@ -212,6 +213,17 @@ export function addToLoadingSet(id: string): void {
 
 /** update download progress for an id */
 export function updateLoadingProgress(id: string, progress: number | null): void {
+  // a progress report for an id nobody registered means the producer and
+  // the ui are keyed differently (sha256 vs video id vs mediaItemKey) -
+  // the usual cause of "downloads fine, no progress bar".
+  if (!loadingIds().has(id)) {
+    debug(
+      "downloadState",
+      `progress for untracked id ${id} (progress=${progress}) - key mismatch?`
+    );
+  } else {
+    debug("downloadState", `progress ${id}: ${progress === null ? "indeterminate" : progress}`);
+  }
   setLoadingProgress((prev) => {
     const next = new Map(prev);
     next.set(id, progress);
@@ -221,6 +233,10 @@ export function updateLoadingProgress(id: string, progress: number | null): void
 
 /** remove an id from the loading set and clear its progress */
 export function removeFromLoadingSet(id: string): void {
+  debug(
+    "downloadState",
+    `loading end: ${id} (last progress=${loadingProgress().get(id) ?? "none"})`
+  );
   setLoadingIds((prev) => {
     if (!prev.has(id)) return prev;
     const next = new Set(prev);

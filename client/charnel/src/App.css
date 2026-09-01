@@ -691,13 +691,28 @@ button.small {
   accent-color: #ff1a9e;
 }
 
-.directory-path {
-  font-family: "SF Mono", Monaco, monospace;
-  font-size: 0.875rem;
-  color: #a1a1aa;
+.directory-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #e4e4e7;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.directory-path {
+  font-family: "SF Mono", Monaco, monospace;
+  font-size: 0.6875rem;
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-path-hint {
+  font-family: inherit;
+  color: #52525b;
+  font-style: italic;
 }
 
 .tag-input-row {

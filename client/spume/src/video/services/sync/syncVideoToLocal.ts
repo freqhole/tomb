@@ -35,6 +35,7 @@ import {
   streamVideoToOPFSWithResume,
 } from "../opfs/helpers";
 import { resolvePlaybackBlobId } from "../videoBlobAccess";
+import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { BlobMetadataResponse } from "@freqhole/api-client";
 import { debug, warn } from "../../../utils/logger";
@@ -100,6 +101,45 @@ export function canSyncVideo(video: QueuedVideo): boolean {
   return video.source_type === "remote" && !!video.remote_server_id && !!video.media_blob_id;
 }
 
+/** charnel/tauri: hand the sync off to the local grimoire, which pulls the
+ * video bytes itself over iroh. progress is reported under the video's own id
+ * so the queue row's indicator behaves the same as the browser path. */
+async function syncVideoViaCharnel(video: QueuedVideo, remoteOverride?: Remote): Promise<void> {
+  const remoteId = video.remote_server_id!;
+  const remote = remoteOverride ?? (await getRemoteById(remoteId));
+  if (!remote) {
+    warn("videoSync", `remote ${remoteId} not found, skipping charnel sync for ${video.id}`);
+    return;
+  }
+
+  const blobId = await resolvePlaybackBlobId(video, remoteId);
+  const meta = await fetchBlobMetadata(remoteId, blobId, remoteOverride);
+
+  addToLoadingSet(video.id);
+  updateLoadingProgress(video.id, null); // grimoire's pull reports no progress back
+  try {
+    const result = await syncVideoViaLocalGrimoire(
+      video,
+      remote,
+      blobId,
+      meta.blake3 ?? null,
+      meta.size,
+      meta.mime
+    );
+    if (!result.success) {
+      warn("videoSync", `charnel sync failed for video ${video.id}: ${result.error}`);
+      return;
+    }
+    markVideoSynced(video.id);
+    debug(
+      "videoSync",
+      `synced video "${video.title}" (${video.id}) into the local library via grimoire (existing=${result.skipped})`
+    );
+  } finally {
+    removeFromLoadingSet(video.id);
+  }
+}
+
 /** sync the currently-playing remote video to the local OPFS-backed video
  * library, if "sync queue to local" is enabled and it hasn't already been
  * synced. syncs whichever blob is actually being played (the selected
@@ -117,15 +157,11 @@ export async function syncVideoToLocal(video: QueuedVideo, remoteOverride?: Remo
   if (!getSyncQueueToLocal()) return;
   // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
   // getDirectoryHandle but not the async createWritable() writable-stream
-  // api, so writeVideoToOPFS below would throw. music's syncSongToLocal.ts
-  // avoids this by routing charnel-mode syncs through a native iroh-blobs
-  // pull (isCharnelMode() -> syncSongViaLocalGrimoire); no video equivalent
-  // route exists yet, so just skip rather than crash into the opfs write.
+  // api, so writeVideoToOPFS below would throw. charnel-mode syncs instead go
+  // through the local grimoire, which pulls the bytes natively by blake3 -
+  // same split music's syncSongToLocal.ts uses.
   if (isCharnelMode()) {
-    debug(
-      "videoSync",
-      `skipping local sync for video ${video.id}: opfs write unsupported in charnel/tauri mode (no native sync route yet)`
-    );
+    await syncVideoViaCharnel(video, remoteOverride);
     return;
   }
 

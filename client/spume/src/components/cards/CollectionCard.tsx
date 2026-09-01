@@ -78,11 +78,13 @@ export function CollectionCard(props: CollectionCardProps): JSX.Element {
     }
   };
 
+  // only swallow the native event when this card is handling the menu
+  // itself - otherwise a wrapping kobalte ContextMenu.Trigger sees
+  // defaultPrevented and silently refuses to open.
   const handleContextMenu = (e: MouseEvent) => {
+    if (!props.onContextMenu || !props.collection) return;
     e.preventDefault();
-    if (props.onContextMenu && props.collection) {
-      props.onContextMenu(e, props.collection);
-    }
+    props.onContextMenu(e, props.collection);
   };
 
   // size variants - compact sizing for grid layouts

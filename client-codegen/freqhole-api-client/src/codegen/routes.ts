@@ -261,6 +261,7 @@ export const routes = {
     query_video_series: { method: 'POST', path: '/api/video/series/query', req: s.QueryParamsSchema, resp: s.SeriesQueryResultSchema, auth: { type: 'authenticated' } as const },
     query_videos: { method: 'POST', path: '/api/video/videos/query', req: s.QueryVideosRequestSchema, resp: s.VideosQueryResultSchema, auth: { type: 'authenticated' } as const },
     recently_added_videos: { method: 'POST', path: '/api/video/relations/recently-added-videos', req: s.RecentlyAddedVideosRequestSchema, resp: s.RecentlyAddedVideosResponseSchema, auth: { type: 'authenticated' } as const },
+    sync_video_by_blake3: { method: 'POST', path: '/api/sync/video-by-blake3', req: s.SyncVideoByBlake3RequestSchema, resp: s.SyncVideoByBlake3ResponseSchema, auth: { type: 'role', role: 'member' } as const },
     unassigned_videos: { method: 'POST', path: '/api/video/relations/unassigned-videos', req: s.UnassignedVideosRequestSchema, resp: s.UnassignedVideosResponseSchema, auth: { type: 'authenticated' } as const },
     update_video_season: { method: 'POST', path: '/api/video/seasons/update', req: s.UpdateVideoSeasonRequestSchema, resp: s.VideoSeasonSchema, auth: { type: 'role', role: 'admin' } as const },
     update_video_series: { method: 'POST', path: '/api/video/series/update', req: s.UpdateVideoSeriesRequestSchema, resp: s.VideoSeriesSchema, auth: { type: 'role', role: 'admin' } as const },

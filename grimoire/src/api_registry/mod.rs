@@ -311,6 +311,7 @@ pub mod type_registry {
     use crate::offal::sync::{
         SyncAlbumRequest, SyncAlbumResponse, SyncImageRef, SyncPlaylistRequest,
         SyncPlaylistResponse, SyncSongByBlake3Request, SyncSongByBlake3Response,
+        SyncVideoByBlake3Request, SyncVideoByBlake3Response,
     };
 
     // related artists (phase 13h)
@@ -1708,6 +1709,10 @@ pub mod type_registry {
         registered.insert("SyncAlbumRequest".to_string());
         gen.add_schema::<SyncAlbumResponse>("SyncAlbumResponse");
         registered.insert("SyncAlbumResponse".to_string());
+        gen.add_schema::<SyncVideoByBlake3Request>("SyncVideoByBlake3Request");
+        registered.insert("SyncVideoByBlake3Request".to_string());
+        gen.add_schema::<SyncVideoByBlake3Response>("SyncVideoByBlake3Response");
+        registered.insert("SyncVideoByBlake3Response".to_string());
 
         // import review types
         gen.add_schema::<ListPendingReviewRequest>("ListPendingReviewRequest");

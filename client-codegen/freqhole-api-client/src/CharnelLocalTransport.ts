@@ -27,6 +27,16 @@ let convertFileSrc: ((path: string) => string) | null = null;
 const isLinuxWebKit = typeof navigator !== "undefined" && navigator.userAgent.includes("Linux");
 
 /**
+ * blobs that must never be buffered into memory as a blob: URL, even on
+ * linux: a local video can easily be multi-GB, and `fetch().arrayBuffer()`
+ * on one hangs the whole app. these stream from asset:// instead, which
+ * also gives `<video>` real range requests for seeking.
+ */
+function isStreamableMime(mime?: string | null): boolean {
+  return (mime ?? "").startsWith("video/");
+}
+
+/**
  * initialize tauri invoke function
  */
 async function ensureInvoke(): Promise<InvokeFn> {
@@ -333,6 +343,10 @@ export class CharnelLocalTransport implements Transport {
    * 3. linux fallback: fetch via asset:// and wrap in a blob: object URL
    *    (webkitgtk can't stream asset:// into `<audio>`)
    *
+   * the linux fallback buffers the ENTIRE file in memory, so it is never
+   * used for video - a multi-GB local video would exhaust memory and hang
+   * the app (`<video>` also seeks, which a one-shot blob can't stream).
+   *
    * note: when the rodio audio backend is enabled (charnel + opt-in)
    * playback bypasses html `<audio>` entirely and reads files via
    * filesystem path — this method is unused for that path.
@@ -346,14 +360,16 @@ export class CharnelLocalTransport implements Transport {
     }
 
     // on linux without rodio, we MUST go async to wrap in a blob:
-    // url (asset:// can't stream into <audio> on webkitgtk).
-    if (isLinuxWebKit) {
+    // url (asset:// can't stream into <audio> on webkitgtk) - except for
+    // video, which streams from asset:// directly (see below).
+    const cachedPath = this.blobPathCache.get(blobId);
+    if (isLinuxWebKit && !isStreamableMime(cachedPath?.mime)) {
       console.debug(`[CharnelLocalTransport] blob ${blobId}: linux fallback (async)`);
       return this.getBlobUrlAsync(blobId);
     }
 
     // check path cache (filesystem blobs) — direct asset:// url
-    const cached = this.blobPathCache.get(blobId);
+    const cached = cachedPath;
     if (cached && convertFileSrc) {
       const url = convertFileSrc(cached.path);
       console.debug(`[CharnelLocalTransport] blob ${blobId}: asset:// (cached) -> ${url}`);
@@ -391,10 +407,14 @@ export class CharnelLocalTransport implements Transport {
         //   - other (images / waveforms / cover art): per-blob cache so
         //     multiple `<img>` and css `background-image` urls coexist
         //     across the playerbar, queue sidebar, etc.
-        if (isLinuxWebKit) {
+        // video is excluded - buffering it would hang the app.
+        if (isLinuxWebKit && !isStreamableMime(parsed.data.mime)) {
           return this.createBlobObjectUrl(blobId, parsed.data.path, parsed.data.mime);
         }
 
+        console.debug(
+          `[CharnelLocalTransport] blob ${blobId}: asset:// stream (mime=${parsed.data.mime ?? "?"})`,
+        );
         return convertFileSrc(parsed.data.path);
       }
     }

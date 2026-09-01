@@ -369,6 +369,15 @@ async function resolveP2PBlob(
         mimeType
       );
     } else {
+      if (onProgress) {
+        // no progress-capable path: either the transport doesn't implement
+        // one, or (more often) blake3/totalBytes were never resolved, so
+        // the ui stays on its indeterminate indicator for the whole fetch.
+        debug(
+          "blobResolver",
+          `no progress for ${blobId.slice(0, 8)}...: withProgress=${!!transport.getBlobUrlWithProgress} blake3=${!!blake3} totalBytes=${totalBytes ?? "none"}`
+        );
+      }
       url = await transport.getBlobUrl(blobId, blake3);
     }
     return url;

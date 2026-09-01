@@ -22,3 +22,33 @@ export async function resolvePath(path: string): Promise<string> {
     return path;
   }
 }
+
+/**
+ * human-friendly label for a library directory: the folder's own name,
+ * plus its parent when that adds context (`Media / Videos`).
+ *
+ * flatpak document-portal paths (`/run/user/1000/doc/<hash>/Videos`) are
+ * the worst case - the parent is an opaque hash, so only the folder name
+ * is shown. the full path is still displayed underneath by the caller.
+ */
+export function directoryDisplayName(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length === 0) return path;
+
+  const name = segments[segments.length - 1];
+  const parent = segments[segments.length - 2];
+  if (!parent) return name;
+
+  // opaque doc-portal hash, or a home dir - neither is worth showing
+  const isPortalHash = /^[0-9a-f]{6,}$/i.test(parent);
+  const isHomeish = parent === "home" || parent === "Users" || parent === "media";
+  if (isPortalHash || isHomeish) return name;
+
+  return `${parent} / ${name}`;
+}
+
+/** is this a flatpak document-portal path? shown as a hint in the ui,
+ *  since these look alarming but are the only writable form of the folder. */
+export function isDocumentPortalPath(path: string): boolean {
+  return path.startsWith("/run/user/") && path.includes("/doc/");
+}

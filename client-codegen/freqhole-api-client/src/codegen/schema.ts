@@ -6913,6 +6913,61 @@ export const SyncSongByBlake3ResponseSchema = z.object({
 });
 export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSchema>;
 
+export const SyncVideoByBlake3RequestSchema = z.object({
+  blake3: z.string(),
+  sha256: z.string().nullish(),
+  size: z.number().nullish(),
+  filename: z.string(),
+  source_node_id: z.string(),
+  source_remote_id: z.string().nullish(),
+  remote_name: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  content_type: z.string().nullish(),
+  episode_number: z.number().nullish(),
+  duration_seconds: z.number().nullish(),
+  release_date: z.string().nullish(),
+  series_title: z.string().nullish(),
+  series_description: z.string().nullish(),
+  season_number: z.number().nullish(),
+  season_title: z.string().nullish(),
+  video_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  series_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  season_images: z.array(z.object({
+  content_sha256: z.string(),
+  data_base64: z.string().nullish(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+}))
+});
+export type SyncVideoByBlake3Request = z.infer<typeof SyncVideoByBlake3RequestSchema>;
+
+export const SyncVideoByBlake3ResponseSchema = z.object({
+  video_id: z.string(),
+  media_blob_id: z.string(),
+  file_path: z.string(),
+  blake3: z.string(),
+  series_id: z.string().nullish(),
+  season_id: z.string().nullish(),
+  existing: z.boolean(),
+  images_linked: z.number(),
+  missing_image_sha256s: z.array(z.string())
+});
+export type SyncVideoByBlake3Response = z.infer<typeof SyncVideoByBlake3ResponseSchema>;
+
 export const TagSchema = z.object({
   id: z.string(),
   name: z.string(),

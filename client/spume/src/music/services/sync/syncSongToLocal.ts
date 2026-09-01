@@ -28,106 +28,14 @@ import {
 } from "../download";
 import type { ImageMetadata, Song, TaxonRef } from "../storage/types";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
-import type { Transport } from "@freqhole/api-client";
+import { inlineImagesForSync, type InlinableImage, type InlineImageCache } from "./syncImages";
 
-// shape sent to /api/sync/song-by-blake3 for each image. matches grimoire
-// `SyncImageRef`. `data_base64` is the inline-bytes path (preferred when
-// content is fetched from source); a null `data_base64` means "lookup by
-// sha256 on dest" (used when bytes aren't available locally).
-interface SyncImageRefBody {
-  content_sha256: string;
-  data_base64: string | null;
-  mime_type: string;
-  is_primary: boolean;
-  blob_type: string | null;
-}
-
-// per-image-bytes cache keyed by source remote_blob_id, so an album cover
-// that appears both as song.images[k] AND song.album_images[k] across many
-// tracks is fetched once.
-type InlineImageCache = Map<string, { sha256: string; b64: string; mime: string }>;
-
-function bytesToBase64(bytes: Uint8Array): string {
-  // chunked to avoid maximum-call-stack on String.fromCharCode for big arrays.
-  let s = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(s);
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const ab = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-  const digest = await crypto.subtle.digest("SHA-256", ab);
-  const view = new Uint8Array(digest);
-  let hex = "";
-  for (let i = 0; i < view.length; i++) {
-    hex += view[i].toString(16).padStart(2, "0");
-  }
-  return hex;
-}
-
-/**
- * fetch each image's bytes from the source transport and build inline
- * `SyncImageRef` payloads (sha256 + base64). per-image fetch failures are
- * skipped (logged as warn) so a missing remote_blob_id never blocks song
- * sync. caches by `remote_blob_id` across calls within one sync run.
- */
-async function inlineImagesForSync(
-  images: ImageMetadata[] | undefined,
-  sourceTransport: Transport,
-  cache: InlineImageCache,
-  logPrefix: string
-): Promise<SyncImageRefBody[]> {
-  if (!images || images.length === 0) return [];
-  const out: SyncImageRefBody[] = [];
-  const anyPrimary = images.some((i) => !!i.is_primary);
-  for (let idx = 0; idx < images.length; idx++) {
-    const img = images[idx];
-    const blobId = img.remote_blob_id;
-    if (!blobId) {
-      debug("syncSongViaLocalGrimoire", `${logPrefix} [img ${idx}] no remote_blob_id, skipping`);
-      continue;
-    }
-    let entry = cache.get(blobId);
-    if (!entry) {
-      try {
-        const blob = await sourceTransport.fetchBlob(blobId);
-        const bytes = new Uint8Array(blob.data.byteLength);
-        bytes.set(blob.data);
-        const sha256 = await sha256Hex(bytes);
-        const b64 = bytesToBase64(bytes);
-        entry = {
-          sha256,
-          b64,
-          mime: blob.contentType || "image/jpeg",
-        };
-        cache.set(blobId, entry);
-        debug(
-          "syncSongViaLocalGrimoire",
-          `${logPrefix} [img ${idx}] fetched source blob ${blobId.slice(0, 8)} (${bytes.byteLength}b, ${entry.mime}, sha=${sha256.slice(0, 8)})`
-        );
-      } catch (e) {
-        warn(
-          "syncSongViaLocalGrimoire",
-          `${logPrefix} [img ${idx}] fetchBlob failed for ${blobId}: ${String(e)}`
-        );
-        continue;
-      }
-    }
-    out.push({
-      content_sha256: entry.sha256,
-      data_base64: entry.b64,
-      mime_type: entry.mime,
-      is_primary: anyPrimary ? !!img.is_primary : idx === 0,
-      blob_type: img.blob_type ?? "original",
-    });
-  }
-  return out;
+function toInlinableImages(images: ImageMetadata[] | undefined): InlinableImage[] {
+  return (images ?? []).map((img) => ({
+    blobId: img.remote_blob_id,
+    isPrimary: !!img.is_primary,
+    blobType: img.blob_type,
+  }));
 }
 
 /**
@@ -167,13 +75,13 @@ async function syncSongViaLocalGrimoire(song: SyncableSong, remote: Remote): Pro
     const sourceTransport = await getTransportForRemote(remote);
     const inlineCache: InlineImageCache = new Map();
     const songImagesBody = await inlineImagesForSync(
-      song.images,
+      toInlinableImages(song.images),
       sourceTransport,
       inlineCache,
       `[song "${song.title}"]`
     );
     const albumImagesBody = await inlineImagesForSync(
-      song.album_images,
+      toInlinableImages(song.album_images),
       sourceTransport,
       inlineCache,
       `[album "${song.album_title}"]`
