@@ -13,6 +13,7 @@ import {
   songsOnly,
   videosOnly,
   mediaItemKey,
+  type MediaItem,
   type QueuedVideo,
 } from "../../../app/services/storage/mediaItem";
 import { syncSongToLocal, canSyncSong, type SyncableSong } from "../sync";
@@ -127,6 +128,24 @@ async function processQueue(): Promise<void> {
   }
   for (const video of videoBatch) {
     void downloadVideo(video);
+  }
+}
+
+/** remove items that left the queue before the worker has started them. Active
+ * transfers are handled by the transport/player cancellation paths; this keeps
+ * a queued-but-not-started item from beginning after a clear. */
+export function cancelPendingAutoDownloads(items: MediaItem[]): void {
+  const departedSongs = new Set(
+    items.filter((item) => item.kind === "song").map((item) => item.song.sha256)
+  );
+  const departedVideos = new Set(
+    items.filter((item) => item.kind === "video").map((item) => item.video.id)
+  );
+  if (departedSongs.size > 0) {
+    setPendingQueue((pending) => pending.filter((song) => !departedSongs.has(song.sha256)));
+  }
+  if (departedVideos.size > 0) {
+    setPendingVideoQueue((pending) => pending.filter((video) => !departedVideos.has(video.id)));
   }
 }
 

@@ -191,6 +191,14 @@ fn to_value<T: Serialize>(v: T) -> Result<serde_json::Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
 
+fn nonempty_or_default(value: String, fallback: &str) -> String {
+    if value.trim().is_empty() {
+        fallback.to_string()
+    } else {
+        value
+    }
+}
+
 /// single tauri command entrypoint for all removable-storage sync
 /// operations.
 #[tauri::command]
@@ -200,10 +208,28 @@ pub async fn external_storage_command(
 ) -> Result<serde_json::Value, String> {
     match action {
         ExternalStorageAction::GetSettings => {
-            let config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
+            let default_subpath =
+                nonempty_or_default(config.external_storage_default_subpath.clone(), "Music");
+            let playlists_subpath = nonempty_or_default(
+                config.external_storage_playlists_subpath.clone(),
+                "Playlists",
+            );
+            // Persist the repair so copy_engine sees the default too, rather
+            // than merely making the settings field look correct.
+            if config.external_storage_default_subpath != default_subpath
+                || config.external_storage_playlists_subpath != playlists_subpath
+            {
+                config.external_storage_default_subpath = default_subpath.clone();
+                config.external_storage_playlists_subpath = playlists_subpath.clone();
+                config.save(&app_handle)?;
+            }
             to_value(ExternalStorageSettings {
-                default_subpath: config.external_storage_default_subpath,
-                playlists_subpath: config.external_storage_playlists_subpath,
+                // Older config files can contain an explicit empty string,
+                // which bypasses serde's missing-field default and made the
+                // device music root silently become its mount root.
+                default_subpath,
+                playlists_subpath,
                 playlists_sync_enabled: !config.external_storage_playlists_sync_disabled,
                 reencode_enabled: config.external_storage_reencode_enabled,
                 reencode_args: config.external_storage_reencode_args,
@@ -213,10 +239,14 @@ pub async fn external_storage_command(
 
         ExternalStorageAction::SetSettings { settings } => {
             let mut config = FreqholeAppConfig::load(&app_handle).unwrap_or_default();
-            config.external_storage_default_subpath =
-                path_naming::sanitize_subpath(&settings.default_subpath);
-            config.external_storage_playlists_subpath =
-                path_naming::sanitize_subpath(&settings.playlists_subpath);
+            config.external_storage_default_subpath = nonempty_or_default(
+                path_naming::sanitize_subpath(&settings.default_subpath),
+                "Music",
+            );
+            config.external_storage_playlists_subpath = nonempty_or_default(
+                path_naming::sanitize_subpath(&settings.playlists_subpath),
+                "Playlists",
+            );
             config.external_storage_playlists_sync_disabled = !settings.playlists_sync_enabled;
             config.external_storage_reencode_enabled = settings.reencode_enabled;
             config.external_storage_reencode_args = settings.reencode_args;

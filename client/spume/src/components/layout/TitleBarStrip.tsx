@@ -9,6 +9,7 @@ import {
 } from "../../app/services/charnel/commands";
 import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
+import { isNarrowViewport } from "../../config/breakpoints";
 
 /**
  * height (px) reserved for the strip. also written to `--safe-area-top` so
@@ -18,7 +19,7 @@ import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
  */
 const STRIP_HEIGHT_PX = 38;
 // width of the pl-[10px] + 3 buttons (12px) + 2 gaps (8px) traffic-light cluster below.
-const TRAFFIC_LIGHTS_WIDTH_PX = 68;
+const TRAFFIC_LIGHTS_WIDTH_PX = 80;
 /** pointer movement (px) before a press on the strip becomes a window drag. */
 const DRAG_THRESHOLD_PX = 4;
 
@@ -55,6 +56,10 @@ export function TitleBarStrip() {
   const [enabled, setEnabled] = createSignal(false);
   const [focused, setFocused] = createSignal(true);
   const [hovered, setHovered] = createSignal(false);
+  // narrow (mobile top nav) only shows the close dot - the cluster's width
+  // stays fixed either way so the drag handle + right-click context menu
+  // keep the same reserved space regardless of button count.
+  const [narrow, setNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     let unlistenFocus: (() => void) | undefined;
@@ -65,6 +70,8 @@ export function TitleBarStrip() {
       void openSetupWizard("/settings");
     };
     window.addEventListener("keydown", onKeyDown);
+    const onResize = () => setNarrow(isNarrowViewport());
+    window.addEventListener("resize", onResize);
 
     void (async () => {
       const isChromeless = await getChromelessTitleBar();
@@ -93,6 +100,7 @@ export function TitleBarStrip() {
 
     onCleanup(() => {
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onResize);
       unlistenFocus?.();
       if (appliedSafeAreaTop) {
         document.documentElement.style.setProperty("--safe-area-top", "0px");
@@ -199,9 +207,10 @@ export function TitleBarStrip() {
                 type="button"
                 aria-label="minimize window"
                 class={dotClass("bg-[#ffbd2e]")}
+                classList={{ invisible: narrow() }}
                 onClick={() => void minimizeWindow()}
               >
-                <Show when={showGlyphs()}>
+                <Show when={showGlyphs() && !narrow()}>
                   <svg
                     viewBox="0 0 10 10"
                     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"
@@ -214,9 +223,10 @@ export function TitleBarStrip() {
                 type="button"
                 aria-label="maximize window"
                 class={dotClass("bg-[#28c840]")}
+                classList={{ invisible: narrow() }}
                 onClick={() => void toggleMaximizeWindow()}
               >
-                <Show when={showGlyphs()}>
+                <Show when={showGlyphs() && !narrow()}>
                   <svg
                     viewBox="0 0 10 10"
                     class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[6px] h-[6px]"

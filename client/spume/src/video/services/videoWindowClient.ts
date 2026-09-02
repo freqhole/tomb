@@ -34,6 +34,15 @@ export type VideoWindowEvent =
   | { kind: "closed" }
   | { kind: "error"; error_type: string; message: string };
 
+export interface VideoWindowDiagnostics {
+  available: boolean;
+  gstreamerVersion?: string | null;
+  playbin3Available: boolean;
+  gtksinkAvailable: boolean;
+  gtkglsinkAvailable: boolean;
+  error?: string | null;
+}
+
 const EVENT_NAME = "video-window-event";
 
 type Listener = (event: VideoWindowEvent) => void;
@@ -61,6 +70,10 @@ export async function isVideoWindowAvailable(): Promise<boolean> {
   try {
     availability = await tauriInvoke<boolean>("video_window_available");
   } catch (e) {
+    // TEMP(video-window): this must be visible in Linux logs. silently turning
+    // a missing IPC command into the HTML fallback makes the failure look like
+    // WebKitGTK playback rather than a stale/misregistered charnel binary.
+    console.error("[video-window] availability command failed:", e);
     debug("videoWindow", "availability check failed, assuming unavailable:", e);
     availability = false;
   }
@@ -68,7 +81,23 @@ export async function isVideoWindowAvailable(): Promise<boolean> {
 }
 
 export async function sendVideoWindowCommand(command: VideoWindowCommand): Promise<void> {
+  // TEMP(video-window): command boundaries identify whether a failed playback
+  // reached Rust before any GStreamer event could be emitted.
+  console.info(`[video-window] command=${command.kind}`);
   await tauriInvoke("video_window_command", { command });
+}
+
+/** query the Linux GStreamer runtime without opening a window or loading media. */
+export async function getVideoWindowDiagnostics(): Promise<VideoWindowDiagnostics | null> {
+  if (!isCharnelMode()) return null;
+  try {
+    const diagnostics = await tauriInvoke<VideoWindowDiagnostics>("video_window_diagnostics");
+    console.info("[video-window] diagnostics", diagnostics);
+    return diagnostics;
+  } catch (e) {
+    console.error("[video-window] diagnostics command failed:", e);
+    return null;
+  }
 }
 
 /** subscribe to playback events from the video window. */
@@ -85,6 +114,8 @@ async function ensureSubscribed(): Promise<void> {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { listen } = await import("@tauri-apps/api/event");
     return listen<VideoWindowEvent>(EVENT_NAME, (e) => {
+      // TEMP(video-window): preserves the exact Rust event ordering in logz.
+      console.info(`[video-window] event=${e.payload.kind}`, e.payload);
       for (const fn of listeners) {
         try {
           fn(e.payload);

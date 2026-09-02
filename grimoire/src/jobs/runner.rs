@@ -241,10 +241,10 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                         // for FetchMedia jobs there's no path on disk
                         // yet, so fall back to the source url so ui
                         // subscribers can classify it as a fetch.
-                        let mut directory = job
-                            .parameters()
-                            .ok()
-                            .and_then(|p: serde_json::Value| {
+                        let job_params = job.parameters().ok();
+                        let mut directory = job_params
+                            .as_ref()
+                            .and_then(|p: &serde_json::Value| {
                                 if let Some(path) = p
                                     .get("local_path")
                                     .or_else(|| p.get("file_path"))
@@ -260,11 +260,37 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                             directory = "enrich://".to_string();
                         }
 
+                        // an explicit `domain` param wins; otherwise fall back to
+                        // detecting from the file path extension so the ui can
+                        // still tell "music" from "video" when the job was
+                        // dispatched without one (e.g. an older client).
+                        let domain = job_params.as_ref().and_then(|p: &serde_json::Value| {
+                            p.get("domain")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| match s {
+                                    "music" => Some(crate::media_domain::MediaDomain::Music),
+                                    "video" => Some(crate::media_domain::MediaDomain::Video),
+                                    _ => None,
+                                })
+                                .or_else(|| {
+                                    p.get("local_path")
+                                        .or_else(|| p.get("file_path"))
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|path| {
+                                            crate::media_domain::detect_media_domain_from_extension(
+                                                path,
+                                                &crate::config::get_config(),
+                                            )
+                                        })
+                                })
+                        });
+
                         let rollup = serde_json::json!({
                             "directory": directory,
                             "songs_added": completed_so_far,
                             "jobs_pending": in_flight,
                             "jobs_total": session_total,
+                            "domain": domain.map(|d| d.as_str()),
                         });
                         job_events::emit(JobEvent::Progress {
                             session_id: session_id.clone(),
@@ -287,6 +313,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                                     "songs_added": completed_so_far,
                                     "albums_added": 0,
                                     "artists_added": 0,
+                                    "domain": domain.map(|d| d.as_str()),
                                 })),
                             });
                         }

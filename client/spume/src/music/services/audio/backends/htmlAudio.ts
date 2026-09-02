@@ -48,6 +48,7 @@ import {
 } from "../../storage/audioAccess";
 import type { Song } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
+import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
 import { debug, warn, error as errorLog } from "../../../../utils/logger";
 import { mirrorVolumeToRadio } from "../../../../app/services/playbackCoordinator";
 import { registerWatchdog } from "../mediaSessionBridge";
@@ -285,6 +286,11 @@ export class HtmlAudioBackend implements PlayerBackend {
         throw urlError;
       }
 
+      if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+        debug("player.html", `skipping cancelled load for ${song.sha256.slice(0, 8)}`);
+        return;
+      }
+
       // verify this song is still the pending one — user may have
       // selected a different song while we were downloading.
       if (pendingUpNextSha256() !== song.sha256) {
@@ -330,6 +336,10 @@ export class HtmlAudioBackend implements PlayerBackend {
 
       // update app state — PlayerBar will now show the new song.
       await setCurrentSong(song.sha256);
+
+      if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+        return;
+      }
 
       this.currentSongId = song.sha256;
 

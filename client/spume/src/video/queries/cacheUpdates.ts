@@ -1,7 +1,6 @@
 // cache update utilities for video queries — mirrors music/queries/cacheUpdates.ts.
 
 import { queryClient } from "../../queryClient";
-import { videoQueryKeys } from "./queryKeys";
 
 /**
  * broad invalidation for local-library writes (sync-to-local adding a video,
@@ -10,6 +9,12 @@ import { videoQueryKeys } from "./queryKeys";
  * well as the video itself.
  */
 export function invalidateVideoLibraryQueries(): void {
-  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
-  void queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.all() });
+  // Sync can read from a remote while writing to the browser-local library.
+  // `videoQueryKeys.*.all()` incorporates the *current* source, so invalidating
+  // only that key misses the other scope. Refetch inactive cached views too:
+  // useVideosQuery deliberately disables refetchOnMount.
+  void queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === "videos" || query.queryKey[0] === "video-series",
+    refetchType: "all",
+  });
 }

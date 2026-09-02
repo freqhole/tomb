@@ -51,6 +51,9 @@ export interface LoadAndPlayOptions {
   initialPosition?: number;
   initialDuration?: number;
   autoPlay?: boolean;
+  /** queue-owned generation; a late load whose item left the queue must stop
+   * before it assigns a source or sends a player command. */
+  loadGeneration?: number;
 }
 
 /// the surface every audio backend implements.

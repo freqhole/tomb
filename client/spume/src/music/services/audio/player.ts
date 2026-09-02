@@ -33,6 +33,7 @@ import { BackendPlaybackError, type PlayerBackend } from "./backend";
 import { VideoBackend } from "../../../video/services/videoBackend";
 import { VideoWindowBackend } from "../../../video/services/videoWindowBackend";
 import { selectVideoBackend } from "./selectVideo";
+import { beginMediaLoad } from "../../../app/services/media/loadGuard";
 import { selectBackend } from "./select";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { installPreCacheScheduler } from "../queue/preCacheScheduler";
@@ -404,6 +405,7 @@ export async function playSong(
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
   const song = await resolveSongOrId(songOrId);
+  const loadGeneration = beginMediaLoad(song.sha256);
 
   // a remote target (paired freqhole-player) owns playback instead of
   // this device - playSong is queue/state-driven and gets called from
@@ -439,7 +441,7 @@ export async function playSong(
 
   try {
     const backend = ensureBackendForKind("song");
-    await backend.loadAndPlay(songToMediaItem(song), { ...options, autoPlay });
+    await backend.loadAndPlay(songToMediaItem(song), { ...options, autoPlay, loadGeneration });
   } catch (err) {
     if (
       err instanceof BackendPlaybackError &&
@@ -478,6 +480,7 @@ export async function playVideo(
   }
 ): Promise<void> {
   const userInitiated = !!options?.userInitiated;
+  const loadGeneration = beginMediaLoad(video.id);
 
   // see playSong's identical guard - no video-over-freqhole-player support
   // exists anyway (phase 6), so a remote target should never play locally.
@@ -499,7 +502,7 @@ export async function playVideo(
 
   try {
     const backend = ensureBackendForKind("video");
-    await backend.loadAndPlay(videoToMediaItem(video), { ...options, autoPlay });
+    await backend.loadAndPlay(videoToMediaItem(video), { ...options, autoPlay, loadGeneration });
   } catch (err) {
     setPendingUpNextSha256(null);
     throw err;

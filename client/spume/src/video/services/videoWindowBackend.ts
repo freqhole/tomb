@@ -15,6 +15,7 @@ import {
 } from "../../music/services/audio/backend";
 import type { PlayerCommand, PlayerEvent, PlayerSnapshot } from "@freqhole/api-client";
 import type { MediaItem } from "../../app/services/storage/mediaItem";
+import { isMediaLoadCurrent } from "../../app/services/media/loadGuard";
 import { debug, warn } from "../../utils/logger";
 import { resolveLocalVideoPath } from "./localVideo";
 import {
@@ -49,6 +50,10 @@ export class VideoWindowBackend implements PlayerBackend {
     // gstreamer reads from the filesystem, so a browser blob/object url is no
     // use here - the item has to exist as a real file.
     const path = await resolveLocalVideoPath(item.video);
+    if (!isMediaLoadCurrent(item.video.id, options?.loadGeneration)) {
+      debug("videoWindowBackend", `skipping cancelled load for ${item.video.id}`);
+      return;
+    }
     if (!path) {
       // TEMP(video-window): distinguish a selector problem from an unavailable
       // local path in the next Linux playback log.

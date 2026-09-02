@@ -16,6 +16,7 @@ import {
 } from "../../../app/services/storage/mediaItem";
 import { preCacheNextP2PSongs } from "../storage/blobResolver";
 import { initQueueDeparturePurge } from "./purgeDepartedMedia";
+import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
 import { preCacheNextVideos } from "../../../video/services/videoPreCache";
 import {
   clearPendingUpNext,
@@ -102,6 +103,18 @@ function triggerImmediatePreCache(
 export { getQueueSizeLimit } from "./queueLimit";
 
 initQueueDeparturePurge();
+
+// `clearSongsAbove`/`clearSongsBelow` can remove the playing item without
+// taking the removeFromQueue branch. The departure stream is the exhaustive
+// place to stop HTML, Rodio, or the separate video window in that case.
+registerQueueDeparture((departed) => {
+  const current = appState()?.current_sha256;
+  if (current && departed.some((item) => mediaItemKey(item) === current)) {
+    stop();
+    void setCurrentSong(null);
+    clearPendingUpNext();
+  }
+});
 
 // when radio takes over, wipe the music queue so a stray `ended`/`error`
 // from the previously-loaded song can't auto-advance into another music

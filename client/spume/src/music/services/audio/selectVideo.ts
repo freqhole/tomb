@@ -15,7 +15,10 @@
 import { isCharnelMode } from "../../../app/services/charnel/mode";
 import { isRodioEnabled } from "./rodioPreference";
 import { debug } from "../../../utils/logger";
-import { isVideoWindowAvailable } from "../../../video/services/videoWindowClient";
+import {
+  getVideoWindowDiagnostics,
+  isVideoWindowAvailable,
+} from "../../../video/services/videoWindowClient";
 import type { PlayerBackend } from "./backend";
 
 let windowBackendAvailable = false;
@@ -32,6 +35,9 @@ export async function initVideoWindowPreference(): Promise<void> {
   console.info(
     `[video-window] availability=${windowBackendAvailable} experimental=${isRodioEnabled()}`
   );
+  if (windowBackendAvailable) {
+    void getVideoWindowDiagnostics();
+  }
   debug("videoSelect", `video window available: ${windowBackendAvailable}`);
 }
 

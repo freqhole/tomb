@@ -128,6 +128,10 @@ mod desktop {
         };
         let uuid = super::linux_mounts::lookup_by_link("/dev/disk/by-uuid", &source);
         let label = super::linux_mounts::lookup_by_link("/dev/disk/by-label", &source)
+            // A Flatpak document portal mounts its opaque grant directory,
+            // not the removable drive. The selected folder after that grant
+            // is the only useful display name available in the sandbox.
+            .or_else(|| portal_selected_name(path))
             // udisks/gvfs mount removable media at /run/media/<user>/<label>
             // (or /media/<label>), so the basename is the label when
             // /dev/disk/by-label isn't visible (e.g. inside a sandbox).
@@ -138,6 +142,19 @@ mod desktop {
                     .map(|s| s.to_string())
             });
         (label, uuid)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn portal_selected_name(path: &str) -> Option<String> {
+        let is_portal_path = path.starts_with("/run/user/") && path.contains("/doc/");
+        if !is_portal_path {
+            return None;
+        }
+        std::path::Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
     }
 
     #[cfg(target_os = "windows")]

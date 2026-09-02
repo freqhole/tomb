@@ -15,10 +15,25 @@ pub mod backend;
 mod gst;
 
 use backend::{VideoCommand, VideoEvent};
+use serde::Serialize;
 use tauri::{AppHandle, Wry};
 
 /// name of the tauri event the webview subscribes to for playback updates.
 pub const VIDEO_EVENT: &str = "video-window-event";
+
+/// startup diagnostic for the separate Linux video window. this deliberately
+/// opens no window and loads no media; it verifies only that the runtime has
+/// the exact GStreamer pieces the playback implementation will request.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoWindowDiagnostics {
+    pub available: bool,
+    pub gstreamer_version: Option<String>,
+    pub playbin3_available: bool,
+    pub gtksink_available: bool,
+    pub gtkglsink_available: bool,
+    pub error: Option<String>,
+}
 
 /// emit a `VideoEvent` to the webview. lives here rather than in the linux
 /// module so the event name has a single definition.
@@ -37,6 +52,31 @@ pub fn video_window_available() -> bool {
 }
 
 #[tauri::command]
+pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
+    #[cfg(target_os = "linux")]
+    {
+        return gst::diagnostics();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        VideoWindowDiagnostics {
+            available: false,
+            gstreamer_version: None,
+            playbin3_available: false,
+            gtksink_available: false,
+            gtkglsink_available: false,
+            error: Some("the separate video window is linux-only".to_string()),
+        }
+    }
+}
+
+/// compatibility alias for development builds made before the command rename.
+#[tauri::command]
+pub fn native_video_available() -> bool {
+    video_window_available()
+}
+
+#[tauri::command]
 pub async fn video_window_command(
     app: AppHandle<Wry>,
     command: VideoCommand,
@@ -50,4 +90,13 @@ pub async fn video_window_command(
         let _ = (app, command);
         Err("the separate video window is linux-only".to_string())
     }
+}
+
+/// compatibility alias for development builds made before the command rename.
+#[tauri::command]
+pub async fn native_video_command(
+    app: AppHandle<Wry>,
+    command: VideoCommand,
+) -> Result<(), String> {
+    video_window_command(app, command).await
 }

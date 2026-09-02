@@ -29,6 +29,7 @@ import { appState } from "../../../../app/services/storage/db";
 import { createEffect, createRoot } from "solid-js";
 import type { Song } from "../../storage/types";
 import type { MediaItem } from "../../../../app/services/storage/mediaItem";
+import { isMediaLoadCurrent } from "../../../../app/services/media/loadGuard";
 import { debug, error as errorLog } from "../../../../utils/logger";
 
 // matches `PLAYER_EVENT` in client/charnel/src-tauri/src/player_commands.rs.
@@ -332,11 +333,20 @@ export class RodioBackend implements PlayerBackend {
       }
     }
 
+    if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+      debug("player.rodio", `skipping cancelled load for ${song.sha256.slice(0, 8)}`);
+      return;
+    }
+
     // optimistically reflect the new song in spume's app state. the
     // facade callers expect `setCurrentSong` to land before audio
     // begins so the UI doesn't briefly show the wrong track.
     bridgeClearExternal();
     await setCurrentSong(song.sha256);
+
+    if (!isMediaLoadCurrent(song.sha256, options?.loadGeneration)) {
+      return;
+    }
 
     debug("player.rodio", `load: "${song.title}" (${song.sha256.slice(0, 8)}) -> ${path}`);
 

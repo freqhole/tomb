@@ -653,6 +653,11 @@ export function AppLayout(props: AppLayoutProps) {
         const updateExternalStorageMounted = async () => {
           try {
             const mounted = await listMountedExternalStorageDevices();
+            // TEMP(external-storage): makes an absent playerbar icon
+            // diagnosable as a mount-query result rather than a render issue.
+            console.info(
+              `[external-storage] playerbar mounted=${mounted.length} ids=${mounted.map((d) => d.id).join(",")}`
+            );
             setExternalStorageMounted(mounted.length > 0);
           } catch (error) {
             console.error("failed to check mounted external storage devices:", error);

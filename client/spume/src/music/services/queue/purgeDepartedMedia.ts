@@ -10,6 +10,9 @@
 
 import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
 import type { MediaItem } from "../../../app/services/storage/mediaItem";
+import { mediaItemKey } from "../../../app/services/storage/mediaItem";
+import { cancelMediaLoads } from "../../../app/services/media/loadGuard";
+import { cancelPendingAutoDownloads } from "../autoDownload/manager";
 import { evictCachedBlob } from "../cache/blobCache";
 import { cancelP2PDownload, evictP2PBlob } from "../storage/blobResolver";
 import { debug } from "../../../utils/logger";
@@ -73,6 +76,11 @@ export async function purgeDepartedMedia(
   items: MediaItem[],
   remaining: MediaItem[] = []
 ): Promise<void> {
+  // cancel before any async cache deletion: a load resolving at this moment
+  // must see the invalid generation before it can start playback.
+  cancelMediaLoads(items.map(mediaItemKey));
+  cancelPendingAutoDownloads(items);
+
   for (const item of items) {
     const target = cacheKeysFor(item);
     if (!target) continue;

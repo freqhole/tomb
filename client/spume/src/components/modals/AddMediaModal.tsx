@@ -268,7 +268,11 @@ export function AddMediaModal(props: AddMediaModalProps) {
     const picked = await pickFiles({
       kind: "media",
       multiple: true,
-      readBytes: true,
+      // desktop Tauri callers receive real filesystem paths. Reading here
+      // eagerly buffered every selected video into the WebView before the
+      // path-based local/remote import code immediately discarded it.
+      // Android still reads content:// entries unconditionally in filePicker.
+      readBytes: false,
       title: "select media files",
     });
     if (picked.length === 0) return;

@@ -96,9 +96,9 @@ objc2-disk-arbitration = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
 udev = "0.9.3"
-# linux video plays in a separate gstreamer window (see
-# docs/linux-video-window-plan.md). gstreamer itself is already in-process -
-# webkitgtk depends on it - so this adds bindings, not a new runtime dep.
+# linux video plays in a separate gstreamer window. gstreamer itself is already
+# in-process - webkitgtk depends on it - so this adds bindings, not a new
+# runtime dep.
 # note: gstreamer-play (GstPlay) lives in gst-plugins-bad, unlike playbin3.
 #
 # VERSION LOCK: these must be the gstreamer-rs line built on **glib 0.18**,

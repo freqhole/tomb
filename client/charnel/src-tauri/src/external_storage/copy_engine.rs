@@ -69,7 +69,13 @@ pub async fn sync_song_to_device(
     let subpath = device
         .subpath
         .clone()
+        .filter(|path| !path.trim().is_empty())
         .unwrap_or_else(|| config.external_storage_default_subpath.clone());
+    let subpath = if subpath.trim().is_empty() {
+        "Music".to_string()
+    } else {
+        subpath
+    };
     let music_root = Path::new(&device.path).join(&subpath);
 
     let song_response = get_song(song_id).await;

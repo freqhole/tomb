@@ -9,6 +9,7 @@ const readVideoFromOPFS = vi.fn();
 const isCharnelMode = vi.fn(() => false);
 const convertFileSrc = vi.fn((p: string) => `asset://localhost/${p}`);
 const syncVideoToLocal = vi.fn(async () => ({ success: false }) as Record<string, unknown>);
+const invoke = vi.fn();
 
 vi.mock("./storage/db/videos", () => ({
   getLocalVideoById: (...a: unknown[]) => getLocalVideoById(...a),
@@ -25,6 +26,7 @@ vi.mock("../../app/services/charnel", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (p: string) => convertFileSrc(p),
+  invoke: (...a: unknown[]) => invoke(...(a as [])),
 }));
 
 import { resolveLocalVideoUrl, resolveLocalVideoPath } from "./localVideo";
@@ -67,6 +69,24 @@ describe("resolveLocalVideoUrl under charnel", () => {
     );
   });
 
+  it("buffers an asset url into a blob url for the HTML video fallback", async () => {
+    const fetch = vi.fn(async () => new Response(new Blob(["video"]), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await resolveLocalVideoUrl("v1", "/var/lib/freqhole/v1.mp4", true)).toBe(
+      "blob:local-video"
+    );
+    expect(fetch).toHaveBeenCalledWith("asset://localhost//var/lib/freqhole/v1.mp4");
+  });
+
+  it("returns null when buffering the asset url fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 }))
+    );
+    expect(await resolveLocalVideoUrl("v1", "/var/lib/freqhole/v1.mp4", true)).toBeNull();
+  });
+
   it("returns null without a local path rather than reading OPFS", async () => {
     expect(await resolveLocalVideoUrl("v1")).toBeNull();
     expect(getLocalVideoById).not.toHaveBeenCalled();
@@ -92,6 +112,19 @@ describe("resolveLocalVideoPath", () => {
       const v = video({ source_type: "local", opfs_path: "/media/v1.mp4" });
       expect(await resolveLocalVideoPath(v)).toBe("/media/v1.mp4");
       expect(syncVideoToLocal).not.toHaveBeenCalled();
+    });
+
+    it("resolves a library video's media blob to a filesystem path", async () => {
+      invoke.mockResolvedValue({ path: "/library/video.mp4" });
+      const v = video({ source_type: "synced", media_blob_id: "local-blob" });
+      expect(await resolveLocalVideoPath(v)).toBe("/library/video.mp4");
+      expect(invoke).toHaveBeenCalledWith("resolve_blob_path", { blobId: "local-blob" });
+    });
+
+    it("returns null when grimoire cannot resolve the local blob", async () => {
+      invoke.mockRejectedValue(new Error("not found"));
+      const v = video({ source_type: "synced", media_blob_id: "local-blob" });
+      expect(await resolveLocalVideoPath(v)).toBeNull();
     });
 
     it("syncs a remote video and uses the path grimoire reports", async () => {

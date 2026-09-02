@@ -48,6 +48,7 @@ interface JobProgressPayload {
   songs_added: number;
   jobs_pending: number;
   jobs_total: number;
+  domain?: "music" | "video";
 }
 
 interface JobSessionCompletePayload {
@@ -55,6 +56,7 @@ interface JobSessionCompletePayload {
   songs_added: number;
   albums_added: number;
   artists_added: number;
+  domain?: "music" | "video";
 }
 
 export default function LibraryView() {
@@ -117,6 +119,7 @@ export default function LibraryView() {
             songs_added?: number;
             jobs_pending?: number;
             jobs_total?: number;
+            domain?: "music" | "video";
           };
           setScanProgress({
             session_id: evt.session_id ?? "",
@@ -124,6 +127,7 @@ export default function LibraryView() {
             songs_added: d.songs_added ?? 0,
             jobs_pending: d.jobs_pending ?? 0,
             jobs_total: d.jobs_total ?? 0,
+            domain: d.domain,
           });
           setScanSummary(null);
         } else if (evt.kind === "completed") {
@@ -131,12 +135,14 @@ export default function LibraryView() {
             songs_added?: number;
             albums_added?: number;
             artists_added?: number;
+            domain?: "music" | "video";
           };
           setScanSummary({
             session_id: evt.session_id ?? "",
             songs_added: d.songs_added ?? 0,
             albums_added: d.albums_added ?? 0,
             artists_added: d.artists_added ?? 0,
+            domain: d.domain,
           });
           setScanProgress(null);
           // refresh directory file counts after scan completes
@@ -609,11 +615,12 @@ export default function LibraryView() {
             const total = () => p().jobs_total || 0;
             const done = () => Math.max(0, total() - (p().jobs_pending || 0));
             const pct = () => (total() > 0 ? Math.round((done() / total()) * 100) : 0);
+            const noun = () => (p().domain === "video" ? "video" : "music");
             return (
               <div class="scan-progress-card">
                 <div class="scan-progress-header">
                   <div class="spinner" />
-                  <span>importing music...</span>
+                  <span>importing {noun()}...</span>
                   <span class="scan-progress-counts">
                     {done()} / {total()} jobs
                   </span>
@@ -622,7 +629,7 @@ export default function LibraryView() {
                   <div class="scan-progress-bar-fill" style={{ width: `${pct()}%` }} />
                 </div>
                 <Show when={p().directory}>
-                  <div class="scan-progress-stats">{p().directory}</div>
+                  <div class="scan-progress-stats">{directoryDisplayName(p().directory!)}</div>
                 </Show>
                 <div class="scan-progress-stats">{p().songs_added} processed</div>
               </div>
@@ -635,11 +642,12 @@ export default function LibraryView() {
           {(s) => {
             const nothingNew = () =>
               s().songs_added === 0 && s().albums_added === 0 && s().artists_added === 0;
+            const noun = () => (s().domain === "video" ? "videos" : "songs");
             return (
               <div class="scan-progress-card success">
                 <Show when={nothingNew()}>scan complete</Show>
                 <Show when={!nothingNew()}>
-                  import complete: {s().songs_added} songs
+                  import complete: {s().songs_added} {noun()}
                   <Show when={s().albums_added > 0}> · {s().albums_added} albums</Show>
                   <Show when={s().artists_added > 0}> · {s().artists_added} artists</Show>
                 </Show>

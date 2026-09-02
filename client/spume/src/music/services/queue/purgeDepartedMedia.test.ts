@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const evictCachedBlob = vi.fn(async () => {});
 const evictP2PBlob = vi.fn(async () => {});
 const cancelP2PDownload = vi.fn(() => {});
+const cancelPendingAutoDownloads = vi.fn(() => {});
 
 vi.mock("../cache/blobCache", () => ({
   evictCachedBlob: (...args: unknown[]) => evictCachedBlob(...(args as [])),
@@ -18,6 +19,9 @@ vi.mock("../cache/blobCache", () => ({
 vi.mock("../storage/blobResolver", () => ({
   evictP2PBlob: (...args: unknown[]) => evictP2PBlob(...(args as [])),
   cancelP2PDownload: (...args: unknown[]) => cancelP2PDownload(...(args as [])),
+}));
+vi.mock("../autoDownload/manager", () => ({
+  cancelPendingAutoDownloads: (...args: unknown[]) => cancelPendingAutoDownloads(...(args as [])),
 }));
 
 import type { MediaItem } from "../../../app/services/storage/mediaItem";
@@ -57,9 +61,16 @@ beforeEach(() => {
   evictCachedBlob.mockClear();
   evictP2PBlob.mockClear();
   cancelP2PDownload.mockClear();
+  cancelPendingAutoDownloads.mockClear();
 });
 
 describe("purgeDepartedMedia", () => {
+  it("cancels pending auto-download work before cache cleanup", async () => {
+    const item = remoteSong();
+    await purgeDepartedMedia([item]);
+    expect(cancelPendingAutoDownloads).toHaveBeenCalledWith([item]);
+  });
+
   it("evicts a departed remote song under its media_blob_id", async () => {
     await purgeDepartedMedia([remoteSong()]);
     expect(evictedKeys()).toContain("blob-1");

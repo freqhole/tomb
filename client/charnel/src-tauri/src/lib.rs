@@ -874,7 +874,10 @@ pub fn run() {
             wizard::close_setup_wizard,
             // separate video window (linux; stubbed elsewhere)
             video_window::video_window_available,
+            video_window::video_window_diagnostics,
             video_window::video_window_command,
+            video_window::native_video_available,
+            video_window::native_video_command,
             // P2P native transport commands
             p2p_commands::p2p_is_available,
             p2p_commands::p2p_get_node_id,

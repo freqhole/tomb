@@ -509,6 +509,9 @@ export default function SettingsView() {
                     style={{
                       "font-size": "0.75rem",
                       color: "var(--color-text-muted, #666)",
+                      "max-width": "min(100%, 22rem)",
+                      "overflow-wrap": "anywhere",
+                      "word-break": "break-word",
                     }}
                   >
                     {serverConfig()?.image_path}

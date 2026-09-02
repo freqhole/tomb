@@ -21,6 +21,7 @@ import {
 import type { MediaItem } from "../../app/services/storage/mediaItem";
 import { setCurrentSong } from "../../app/services/storage/db";
 import { getVideoURL } from "./videoBlobAccess";
+import { isMediaLoadCurrent } from "../../app/services/media/loadGuard";
 import { installVideoPlaybackOrchestrator } from "./queue/videoPlaybackOrchestrator";
 import { error as errorLog, debug } from "../../utils/logger";
 import { registerWatchdog } from "../../music/services/audio/mediaSessionBridge";
@@ -217,6 +218,10 @@ export class VideoBackend implements PlayerBackend {
       // video-window branch was not selected.
       console.info(`[video-window] html backend loading ${video.id}`);
       url = await getVideoURL(video, onProgress);
+      if (!isMediaLoadCurrent(video.id, options?.loadGeneration)) {
+        debug("player.video", `skipping cancelled load for ${video.id}`);
+        return;
+      }
     } catch (err) {
       errorLog(
         "player.video",
@@ -238,6 +243,9 @@ export class VideoBackend implements PlayerBackend {
     }
 
     this.currentVideoId = video.id;
+    // TEMP(video-window): proves the scheme actually assigned to WebKitGTK.
+    // off mode must report blob:, never asset:.
+    console.info(`[video-window] html src=${url.slice(0, 24)}`);
     el.src = url;
 
     // update app state — AppLayout/PlayerBar watch `current_sha256` to

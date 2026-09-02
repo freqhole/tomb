@@ -2,7 +2,7 @@ import { createSignal, Show, onMount, onCleanup, For } from "solid-js";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "@solidjs/router";
-import { resolvePath } from "../util/resolvePath";
+import { resolvePath, directoryDisplayName } from "../util/resolvePath";
 
 // step flow: welcome → config → running → admin → music → done
 type SetupStep = "welcome" | "config" | "running" | "admin" | "music" | "done";
@@ -95,6 +95,7 @@ export default function SetupView() {
     songsAdded: number;
     jobsPending: number;
     jobsTotal: number;
+    domain: "music" | "video";
   } | null>(null);
   const [jobsComplete, setJobsComplete] = createSignal(false);
   // cleanup function for event listener
@@ -147,12 +148,14 @@ export default function SetupView() {
             songs_added?: number;
             jobs_pending?: number;
             jobs_total?: number;
+            domain?: "music" | "video";
           };
           setJobProgress({
             directory: d.directory ?? "",
             songsAdded: d.songs_added ?? 0,
             jobsPending: d.jobs_pending ?? 0,
             jobsTotal: d.jobs_total ?? 0,
+            domain: d.domain ?? "music",
           });
         } else if (evt.kind === "completed") {
           setJobsComplete(true);
@@ -929,17 +932,20 @@ export default function SetupView() {
               >
                 <span class="spinner" />
                 <span style={{ color: "#ec4899", "font-weight": "500" }}>
-                  importing music
+                  importing {jobProgress()?.domain === "video" ? "video" : "music"}
                   <span class="dots-animation" />
                 </span>
               </div>
               <div style={{ color: "#a1a1aa", "font-size": "0.875rem" }}>
                 <Show when={jobProgress()?.directory}>
-                  <div style={{ "margin-bottom": "0.25rem" }}>{jobProgress()?.directory}</div>
+                  <div style={{ "margin-bottom": "0.25rem" }}>
+                    {directoryDisplayName(jobProgress()!.directory)}
+                  </div>
                 </Show>
                 <div>
-                  {jobProgress()?.songsAdded} songs added • {jobProgress()?.jobsPending} of{" "}
-                  {jobProgress()?.jobsTotal} remaining
+                  {jobProgress()?.songsAdded}{" "}
+                  {jobProgress()?.domain === "video" ? "videos" : "songs"} added •{" "}
+                  {jobProgress()?.jobsPending} of {jobProgress()?.jobsTotal} remaining
                 </div>
               </div>
             </div>
@@ -956,7 +962,8 @@ export default function SetupView() {
                 color: "#22c55e",
               }}
             >
-              import complete! {jobProgress()?.songsAdded} songs added.
+              import complete! {jobProgress()?.songsAdded}{" "}
+              {jobProgress()?.domain === "video" ? "videos" : "songs"} added.
             </div>
           </Show>
 
