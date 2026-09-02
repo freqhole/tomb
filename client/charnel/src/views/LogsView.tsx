@@ -10,7 +10,8 @@ interface LogEntry {
 export default function LogsView() {
   const [logs, setLogs] = createSignal<LogEntry[]>([]);
   const [autoRefresh, setAutoRefresh] = createSignal(true);
-  const [clearedAt, setClearedAt] = createSignal<string | null>(null);
+  const [copied, setCopied] = createSignal(false);
+  const [clearedAt, setClearedAt] = createSignal<number | null>(null);
   let logsInterval: number | undefined;
 
   onMount(() => {
@@ -40,14 +41,17 @@ export default function LogsView() {
         maxLines: 500,
       });
 
-      // filter out logs before clearedAt timestamp
+      // continuation lines inherit the preceding entry's timestamp so old
+      // multiline output does not return on the next refresh after clearing.
       const cleared = clearedAt();
-      const filtered = cleared
-        ? result.filter((entry) => {
-            if (!entry.timestamp) return true; // keep entries without timestamp
-            return entry.timestamp > cleared;
-          })
-        : result;
+      let entryTime: number | null = null;
+      const filtered = result.filter((entry) => {
+        if (entry.timestamp) {
+          const parsed = Date.parse(entry.timestamp);
+          entryTime = Number.isNaN(parsed) ? null : parsed;
+        }
+        return cleared === null || (entryTime !== null && entryTime > cleared);
+      });
 
       // reverse so newest is at top
       setLogs([...filtered].reverse());
@@ -57,9 +61,22 @@ export default function LogsView() {
   }
 
   function clearLogs() {
-    // set the clear timestamp to now - logs after this will show
-    setClearedAt(new Date().toISOString());
+    setClearedAt(Date.now());
     setLogs([]);
+  }
+
+  async function copyLogs() {
+    try {
+      await navigator.clipboard.writeText(
+        logs()
+          .map((entry) => entry.line)
+          .join("\n"),
+      );
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("failed to copy logs:", error);
+    }
   }
 
   function getLevelClass(level: string | null): string {
@@ -84,15 +101,14 @@ export default function LogsView() {
         </h1>
         <div class="header-actions">
           <label class="toggle-label">
-            <input
-              type="checkbox"
-              checked={autoRefresh()}
-              onChange={toggleAutoRefresh}
-            />
+            <input type="checkbox" checked={autoRefresh()} onChange={toggleAutoRefresh} />
             auto-refresh
           </label>
           <button class="secondary small" onClick={fetchLogs}>
             refresh
+          </button>
+          <button class="secondary small" onClick={copyLogs} disabled={logs().length === 0}>
+            {copied() ? "copied!" : "copy all"}
           </button>
           <button class="secondary small" onClick={clearLogs}>
             clear
@@ -105,11 +121,7 @@ export default function LogsView() {
           <p class="empty">no logs yet - waiting for activity</p>
         </Show>
         <For each={logs()}>
-          {(entry) => (
-            <div class={`log-line ${getLevelClass(entry.level)}`}>
-              {entry.line}
-            </div>
-          )}
+          {(entry) => <div class={`log-line ${getLevelClass(entry.level)}`}>{entry.line}</div>}
         </For>
       </div>
     </div>

@@ -5,7 +5,6 @@ import {
   toggleMaximizeWindow,
   closeWindow,
   startDraggingWindow,
-  startResizingWindow,
   openSetupWizard,
 } from "../../app/services/charnel/commands";
 import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
@@ -58,6 +57,7 @@ export function TitleBarStrip() {
   const [focused, setFocused] = createSignal(true);
   const [hovered, setHovered] = createSignal(false);
   const [resizeHovered, setResizeHovered] = createSignal(false);
+  let beginResize: (() => void) | undefined;
   // narrow (mobile top nav) only shows the close dot - the cluster's width
   // stays fixed either way so the drag handle + right-click context menu
   // keep the same reserved space regardless of button count.
@@ -93,6 +93,11 @@ export function TitleBarStrip() {
         // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
+        beginResize = () => {
+          void win
+            .startResizeDragging("SouthEast")
+            .catch((error) => console.error("startResizeDragging failed:", error));
+        };
         setFocused(await win.isFocused());
         unlistenFocus = await win.onFocusChanged(({ payload }) => setFocused(payload));
       } catch (error) {
@@ -257,11 +262,11 @@ export function TitleBarStrip() {
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
-          void startResizingWindow("SouthEast");
+          beginResize?.();
         }}
       >
         <Show when={resizeHovered()}>
-          <svg viewBox="0 0 16 16" class="w-4 h-4">
+          <svg viewBox="0 0 16 16" class="w-4 h-4 pointer-events-none">
             <path
               d="M14 2L2 14M14 8L8 14"
               stroke="var(--color-accent-500)"

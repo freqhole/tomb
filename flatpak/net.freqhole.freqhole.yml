@@ -13,6 +13,8 @@ finish-args:
   - --device=dri
   # audio playback
   - --socket=pulseaudio
+  # MPRIS media controls
+  - --own-name=org.mpris.MediaPlayer2.freqhole
   # network access (for connecting to remotes)
   - --share=network
   # file access for music directories

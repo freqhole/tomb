@@ -232,7 +232,10 @@ export function TitleBarStrip() {
         }}
       >
         <Show when={resizeHovered()}>
-          <svg viewBox="0 0 16 16" style={{ width: "16px", height: "16px" }}>
+          <svg
+            viewBox="0 0 16 16"
+            style={{ width: "16px", height: "16px", "pointer-events": "none" }}
+          >
             <path
               d="M14 2L2 14M14 8L8 14"
               stroke="#ff1a9e"

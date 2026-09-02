@@ -65,7 +65,7 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       {/* on wide: always visible */}
       <Show when={local.alphabetNav}>
         <div
-          class={`flex-shrink-0 wide:pt-[var(--chrome-top-inset,0px)] ${local.showDetail ? "hidden wide:block" : "block"}`}
+          class={`flex-shrink-0 pt-[var(--nav-height,42px)] wide:pt-[var(--chrome-top-inset,0px)] ${local.showDetail ? "hidden wide:block" : "block"}`}
         >
           {local.alphabetNav}
         </div>

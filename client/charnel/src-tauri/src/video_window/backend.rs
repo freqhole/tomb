@@ -204,6 +204,18 @@ pub fn clamp_seek(seconds: f64, duration: Option<f64>) -> f64 {
     }
 }
 
+/// fit a video's source dimensions within the initial GST window bounds while
+/// preserving its aspect ratio. later user resizing is never constrained.
+pub fn fit_initial_window(source_width: i32, source_height: i32) -> (i32, i32) {
+    const MAX_WIDTH: f64 = 960.0;
+    const MAX_HEIGHT: f64 = 720.0;
+    let scale = (MAX_WIDTH / source_width as f64).min(MAX_HEIGHT / source_height as f64);
+    (
+        (source_width as f64 * scale).round() as i32,
+        (source_height as f64 * scale).round() as i32,
+    )
+}
+
 /// map a gstreamer error into a stable `error_type`. kept here (rather than in
 /// the linux-only module) so the classification is testable everywhere.
 pub fn classify_error(message: &str) -> &'static str {
@@ -244,6 +256,13 @@ mod tests {
     #[test]
     fn allows_any_seek_when_duration_is_unknown() {
         assert_eq!(clamp_seek(42.0, None), 42.0);
+    }
+
+    #[test]
+    fn initial_window_preserves_landscape_and_portrait_aspect_ratios() {
+        assert_eq!(fit_initial_window(1920, 1080), (960, 540));
+        assert_eq!(fit_initial_window(1080, 1920), (405, 720));
+        assert_eq!(fit_initial_window(320, 240), (960, 720));
     }
 
     #[test]

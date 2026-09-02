@@ -48,6 +48,7 @@ import {
 } from "./playerState";
 import { debug, warn } from "../../../utils/logger";
 import { appState } from "../../../app/services/storage/db";
+import { toast } from "../../../components/feedback/Toast";
 import {
   mediaItemKey,
   songToMediaItem,
@@ -266,13 +267,23 @@ function bindAutoAdvance(backend: PlayerBackend): void {
       // doesn't loop forever. DECODE errors are permanent (the file
       // itself is bad), so call that out distinctly rather than
       // implying a retry would help.
+      const state = appState();
+      const current = state?.current_sha256 ?? null;
+      const item = current ? state?.queue.find((i) => mediaItemKey(i) === current) : undefined;
+      const title = item ? (item.kind === "video" ? item.video.title : item.song.title) : null;
       if (errorType && DECODE_ELEMENT_ERROR_TYPES.has(errorType)) {
         warn(
           "player",
           `backend "${backend.kind}" decode error (file may be corrupted), not retrying — advancing queue: ${reason}`
         );
+        toast.error(title ? `couldn't play "${title}": ${reason}` : `couldn't play: ${reason}`, {
+          title: "playback error",
+        });
       } else {
         warn("player", `backend "${backend.kind}" error — advancing queue: ${reason}`);
+        toast.error(title ? `couldn't play "${title}": ${reason}` : `couldn't play: ${reason}`, {
+          title: "playback error",
+        });
       }
       void playNext();
       return;

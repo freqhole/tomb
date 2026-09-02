@@ -225,13 +225,14 @@ body {
 /* recolor the browser's default focus ring to the accent color, without
    adding one to anything that doesn't already show one. `outline-color`
    alone isn't enough: the browser default `outline-style` is `auto`, and
-   most engines (chromium, webkit, gtk-webkit) hardcode the *native*
-   platform ring color for `auto` regardless of `outline-color` - only
+  most engines (chromium, webkit, gtk-webkit) hardcode the platform
+  ring color for `auto` regardless of `outline-color` - only
    `outline-style: solid` makes them actually honor a custom color. this
    is why every focusable element still showed blue with just the color
    override, on both mac and linux. */
 :focus {
   outline-style: solid;
+  outline-width: 1px;
   outline-color: var(--color-accent-500);
 }
 
@@ -265,7 +266,7 @@ select {
 }
 
 /* interactive elements get a pointer cursor by default. anchor tags already
-   do, but native <button>s and role=button elements do not (and tailwind
+  do, but standard <button>s and role=button elements do not (and tailwind
    removed cursor:pointer on buttons in v3+). disabled buttons fall back to
    not-allowed. */
 button:not(:disabled),

@@ -568,6 +568,7 @@ pub fn run() {
                     .resizable(true)
                     .center()
                     .inner_size(800.0, 600.0)
+                    .min_inner_size(100.0, 100.0)
                     .title("freqhole setup")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));
@@ -734,6 +735,7 @@ pub fn run() {
                 #[cfg(desktop)]
                 let win_builder = win_builder
                     .inner_size(800.0, 600.0)
+                    .min_inner_size(100.0, 100.0)
                     .title("freqhole")
                     .theme(Some(Theme::Dark))
                     .background_color(Color(0, 0, 0, 255));

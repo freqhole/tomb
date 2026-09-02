@@ -737,7 +737,14 @@ export function AppLayout(props: AppLayoutProps) {
         // images already match the remote's - see syncArtistImagesOnPlay.ts.
         const remote = getCurrentRemote();
         if (remote) {
-          void syncArtistImagesForRemotePlay(remote.remote_id, itemInQueue.song);
+          void syncArtistImagesForRemotePlay(remote.remote_id, itemInQueue.song).then(
+            (artist_images) => {
+              // guard against staleness: the user may have moved on to a
+              // different song by the time this download finishes.
+              if (!artist_images || appState()?.current_sha256 !== sha256) return;
+              setCurrentSongData((prev) => (prev ? { ...prev, artist_images } : prev));
+            }
+          );
         }
       } else if (state.queue.length > 0) {
         // sha256 is set but not yet in the queue. this is a brief transitional
@@ -1560,6 +1567,7 @@ export function AppLayout(props: AppLayoutProps) {
                 album: cs.album_title,
                 images: cs.images,
                 album_images: cs.album_images,
+                artist_images: cs.artist_images,
                 isFavorite: cs.is_favorite || false,
               };
             }

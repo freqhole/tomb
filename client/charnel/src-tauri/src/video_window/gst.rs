@@ -22,7 +22,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib};
 use tauri::{AppHandle, Wry};
 
-use super::backend::{classify_error, PlayerState, VideoCommand, VideoEvent};
+use super::backend::{classify_error, fit_initial_window, PlayerState, VideoCommand, VideoEvent};
 use super::{emit_event, VideoWindowDiagnostics};
 
 thread_local! {
@@ -36,8 +36,11 @@ struct VideoWindow {
     /// exactly as long as the window rather than as a local setup variable.
     _signals: PlaySignalAdapter,
     window: gtk::Window,
-    /// hover-only close button retained for the undecorated window's lifetime
-    _close_button: Option<gtk::Widget>,
+    /// hover-only controls retained for the undecorated window's lifetime
+    overlay_controls: Vec<gtk::Widget>,
+    /// only the first decoded video sizes a newly-created window; later loads
+    /// preserve whatever size and position the user chose.
+    sized_to_video: bool,
     /// centered play/pause icon, flashed briefly on every toggle so a single
     /// click gives clear feedback about the resulting state.
     flash_icon: gtk::Image,
@@ -254,6 +257,9 @@ fn open_or_reuse(
                 .seek(gst::ClockTime::from_mseconds((start * 1000.0) as u64));
         }
         w.window.show_all();
+        for control in &w.overlay_controls {
+            control.hide();
+        }
         w.window.present();
         Ok(())
     })
@@ -286,7 +292,7 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         .unwrap_or_else(crate::app_config::default_chromeless_title_bar);
     window.set_decorated(!chromeless);
 
-    let (overlay, close_button, flash_icon) =
+    let (overlay, overlay_controls, flash_icon) =
         build_video_area(app, &window, &video_widget, chromeless);
     window.add(&overlay);
 
@@ -309,7 +315,8 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         play,
         _signals: signals,
         window,
-        _close_button: close_button,
+        overlay_controls,
+        sized_to_video: false,
         flash_icon,
         flash_timer: Rc::new(RefCell::new(None)),
         state: PlayerState::default(),
@@ -324,7 +331,7 @@ fn build_video_area(
     window: &gtk::Window,
     video: &gtk::Widget,
     chromeless: bool,
-) -> (gtk::Overlay, Option<gtk::Widget>, gtk::Image) {
+) -> (gtk::Overlay, Vec<gtk::Widget>, gtk::Image) {
     let overlay = gtk::Overlay::new();
     overlay.add(video);
 
@@ -424,7 +431,7 @@ fn build_video_area(
     tint_magenta(&flash_icon);
 
     if !chromeless {
-        return (overlay, None, flash_icon);
+        return (overlay, Vec::new(), flash_icon);
     }
 
     // gtk::Window has no `is_fullscreen()` query in this gtk-rs version, so
@@ -452,8 +459,10 @@ fn build_video_area(
     fullscreen_btn.set_halign(gtk::Align::End);
     fullscreen_btn.set_valign(gtk::Align::Start);
     fullscreen_btn.set_margin_top(12);
-    // sits just to the left of the close button.
-    fullscreen_btn.set_margin_end(44);
+    // sits to the left of the close button, with enough of a gap that their
+    // hover backgrounds don't touch (a smaller gap here previously left the
+    // two buttons' hover highlights overlapping).
+    fullscreen_btn.set_margin_end(56);
     fullscreen_btn.set_tooltip_text(Some("enter fullscreen"));
     let app_for_fullscreen_btn = app.clone();
     fullscreen_btn.connect_clicked(move |_| {
@@ -478,13 +487,21 @@ fn build_video_area(
 
     // undecorated windows lose the window manager's resize border, so drag
     // the corner ourselves - a small hover-visible grip where the window
-    // manager would otherwise put one.
-    let resize_grip = gtk::EventBox::new();
+    // manager would otherwise put one. a real `Button` (relief none, like
+    // close/fullscreen above) so it gets the same hover-highlight
+    // background instead of the plain `EventBox` this used to be, which had
+    // no hover feedback at all.
+    let resize_grip = gtk::Button::new();
+    resize_grip.set_relief(gtk::ReliefStyle::None);
     resize_grip.set_halign(gtk::Align::End);
     resize_grip.set_valign(gtk::Align::End);
     resize_grip.set_size_request(18, 18);
     resize_grip.add_events(gdk::EventMask::BUTTON_PRESS_MASK | gdk::EventMask::ENTER_NOTIFY_MASK);
-    let grip_label = gtk::Label::new(Some("\u{2571}\u{2571}"));
+    resize_grip.set_tooltip_text(Some("resize window"));
+    // a single small corner-triangle glyph rather than two oversized slash
+    // characters at default label size (which rendered as a blocky "//").
+    let grip_label = gtk::Label::new(None);
+    grip_label.set_markup("<span size='small'>\u{25E2}</span>");
     tint_magenta(&grip_label);
     resize_grip.add(&grip_label);
     resize_grip.hide();
@@ -583,7 +600,15 @@ fn build_video_area(
         glib::Propagation::Proceed
     });
 
-    (overlay, Some(close.upcast()), flash_icon)
+    (
+        overlay,
+        vec![
+            close.upcast(),
+            fullscreen_btn.upcast(),
+            resize_grip.upcast(),
+        ],
+        flash_icon,
+    )
 }
 
 /// apply the video window's magenta accent to a control widget's own color
@@ -603,6 +628,33 @@ fn tint_magenta(widget: &impl IsA<gtk::Widget>) {
 /// reason this module is as small as it is.
 fn connect_play_signals(app: &AppHandle<Wry>, play: &Play) -> PlaySignalAdapter {
     let adapter = PlaySignalAdapter::new_sync_emit(play);
+
+    adapter.connect_media_info_updated(move |_, info| {
+        let Some(video) = info.video_streams().into_iter().next() else {
+            return;
+        };
+        let (source_width, source_height) = (video.width(), video.height());
+        if source_width <= 0 || source_height <= 0 {
+            return;
+        }
+
+        WINDOW.with(|cell| {
+            let mut window = cell.borrow_mut();
+            let Some(window) = window.as_mut().filter(|window| !window.sized_to_video) else {
+                return;
+            };
+            let (width, height) = fit_initial_window(source_width, source_height);
+            window.window.resize(width, height);
+            window.sized_to_video = true;
+            tracing::info!(
+                source_width,
+                source_height,
+                width,
+                height,
+                "video_window: sized to video aspect ratio"
+            );
+        });
+    });
 
     let a = app.clone();
     adapter.connect_position_updated(move |_, pos| {

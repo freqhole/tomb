@@ -28,10 +28,11 @@ body {
 /* recolor the browser's default focus ring to the accent color - mirrors
    spume's theme.css :focus rule. outline-color alone isn't enough: the
    default outline-style is `auto`, and webkit/chromium hardcode the
-   *native* platform ring color for `auto` regardless of outline-color -
+   platform ring color for `auto` regardless of outline-color -
    only outline-style: solid makes them honor a custom color. */
 :focus {
   outline-style: solid;
+  outline-width: 1px;
   outline-color: #ff1a9e;
 }
 

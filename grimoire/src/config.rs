@@ -3,7 +3,7 @@
 //! Provides configuration loading, validation, and global storage.
 //! Config files use TOML format (supports comments).
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 use thiserror::Error;
@@ -716,6 +716,7 @@ pub struct FetchMusicConfig {
     /// Enable media fetching functionality
     pub enabled: bool,
     /// Absolute path where fetched files are temporarily stored
+    #[serde(default, deserialize_with = "deserialize_optional_output_dir")]
     pub output_dir: Option<String>,
     /// Command to extract metadata without downloading (for precheck/deduplication)
     pub precheck_command: Option<String>,
@@ -729,11 +730,22 @@ pub struct FetchVideoConfig {
     /// Enable media fetching functionality
     pub enabled: bool,
     /// Absolute path where fetched files are temporarily stored
+    #[serde(default, deserialize_with = "deserialize_optional_output_dir")]
     pub output_dir: Option<String>,
     /// Command to extract metadata without downloading (for precheck/deduplication)
     pub precheck_command: Option<String>,
     /// Command to actually fetch media files
     pub fetch_command: Option<String>,
+}
+
+const LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER: &str = "/path/to/fetch/directory";
+
+fn deserialize_optional_output_dir<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.filter(|path| !path.trim().is_empty() && path != LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER))
 }
 
 impl ServerConfig {
@@ -1748,6 +1760,14 @@ fn merge_values_into_doc(
             continue;
         }
 
+        if matches!(
+            full_path.as_str(),
+            "server.fetch_music.output_dir" | "server.fetch_video.output_dir"
+        ) && user_value.as_str() == Some(LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER)
+        {
+            continue;
+        }
+
         match user_value {
             toml::Value::Table(nested_table) => {
                 // check if this table exists in template
@@ -1824,6 +1844,33 @@ fn toml_value_to_edit_value(v: &toml::Value) -> toml_edit::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fetch_output_dir_treats_blank_and_legacy_placeholder_as_unset() {
+        for value in ["", LEGACY_FETCH_OUTPUT_DIR_PLACEHOLDER] {
+            let config: FetchMusicConfig =
+                toml::from_str(&format!("enabled = false\noutput_dir = {value:?}\n")).unwrap();
+            assert_eq!(config.output_dir, None);
+        }
+
+        let config: FetchMusicConfig =
+            toml::from_str("enabled = true\noutput_dir = \"/srv/freqhole/fetch\"\n").unwrap();
+        assert_eq!(config.output_dir.as_deref(), Some("/srv/freqhole/fetch"));
+    }
+
+    #[test]
+    fn config_upgrade_drops_legacy_fetch_output_dir_placeholder() {
+        let mut doc = CONFIG_TEMPLATE.parse::<DocumentMut>().unwrap();
+        let user: toml::Value =
+            toml::from_str("[server.fetch_music]\noutput_dir = \"/path/to/fetch/directory\"\n")
+                .unwrap();
+        merge_values_into_doc(&mut doc, user.as_table().unwrap(), "");
+
+        assert_eq!(
+            get_item_at_path(&doc, "server.fetch_music.output_dir").and_then(|item| item.as_str()),
+            Some("")
+        );
+    }
 
     #[test]
     fn test_config_helper_methods() {

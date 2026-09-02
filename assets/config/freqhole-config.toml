@@ -449,11 +449,11 @@ directory = ""
 enabled = false
 
 # REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
-# OPTIONAL when enabled=false (can omit)
+# OPTIONAL when enabled=false
 # files are downloaded here, then processed and moved to blob storage
 # must be an absolute path
-# example: "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
-output_dir = "/path/to/fetch/directory"
+# example: output_dir = "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
+output_dir = ""
 
 # OPTIONAL: command to extract metadata without downloading (default: null)
 # used for precheck/deduplication - checks if content already exists
@@ -533,9 +533,9 @@ fetch_command = "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --aud
 enabled = false
 
 # REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
-# OPTIONAL when enabled=false (can omit)
+# OPTIONAL when enabled=false
 # must be an absolute path
-output_dir = "/path/to/fetch/directory"
+output_dir = ""
 
 # OPTIONAL: command to extract metadata without downloading (default: null)
 # see [server.fetch_music].precheck_command above for details

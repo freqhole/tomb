@@ -30,7 +30,7 @@ use grimoire::player::{PlayerEvent, PlayerState as RodioPlayerState};
 use playwire::{Capabilities, Event, MediaControls, PlaybackState, PlayerConfig, Repeat, Track};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::video_window::backend::VideoEvent;
 
@@ -89,27 +89,23 @@ fn ensure_started(app: &AppHandle) -> Option<&'static SessionState> {
             let enabled = crate::app_config::FreqholeAppConfig::load(app)
                 .map(|c| c.use_rodio_playback)
                 .unwrap_or_else(crate::app_config::default_use_rodio_playback);
-            // TEMP(media-session): loud, level-independent print so this is
-            // visible even if the tracing subscriber is filtering warn/info -
-            // remove once the mac test confirms the feature works end to end.
-            eprintln!("[media-session] ensure_started: use_rodio_playback={enabled}");
+            info!(enabled, "media-session: ensure_started");
             if !enabled {
-                eprintln!("[media-session] disabled by config - not constructing MediaControls");
+                info!("media-session: disabled by config - not constructing MediaControls");
                 return None;
             }
 
             let config = PlayerConfig::new("freqhole").desktop_entry("net.freqhole.freqhole");
             let app_for_events = app.clone();
             let controls = match MediaControls::new(config, move |event| {
-                eprintln!("[media-session] event from OS: {event:?}");
+                debug!(?event, "media-session: event from OS");
                 handle_action(&app_for_events, event);
             }) {
                 Ok(c) => {
-                    eprintln!("[media-session] MediaControls::new succeeded");
+                    info!("media-session: MediaControls::new succeeded");
                     c
                 }
                 Err(e) => {
-                    eprintln!("[media-session] MediaControls::new FAILED: {e}");
                     warn!(error = %e, "media session unavailable - continuing without OS media controls");
                     return None;
                 }
@@ -167,14 +163,16 @@ fn republish(session: &SessionState) {
     let position = *session.position.lock().unwrap();
     let duration = *session.duration.lock().unwrap();
 
-    // TEMP(media-session): see ensure_started's note - remove once confirmed working.
-    eprintln!(
-        "[media-session] republish: title={:?} playing={playing} position={position:?} duration={duration:?}",
-        track.title
+    debug!(
+        title = ?track.title,
+        playing,
+        ?position,
+        ?duration,
+        "media-session: republish"
     );
 
     if track.id.is_empty() {
-        eprintln!("[media-session] republish: skipped, no track id set yet");
+        debug!("media-session: republish skipped, no track id set yet");
         return;
     }
 
@@ -202,10 +200,9 @@ fn republish(session: &SessionState) {
 
     if let Ok(mut controls) = session.controls.lock() {
         if let Err(e) = controls.set_state(&state) {
-            eprintln!("[media-session] set_state FAILED: {e}");
             warn!(error = %e, "failed to publish media session state");
         } else {
-            eprintln!("[media-session] set_state ok");
+            debug!("media-session: set_state ok");
         }
     }
 }
@@ -221,10 +218,9 @@ pub fn set_track(
     album: String,
     artwork_url: String,
 ) {
-    // TEMP(media-session): see ensure_started's note - remove once confirmed working.
-    eprintln!("[media-session] set_track: id={id} title={title:?} artist={artist:?}");
+    info!(%id, ?title, ?artist, "media-session: set_track");
     let Some(session) = ensure_started(app) else {
-        eprintln!("[media-session] set_track: no session (disabled or unavailable)");
+        info!("media-session: set_track: no session (disabled or unavailable)");
         return;
     };
     *session.track.lock().unwrap() = TrackMeta {
