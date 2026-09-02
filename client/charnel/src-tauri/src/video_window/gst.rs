@@ -38,6 +38,11 @@ struct VideoWindow {
     window: gtk::Window,
     /// hover-only close button retained for the undecorated window's lifetime
     _close_button: Option<gtk::Widget>,
+    /// centered play/pause icon, flashed briefly on every toggle so a single
+    /// click gives clear feedback about the resulting state.
+    flash_icon: gtk::Image,
+    /// pending fade-out tick for `flash_icon`; re-armed on every flash.
+    flash_timer: Rc<RefCell<Option<glib::SourceId>>>,
     state: PlayerState,
 }
 
@@ -121,8 +126,14 @@ fn with_window(f: impl FnOnce(&mut VideoWindow) -> Result<(), String>) -> Result
 
 fn apply(w: &mut VideoWindow, command: &VideoCommand) -> Result<(), String> {
     match command {
-        VideoCommand::Play => w.play.play(),
-        VideoCommand::Pause => w.play.pause(),
+        VideoCommand::Play => {
+            w.play.play();
+            flash_icon(w, "media-playback-start-symbolic");
+        }
+        VideoCommand::Pause => {
+            w.play.pause();
+            flash_icon(w, "media-playback-pause-symbolic");
+        }
         VideoCommand::Seek { seconds } => w
             .play
             .seek(gst::ClockTime::from_mseconds((seconds * 1000.0) as u64)),
@@ -143,17 +154,63 @@ fn set_fullscreen(w: &mut VideoWindow, fullscreen: bool) {
     }
 }
 
-fn close_window() {
-    WINDOW.with(|cell| {
-        if let Some(w) = cell.borrow_mut().as_mut() {
-            if w.state.fullscreen {
-                set_fullscreen(w, false);
-            }
-            w.play.stop();
-            w.window.close();
-            let _ = cell.borrow_mut().take();
+/// show the centered play/pause icon at full opacity, hold briefly, then
+/// step its opacity down to nothing over a handful of ticks. cancels any
+/// fade already in progress so rapid toggles don't stack timers.
+fn flash_icon(w: &VideoWindow, icon_name: &str) {
+    if let Some(id) = w.flash_timer.borrow_mut().take() {
+        id.remove();
+    }
+    w.flash_icon
+        .set_from_icon_name(Some(icon_name), gtk::IconSize::Dialog);
+    w.flash_icon.set_opacity(1.0);
+    w.flash_icon.set_visible(true);
+
+    // ~40 ticks * 40ms: ~1.2s held at full opacity, then fades over the
+    // last 10 ticks (~400ms), then hides.
+    const HOLD_AND_FADE_TICKS: u32 = 40;
+    const FADE_TICKS: u32 = 10;
+    let remaining = Rc::new(std::cell::Cell::new(HOLD_AND_FADE_TICKS));
+    let image = w.flash_icon.clone();
+    let timer_ref = w.flash_timer.clone();
+    let id = glib::timeout_add_local(std::time::Duration::from_millis(40), move || {
+        let ticks_left = remaining.get();
+        if ticks_left == 0 {
+            image.set_visible(false);
+            *timer_ref.borrow_mut() = None;
+            return glib::ControlFlow::Break;
         }
+        if ticks_left <= FADE_TICKS {
+            image.set_opacity(ticks_left as f64 / FADE_TICKS as f64);
+        }
+        remaining.set(ticks_left - 1);
+        glib::ControlFlow::Continue
     });
+    *w.flash_timer.borrow_mut() = Some(id);
+}
+
+fn close_window() {
+    // take the window out of the cell *before* calling `window.close()`.
+    // gtk's `Window::close()` synchronously fires "delete-event" on the same
+    // call stack, and that handler also does `cell.borrow_mut().take()` - if
+    // this function still held its own `borrow_mut()` across the call (the
+    // previous version matched on `cell.borrow_mut().as_mut()` and kept that
+    // borrow alive through `w.window.close()`), the reentrant borrow panics
+    // the gtk main thread. that's almost certainly why the in-window close
+    // button silently "didn't work" (really: panicked/hung the main loop)
+    // and is a strong suspect for the "app not responsive" popups when the
+    // queue is cleared while a video is playing (which also routes through
+    // this same close path).
+    let mut taken = WINDOW.with(|cell| cell.borrow_mut().take());
+    if let Some(w) = taken.as_mut() {
+        if w.state.fullscreen {
+            w.window.unfullscreen();
+        }
+        w.play.stop();
+    }
+    if let Some(w) = taken {
+        w.window.close();
+    }
 }
 
 /// open the window (creating it on first use) and start the given file.
@@ -229,7 +286,8 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         .unwrap_or_else(crate::app_config::default_chromeless_title_bar);
     window.set_decorated(!chromeless);
 
-    let (overlay, close_button) = build_video_area(app, &window, &video_widget, chromeless);
+    let (overlay, close_button, flash_icon) =
+        build_video_area(app, &window, &video_widget, chromeless);
     window.add(&overlay);
 
     // closing via the window manager must tell the webview, so the playerbar
@@ -252,6 +310,8 @@ fn build_window(app: &AppHandle<Wry>) -> Result<VideoWindow, String> {
         _signals: signals,
         window,
         _close_button: close_button,
+        flash_icon,
+        flash_timer: Rc::new(RefCell::new(None)),
         state: PlayerState::default(),
     })
 }
@@ -264,7 +324,7 @@ fn build_video_area(
     window: &gtk::Window,
     video: &gtk::Widget,
     chromeless: bool,
-) -> (gtk::Overlay, Option<gtk::Widget>) {
+) -> (gtk::Overlay, Option<gtk::Widget>, gtk::Image) {
     let overlay = gtk::Overlay::new();
     overlay.add(video);
 
@@ -323,7 +383,13 @@ fn build_video_area(
         glib::Propagation::Proceed
     });
     let app_for_keys = app.clone();
-    events.connect_key_press_event(move |_, ev| match ev.keyval().name().as_deref() {
+    // key events go to whichever widget has gtk keyboard focus, and the
+    // `EventBox` used for click/drag handling is not focusable by default -
+    // so a `connect_key_press_event` on it never actually fired (this is
+    // almost certainly why space/escape "didn't work"). the toplevel window
+    // always receives key events for anything not consumed by a focused
+    // child, so bind here instead.
+    window.connect_key_press_event(move |_, ev| match ev.keyval().name().as_deref() {
         Some("space") => {
             let _ = handle_on_main(&app_for_keys, VideoCommand::TogglePlay);
             glib::Propagation::Stop
@@ -336,8 +402,19 @@ fn build_video_area(
     });
     overlay.add_overlay(&events);
 
+    // centered play/pause indicator, flashed on every toggle (see
+    // `flash_icon()`). starts hidden; never intercepts input.
+    let flash_icon =
+        gtk::Image::from_icon_name(Some("media-playback-start-symbolic"), gtk::IconSize::Dialog);
+    flash_icon.set_halign(gtk::Align::Center);
+    flash_icon.set_valign(gtk::Align::Center);
+    flash_icon.set_pixel_size(96);
+    flash_icon.set_opacity(0.0);
+    flash_icon.set_visible(false);
+    overlay.add_overlay(&flash_icon);
+
     if !chromeless {
-        return (overlay, None);
+        return (overlay, None, flash_icon);
     }
 
     let close = gtk::Button::with_label("\u{2715}");
@@ -376,6 +453,13 @@ fn build_video_area(
     close.hide();
     overlay.add_overlay(&close);
 
+    // show-on-hover only; hiding is driven solely by `reset_close_timer`'s
+    // inactivity timeout below. a paired leave-notify "hide" handler here
+    // (and on `close` itself) used to fight the button's own enter-notify:
+    // moving onto the overlapping button widget fires a leave-notify on
+    // `events` first, hiding the button an instant before its own
+    // enter-notify re-showed it, which read as a hover/click glitch-flash
+    // and could eat clicks landing during the hidden instant.
     let close_for_enter = close.clone();
     let close_enter_timer = reset_close_timer.clone();
     events.connect_enter_notify_event(move |_, _| {
@@ -383,25 +467,11 @@ fn build_video_area(
         close_enter_timer();
         glib::Propagation::Proceed
     });
-    let close_for_leave = close.clone();
-    let close_leave_timer = reset_close_timer.clone();
-    events.connect_leave_notify_event(move |_, _| {
-        close_for_leave.hide();
-        close_leave_timer();
-        glib::Propagation::Proceed
-    });
     let close_for_button_enter = close.clone();
     let close_button_enter_timer = reset_close_timer.clone();
     close.connect_enter_notify_event(move |_, _| {
         close_for_button_enter.show();
         close_button_enter_timer();
-        glib::Propagation::Proceed
-    });
-    let close_for_button_leave = close.clone();
-    let close_button_leave_timer = reset_close_timer.clone();
-    close.connect_leave_notify_event(move |_, _| {
-        close_for_button_leave.hide();
-        close_button_leave_timer();
         glib::Propagation::Proceed
     });
     let close_for_motion = close.clone();
@@ -414,7 +484,34 @@ fn build_video_area(
         glib::Propagation::Proceed
     });
 
-    (overlay, Some(close.upcast()))
+    // undecorated windows lose the window manager's resize border, so drag
+    // the corner ourselves - a small always-visible grip where the window
+    // manager would otherwise put one.
+    let resize_grip = gtk::EventBox::new();
+    resize_grip.set_halign(gtk::Align::End);
+    resize_grip.set_valign(gtk::Align::End);
+    resize_grip.set_size_request(18, 18);
+    resize_grip.add_events(gdk::EventMask::BUTTON_PRESS_MASK);
+    let grip_label = gtk::Label::new(Some("⋱"));
+    grip_label.set_opacity(0.6);
+    resize_grip.add(&grip_label);
+    let window_for_resize = window.clone();
+    resize_grip.connect_button_press_event(move |_, ev| {
+        if ev.button() == 1 {
+            let (x, y) = ev.root();
+            window_for_resize.begin_resize_drag(
+                gdk::WindowEdge::SouthEast,
+                1,
+                x as i32,
+                y as i32,
+                ev.time(),
+            );
+        }
+        glib::Propagation::Stop
+    });
+    overlay.add_overlay(&resize_grip);
+
+    (overlay, Some(close.upcast()), flash_icon)
 }
 
 /// translate GstPlay signals into `VideoEvent`s. GstPlay already owns bus
