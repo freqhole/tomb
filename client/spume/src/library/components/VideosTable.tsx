@@ -420,12 +420,13 @@ export function VideosTable(props: VideosTableProps) {
 
   return (
     <div class={`relative flex flex-col h-full min-h-0 ${props.class || ""}`}>
-      <div
-        class="flex-1 overflow-auto min-h-0"
-        style={{
-          "padding-top": window.matchMedia("(min-width: 768px)").matches ? "140px" : undefined,
-        }}
-      >
+      {/* padding-top clears the floating nav + view-switcher above (see
+       *  VideosView's switcher overlay). uses --nav-height (kept live by
+       *  TopNav) instead of a one-time window.matchMedia check so this
+       *  stays correct on initial load at any viewport size, not just
+       *  whichever size happened to be current when this style object was
+       *  first evaluated. */}
+      <div class="flex-1 overflow-auto min-h-0 pt-[calc(var(--nav-height,42px)+24px)] wide:pt-[140px]">
         <Show
           when={props.videos.length > 0}
           fallback={

@@ -577,13 +577,16 @@ export function AlbumsTable(props: AlbumsTableProps) {
       </div>
 
       {/* table */}
+      {/* padding-top clears the floating nav + bulk-action toolbar above
+       *  (see toolbar's own top-[...] class). uses --nav-height (kept live
+       *  by TopNav) instead of a one-time window.matchMedia check so this
+       *  stays correct on initial load at any viewport size, not just
+       *  whichever size happened to be current when this style object was
+       *  first evaluated. */}
       <div
         ref={scrollEl}
         onScroll={onScroll}
-        class="flex-1 overflow-auto min-h-0"
-        style={{
-          "padding-top": window.matchMedia("(min-width: 768px)").matches ? "180px" : undefined,
-        }}
+        class="flex-1 overflow-auto min-h-0 pt-[calc(var(--nav-height,42px)+44px)] wide:pt-[180px]"
       >
         <Show when={!albumsQuery.isLoading} fallback={<LoadingState text="loading albums..." />}>
           <Show
