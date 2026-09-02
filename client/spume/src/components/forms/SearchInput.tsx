@@ -244,7 +244,9 @@ export function SearchInput(props: SearchInputProps) {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                "z-index": 1001,
+                // above RemotePicker's z-[1005] so the search flyout stack
+                // wins in views (e.g. aggregate feed) where both float.
+                "z-index": 2001,
               }}
               onClick={() => props.onOpenChange?.(false)}
             />
@@ -259,7 +261,7 @@ export function SearchInput(props: SearchInputProps) {
                 top: `${inputRect().bottom + 2}px`,
                 left: isNarrow() ? "0" : `${inputRect().left}px`,
                 width: isNarrow() ? "100vw" : `${inputRect().width}px`,
-                "z-index": "1003",
+                "z-index": "2003",
               }}
               onClick={() => props.onHintClick?.()}
             >
@@ -279,7 +281,7 @@ export function SearchInput(props: SearchInputProps) {
                 "min-width": isNarrow() ? undefined : "400px",
                 "max-width": isNarrow() ? undefined : "600px",
                 "border-radius": isNarrow() ? "0" : undefined,
-                "z-index": "1002",
+                "z-index": "2002",
               }}
               onMouseEnter={() => setIsHoveringDropdown(true)}
               onMouseLeave={() => setIsHoveringDropdown(false)}
@@ -403,8 +405,7 @@ function SuggestionRow(props: {
          *  since field labels like artist names can overflow the narrow cell. */}
         {(() => {
           const api = props.suggestion.data as
-            | { matched_field?: string | null; match_snippet?: string | null }
-            | undefined;
+            { matched_field?: string | null; match_snippet?: string | null } | undefined;
           if (!api?.matched_field || !api?.match_snippet) return null;
           // strip <mark> tags to get plain text for title/marquee base
           const plain = api.match_snippet.replace(/<\/?mark>/g, "");
@@ -439,8 +440,7 @@ function SuggestionRow(props: {
       <Show when={props.suggestion.category}>
         {(() => {
           const apiData = props.suggestion.data as
-            | { suggestion_type?: string; metadata?: { kind_slug?: string } }
-            | undefined;
+            { suggestion_type?: string; metadata?: { kind_slug?: string } } | undefined;
           const isTaxon =
             apiData?.suggestion_type === "taxon" || apiData?.suggestion_type === "genre";
           const kindSlug = apiData?.metadata?.kind_slug;

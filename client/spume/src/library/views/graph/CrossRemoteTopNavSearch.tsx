@@ -392,20 +392,42 @@ export function CrossRemoteTopNavSearch(props: CrossRemoteTopNavSearchProps) {
         }
       }
     }
-    // cross-remote rank merge. each remote's page is already ordered
-    // by its own fts rank (mapped into `confidence`), but appending
-    // them per-remote leaves the list grouped by remote. sort the
-    // dedup'd aggregate by confidence desc so the top hits across all
-    // remotes float up regardless of arrival order. this memo re-runs
-    // whenever any remote's results arrive, so the list reorders as
-    // partial results stream in.
-    //
-    // caveat: `confidence` is computed per-remote from local fts
-    // rank, so cross-remote comparisons are only loosely meaningful.
-    // a follow-up could normalize per remote (e.g. divide by that
-    // remote's top row) or fold in `count`; for now naive desc-sort
-    // is a clear improvement over per-remote grouping.
-    ordered.sort((a, b) => (b.primary.confidence ?? 0) - (a.primary.confidence ?? 0));
+    // cross-remote rank merge. each remote's page is already ordered by
+    // its own fts rank (mapped into `confidence`), but raw confidence
+    // values aren't comparable across remotes (different fts scales),
+    // so a remote's own top hit could easily out-rank a stronger local
+    // match once it arrives. fix: normalize each suggestion's confidence
+    // against that remote's own max-in-this-batch (so each remote's best
+    // hit maxes out at 1.0, putting remotes on equal footing), and give
+    // exact display-text matches to the current query top priority
+    // regardless of confidence - with the local library winning ties
+    // among exact matches. this memo re-runs whenever any remote's
+    // results arrive, so the list reorders as partial results stream in,
+    // but the tiering keeps a late-arriving remote hit from leapfrogging
+    // an already-shown local exact match.
+    const q = query().trim().toLowerCase();
+    const maxConfidenceByTarget = new Map<string, number>();
+    for (const t of searchTargets()) {
+      const list = resultsByRemote().get(t.id) ?? [];
+      let max = 0;
+      for (const s of list) if ((s.confidence ?? 0) > max) max = s.confidence ?? 0;
+      maxConfidenceByTarget.set(t.id, max || 1);
+    }
+    ordered.sort((a, b) => {
+      const aExact = (a.primary.display ?? "").trim().toLowerCase() === q;
+      const bExact = (b.primary.display ?? "").trim().toLowerCase() === q;
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      if (aExact && bExact) {
+        const aLocal = a.primaryRemoteId === LOCAL_REMOTE_ID;
+        const bLocal = b.primaryRemoteId === LOCAL_REMOTE_ID;
+        if (aLocal !== bLocal) return aLocal ? -1 : 1;
+      }
+      const aNorm =
+        (a.primary.confidence ?? 0) / (maxConfidenceByTarget.get(a.primaryRemoteId) ?? 1);
+      const bNorm =
+        (b.primary.confidence ?? 0) / (maxConfidenceByTarget.get(b.primaryRemoteId) ?? 1);
+      return bNorm - aNorm;
+    });
     return ordered;
   });
 

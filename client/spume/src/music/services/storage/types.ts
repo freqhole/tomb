@@ -312,8 +312,8 @@ export const STORE_TAXON_KINDS = "taxon_kinds";
 
 // sentinel `remote_id` used in `taxons` / `album_taxons` rows to mark
 // entries that belong to the local indexeddb library. matches
-// `LOCAL_REMOTE_ID` in `library/views/graph/GraphTopNavSearch.tsx` and
-// the `"local"` sentinel used by `music/utils/routing.ts::buildRouteFor`.
+// `LOCAL_REMOTE_ID` in `library/views/graph/CrossRemoteTopNavSearch.tsx`
+// and the `"local"` sentinel used by `music/utils/routing.ts::buildRouteFor`.
 export const LOCAL_TAXON_REMOTE_ID = "local";
 
 // ===== TAXONS TABLE =====
