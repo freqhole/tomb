@@ -18,7 +18,7 @@ import { isP2PRemote } from "../../music/services/storage/transportCache";
 import { preCacheP2PBlob } from "../../music/services/storage/blobResolver";
 import { preCacheBlob, isCached } from "../../music/services/cache/blobCache";
 import { getRemoteById } from "../../app/services/remotes/remoteManager";
-import { resolvePlaybackBlobId } from "./videoBlobAccess";
+import { resolvePlaybackBlobId } from "./playbackBlobId";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { debug, warn } from "../../utils/logger";
 

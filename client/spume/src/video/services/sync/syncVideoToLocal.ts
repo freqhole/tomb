@@ -37,7 +37,7 @@ import {
   writeVideoToOPFS,
   streamVideoToOPFSWithResume,
 } from "../opfs/helpers";
-import { resolvePlaybackBlobId } from "../videoBlobAccess";
+import { resolvePlaybackBlobId } from "../playbackBlobId";
 import { syncVideoViaLocalGrimoire } from "./syncVideoViaLocalGrimoire";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import type { BlobMetadataResponse } from "@freqhole/api-client";

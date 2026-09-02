@@ -60,7 +60,7 @@ pub fn video_window_available() -> bool {
 pub fn video_window_diagnostics() -> VideoWindowDiagnostics {
     #[cfg(target_os = "linux")]
     {
-        return gst::diagnostics();
+        gst::diagnostics()
     }
     #[cfg(not(target_os = "linux"))]
     {

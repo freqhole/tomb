@@ -453,20 +453,6 @@ mod linux_mounts {
         best
     }
 
-    /// is anything currently mounted exactly at `path`?
-    pub fn is_mount_point(path: &str) -> bool {
-        let target = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
-        let Ok(table) = std::fs::read_to_string("/proc/mounts") else {
-            return false;
-        };
-        table.lines().any(|line| {
-            line.split_whitespace()
-                .nth(1)
-                .map(|mp| PathBuf::from(unescape_mount_field(mp)) == target)
-                .unwrap_or(false)
-        })
-    }
-
     /// a path under a removable-media root (`/media`, `/run/media`, `/mnt`)
     /// that still exists but is no longer backed by a mount - i.e. the empty
     /// directory left behind after the drive was unmounted.
@@ -501,10 +487,7 @@ mod linux_mounts {
         let device = std::fs::canonicalize(device).ok()?;
         for entry in std::fs::read_dir(dir).ok()?.flatten() {
             if std::fs::canonicalize(entry.path()).ok()? == device {
-                return entry
-                    .file_name()
-                    .to_str()
-                    .map(|name| decode_hex_escapes(name));
+                return entry.file_name().to_str().map(decode_hex_escapes);
             }
         }
         None

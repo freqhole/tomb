@@ -1955,6 +1955,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2007,6 +2008,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
@@ -2057,6 +2059,7 @@ mod tests {
             client: None,
             jobs: JobsConfig::default(),
             audio: AudioConfig::default(),
+            video: VideoConfig::default(),
             updates: UpdatesConfig::default(),
             loaded_from: None,
         };
