@@ -10,7 +10,7 @@ import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { TwoColumnLayout } from "../../components/layout/TwoColumnLayout";
 import { AlphabetNav } from "../../components/navigation/AlphabetNav";
 import { VirtualItemList, type ListItem } from "../../components/virtualized/VirtualItemList";
@@ -35,8 +35,11 @@ export function VideoSeriesView() {
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // restore selected series from URL params or history state on mount
   const initialSeriesId =
@@ -294,7 +297,7 @@ export function VideoSeriesView() {
               <VirtualItemList
                 items={seriesListItems()}
                 selectedId={selectedSeriesId()}
-                scrollPaddingTop={100}
+                scrollPaddingTop={isNarrow() ? getNavHeight() : 100}
                 onItemClick={(item) => {
                   const series = sortedSeries().find((s) => s.id === item.id);
                   if (series) handleSelectSeries(series);

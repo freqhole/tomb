@@ -40,6 +40,8 @@ export interface PlayerBarSong {
   images?: ImageMetadata[];
   /** album images for fallback when song has no images */
   album_images?: ImageMetadata[];
+  /** artist images for fallback when song has no song/album images */
+  artist_images?: ImageMetadata[];
   /** thumbnail blob id (legacy, for backward compatibility) */
   thumbnailBlobId?: string;
   /** thumbnail image url (legacy, fallback for remote) */

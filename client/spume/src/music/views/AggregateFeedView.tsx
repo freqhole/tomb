@@ -1,5 +1,6 @@
 // aggregate feed view — merges activity feeds from all connected remotes
 import { useNavigate } from "@solidjs/router";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import {
   createEffect,
   createMemo,
@@ -546,8 +547,11 @@ export function AggregateFeedView() {
   // responsive height
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // play handler
   const handlePlayItem = async (item: FeedItem) => {
@@ -747,11 +751,13 @@ export function AggregateFeedView() {
             </div>
           }
         >
-          <div style={{ "padding-top": (remotes() ?? []).length > 1 ? "50px" : "0" }}>
+          <div>
             <VirtualFeedList
               items={filteredItems()}
-              height={listHeight() - ((remotes() ?? []).length > 1 ? 50 : 0)}
-              scrollPaddingTop={0}
+              height={listHeight()}
+              scrollPaddingTop={
+                isNarrowViewport() ? getNavHeight() : (remotes() ?? []).length > 1 ? 50 : 0
+              }
               onItemClick={handlePlayItem}
               onScroll={handleScroll}
               onImageClick={(item) => {

@@ -160,7 +160,10 @@ export function RemotePicker(props: RemotePickerProps) {
     props.onActiveChange?.(true);
     if (triggerRef) {
       const rect = triggerRef.getBoundingClientRect();
-      setFlyoutPos({ top: rect.bottom + 4, left: rect.left });
+      const FLYOUT_WIDTH = 176; // matches min-w-44
+      const margin = 8;
+      const left = Math.min(rect.left, window.innerWidth - FLYOUT_WIDTH - margin);
+      setFlyoutPos({ top: rect.bottom + 4, left: Math.max(margin, left) });
     }
     setFlyoutOpen(true);
   };
@@ -195,7 +198,7 @@ export function RemotePicker(props: RemotePickerProps) {
 
   const outerClass = () =>
     layout() === "floating"
-      ? `absolute top-0 left-0 right-0 z-50 bg-transparent pointer-events-none flex items-center py-2 px-4 ${props.class ?? ""}`
+      ? `absolute top-[var(--nav-height,42px)] wide:top-0 left-0 right-0 z-[1005] bg-transparent pointer-events-none flex items-center py-2 px-4 ${props.class ?? ""}`
       : `relative flex items-center ${props.class ?? ""}`;
 
   const chipStripClass = () =>
@@ -264,6 +267,7 @@ export function RemotePicker(props: RemotePickerProps) {
                 mode={mode()}
                 focusedIndex={focusedIndex()}
                 onSelect={select}
+                onSolo={solo}
                 isLocked={isLocked}
               />
             </div>
@@ -280,6 +284,7 @@ export function RemotePicker(props: RemotePickerProps) {
                 mode={mode()}
                 focusedIndex={focusedIndex()}
                 onSelect={select}
+                onSolo={solo}
                 isLocked={isLocked}
               />
             </div>
@@ -298,6 +303,7 @@ function RemoteFlyoutList(props: {
   mode: RemotePickerMode;
   focusedIndex: number;
   onSelect: (remoteId: string) => void;
+  onSolo: (remoteId: string) => void;
   isLocked: (remoteId: string) => boolean;
 }) {
   return (
@@ -306,6 +312,19 @@ function RemoteFlyoutList(props: {
         const active = () => props.value.has(remote.remote_id);
         const locked = () => props.isLocked(remote.remote_id);
         const focused = () => i() === props.focusedIndex;
+
+        // long press → solo (multi mode only), mirrors RemoteChip's gesture
+        let pressTimer: ReturnType<typeof setTimeout> | undefined;
+        let didLongPress = false;
+        const startPress = () => {
+          didLongPress = false;
+          if (props.mode !== "multi") return;
+          pressTimer = setTimeout(() => {
+            didLongPress = true;
+            props.onSolo(remote.remote_id);
+          }, LONG_PRESS_MS);
+        };
+        const endPress = () => clearTimeout(pressTimer);
 
         // image resolution — same logic as RemoteChip
         const isP2P = () => isP2PRemote(remote);
@@ -353,7 +372,16 @@ function RemoteFlyoutList(props: {
               "outline outline-1 outline-[var(--color-accent-500)] rounded": focused(),
               "opacity-40 cursor-not-allowed": locked(),
             }}
-            onClick={() => !locked() && props.onSelect(remote.remote_id)}
+            onClick={() => {
+              if (locked() || didLongPress) return;
+              props.onSelect(remote.remote_id);
+            }}
+            onMouseDown={startPress}
+            onMouseUp={endPress}
+            onMouseLeave={endPress}
+            onTouchStart={startPress}
+            onTouchEnd={endPress}
+            onContextMenu={(e) => e.preventDefault()}
             tabIndex={focused() ? 0 : -1}
           >
             {/* selection dot — always visible regardless of image */}

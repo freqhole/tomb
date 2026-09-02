@@ -89,13 +89,16 @@ export function TwoColumnLayout(props: TwoColumnLayoutProps) {
       </div>
 
       {/* right column - detail view */}
-      {/* on narrow: full width overlay with slide-in, only when showDetail */}
+      {/* on narrow: full width overlay with slide-in, only when showDetail.
+          clears the narrow nav (no longer reserved by AppLayout) so the
+          detail view's back button/title aren't hidden under it - wide
+          never needed this (floats a small corner pill). */}
       {/* on wide: always visible, fills remaining space */}
       {/* back button is now rendered by the detail view itself for better layout control */}
       <div
         class={`flex-1 flex flex-col min-w-0 min-h-0
           ${local.showDetail ? "flex" : "hidden wide:flex"}
-          wide:relative`}
+          pt-[var(--nav-height,42px)] wide:pt-0 wide:relative`}
       >
         {local.rightColumn}
       </div>

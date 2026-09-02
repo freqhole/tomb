@@ -310,6 +310,13 @@ export function AlbumDetailView() {
       }
     }
 
+    // collect artist images across all songs, as a last-resort fallback
+    for (const song of songList) {
+      if (song.artist_images?.length) {
+        for (const img of song.artist_images) addImage(img);
+      }
+    }
+
     if (imageItems.length === 0) {
       endImageCarouselLoading();
       return;

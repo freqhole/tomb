@@ -67,6 +67,9 @@ export function useFavoritesInfiniteQuery(options?: UseFavoritesInfiniteQueryOpt
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.nextOffset,
+    // avoid a full refetch (which resets scroll position) every time the
+    // charnel window regains focus.
+    refetchOnWindowFocus: false,
   }));
 }
 

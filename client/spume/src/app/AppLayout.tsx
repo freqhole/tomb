@@ -1285,7 +1285,9 @@ export function AppLayout(props: AppLayoutProps) {
       <div
         class="flex-1 overflow-hidden flex"
         style={{
-          "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined,
+          // narrow's nav is a floating, semi-transparent strip like wide's -
+          // content spans the full height (starting behind it) so scrolling
+          // moves content up under it, instead of reserving solid space here.
           "padding-bottom": "var(--player-bar-height)",
         }}
       >
@@ -1600,6 +1602,7 @@ export function AppLayout(props: AppLayoutProps) {
               album: queueSong.album_title,
               images: queueSong.images,
               album_images: queueSong.album_images,
+              artist_images: queueSong.artist_images,
               isFavorite: queueSong.is_favorite || false,
             };
           };

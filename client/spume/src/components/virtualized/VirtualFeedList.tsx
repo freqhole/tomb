@@ -248,10 +248,7 @@ export function VirtualFeedList(props: VirtualFeedListProps) {
   };
 
   // only apply scroll padding on wide viewports (narrow has its own fixed nav)
-  const scrollPad = () =>
-    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
-      ? props.scrollPaddingTop
-      : 0;
+  const scrollPad = () => (props.scrollPaddingTop ? props.scrollPaddingTop : 0);
 
   const handleScroll = () => {
     if (!scrollRef) return;

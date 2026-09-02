@@ -76,10 +76,7 @@ export function VirtualItemList(props: VirtualItemListProps): JSX.Element {
   const { restoreScroll, saveScroll } = useScrollRestore(props.scrollRestoreKey || "item-list");
 
   // only apply scroll padding on wide viewports (narrow has its own fixed nav)
-  const scrollPad = () =>
-    props.scrollPaddingTop && window.matchMedia("(min-width: 768px)").matches
-      ? props.scrollPaddingTop
-      : 0;
+  const scrollPad = () => (props.scrollPaddingTop ? props.scrollPaddingTop : 0);
 
   // bottom padding is always applied when specified
   const scrollPadBottom = () => props.scrollPaddingBottom || 0;

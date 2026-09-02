@@ -77,6 +77,29 @@ export function AlbumsTable(props: AlbumsTableProps) {
   const [sortField, setSortField] = createSignal<SortField>("added_at");
   const [sortDirection, setSortDirection] = createSignal<"asc" | "desc">("desc");
 
+  // compact the bulk-action toolbar as its wrapper runs out of horizontal
+  // space, instead of letting it overflow into the grid/table switcher.
+  let toolbarWrapperRef: HTMLDivElement | undefined;
+  const [toolbarWrapperWidth, setToolbarWrapperWidth] = createSignal(
+    typeof window !== "undefined" ? window.innerWidth : 1024
+  );
+  onMount(() => {
+    if (!toolbarWrapperRef) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setToolbarWrapperWidth(w);
+    });
+    ro.observe(toolbarWrapperRef);
+    onCleanup(() => ro.disconnect());
+  });
+  const compactTier = (): "full" | "compact" | "minimal" => {
+    const w = toolbarWrapperWidth();
+    if (w < 420) return "minimal";
+    if (w < 640) return "compact";
+    return "full";
+  };
+  const [minimalFlyoutOpen, setMinimalFlyoutOpen] = createSignal(false);
+
   // auto-confirm controls (admin bulk action)
   const [minConfidence, setMinConfidence] = createSignal(0.9);
   const [minGap, setMinGap] = createSignal(0.15);
@@ -376,8 +399,124 @@ export function AlbumsTable(props: AlbumsTableProps) {
     }
   };
 
+  // pending-review chip + lookup-N + auto-confirm controls, shared between
+  // the inline toolbar (full/compact tiers) and the minimal-tier flyout.
+  const renderActionButtons = () => (
+    <>
+      {/* pending review filter chip */}
+      <button
+        type="button"
+        aria-pressed={pendingReview()}
+        onClick={() => setPendingReview((v) => !v)}
+        class={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+          pendingReview()
+            ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40"
+            : "border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent-400)] bg-transparent"
+        }`}
+        title="show only albums with pending import review"
+      >
+        {compactTier() === "full" ? "pending review" : "pending"}
+      </button>
+
+      {/* lookup N control (header level; works without selection).
+       *  fans out to mb + last.fm + theaudiodb for eligible rows only.
+       *  confirmed/enriched/skipped rows are excluded by default;
+       *  a modal lets the user opt to include them. */}
+      <Show when={props.onEnrichAllMatching}>
+        {(() => {
+          const eligible = eligibleRows();
+          const excluded = excludedRows();
+          const skipCounts = () => {
+            let skipped = 0;
+            let confirmed = 0;
+            let enriched = 0;
+            for (const a of excluded) {
+              const s = a.mb_lookup_status ?? "not_attempted";
+              if (s === "skipped") skipped++;
+              else if (s === "confirmed") confirmed++;
+              else if (s === "enriched") enriched++;
+            }
+            return { skipped, confirmed, enriched };
+          };
+          const titleText = () => {
+            const ex = excluded;
+            if (ex.length === 0)
+              return "enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album";
+            const sc = skipCounts();
+            const parts: string[] = [];
+            if (sc.confirmed > 0) parts.push(`${sc.confirmed} confirmed`);
+            if (sc.enriched > 0) parts.push(`${sc.enriched} enriched`);
+            if (sc.skipped > 0) parts.push(`${sc.skipped} skipped`);
+            return `${eligible.length} eligible · ${parts.join(", ")} will be skipped by default`;
+          };
+          return (
+            <button
+              type="button"
+              disabled={eligible.length === 0}
+              onClick={() => {
+                if (excluded.length === 0) {
+                  props.onEnrichAllMatching?.(eligible.map((a) => a.album_id));
+                } else {
+                  setLookupConfirmOpen(true);
+                }
+              }}
+              class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
+              title={titleText()}
+            >
+              <Icon name="search" size={10} />
+              lookup {eligible.length}
+            </button>
+          );
+        })()}
+      </Show>
+
+      {/* auto-confirm bulk control. confirms top candidate where it
+       *  clears confidence + gap thresholds. admin-only on the server
+       *  side; non-admins see a 403 surfaced inline. opens a
+       *  confirmation modal that lets the user tweak thresholds and
+       *  preview how many albums would be affected before firing. */}
+      <Show when={filteredItems().length > 0}>
+        <button
+          type="button"
+          onClick={() => setAutoConfirmModalOpen(true)}
+          disabled={autoConfirm().kind === "running"}
+          class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          title="auto-confirm top mb candidate when confidence + gap thresholds are met"
+        >
+          <Show
+            when={autoConfirm().kind === "running"}
+            fallback={<>{compactTier() === "full" ? "auto-confirm\u2026" : "confirm\u2026"}</>}
+          >
+            running…
+          </Show>
+        </button>
+        <Show when={autoConfirm().kind === "done"}>
+          {(() => {
+            const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
+            return (
+              <span class="text-xs text-[var(--color-text-muted)]">
+                last run: ok {s.confirmed} · skip {s.skipped}
+                <Show when={s.errors > 0}> · err {s.errors}</Show>
+              </span>
+            );
+          })()}
+        </Show>
+        <Show when={autoConfirm().kind === "error"}>
+          {(() => {
+            const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
+            return (
+              <span class="text-xs text-[var(--color-error-500)]" title={s.message}>
+                auto-confirm error
+              </span>
+            );
+          })()}
+        </Show>
+      </Show>
+    </>
+  );
+
   return (
-    <div class="relative flex flex-col h-full min-h-0">
+    <div class="relative flex flex-col h-full min-h-0" ref={toolbarWrapperRef}>
       {/* slim toolbar — search / sort / status filters live in the
        *  topnav now; this strip just shows counts + the bulk action
        *  buttons that operate over the entire filtered set. floats above
@@ -385,11 +524,14 @@ export function AlbumsTable(props: AlbumsTableProps) {
        *  convention as the grid/table view switcher in AlbumsView) instead
        *  of pushing them down, so rows can scroll all the way to the top.
        *  positioned below the topnav's own floating strip (not top-2,
-       *  which collided with the title bar / topnav on chromeless mac). */}
-      <div
-        class="absolute left-4 z-[110] flex items-center gap-3 flex-wrap bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/10 shadow-lg"
-        style={{ top: "calc(4.5rem + var(--chrome-top-inset, 0px))" }}
-      >
+       *  which collided with the title bar / topnav on chromeless mac).
+       *  --nav-height is kept in sync with the topnav's true rendered
+       *  height by TopNav itself (see its syncNavHeight effect), so the
+       *  same var already accounts for narrow's taller strip - narrow
+       *  sits flush against the strip (no added gap). px offsets (not
+       *  rem) so the gap doesn't shift with a user's browser font-size
+       *  setting. */}
+      <div class="absolute left-4 z-[110] flex items-center gap-3 flex-wrap bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/10 shadow-lg top-[var(--nav-height,42px)] wide:top-[calc(var(--nav-height,42px)+44px)]">
         {/* count. note: server's `total_count` is currently the page count
          *  (see grimoire/src/music/crud/query.rs query_albums) so we can't
          *  show "loaded of total" reliably yet — just show what's loaded.
@@ -399,120 +541,38 @@ export function AlbumsTable(props: AlbumsTableProps) {
             {loadedCount()}
             <Show when={albumsQuery.hasNextPage}>+</Show>
             <Show when={statusFilters().length > 0}> · {filteredItems().length} match filters</Show>
-            <span
-              class="ml-1.5 text-[var(--color-text-tertiary)]"
-              title={`${coveredCount()} of ${loadedCount()} loaded albums are confirmed or enriched`}
-            >
-              · {coveragePct()}% enriched
-            </span>
+            <Show when={compactTier() === "full"}>
+              <span
+                class="ml-1.5 text-[var(--color-text-tertiary)]"
+                title={`${coveredCount()} of ${loadedCount()} loaded albums are confirmed or enriched`}
+              >
+                · {coveragePct()}% enriched
+              </span>
+            </Show>
           </Show>
         </div>
 
-        {/* pending review filter chip */}
-        <button
-          type="button"
-          aria-pressed={pendingReview()}
-          onClick={() => setPendingReview((v) => !v)}
-          class={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
-            pendingReview()
-              ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40"
-              : "border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent-400)] bg-transparent"
-          }`}
-          title="show only albums with pending import review"
-        >
-          pending review
-        </button>
-
-        {/* lookup N control (header level; works without selection).
-         *  fans out to mb + last.fm + theaudiodb for eligible rows only.
-         *  confirmed/enriched/skipped rows are excluded by default;
-         *  a modal lets the user opt to include them. */}
-        <Show when={props.onEnrichAllMatching}>
-          {(() => {
-            const eligible = eligibleRows();
-            const excluded = excludedRows();
-            const skipCounts = () => {
-              let skipped = 0;
-              let confirmed = 0;
-              let enriched = 0;
-              for (const a of excluded) {
-                const s = a.mb_lookup_status ?? "not_attempted";
-                if (s === "skipped") skipped++;
-                else if (s === "confirmed") confirmed++;
-                else if (s === "enriched") enriched++;
-              }
-              return { skipped, confirmed, enriched };
-            };
-            const titleText = () => {
-              const ex = excluded;
-              if (ex.length === 0)
-                return "enqueue musicbrainz + last.fm + theaudiodb lookups for every matching album";
-              const sc = skipCounts();
-              const parts: string[] = [];
-              if (sc.confirmed > 0) parts.push(`${sc.confirmed} confirmed`);
-              if (sc.enriched > 0) parts.push(`${sc.enriched} enriched`);
-              if (sc.skipped > 0) parts.push(`${sc.skipped} skipped`);
-              return `${eligible.length} eligible · ${parts.join(", ")} will be skipped by default`;
-            };
-            return (
+        <Show
+          when={compactTier() !== "minimal"}
+          fallback={
+            <div class="relative">
               <button
                 type="button"
-                disabled={eligible.length === 0}
-                onClick={() => {
-                  if (excluded.length === 0) {
-                    props.onEnrichAllMatching?.(eligible.map((a) => a.album_id));
-                  } else {
-                    setLookupConfirmOpen(true);
-                  }
-                }}
-                class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent ml-auto disabled:opacity-40 disabled:cursor-not-allowed"
-                title={titleText()}
+                onClick={() => setMinimalFlyoutOpen((v) => !v)}
+                class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border-default)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent-400)] bg-transparent cursor-pointer"
+                title="album actions"
               >
-                <Icon name="search" size={10} />
-                lookup {eligible.length}
+                <Icon name="filter" size={10} />
               </button>
-            );
-          })()}
-        </Show>
-
-        {/* auto-confirm bulk control. confirms top candidate where it
-         *  clears confidence + gap thresholds. admin-only on the server
-         *  side; non-admins see a 403 surfaced inline. opens a
-         *  confirmation modal that lets the user tweak thresholds and
-         *  preview how many albums would be affected before firing. */}
-        <Show when={filteredItems().length > 0}>
-          <button
-            type="button"
-            onClick={() => setAutoConfirmModalOpen(true)}
-            disabled={autoConfirm().kind === "running"}
-            class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-accent-500)]/40 text-[var(--color-accent-500)] hover:bg-[var(--color-accent-500)]/10 cursor-pointer bg-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-            title="auto-confirm top mb candidate when confidence + gap thresholds are met"
-          >
-            <Show when={autoConfirm().kind === "running"} fallback={<>auto-confirm…</>}>
-              running…
-            </Show>
-          </button>
-          <Show when={autoConfirm().kind === "done"}>
-            {(() => {
-              const s = autoConfirm() as Extract<AutoConfirmState, { kind: "done" }>;
-              return (
-                <span class="text-xs text-[var(--color-text-muted)]">
-                  last run: ok {s.confirmed} · skip {s.skipped}
-                  <Show when={s.errors > 0}> · err {s.errors}</Show>
-                </span>
-              );
-            })()}
-          </Show>
-          <Show when={autoConfirm().kind === "error"}>
-            {(() => {
-              const s = autoConfirm() as Extract<AutoConfirmState, { kind: "error" }>;
-              return (
-                <span class="text-xs text-[var(--color-error-500)]" title={s.message}>
-                  auto-confirm error
-                </span>
-              );
-            })()}
-          </Show>
+              <Show when={minimalFlyoutOpen()}>
+                <div class="absolute top-full left-0 mt-1 flex flex-col items-start gap-1.5 p-2 bg-black/90 backdrop-blur-sm rounded-lg border border-white/10 shadow-lg min-w-max">
+                  {renderActionButtons()}
+                </div>
+              </Show>
+            </div>
+          }
+        >
+          {renderActionButtons()}
         </Show>
       </div>
 

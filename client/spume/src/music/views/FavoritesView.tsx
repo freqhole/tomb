@@ -1,6 +1,6 @@
 // favorites view - displays all favorited items with infinite scroll
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, on, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import {
   FavoritesLayout,
   type FavoriteItem as LayoutFavoriteItem,
@@ -8,6 +8,7 @@ import {
 } from "../../components/layout/FavoritesLayout";
 import { playQueue } from "../services/queue/queue";
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { getDataSource, RemoteOfflineError } from "../data";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
@@ -42,11 +43,28 @@ export function FavoritesView(props: FavoritesViewProps) {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
 
+  // reactive narrow/wide tracking - isNarrowViewport() alone is a plain
+  // function read (not a signal), so calling it directly in a JSX prop
+  // never re-evaluates on resize; mirror the resize-listener pattern used
+  // elsewhere (e.g. ArtistsView) to keep this reactive.
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  onMount(() => {
+    const handleResize = () => setIsNarrow(isNarrowViewport());
+    window.addEventListener("resize", handleResize);
+    onCleanup(() => window.removeEventListener("resize", handleResize));
+  });
+
   // responsive height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const containerHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  // FavoritesLayout scrolls its own content behind the (now floating,
+  // non-space-reserving) nav via scrollPaddingTop - height spans the full
+  // available area, same as every other list view.
+  const containerHeight = () => viewportHeight() - playerBarHeight();
 
   // infinite query for favorites
   const favoritesQuery = useFavoritesInfiniteQuery({
@@ -492,6 +510,7 @@ export function FavoritesView(props: FavoritesViewProps) {
           favorites={allFavorites()}
           isLoading={favoritesQuery.isLoading || favoritesQuery.isFetching}
           height={containerHeight()}
+          scrollPaddingTop={isNarrow() ? getNavHeight() : 0}
           onSongClick={handleSongClick}
           onSongPlay={handleSongDoubleClick}
           onPlayAllFavorites={handlePlayAllFavorites}

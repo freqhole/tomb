@@ -19,6 +19,7 @@ import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { getPageInfo } from "../../app/services/pageInfo";
 import { startDraggingWindow, toggleMaximizeWindow } from "../../app/services/charnel/commands";
 import { isNarrowViewport } from "../../config/breakpoints";
+import { getDisableBackdropBlur } from "../../app/services/backdropBlur";
 import { canCreatePlaylist, canUploadMusic, isMemberOrHigher } from "../../music/data/permissions";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -1015,12 +1016,18 @@ export function TopNav(props: TopNavProps) {
           // narrow: full-width fixed strip; padding-top insets below system
           // status bar / notch via safe-area env var (works on both android
           // webview and ios safari with viewport-fit=cover; zero on desktop
-          // so no effect there).
-          "fixed right-0 bg-black/95 backdrop-blur-sm px-3 py-0 border-b border-white/10":
-            isNarrow(),
+          // so no effect there). matches the wide floating variant's
+          // transparency, backdrop-blur skipped when disable_backdrop_blur
+          // is set (perf on some linux compositors).
+          "fixed right-0 bg-black/20 backdrop-blur-sm px-3 py-0 border-b border-white/10":
+            isNarrow() && !getDisableBackdropBlur(),
+          "fixed right-0 bg-black/80 px-3 py-0 border-b border-white/10":
+            isNarrow() && getDisableBackdropBlur(),
           // wide: fixed top-left floating element, doesn't push content.
           "fixed bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
-            !isNarrow(),
+            !isNarrow() && !getDisableBackdropBlur(),
+          "fixed bg-black/80 px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
+            !isNarrow() && getDisableBackdropBlur(),
         }}
         style={{
           // narrow: sits flush at the very top of the window (left edge

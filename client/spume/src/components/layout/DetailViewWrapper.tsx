@@ -40,7 +40,7 @@ export interface DetailViewWrapperProps extends ParentProps {
  */
 export function DetailViewWrapper(props: DetailViewWrapperProps) {
   // narrow viewport detection
-  const [_isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
+  const [isNarrow, setIsNarrow] = createSignal(isNarrowViewport());
 
   onMount(() => {
     const handleResize = () => {
@@ -64,8 +64,15 @@ export function DetailViewWrapper(props: DetailViewWrapperProps) {
 
   return (
     <div class={`flex flex-col h-full ${props.class || ""}`}>
-      {/* main content */}
-      <div class="flex-1 overflow-hidden">{props.children}</div>
+      {/* main content - clears the narrow nav (no longer reserved by
+          AppLayout) so the back button/title aren't hidden under it. wide
+          floats a small corner pill and never needed this. */}
+      <div
+        class="flex-1 overflow-hidden"
+        style={{ "padding-top": isNarrow() ? "var(--nav-height, 42px)" : undefined }}
+      >
+        {props.children}
+      </div>
     </div>
   );
 }

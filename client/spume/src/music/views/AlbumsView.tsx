@@ -4,6 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
 import type { CollectionCardData } from "../../components/cards/CollectionCard";
@@ -64,8 +65,11 @@ export function AlbumsView(props: AlbumsViewProps) {
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const gridHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const gridHeight = () => viewportHeight() - playerBarHeight();
 
   onMount(() => {
     onCleanup(() => {
@@ -478,7 +482,7 @@ export function AlbumsView(props: AlbumsViewProps) {
             (like grid cards) can scroll all the way up under the title bar
             instead of being pushed down by a permanent header strip. */}
         <Show when={!!currentRemote()}>
-          <div class="absolute top-2 right-4 z-[110] flex items-center gap-3">
+          <div class="absolute top-[calc(var(--nav-height,42px)+0.5rem)] wide:top-2 right-4 z-[110] flex items-center gap-3">
             <MbProgressStrip />
             {viewModeSwitcher()}
           </div>
@@ -537,7 +541,7 @@ export function AlbumsView(props: AlbumsViewProps) {
                     showGenres={true}
                     cardSize="medium"
                     height={gridHeight()}
-                    scrollPaddingTop={100}
+                    scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
                     scrollRestoreKey={`albums-${searchQuery() || ""}-${tagFilters()
                       .map((f) => f.tag)
                       .join(",")}`}

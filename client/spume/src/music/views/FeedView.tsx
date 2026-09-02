@@ -6,6 +6,7 @@ import { confirm } from "../../app/services/confirmState";
 import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { Button } from "../../components/buttons/Button";
 import { LoadingMoreIndicator, LoadingState } from "../../components/feedback";
 import { toast } from "../../components/feedback/Toast";
@@ -108,8 +109,11 @@ export function FeedView() {
   // responsive list height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // set page info with feed filter controls
   createEffect(
@@ -957,7 +961,7 @@ export function FeedView() {
               <VirtualFeedList
                 items={allItems()}
                 height={listHeight()}
-                scrollPaddingTop={72}
+                scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 72}
                 onItemClick={handleItemClick}
                 onImageClick={handleImageClick}
                 onAddToQueue={handleAddToQueue}

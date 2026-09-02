@@ -8,6 +8,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import { setPageInfo, clearPageInfo } from "../../app/services/pageInfo";
 import type { StatusFilter } from "../../app/services/pageInfo";
 import { useHistoryState } from "../../utils/historyState";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { useViewportHeight, getNavHeight } from "../../utils/viewport";
 import { Button } from "../../components/buttons/Button";
 import { LoadingState, LoadingMoreIndicator } from "../../components/feedback";
@@ -62,8 +63,11 @@ export function VideosView(props: VideosViewProps) {
   // responsive grid height — reactive to safari toolbar changes
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const gridHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrowViewport(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const gridHeight = () => viewportHeight() - playerBarHeight();
 
   onMount(() => {
     onCleanup(() => {
@@ -327,7 +331,9 @@ export function VideosView(props: VideosViewProps) {
         {/* floating switcher overlay - both grid and table modes, so rows
             (like grid cards) can scroll all the way up under the title bar
             instead of being pushed down by a permanent header strip. */}
-        <div class="absolute top-2 right-4 z-[110]">{viewModeSwitcher()}</div>
+        <div class="absolute top-[calc(var(--nav-height,42px)+0.5rem)] wide:top-2 right-4 z-[110]">
+          {viewModeSwitcher()}
+        </div>
         <Show
           when={viewMode() === "grid"}
           fallback={
@@ -381,7 +387,7 @@ export function VideosView(props: VideosViewProps) {
                   onNearEnd={loadMore}
                   height={gridHeight()}
                   scrollRestoreKey="videos-grid"
-                  scrollPaddingTop={100}
+                  scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
                 />
                 <LoadingMoreIndicator isLoading={videosQuery.isFetchingNextPage} />
               </>

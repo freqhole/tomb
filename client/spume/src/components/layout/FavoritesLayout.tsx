@@ -43,6 +43,9 @@ export interface FavoritesLayoutProps {
   isLoading?: boolean;
   /** container height in pixels (full window minus player bar) */
   height: number;
+  /** extra top padding inside the scroll container, so content still
+   *  clears a floating nav initially but can scroll up behind it */
+  scrollPaddingTop?: number;
   /** callback when filter changes */
   onFilterChange?: (activeFilters: Set<FavoriteFilterType>) => void;
   /** play all favorites matching the currently active filters (expanding
@@ -131,6 +134,14 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
       });
       resizeObserver.observe(scrollContainerRef);
     }
+    // fallback for webviews (webkitgtk/linux) where ResizeObserver doesn't
+    // reliably fire on a pure window resize that isn't caused by the
+    // observed element's own layout inputs changing.
+    const onWindowResize = () => {
+      if (scrollContainerRef) setContainerWidth(scrollContainerRef.clientWidth);
+    };
+    window.addEventListener("resize", onWindowResize);
+    onCleanup(() => window.removeEventListener("resize", onWindowResize));
   });
 
   onCleanup(() => {
@@ -436,7 +447,10 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
 
   return (
     <div
-      style={{ height: `${props.height}px` }}
+      style={{
+        height: `${props.height}px`,
+        "padding-top": props.scrollPaddingTop ? `${props.scrollPaddingTop}px` : undefined,
+      }}
       class="overflow-y-auto"
       ref={scrollContainerRef!}
       onScroll={(e) => saveScroll(e.currentTarget)}
@@ -450,10 +464,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             the floating nav pill in the top-left corner, without needing a
             permanent vertical offset - wide screens rarely have enough
             items to overflow, so the clipping risk there is negligible. */}
-        <div
-          class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg"
-          style={{ "padding-left": "var(--chrome-traffic-lights-inset, 0px)" }}
-        >
+        <div class="flex gap-2 overflow-x-auto scrollbar-hide py-2 mb-4 sticky top-0 z-50 justify-start wide:justify-end bg-[var(--color-bg-primary)]/40 backdrop-blur-sm rounded-lg wide:pl-[var(--chrome-traffic-lights-inset,0px)]">
           <IconButton
             icon="play"
             size="default"

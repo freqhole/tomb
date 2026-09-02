@@ -21,7 +21,7 @@ import { usePlaylistsQuery } from "../queries/playlists";
 import { usePlaylistContextMenu } from "../hooks/contextMenu";
 import { type Playlist } from "../services/storage/types";
 import { debug, error as errorLog } from "../../utils/logger";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { isTouchDevice } from "../../utils/isMobile";
 import { PlaylistDetailPanel } from "./playlists/PlaylistDetailPanel";
 
@@ -50,13 +50,15 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
   const listHeight = () => {
     const vh = viewportHeight();
     const pb = playerBarHeight();
-    const navH = getNavHeight();
-    const result = vh - navH - pb;
-    debug("PlaylistsView", `listHeight=${result}px (viewport=${vh}, nav=${navH}, playerBar=${pb})`);
+    const result = vh - pb;
+    debug("PlaylistsView", `listHeight=${result}px (viewport=${vh}, playerBar=${pb})`);
     return result;
   };
 
@@ -381,7 +383,7 @@ export function PlaylistsView(_props: PlaylistsViewProps) {
                       <VirtualItemList
                         items={playlistListItems()}
                         selectedId={selectedPlaylistId()}
-                        scrollPaddingTop={100}
+                        scrollPaddingTop={isNarrow() ? getNavHeight() : 100}
                         scrollPaddingBottom={68}
                         height={listHeight()}
                         onItemClick={handlePlaylistClick}

@@ -127,6 +127,7 @@ import {
   updateAvailable,
 } from "./services/serviceWorker";
 import { initAppDB, setSyncQueueToLocal } from "./services/storage/db";
+import { setDisableBackdropBlur } from "./services/backdropBlur";
 import { recordSharedItemFromToken } from "./services/storage/sharedItems";
 import { isP2PRemote } from "./services/storage/types";
 import { checkPendingKnocks, showKnockCreatedToast } from "./services/toastNotices";
@@ -666,6 +667,8 @@ export function App() {
     if (!/android/i.test(navigator.userAgent)) {
       await setSyncQueueToLocal(config.sync_queue_to_local ?? true);
     }
+
+    setDisableBackdropBlur(config.disable_backdrop_blur ?? false);
 
     try {
       // upsert creates or updates the tauri-managed remote

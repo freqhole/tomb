@@ -31,7 +31,7 @@ import { useSetRatingMutation } from "../queries/ratings";
 import { useTagsQuery } from "../queries/tags";
 import { playQueue, addToQueue } from "../services/queue/queue";
 import { useSongContextMenu } from "../hooks/contextMenu";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { RemoteOfflineError } from "../data";
 import { isAdmin } from "../data/permissions";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
@@ -86,8 +86,8 @@ export function SongsView(props: SongsViewProps) {
   // gets covered by the bar when listening to radio).
   const viewportHeight = useViewportHeight();
   const isPlayerBarVisible = () => (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive();
-  const playerBarHeight = () => (isPlayerBarVisible() ? 80 : 0);
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+  const playerBarHeight = () => getPlayerBarHeightPx(isNarrowViewport(), isPlayerBarVisible());
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   onMount(() => {
     const handleResize = () => {
@@ -453,7 +453,7 @@ export function SongsView(props: SongsViewProps) {
               onSelectionClick={isAdmin() ? onSelectionClick : undefined}
               showSelectionHighlight={isAdmin() && selectionCount() > 1}
               onContextMenuOpen={clearSelection}
-              scrollPaddingTop={100}
+              scrollPaddingTop={isNarrowViewport() ? getNavHeight() : 100}
             />
             <LoadingMoreIndicator isLoading={songsQuery.isFetchingNextPage} />
             {isAdmin() && (

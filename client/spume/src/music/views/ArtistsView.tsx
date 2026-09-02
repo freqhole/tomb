@@ -35,7 +35,7 @@ import { buildRoute } from "../utils/routing";
 import { getArtistAbbreviation } from "../utils/format";
 import { warn } from "../../utils/logger";
 import type { ImageMetadata } from "../services/storage/types";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { createCurrentRemoteFull } from "../../app/services/remotes/currentRemoteFull";
 import {
   resolveBlobUrl,
@@ -62,8 +62,11 @@ export function ArtistsView(props: ArtistsViewProps) {
   // reactive viewport height for safari toolbar handling
   const viewportHeight = useViewportHeight();
   const playerBarHeight = () =>
-    (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive() ? 80 : 0;
-  const listHeight = () => viewportHeight() - getNavHeight() - playerBarHeight();
+    getPlayerBarHeightPx(
+      isNarrow(),
+      (appState()?.queue.length || 0) > 0 || isRadioPlayerBarActive()
+    );
+  const listHeight = () => viewportHeight() - playerBarHeight();
 
   // restore selected artist from URL params or history state on mount
   const initialArtistId =
@@ -735,7 +738,7 @@ export function ArtistsView(props: ArtistsViewProps) {
                 <VirtualItemList
                   items={artistListItems()}
                   selectedId={selectedArtistId()}
-                  scrollPaddingTop={100}
+                  scrollPaddingTop={isNarrow() ? getNavHeight() : 100}
                   onItemClick={(item) => {
                     setIsLocalClick(true);
                     // show detail on narrow viewport
@@ -815,6 +818,7 @@ export function ArtistsView(props: ArtistsViewProps) {
           onBack={handleBack}
           remote={currentRemoteFull}
           isLoadingSongs={artistSongsQuery.isPending}
+          playingSongId={artistSongs().find((s) => s.sha256 === appState()?.current_sha256)?.id}
         />
       )}
     </Show>

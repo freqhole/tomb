@@ -92,14 +92,17 @@ export function getSongDisplayImages(song: {
   title?: string;
   images?: ImageMetadata[];
   album_images?: ImageMetadata[];
+  artist_images?: ImageMetadata[];
 }): ImageMetadata[] | undefined {
   if (!song) return undefined;
   const songImgs = nonWaveform(song.images);
   const albumImgs = nonWaveform(song.album_images);
+  const artistImgs = nonWaveform(song.artist_images);
 
   // merge album-first so pickBestImage prefers album originals over song
-  // "original"-typed images (which are commonly mistyped waveforms).
-  const merged = [...albumImgs, ...songImgs];
+  // "original"-typed images (which are commonly mistyped waveforms). artist
+  // images are the last resort before showing nothing.
+  const merged = [...albumImgs, ...songImgs, ...artistImgs];
   if (merged.length > 0) return merged;
 
   // last-resort raw fallback (only waveforms present? show nothing)
