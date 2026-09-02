@@ -2609,12 +2609,12 @@ export function FullAppDemoBody() {
           >
             <TopNav
               brandName="freqhole"
-              brandTagline="your music library"
+              brandTagline="your music + video library"
               currentPath={`/${currentRoute()}`}
-              searchPlaceholder="search artists, albums, songs..."
+              searchPlaceholder="search your library..."
               searchComponent={
                 <TopNavSearch
-                  placeholder="search artists, albums, songs..."
+                  placeholder="search your library..."
                   suggestions={mockSearchSuggestions()}
                   onSearchChange={setSearchValue}
                   onNavigate={(path) => console.log("navigate:", path)}

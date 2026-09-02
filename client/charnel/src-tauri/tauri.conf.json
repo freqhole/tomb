@@ -36,8 +36,8 @@
     "copyright": "copyright © 2026 freqhole",
     "license": "MIT",
     "category": "Music",
-    "shortDescription": "self-hosted music library with P2P streaming",
-    "longDescription": "freqhole is a self-hosted music server with peer-to-peer sharing. run your own server, scan your music library, and stream it anywhere. share with friends over P2P connections (via iroh) with no port forwarding needed. includes offline caching, MusicBrainz metadata enrichment, invite-based access control, and a web app for remote access.",
+    "shortDescription": "self-hosted media library with P2P streaming",
+    "longDescription": "freqhole is a self-hosted media server with peer-to-peer sharing. run your own server, scan your music library, and stream it anywhere. share with friends over P2P connections (via iroh) with no port forwarding needed. includes offline caching, MusicBrainz metadata enrichment, invite-based access control, and a web app for remote access.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -29,7 +29,7 @@ export default defineConfig({
 		}),
 		starlight({
 			title: 'freqhole',
-			tagline: 'self-hosted music library && web, android, and desktop clientz that can talk http or p2p',
+			tagline: 'self-hosted music + video library && web, android, and desktop clientz that can talk http or p2p',
 			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'link', attrs: { rel: 'icon', href: '/favicon.ico', sizes: 'any' } },
@@ -56,7 +56,7 @@ export default defineConfig({
 						{ label: 'the database', slug: 'concepts/database' },
 						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
 						{ label: 'web app architecture', slug: 'concepts/web-app' },
-						{ label: 'where music lives', slug: 'concepts/storage' },
+						{ label: 'where media lives', slug: 'concepts/storage' },
 						{ label: 'user roles', slug: 'concepts/user-roles' },
 						{ label: 'invite codes', slug: 'concepts/invite-codes' },
 					],
@@ -64,7 +64,7 @@ export default defineConfig({
 				{
 					label: 'guides',
 					items: [
-						{ label: 'scanning music', slug: 'guides/scanning' },
+						{ label: 'scanning media', slug: 'guides/scanning' },
 						{ label: 'metadata enrichment', slug: 'guides/metadata-enrichment' },
 						{ label: 'sharing with friends', slug: 'guides/sharing' },
 						{ label: 'maintenance', slug: 'guides/maintenance' },

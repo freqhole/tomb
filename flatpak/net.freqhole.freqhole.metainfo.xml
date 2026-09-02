@@ -3,7 +3,7 @@
   <id>net.freqhole.freqhole</id>
 
   <name>freqhole</name>
-  <summary>self-hosted music library with P2P streaming</summary>
+  <summary>self-hosted media library with P2P streaming</summary>
 
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
@@ -14,13 +14,13 @@
 
   <description>
     <p>
-      freqhole is a self-hosted music server with peer-to-peer sharing.
+      freqhole is a self-hosted media server with peer-to-peer sharing.
       run your own server, scan your music library, and stream anywhere.
       share with friends using P2P connections — no port forwarding needed.
     </p>
     <p>features:</p>
     <ul>
-      <li>self-hosted music library with SQLite backend</li>
+      <li>self-hosted media library with SQLite backend</li>
       <li>P2P streaming via iroh — works through NAT</li>
       <li>offline support with local caching</li>
       <li>MusicBrainz integration for metadata enrichment</li>

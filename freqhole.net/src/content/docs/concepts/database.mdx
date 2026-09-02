@@ -9,11 +9,13 @@ updatedBy: "edwardsharp"
 updatedSha: "5eeaf1c"
 ---
 
-there's no central server, each node (charnel desktop app or rathole CLI) owns its data; the browser client keeps data in the browser's indexed db. data is split across four stores:
+there's no central server: each node (charnel desktop app or rathole CLI) owns its music + video data, while the browser client keeps its data in the browser's indexed db. the diagrams on this page currently focus on the older music schema; video uses the same SQLite, blob, and browser storage architecture.
 
-- `data/grimoire.db` - the main music metadata **SQLite** database.
+data is split across four stores:
+
+- `data/grimoire.db` - the main music + video metadata **SQLite** database.
 - `data/grimoire-blobdata.db` - a second **SQLite** file (name derived from the main one). key/value store with one `blob_data` table mapping blob id to raw WebP bytes for images + thumbnails.
-- `data/freqhole-blobz/` - an **iroh-blobs** content-addressed store for audio and image bytes, with its own `blobs.db` index keyed by blake3 hash.
+- `data/freqhole-blobz/` - an **iroh-blobs** content-addressed store for music, video, and image bytes, with its own `blobs.db` index keyed by blake3 hash.
 - **IndexedDB** in the browser - the spume web client's offline mirror of what it needs to play.
 
 the diagrams below are generated from the the SQL migrations and spume's `idb` setup.
@@ -24,7 +26,7 @@ the diagrams below are generated from the the SQL migrations and spume's `idb` s
 
 the schema is defined by the numbered migrations in `migrations/*.sql`, applied with `sqlx migrate run` (via `make db-migrate`). foreign keys on, write-ahead logging on.
 
-`grimoire.db` holds metadata only - no raw bytes. `media_blobz` rows point at content stored elsewhere: thumbnails and waveforms in `grimoire-blobdata.db`, originals in the iroh-blobs store.
+`grimoire.db` holds metadata only - no raw media bytes. `media_blobz` rows point at content stored elsewhere: thumbnails and waveforms in `grimoire-blobdata.db`, originals in the iroh-blobs store.
 
 tables use a `z`-suffixed naming convention (`songz`, `albumz`, `artistz`). the diagrams group tables into logical domains; relationships are real foreign keys introspected from the built schema. primary keys are marked `PK`, foreign keys `FK`.
 
@@ -801,7 +803,7 @@ the spume web client uses three separate IndexedDB databases (via the [`idb`](ht
 
 - **`freqhole_app`** — app/session state: the play queue, configured remotes, listen history, analytics events.
 - **`freqhole_music`** — the cached music catalog: artists, albums, songs, playlists, tags, taxonomy, plus per-user favorites and ratings.
-- **`freqhole_blobs`** — metadata for locally-stored images and audio. the actual bytes live in OPFS or the Cache API, not in IndexedDB.
+- **`freqhole_blobs`** — metadata for locally-stored images, music, and video. the actual bytes live in OPFS or the Cache API, not in IndexedDB.
 
 unlike SQLite, IndexedDB has no foreign keys - stores reference each other by id at the application layer. in the diagrams below each store lists its key path (`PK`) and its indexes (`UK` marks a unique index); the relationship lines reflect the id fields the app joins on. `freqhole_music` is split into a few diagrams (catalog, playlists, tags + taxonomy, user library) so each stays readable; a relationship pointing at a store in another group is annotated `(-> store)`.
 
