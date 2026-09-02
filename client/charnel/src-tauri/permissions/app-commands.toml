@@ -112,6 +112,8 @@ commands.allow = [
     "player_snapshot",
     "player_init",
     "resolve_blob_path",
+    "media_session_set_track",
+    "media_session_clear_track",
     "player_pairing_dial",
     "fetch_ephemeral_blob",
     "delete_ephemeral_blob",

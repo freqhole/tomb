@@ -49,6 +49,27 @@ mod player_commands {
         Err("rodio backend is desktop-only".to_string())
     }
 }
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+mod media_session;
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+mod media_session {
+    //! mobile fallback: playwire is desktop-only. these stubs satisfy the
+    //! single `invoke_handler!` list so spume can call them on every
+    //! target; on mobile the android media-session plugin covers this
+    //! instead, so these are simply no-ops.
+    #[tauri::command]
+    pub fn media_session_set_track(
+        _id: String,
+        _title: String,
+        _artist: String,
+        _album: String,
+        _artwork_url: String,
+    ) {
+    }
+
+    #[tauri::command]
+    pub fn media_session_clear_track() {}
+}
 mod jobs_events_commands;
 mod radio_commands;
 mod remotez_commands;
@@ -922,6 +943,11 @@ pub fn run() {
             player_commands::player_snapshot,
             player_commands::player_init,
             player_commands::resolve_blob_path,
+            // OS media session / now-playing controls for the rodio +
+            // gst video paths (desktop-real, mobile-stub - android has
+            // its own plugin instead)
+            media_session::media_session_set_track,
+            media_session::media_session_clear_track,
             // native transport for player.freqhole.net pairing/control
             player_pairing_commands::player_pairing_dial,
             // ephemeral blob fetch + cleanup (sync_queue_to_local OFF path)

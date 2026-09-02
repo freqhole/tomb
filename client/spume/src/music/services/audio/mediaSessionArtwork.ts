@@ -55,6 +55,36 @@ export async function getMediaSessionArtwork(song: Song): Promise<MediaImage[]> 
   return [];
 }
 
+/**
+ * best-effort: resolve a song's cover art to a `file://` path on disk, for
+ * the OS media session (`mediaSessionBridge.ts`'s push to
+ * `media_session_set_track`) - unlike the browser's own
+ * `navigator.mediaSession`, the OS media widget fetches the artwork URL
+ * itself and can't reach a same-process `blob:` URL (see
+ * `getMediaSessionArtwork` above, which is fine to keep using those for
+ * the in-browser session). reuses the same `resolve_blob_path` tauri
+ * command the rodio backend uses to resolve audio paths - blob ids are
+ * content-addressed, so a locally-cached image's `local_blob_id` may
+ * resolve the same way if grimoire also has it on disk. returns `null`
+ * (not an error) whenever it isn't - no fallback is attempted here, the
+ * caller just omits artwork in that case.
+ */
+export async function getLocalArtworkFilePath(song: Song): Promise<string | null> {
+  const images = getSongDisplayImages(song);
+  const bestImage = pickBestImage(images);
+  const blobId = bestImage?.local_blob_id;
+  if (!blobId) return null;
+
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { invoke } = await import("@tauri-apps/api/core");
+    const result = await invoke<{ path: string }>("resolve_blob_path", { blobId });
+    return result.path ? `file://${result.path}` : null;
+  } catch {
+    return null;
+  }
+}
+
 // video posters aren't stored in the blob store's object-url cache the way
 // local song artwork is (they live at an arbitrary OPFS path), so cache the
 // single most-recently-resolved local poster ourselves to avoid re-reading

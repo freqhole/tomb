@@ -36,10 +36,15 @@ pub struct VideoWindowDiagnostics {
 }
 
 /// emit a `VideoEvent` to the webview. lives here rather than in the linux
-/// module so the event name has a single definition.
+/// module so the event name has a single definition. also folds
+/// play/pause/position/duration into the OS media session (see
+/// `media_session.rs`) - the gst window only knows what spume told it to
+/// load, never song/artist metadata, so this is the only signal it can
+/// contribute on its own.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn emit_event(app: &AppHandle<Wry>, event: &VideoEvent) {
     use tauri::Emitter;
+    crate::media_session::on_video_event(app, event);
     if let Err(e) = app.emit(VIDEO_EVENT, event) {
         tracing::warn!(error = %e, "failed to emit video window event");
     }

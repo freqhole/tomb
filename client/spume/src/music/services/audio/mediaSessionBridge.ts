@@ -32,6 +32,11 @@ import { debug } from "../../../utils/logger";
 import { currentTime, duration, isPlaying } from "../audio/playerState";
 import type { Song } from "../storage/types";
 import { getMediaSessionArtworkForVideo } from "./mediaSessionArtwork";
+import { getLocalArtworkFilePath } from "./mediaSessionArtwork";
+import {
+  pushMediaSessionTrack,
+  clearMediaSessionTrack,
+} from "../../../app/services/charnel/commands";
 
 export interface ExternalMediaSessionOptions {
   title: string;
@@ -218,7 +223,66 @@ export function installMediaSessionBridge(): void {
       })
     );
   });
+
+  // OS media session (MPRIS/SMTC/MPNowPlayingInfoCenter, via the rust
+  // `playwire` crate) actions - only relevant for the rodio audio + gst
+  // video paths, which don't get a `navigator.mediaSession` action
+  // handler for free. reuses the same registered actions as the browser
+  // handlers above, so a media key does the same thing regardless of
+  // which surface delivered it.
+  void listenForMediaSessionActions();
 }
+
+async function listenForMediaSessionActions(): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen<OsMediaSessionAction>("freqhole:media_session_action", (event) => {
+      const actions = mediaActions;
+      if (!actions) return;
+      const payload = event.payload;
+      switch (payload.kind) {
+        case "play":
+        case "play_pause":
+          void actions.togglePlayback("mediaSession");
+          break;
+        case "pause":
+        case "stop":
+          actions.pause();
+          break;
+        case "next":
+          if (!intentionalReloadActive) void actions.playNext();
+          break;
+        case "previous":
+          if (!intentionalReloadActive) void actions.playPrevious();
+          break;
+        case "seek_to":
+          actions.seek(payload.ms / 1000);
+          break;
+        case "set_volume":
+          // volume control isn't wired to a queue-level action yet -
+          // no-op rather than guessing at a backend to apply it to.
+          break;
+      }
+    });
+  } catch {
+    // non-tauri - nothing to listen for.
+  }
+}
+
+interface OsMediaSessionActionPayload {
+  kind: "play" | "pause" | "play_pause" | "stop" | "next" | "previous";
+}
+interface OsMediaSessionSeekPayload {
+  kind: "seek_to";
+  ms: number;
+}
+interface OsMediaSessionVolumePayload {
+  kind: "set_volume";
+  volume: number;
+}
+type OsMediaSessionAction =
+  OsMediaSessionActionPayload | OsMediaSessionSeekPayload | OsMediaSessionVolumePayload;
 
 /**
  * push favorite state onto the platform's lock-screen surface. this is
@@ -361,6 +425,12 @@ export function isExternalSessionActive(): boolean {
 // ---------------------------------------------------------------------------
 
 async function refreshMetadata(): Promise<void> {
+  // TEMP(media-session): loud trace to find where the OS media session
+  // push isn't reaching rust - remove once confirmed working.
+  console.info(
+    "[media-session] refreshMetadata called, has navigator.mediaSession:",
+    typeof navigator !== "undefined" && "mediaSession" in navigator
+  );
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) {
     return;
   }
@@ -386,6 +456,7 @@ async function refreshMetadata(): Promise<void> {
   if (!current_sha256) {
     navigator.mediaSession.metadata = null;
     navigator.mediaSession.playbackState = "none";
+    void clearMediaSessionTrack();
     return;
   }
 
@@ -451,6 +522,24 @@ async function refreshMetadata(): Promise<void> {
     artist,
     album,
     artwork,
+  });
+
+  // OS media session (rodio/gst paths only get metadata this way, since
+  // they don't have their own `navigator.mediaSession`). the widget
+  // fetches artwork itself and can't reach a same-process `blob:` url, so
+  // try a real on-disk path first - best-effort, falls back to nothing.
+  const osArtworkUrl = song ? await getLocalArtworkFilePath(song) : null;
+  console.info(
+    "[media-session] pushing track:",
+    current_sha256,
+    song ? song.title : (video as QueuedVideo).title
+  );
+  void pushMediaSessionTrack({
+    id: current_sha256,
+    title: song ? song.title : (video as QueuedVideo).title,
+    artist: artist ?? "",
+    album: album ?? "",
+    artworkUrl: osArtworkUrl ?? "",
   });
 
   // always reflect actual audio state, not our loading signal. iOS

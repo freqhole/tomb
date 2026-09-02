@@ -77,6 +77,12 @@ grimoire = { path = "../../../grimoire", default-features = false, features = [
     "vendored-openssl",
     "rodio-playback",
 ] }
+# OS media session / now-playing controls (MPRIS on linux via zbus, SMTC on
+# windows, MPNowPlayingInfoCenter on macOS) for the rodio audio + gstreamer
+# video paths, neither of which get a `navigator.mediaSession` for free the
+# way the webview's own `<audio>`/`<video>` elements do. only constructed
+# when `use_rodio_playback` is on - see `media_session.rs`.
+playwire = "1.0.0"
 
 # android only: wry's android WebViewClient.handleRequest builds a reqwest
 # client that uses rustls 0.23, which panics ("No provider set") if no

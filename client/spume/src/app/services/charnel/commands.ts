@@ -206,7 +206,7 @@ export async function startDraggingWindow(): Promise<void> {
 }
 
 /**
- * start a native window resize from a corner grip. undecorated (chromeless)
+ * start a window resize from a corner grip. undecorated (chromeless)
  * windows lose the window manager's own resize border, so the title-bar
  * strip draws a small hover-visible grip that calls this instead.
  */
@@ -220,6 +220,52 @@ export async function startResizingWindow(
     await getCurrentWindow().startResizeDragging(direction);
   } catch (error) {
     console.error("startResizeDragging failed:", error);
+  }
+}
+
+/**
+ * push "now playing" metadata to the OS media session (MPRIS/SMTC/
+ * MPNowPlayingInfoCenter via the rust `playwire` crate) - only meaningful
+ * for the rodio audio + gst video paths, since the webview's own
+ * `<audio>`/`<video>` elements already get a `navigator.mediaSession` for
+ * free. safe to call unconditionally; a no-op when `use_rodio_playback`
+ * is off or outside tauri.
+ */
+export async function pushMediaSessionTrack(track: {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  artworkUrl: string;
+}): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("media_session_set_track", {
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      artworkUrl: track.artworkUrl,
+    });
+    // TEMP(media-session): remove once confirmed working.
+    console.info("[media-session] media_session_set_track invoke succeeded");
+  } catch (error) {
+    // TEMP(media-session): remove once confirmed working - normally this
+    // catch is silent since it also covers "not running in tauri".
+    console.info("[media-session] media_session_set_track invoke failed:", error);
+  }
+}
+
+/**
+ * clear the OS media session's "now playing" state - queue emptied,
+ * player stopped/closed.
+ */
+export async function clearMediaSessionTrack(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("media_session_clear_track");
+  } catch (error) {
+    // non-tauri, or feature disabled - safe to ignore.
   }
 }
 

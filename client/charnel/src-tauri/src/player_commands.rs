@@ -85,7 +85,10 @@ impl PlayerState {
     }
 }
 
-/// background task: forward every [`PlayerEvent`] to the webview.
+/// background task: forward every [`PlayerEvent`] to the webview, and fold
+/// play/pause/position/duration into the OS media session (see
+/// `media_session.rs` - it has no other way to learn these, since the
+/// rodio backend only ever knows file paths, never song metadata).
 /// runs for the life of the app; aborts when its broadcast receiver
 /// closes (which only happens when the controller is dropped, which
 /// only happens at process exit).
@@ -95,6 +98,7 @@ fn spawn_event_pump(app: AppHandle, controller: Arc<RodioController>) {
         loop {
             match rx.recv().await {
                 Ok(ev) => {
+                    crate::media_session::on_rodio_event(&app, &ev);
                     if let Err(e) = app.emit(PLAYER_EVENT, &ev) {
                         warn!(error = %e, "failed to emit player event to webview");
                     }
