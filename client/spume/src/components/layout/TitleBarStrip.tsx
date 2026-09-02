@@ -6,6 +6,13 @@ import {
   closeWindow,
   startDraggingWindow,
   openSetupWizard,
+  openAboutWindow,
+  openDataFolder,
+  getP2pStatus,
+  startP2p,
+  stopP2p,
+  restartP2p,
+  type P2pStatusResponse,
 } from "../../app/services/charnel/commands";
 import { videoMiniPlayerExpanded } from "../player/VideoMiniPlayer";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
@@ -23,9 +30,7 @@ const TRAFFIC_LIGHTS_WIDTH_PX = 80;
 /** pointer movement (px) before a press on the strip becomes a window drag. */
 const DRAG_THRESHOLD_PX = 4;
 
-const CHROME_MENU_ACTIONS: MenuAction[] = [
-  { label: "setup", onClick: () => void openSetupWizard("/setup") },
-  { type: "separator" },
+const STATIC_MENU_ACTIONS: MenuAction[] = [
   { label: "logs", onClick: () => void openSetupWizard("/logs") },
   { label: "library", onClick: () => void openSetupWizard("/library") },
   { label: "users", onClick: () => void openSetupWizard("/users") },
@@ -62,6 +67,36 @@ export function TitleBarStrip() {
   // stays fixed either way so the drag handle + right-click context menu
   // keep the same reserved space regardless of button count.
   const [narrow, setNarrow] = createSignal(isNarrowViewport());
+  const [p2pStatus, setP2pStatus] = createSignal<P2pStatusResponse | null>(null);
+
+  const refreshP2pStatus = () => void getP2pStatus().then(setP2pStatus);
+
+  const chromeMenuActions = (): MenuAction[] => {
+    const status = p2pStatus();
+    const actions: MenuAction[] = [
+      { label: "about freqhole", onClick: () => void openAboutWindow() },
+    ];
+
+    if (status?.federationEnabled) {
+      const canStart = status.status === "stopped" || status.status === "offline";
+      const canStop = status.status !== "stopped" && status.status !== "starting...";
+      actions.push(
+        { type: "separator" },
+        { label: `p2p: ${status.status}`, onClick: () => {}, disabled: true },
+        { label: "start", onClick: () => void startP2p(), disabled: !canStart },
+        { label: "stop", onClick: () => void stopP2p(), disabled: !canStop },
+        { label: "restart", onClick: () => void restartP2p(), disabled: !canStop }
+      );
+    }
+
+    actions.push(
+      { type: "separator" },
+      { label: "open data folder...", onClick: () => void openDataFolder() },
+      { type: "separator" },
+      ...STATIC_MENU_ACTIONS
+    );
+    return actions;
+  };
 
   onMount(() => {
     let unlistenFocus: (() => void) | undefined;
@@ -127,7 +162,8 @@ export function TitleBarStrip() {
   return (
     <Show when={enabled()}>
       <ContextMenu
-        actions={CHROME_MENU_ACTIONS}
+        actions={chromeMenuActions()}
+        onOpen={refreshP2pStatus}
         triggerClass={`block fixed top-0 left-0 right-0 ${
           videoMiniPlayerExpanded() ? "z-[1600]" : "z-[100]"
         }`}

@@ -95,18 +95,29 @@ if [ -f "$SCRIPT_DIR/net.freqhole.freqhole.metainfo.xml" ]; then
 fi
 
 echo "finishing flatpak build..."
+# keep this list in sync with net.freqhole.freqhole.yml's finish-args - this
+# script (not the .yml) is what actually reaches the built package, since we
+# skip flatpak-builder (which would read the .yml's finish-args itself).
 flatpak build-finish "$BUILD_DIR" \
     --share=ipc \
     --socket=fallback-x11 \
     --socket=wayland \
     --device=dri \
     --socket=pulseaudio \
+    --own-name=org.mpris.MediaPlayer2.freqhole \
     --share=network \
     --filesystem=xdg-music:ro \
     --filesystem=home:ro \
+    --filesystem=/run/media \
+    --filesystem=/media \
+    --talk-name=org.freedesktop.Flatpak \
+    --filesystem=xdg-run/dconf \
+    --filesystem=~/.config/dconf:ro \
+    --talk-name=ca.desrt.dconf \
+    --env=DCONF_USER_CONFIG_DIR=.config/dconf \
     --talk-name=org.kde.StatusNotifierWatcher \
     --talk-name=org.freedesktop.Notifications \
-    --talk-name=org.freedesktop.portal.Desktop \
+    --talk-name=org.freedesktop.portal.* \
     --talk-name=org.freedesktop.secrets \
     --persist=.local/share/net.freqhole.charnel \
     --command=freqhole

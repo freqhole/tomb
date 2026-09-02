@@ -27,6 +27,7 @@
     "core:window:allow-set-title",
     "core:window:allow-get-all-windows",
     "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
     "core:webview:allow-webview-close",
     "dialog:default",
     "fs:default",

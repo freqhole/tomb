@@ -398,7 +398,7 @@ export function AlbumDetailView() {
               {/* header with album info - responsive layout */}
               <div class="flex justify-between px-1 wide:gap-6 wide:p-6">
                 {/* album info */}
-                <div class="flex flex-col justify-center min-w-0 wide:mt-[50px] wide:gap-2 wide:text-left">
+                <div class="flex flex-col justify-center min-w-0 wide:mt-20 wide:gap-2 wide:text-left">
                   {/* everything above the action-buttons row gets a min-h
                       matching the artwork box (w-32/w-64 → h-32/h-64) so a
                       sparsely populated album (short title, no tags) can't

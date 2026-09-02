@@ -114,8 +114,12 @@ async function ensureSubscribed(): Promise<void> {
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { listen } = await import("@tauri-apps/api/event");
     return listen<VideoWindowEvent>(EVENT_NAME, (e) => {
-      // TEMP(video-window): preserves the exact Rust event ordering in logz.
-      console.info(`[video-window] event=${e.payload.kind}`, e.payload);
+      // position ticks at ~10hz and drowns out everything else - every
+      // other event kind is comparatively rare, so only those are worth
+      // the console noise.
+      if (e.payload.kind !== "position") {
+        console.info(`[video-window] event=${e.payload.kind}`, e.payload);
+      }
       for (const fn of listeners) {
         try {
           fn(e.payload);

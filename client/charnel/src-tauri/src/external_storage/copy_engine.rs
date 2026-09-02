@@ -31,7 +31,7 @@ use grimoire::music::crud::create_or_update::{
 };
 use grimoire::music::entities::songs::get_song;
 
-use crate::app_config::FreqholeAppConfig;
+use crate::app_config::{default_external_storage_reencode_args, FreqholeAppConfig};
 
 use super::{is_still_mounted, path_naming};
 
@@ -471,6 +471,17 @@ fn run_ffmpeg(
     output: &Path,
     target_ext: &str,
 ) -> Result<(), String> {
+    // an older config file can persist an explicit empty string here
+    // (bypassing serde's missing-field default), which used to leave
+    // ffmpeg running with no {input}/{output} at all - see the
+    // `external_storage_reencode_args` repair in commands.rs.
+    let default_template;
+    let args_template = if args_template.trim().is_empty() {
+        default_template = default_external_storage_reencode_args();
+        default_template.as_str()
+    } else {
+        args_template
+    };
     let mut args = shell_words::split(args_template)
         .map_err(|e| format!("failed to parse ffmpeg args: {e}"))?;
     // track the arg that came from `{output}` by index while substituting,

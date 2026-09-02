@@ -11,7 +11,10 @@ use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
 use super::{disk_usage, eject_device, is_still_mounted, path_naming, resolve_volume_info};
-use crate::app_config::{ExternalStorageDevice, FreqholeAppConfig};
+use crate::app_config::{
+    default_external_storage_reencode_args, default_external_storage_reencode_extension,
+    ExternalStorageDevice, FreqholeAppConfig,
+};
 use serde::{Deserialize, Serialize};
 
 /// last set of mounted device ids seen by *any* window's `ListMounted`
@@ -230,13 +233,29 @@ pub async fn external_storage_command(
                 config.external_storage_playlists_subpath.clone(),
                 "Playlists",
             );
+            // same repair as above: an explicit empty string bypasses
+            // serde's missing-field default and made ffmpeg run with no
+            // {input}/{output} at all (args=["-f", "mp3"]) - see
+            // run_ffmpeg's "Trailing option(s) found" failure mode.
+            let reencode_args = nonempty_or_default(
+                config.external_storage_reencode_args.clone(),
+                &default_external_storage_reencode_args(),
+            );
+            let reencode_extension = nonempty_or_default(
+                config.external_storage_reencode_extension.clone(),
+                &default_external_storage_reencode_extension(),
+            );
             // Persist the repair so copy_engine sees the default too, rather
             // than merely making the settings field look correct.
             if config.external_storage_default_subpath != default_subpath
                 || config.external_storage_playlists_subpath != playlists_subpath
+                || config.external_storage_reencode_args != reencode_args
+                || config.external_storage_reencode_extension != reencode_extension
             {
                 config.external_storage_default_subpath = default_subpath.clone();
                 config.external_storage_playlists_subpath = playlists_subpath.clone();
+                config.external_storage_reencode_args = reencode_args.clone();
+                config.external_storage_reencode_extension = reencode_extension.clone();
                 config.save(&app_handle)?;
             }
             to_value(ExternalStorageSettings {
@@ -247,8 +266,8 @@ pub async fn external_storage_command(
                 playlists_subpath,
                 playlists_sync_enabled: !config.external_storage_playlists_sync_disabled,
                 reencode_enabled: config.external_storage_reencode_enabled,
-                reencode_args: config.external_storage_reencode_args,
-                reencode_extension: config.external_storage_reencode_extension,
+                reencode_args,
+                reencode_extension,
             })
         }
 
@@ -264,8 +283,14 @@ pub async fn external_storage_command(
             );
             config.external_storage_playlists_sync_disabled = !settings.playlists_sync_enabled;
             config.external_storage_reencode_enabled = settings.reencode_enabled;
-            config.external_storage_reencode_args = settings.reencode_args;
-            config.external_storage_reencode_extension = settings.reencode_extension;
+            config.external_storage_reencode_args = nonempty_or_default(
+                settings.reencode_args,
+                &default_external_storage_reencode_args(),
+            );
+            config.external_storage_reencode_extension = nonempty_or_default(
+                settings.reencode_extension,
+                &default_external_storage_reencode_extension(),
+            );
             config.save(&app_handle)?;
             to_value(())
         }

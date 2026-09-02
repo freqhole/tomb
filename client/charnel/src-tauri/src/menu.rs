@@ -275,41 +275,49 @@ fn build_app_submenu(app: &AppHandle<Wry>) -> tauri::Result<Submenu<Wry>> {
 }
 
 /// handle application menu item clicks
+/// show the about window (or focus it if already open). shared by the
+/// native app menu and the chromeless title-bar's web context menu.
+pub fn show_about_window(app: &AppHandle<Wry>) {
+    if let Some(about_window) = app.get_webview_window("about") {
+        let _ = about_window.show();
+        let _ = about_window.set_focus();
+        return;
+    }
+
+    #[cfg(debug_assertions)]
+    let about_url =
+        tauri::WebviewUrl::External("http://localhost:1421/about.html".parse().unwrap());
+    #[cfg(not(debug_assertions))]
+    let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
+
+    let build_script = format!(
+        "window.__FREQHOLE_BUILD__ = {{ version: {version}, gitSha: {sha}, debug: {debug} }};",
+        version = serde_json::to_string(crate::app_config::get_binary_version())
+            .unwrap_or_else(|_| "\"?\"".into()),
+        sha = serde_json::to_string(env!("FREQHOLE_GIT_SHA")).unwrap_or_else(|_| "\"?\"".into()),
+        debug = cfg!(debug_assertions),
+    );
+
+    let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
+        .title("about freqhole")
+        .inner_size(280.0, 320.0)
+        .resizable(false)
+        .center()
+        .theme(Some(tauri::Theme::Dark))
+        .initialization_script(&build_script)
+        .build();
+}
+
+/// tauri command wrapping [`show_about_window`] for the chromeless
+/// title-bar's web context menu (which has no native menu event to hook).
+#[tauri::command]
+pub fn open_about_window(app: tauri::AppHandle) {
+    show_about_window(&app);
+}
+
 fn handle_menu_event(app: &AppHandle<Wry>, id: &str) {
     match id {
-        MENU_ABOUT => {
-            // show about window (or focus if already open)
-            if let Some(about_window) = app.get_webview_window("about") {
-                let _ = about_window.show();
-                let _ = about_window.set_focus();
-            } else {
-                // create about window
-                #[cfg(debug_assertions)]
-                let about_url = tauri::WebviewUrl::External(
-                    "http://localhost:1421/about.html".parse().unwrap(),
-                );
-                #[cfg(not(debug_assertions))]
-                let about_url = tauri::WebviewUrl::App(std::path::PathBuf::from("about.html"));
-
-                let build_script = format!(
-                    "window.__FREQHOLE_BUILD__ = {{ version: {version}, gitSha: {sha}, debug: {debug} }};",
-                    version = serde_json::to_string(crate::app_config::get_binary_version())
-                        .unwrap_or_else(|_| "\"?\"".into()),
-                    sha = serde_json::to_string(env!("FREQHOLE_GIT_SHA"))
-                        .unwrap_or_else(|_| "\"?\"".into()),
-                    debug = cfg!(debug_assertions),
-                );
-
-                let _ = tauri::WebviewWindowBuilder::new(app, "about", about_url)
-                    .title("about freqhole")
-                    .inner_size(280.0, 320.0)
-                    .resizable(false)
-                    .center()
-                    .theme(Some(tauri::Theme::Dark))
-                    .initialization_script(&build_script)
-                    .build();
-            }
-        }
+        MENU_ABOUT => show_about_window(app),
         MENU_P2P_START => {
             let state = app.state::<Arc<P2pState>>().inner().clone();
             tauri::async_runtime::spawn(async move {

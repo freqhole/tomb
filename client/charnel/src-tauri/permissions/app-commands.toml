@@ -100,6 +100,7 @@ commands.allow = [
     "p2p_start",
     "p2p_stop",
     "p2p_restart",
+    "open_about_window",
     "remotez_list",
     "remotez_get",
     "remotez_get_by_peer_addr",

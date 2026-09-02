@@ -930,6 +930,8 @@ pub fn run() {
             p2p_state::p2p_start,
             p2p_state::p2p_stop,
             p2p_state::p2p_restart,
+            // about window (chromeless title-bar context menu)
+            menu::open_about_window,
             // shared remote registry (used by spume + wizard)
             remotez_commands::remotez_list,
             remotez_commands::remotez_get,

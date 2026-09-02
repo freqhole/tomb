@@ -71,6 +71,79 @@ export async function openSetupWizard(route: string = "/"): Promise<void> {
 }
 
 /**
+ * open (or focus) the native "about freqhole" window.
+ */
+export async function openAboutWindow(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("open_about_window");
+  } catch (error) {
+    console.error("[tauri/commands] failed to open about window:", error);
+  }
+}
+
+/**
+ * open the app's data directory in the OS file manager.
+ */
+export async function openDataFolder(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("open_config_dir");
+  } catch (error) {
+    console.error("[tauri/commands] failed to open data folder:", error);
+  }
+}
+
+export interface P2pStatusResponse {
+  /** "stopped" | "starting..." | "online" | "offline" | "connecting..." */
+  status: string;
+  federationEnabled: boolean;
+}
+
+/**
+ * current P2P endpoint status + whether federation is enabled at all
+ * (mirrors the native app-menu/tray P2P controls, see charnel's
+ * menu.rs/tray.rs).
+ */
+export async function getP2pStatus(): Promise<P2pStatusResponse | null> {
+  try {
+    const invoke = await getInvoke();
+    const result = await invoke<{ status: string; federation_enabled: boolean }>("p2p_get_status");
+    return { status: result.status, federationEnabled: result.federation_enabled };
+  } catch (error) {
+    console.error("[tauri/commands] failed to get P2P status:", error);
+    return null;
+  }
+}
+
+export async function startP2p(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("p2p_start");
+  } catch (error) {
+    console.error("[tauri/commands] failed to start P2P:", error);
+  }
+}
+
+export async function stopP2p(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("p2p_stop");
+  } catch (error) {
+    console.error("[tauri/commands] failed to stop P2P:", error);
+  }
+}
+
+export async function restartP2p(): Promise<void> {
+  try {
+    const invoke = await getInvoke();
+    await invoke("p2p_restart");
+  } catch (error) {
+    console.error("[tauri/commands] failed to restart P2P:", error);
+  }
+}
+
+/**
  * is this install running under flatpak? gates the doc-portal storage
  * health check (see checkAndShowStorageHealthToast in toastNotices.tsx) -
  * the underlying failure mode (stale document-portal write grants) can't

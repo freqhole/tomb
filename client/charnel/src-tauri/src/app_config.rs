@@ -227,12 +227,12 @@ fn default_external_storage_playlists_subpath() -> String {
 /// default ffmpeg re-encode command: mp3, resampled to 44.1khz if not
 /// already (the most common source rate; other rates - 48khz, 96khz,
 /// etc - get normalized here for consistent playback across devices).
-fn default_external_storage_reencode_args() -> String {
+pub(crate) fn default_external_storage_reencode_args() -> String {
     "-i {input} -vn -c:a libmp3lame -q:a 2 -ar 44100 -y {output}".to_string()
 }
 
 /// default value for `external_storage_reencode_extension` ("mp3")
-fn default_external_storage_reencode_extension() -> String {
+pub(crate) fn default_external_storage_reencode_extension() -> String {
     "mp3".to_string()
 }
 

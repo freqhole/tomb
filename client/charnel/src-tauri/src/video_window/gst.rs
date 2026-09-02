@@ -707,8 +707,20 @@ fn tint_magenta(widget: &impl IsA<gtk::Widget>) {
 /// translate GstPlay signals into `VideoEvent`s. GstPlay already owns bus
 /// watching, position timers, seek flags and async state transitions - the main
 /// reason this module is as small as it is.
+///
+/// `new_sync_emit` (the previous choice here) emits signals synchronously
+/// *from whatever thread posted the underlying bus message* - i.e. GStreamer's
+/// own streaming/bus thread, not the GTK main thread `WINDOW` (a thread_local)
+/// lives on. every handler below touching `WINDOW`/`emit_state` therefore saw
+/// an empty thread-local and silently no-op'd its state update (events still
+/// reached the webview since `emit_state`'s `None` branch still forwards
+/// them, which is why playback/position looked fine) - `w.state.state` never
+/// actually left `Loading`, so `resolve_toggle()` always resolved to `Play`
+/// and pause never worked. plain `new()` attaches a bus-watching GSource to
+/// the thread-default `MainContext` instead, so every signal below is
+/// correctly marshaled onto the GTK main thread this function is called from.
 fn connect_play_signals(app: &AppHandle<Wry>, play: &Play) -> PlaySignalAdapter {
-    let adapter = PlaySignalAdapter::new_sync_emit(play);
+    let adapter = PlaySignalAdapter::new(play);
 
     adapter.connect_media_info_updated(move |_, info| {
         let Some(video) = info.video_streams().into_iter().next() else {
@@ -822,8 +834,18 @@ fn emit_state(app: &AppHandle<Wry>, event: VideoEvent) {
             changed
         }
         // events can arrive after the window is gone; forward them so the
-        // webview still sees a terminal state
-        None => true,
+        // webview still sees a terminal state. also hit (spuriously) if a
+        // signal callback ever runs off the GTK main thread again, since
+        // `WINDOW` is thread_local - logged so that regression is obvious
+        // next time instead of silently no-op'ing state updates again (see
+        // the `new_sync_emit` -> `new` fix in `connect_play_signals`).
+        None => {
+            tracing::warn!(
+                ?event,
+                "video_window: emit_state found no window (gone, or wrong thread)"
+            );
+            true
+        }
     });
     if changed {
         emit_event(app, &event);
